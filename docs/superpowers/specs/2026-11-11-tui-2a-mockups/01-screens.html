@@ -1,0 +1,289 @@
+<title>TUI 2a 화면 목업</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Gothic+Coding:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;600&display=swap">
+<style>
+/* 레이아웃: 위에서 아래로 화면 흐름(모니터 → 목록 → 상세 → 본문, 따로 칸 설정). 각 화면 = 터미널 판 + 옆 설명 */
+:root {
+  --page: #e9ecef; --ink: #1d2733; --muted: #5b6875; --line: #c9d0d7; --card: #f7f8fa;
+  --term-bg: #0f141a; --term-fg: #d7dee6; --term-dim: #7d8a97; --term-head: #1d2631;
+  --ok: #34d399; --fail: #f87171; --warn: #fbbf24; --gray: #94a3b8; --sel-bg: #f2f5f8; --sel-fg: #0f141a;
+  --accent: #4f46e5;
+  --mono: "Nanum Gothic Coding", "D2Coding", ui-monospace, monospace;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #14191f; --ink: #e3e8ee; --muted: #9aa6b2; --line: #2b3540; --card: #1a2028; --accent: #a5b4fc; color-scheme: dark } }
+:root[data-theme="dark"] { --page: #14191f; --ink: #e3e8ee; --muted: #9aa6b2; --line: #2b3540; --card: #1a2028; --accent: #a5b4fc; color-scheme: dark }
+body { background: var(--page); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px; }
+h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.15rem; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lead { color: var(--muted); }
+section { display: grid; gap: 12px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .row { grid-template-columns: minmax(0, 1fr); } }
+.term-box { overflow-x: auto; border-radius: 6px; background: var(--term-bg); box-shadow: 0 1px 0 var(--line); }
+.term { font-family: var(--mono); font-size: 14px; line-height: 1.45; color: var(--term-fg); white-space: pre; padding: 8px 0; min-width: max-content; }
+.term > div { padding: 0 10px; }
+.head { background: var(--term-head); }
+.keys { color: var(--term-dim); }
+.keys b { color: var(--term-fg); font-weight: 700; }
+.d { color: var(--term-dim); } .ok { color: var(--ok); } .fail { color: var(--fail); } .warn { color: var(--warn); } .gray { color: var(--gray); }
+.b { font-weight: 700; color: #fff; }
+.sel { background: var(--sel-bg); color: var(--sel-fg); }
+.sel .d, .sel .fail, .sel .ok, .sel .warn, .sel .gray { color: inherit; }
+.mark { color: var(--warn); }
+.notes { display: grid; gap: 8px; font-size: 0.92rem; }
+.notes ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.tag { display: inline-block; font-size: 0.75rem; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 3px; background: var(--card); border: 1px solid var(--line); color: var(--muted); }
+.flow { font-family: var(--mono); font-size: 0.9rem; color: var(--muted); }
+.qs { display: grid; gap: 10px; }
+.q { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; display: grid; gap: 4px; }
+.q strong { color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+.cap { font-size: 0.85rem; color: var(--muted); }
+</style>
+
+.box { border: 0; }
+.inp { background: #26313d; color: #fff; }
+.cur { background: var(--term-fg); color: var(--term-bg); }
+.okb { color: var(--ok); font-weight: 700; }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:8px">
+  <h1>TUI 2a 화면 목업 — 칸 설정 수정 · 변수 값 수정 · 미리 실행 · 파일 저장</h1>
+  <p class="lead">터미널 글자 칸으로 그렸습니다(한글 2칸). 데이터는 가짜입니다. 1b의 칸 설정 보기(번호 1–12)를 그대로 편집 메뉴로 쓰고, 이 칸이 쓰는 <b>환경 변수(13)</b>·<b>시나리오 변수(14)</b>를 아래에 더합니다. 값을 확정(Enter)할 때마다 바로 점검에 반영하고 보드 파일에 저장합니다. 맨 아래 "정할 것"에 고르실 부분이 있습니다.</p>
+  <p class="flow">모니터 ─Enter→ 칸 설정 ─Enter→ 값 입력 / 목록 고르기 / 하위 목록 &nbsp;·&nbsp; 칸 설정 ─p→ 미리 실행 ─Enter→ 요청·응답(1b 화면) &nbsp;·&nbsp; Esc = 한 단계 뒤로(입력 중이면 취소)</p>
+  <p class="cap">2b(다음): 미리 실행 결과의 응답에서 값을 골라 <b>성공 조건·화면 표시 값 추가</b>. 2a에서는 이미 있는 조건·표시 값의 수정·삭제만.</p>
+</header>
+
+<section>
+  <h2>1. 칸 설정 — 편집 메뉴 <span class="tag">Enter (모니터에서)</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드                                    2026-11-11 09:41:20  점검 중</div>
+<div> </div>
+<div> <span class="b">칸 설정 · 주문 조회</span>                          <span class="d">고친 값은 바로 점검에 반영·파일에 저장</span></div>
+<div> </div>
+<div>   1  <span class="d">제목</span>                  주문 조회</div>
+<div>   2  <span class="d">시나리오</span>              주문 흐름                       <span class="d">(묶음) · GUI에서</span></div>
+<div>   3  <span class="d">환경</span>                  운영                            <span class="d">(묶음)</span></div>
+<div>   4  <span class="d">볼 스텝</span>               3 주문 상세  GET /orders/{{order_id}}</div>
+<div>   5  <span class="d">점검 주기(초)</span>         5                               <span class="d">(묶음)</span></div>
+<div class="sel"> ▶ 6  제한 시간(초)         10                                                        </div>
+<div>   7  <span class="d">표시할 응답 시간</span>      이 스텝</div>
+<div>   8  <span class="d">응답속도 기준선</span>       <span class="warn">800 ms</span> · <span class="fail">1,500 ms</span></div>
+<div>   9  <span class="d">막대 개수</span>             300</div>
+<div>  10  <span class="d">그래프 최대 높이(ms)</span>  2,000</div>
+<div>  11  <span class="d">성공 조건</span>             상태코드 = 200 · 주문 상세</div>
+<div>                           status = OK · 주문 상세</div>
+<div>  12  <span class="d">화면에 표시</span>           ① stock.count · 주문 상세</div>
+<div class="d">  ── 이 칸이 쓰는 값 · 같은 값을 쓰는 다른 칸도 함께 바뀝니다 ──</div>
+<div>  13  <span class="d">환경 변수</span>             운영 · 3개  (BASE_URL · API_TOKEN · SHOP_ID)</div>
+<div>  14  <span class="d">시나리오 변수</span>         주문 흐름 · 2개  (order_id · page_size)</div>
+<div> </div>
+<div class="d"> (묶음) = 점검 묶음 1의 값 — 칸마다 따로 못 바꿉니다 · 묶음 설정은 GUI에서</div>
+<div class="keys"> <b>↑↓</b> 고르기  <b>1–14</b> 번호  <b>Enter</b> 수정  <b>p</b> 미리 실행  <b>Esc</b> 모니터로</div>
+    </div></div>
+    <div class="notes"><ul>
+      <li>번호·이름·값 줄은 1b 그대로. 고른 줄은 흰 바탕 <b>▶</b>.</li>
+      <li><b>번호 키</b>: <code>1</code>–<code>9</code>는 바로 이동, <code>1</code> 뒤 1초 안에 <code>0</code>–<code>4</code>면 10–14.</li>
+      <li>고칠 수 없는 줄(시나리오, 묶음 칸의 3·5)은 Enter 시 아래 안내 줄만: <span class="d">"묶음의 값입니다 — 묶음 설정은 GUI에서"</span>.</li>
+      <li>단독 칸이면 3·5도 고칠 수 있고 (묶음) 표시·각주가 없습니다.</li>
+      <li>13·14가 없으면(환경 없음·변수 없음) 줄은 <span class="d">없음</span>, Enter 시 안내만.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>2. 값 입력 — 숫자·글자 <span class="tag">Enter</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="d">   …(위 목록 그대로)…</div>
+<div class="sel"> ▶ 6  제한 시간(초)         10                                                        </div>
+<div class="d">   …</div>
+<div> </div>
+<div> 제한 시간(초)  <span class="inp"> 15<span class="cur"> </span>                </span>  <span class="d">1~30</span></div>
+<div class="keys"> <b>Enter</b> 저장  <b>Esc</b> 취소  <b>Ctrl+U</b> 지우기</div>
+    </div></div>
+    <div class="notes"><ul>
+      <li>입력줄은 화면 아래 두 줄(키 안내 줄 위). 목록은 그대로 보입니다.</li>
+      <li>범위 힌트는 서버 검증과 같은 값(점검 주기 1~3600 · 제한 시간 1~30 · 막대 10~300 · 그래프 100~600000).</li>
+      <li>숫자 칸은 숫자만 입력됩니다. 제목은 글자 입력(한글 IME 그대로).</li>
+    </ul></div>
+  </div>
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> 제한 시간(초)  <span class="inp"> 45<span class="cur"> </span>                </span>  <span class="d">1~30</span></div>
+<div class="fail"> 제한 시간은 1~30초여야 합니다</div>
+<div class="keys"> <b>Enter</b> 저장  <b>Esc</b> 취소  <b>Ctrl+U</b> 지우기</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드              <span class="okb">저장됨 09:41:32</span>  2026-11-11 09:41:32  점검 중</div>
+<div class="sel"> ▶ 6  제한 시간(초)         15                                                        </div>
+    </div></div>
+  </div>
+  <p class="cap">왼쪽: 서버가 거절하면 그 문구 그대로, 입력줄은 열린 채. 오른쪽: 성공하면 입력줄이 닫히고 머리 줄에 "저장됨 HH:MM:SS"(5초 뒤 사라짐).</p>
+</section>
+
+<section>
+  <h2>3. 목록 고르기 — 환경 · 볼 스텝 · 표시할 응답 시간 <span class="tag">Enter</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="d">   …(칸 설정 목록 위쪽)…</div>
+<div>   4  <span class="d">볼 스텝</span>               3 주문 상세  GET /orders/{{order_id}}</div>
+<div>      ┌ 볼 스텝 ─────────────────────────────────────────┐</div>
+<div>      │   흐름 전체                                      │</div>
+<div>      │   1 로그인       POST /login                     │</div>
+<div>      │   2 주문 목록    GET  /orders                    │</div>
+<div>      │<span class="sel"> ▶ 3 주문 상세    GET  /orders/{{order_id}}       </span>│</div>
+<div>      │   4 재고         GET  /stock/{{sku}}             │</div>
+<div>      └──────────────────────────────────────────────────┘</div>
+<div class="keys"> <b>↑↓</b> 고르기  <b>Enter</b> 저장  <b>Esc</b> 취소</div>
+    </div></div>
+    <div class="notes"><ul>
+      <li>현재 값에 커서가 놓인 채 열립니다.</li>
+      <li><b>볼 스텝</b>을 바꾸면 GUI와 같이 응답 시간 기준·조건·표시 값의 스텝이 새 스텝으로 맞춰집니다(서버 정규화). 이때 한 줄 확인: <span class="d">"조건 2개·표시 값 1개도 이 스텝으로 바뀝니다 — Enter 계속"</span>.</li>
+      <li><b>환경</b>: 번들 파일에 있는 환경 + "환경 없음".</li>
+      <li><b>표시할 응답 시간</b>: "흐름 전체" + 스텝들(스텝 칸이면 "이 스텝" 고정 — 고칠 수 없음 안내).</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>4. 하위 목록 — 기준선 · 성공 조건 · 화면에 표시 <span class="tag">Enter</span></h2>
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> <span class="b">응답속도 기준선</span> <span class="d">· 주문 조회</span></div>
+<div> </div>
+<div class="sel"> ▶ 1  <span class="warn">■</span> 800 ms                       </div>
+<div>   2  <span class="fail">■</span> 1,500 ms</div>
+<div> </div>
+<div class="keys"> <b>↑↓</b> 고르기  <b>Enter</b> 수정  <b>a</b> 추가  <b>d</b> 삭제  <b>Esc</b> 뒤로</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> <span class="b">성공 조건</span> <span class="d">· 주문 조회</span></div>
+<div> </div>
+<div>   1  상태코드 = 200 · 주문 상세</div>
+<div class="sel"> ▶ 2  status = OK · 주문 상세                  </div>
+<div> </div>
+<div>      대상    status <span class="d">(바꾸기는 GUI·2b)</span></div>
+<div>      규칙    <span class="inp"> = 같음 ▾ </span></div>
+<div>      값      <span class="inp"> OK<span class="cur"> </span>          </span></div>
+<div>      [x] 대소문자 무시   [ ] 앞뒤 공백 제거</div>
+<div class="keys"> <b>Tab</b> 다음 칸  <b>Space</b> 켜기·끄기  <b>Enter</b> 저장  <b>d</b> 삭제  <b>Esc</b> 취소</div>
+    </div></div>
+  </div>
+  <p class="cap">기준선: 추가는 ms 입력 → 색은 GUI처럼 순서대로 자동. 오름차순이 아니면 서버 문구("기준선 응답속도는 엄격한 오름차순이어야 합니다"). 성공 조건: 규칙·값·두 체크만 고치고 대상은 그대로. 화면에 표시: <b>d</b> 삭제와 <b>s</b> ①②자리 바꾸기만(추가는 2b). 삭제는 <span class="d">"2번 조건을 지울까요? y 지우기 · 다른 키 취소"</span> 확인.</p>
+</section>
+
+<section>
+  <h2>5. 환경 변수 (13) · 시나리오 변수 (14) <span class="tag">Enter</span></h2>
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> <span class="b">환경 변수 · 운영</span>             <span class="d">이 환경을 쓰는 칸 4개(보드 2개)</span></div>
+<div> </div>
+<div>   BASE_URL     https://api.example.local</div>
+<div class="sel"> ▶ API_TOKEN    ••••••••                         </div>
+<div>   SHOP_ID      ••••••••</div>
+<div> </div>
+<div class="keys"> <b>↑↓</b> 고르기  <b>Enter</b> 수정  <b>v</b> 값 보기  <b>Esc</b> 뒤로</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> <span class="b">시나리오 변수 · 주문 흐름</span>     <span class="d">이 시나리오를 쓰는 칸 3개(보드 1개)</span></div>
+<div> </div>
+<div class="sel"> ▶ order_id     A-1001                           </div>
+<div>   page_size    20</div>
+<div class="d">   nonce        생성 변수 — GUI에서</div>
+<div> </div>
+<div class="keys"> <b>↑↓</b> 고르기  <b>Enter</b> 수정  <b>Esc</b> 뒤로</div>
+    </div></div>
+  </div>
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> <span class="warn">이 값을 쓰는 칸 4개(보드 2개)가 함께 바뀝니다</span></div>
+<div> API_TOKEN  <span class="inp"> eyJhbGciOi…Q4<span class="cur"> </span>                         </span></div>
+<div class="keys"> <b>Enter</b> 저장  <b>Esc</b> 취소  <b>Ctrl+U</b> 지우기</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div class="d"> order_id 값이 여러 줄이라 TUI에서 못 고칩니다 — GUI에서</div>
+    </div></div>
+  </div>
+  <div class="notes"><ul>
+    <li><b>환경 변수</b>: 값만 고칩니다(키 추가·삭제·이름 바꾸기는 GUI). 저장 = 환경 전체를 서버에 다시 쓰기 → 그 환경을 쓰는 모든 칸이 다음 점검부터 새 값.</li>
+    <li><b>시나리오 변수</b>: <code>variables:</code>에 적힌 <b>고정 값</b>만. YAML에서 <b>그 값 한 줄만</b> 바꾸고 주석·순서·나머지 글자는 그대로 둡니다. 바꾼 뒤 다시 읽어 그 변수 말고 달라진 게 있으면 저장하지 않고 <span class="d">"이 값은 TUI에서 못 고칩니다 — GUI에서"</span>. 생성 변수·여러 줄 값·앵커/별칭도 같은 안내.</li>
+    <li>값 가림: 환경 변수 값은 기본 <code>••••••••</code>(아래 Q1). 입력줄에는 고치는 그 값만 보입니다. 로그에는 키 이름도 값도 남기지 않습니다.</li>
+    <li>공유 확인: 입력줄 위에 영향 칸 수를 노란 글자로 — 1개(이 칸뿐)이면 문구 없이 바로 입력.</li>
+  </ul></div>
+</section>
+
+<section>
+  <h2>6. 미리 실행 <span class="tag">p (칸 설정에서)</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드                                    2026-11-11 09:42:05  점검 중</div>
+<div> </div>
+<div> <span class="b">미리 실행 · 주문 조회</span>                                  <span class="d">09:42:04 · 지금 설정으로 1회</span></div>
+<div> </div>
+<div>   결과        <span class="fail">✖ 실패</span>       응답 시간 1,284 ms</div>
+<div>   사유        status가 OK와 다름</div>
+<div>   판정 상세   받은 값 "PENDING"</div>
+<div> </div>
+<div class="d">   스텝                    상태   응답 시간</div>
+<div class="sel"> ▶ 3 주문 상세  GET      200      1,284 ms                       </div>
+<div> </div>
+<div class="d">   이 칸의 스텝만 보여 줍니다(묶음의 다른 스텝 생략 2개)</div>
+<div class="keys"> <b>Enter</b> 요청·응답 보기  <b>p</b> 다시 실행  <b>Esc</b> 칸 설정으로</div>
+    </div></div>
+    <div class="notes"><ul>
+      <li>판정·사유·스텝 표 모양은 1b "자세히"와 같고, Enter로 1b 요청·응답 화면(요청 본문 기본 가림·인증 값 가림)으로 들어갑니다.</li>
+      <li>스텝 칸이면 그 스텝만, 흐름 전체 칸이면 전체 스텝.</li>
+      <li>실행 중엔 <span class="d">"실행 중…"</span>(GUI 문구), 끝날 때까지 다른 키는 Esc만.</li>
+      <li>미리 실행은 점검 기록·막대에 들어가지 않습니다(GUI와 같음).</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>7. 파일 저장 실패 · 도움말 · 꺼진 보드</h2>
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div class="head"> <span class="fail">파일에 저장 못 함 — 재시작하면 사라짐</span> · 운영 API 보드     2026-11-11 09:43:10  점검 중</div>
+<div class="d"> (모니터 화면에서도, 다음 저장이 성공할 때까지 유지)</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> 도움말</div>
+<div class="d"> …1b 키 목록…</div>
+<div> Enter   칸 설정 보기·수정</div>
+<div> <span class="warn">새 파일로 바꾸면 이 PC에서 고친 값은 사라집니다</span></div>
+<div> 보드 파일: /home/ops/board.json  <span class="d">(백업 board.json.bak)</span></div>
+    </div></div>
+  </div>
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> <span class="b">오류 보기 · 주문 조회</span></div>
+<div> </div>
+<div class="gray">   점검이 꺼져 있어 결과가 없습니다</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div class="d"> 저장 순서: 서버에 반영 → 파일의 보드 전부 내보내기</div>
+<div class="d">          → board.json을 board.json.bak로 복사</div>
+<div class="d">          → 같은 폴더 임시 파일에 쓰고 이름 바꾸기</div>
+    </div></div>
+  </div>
+  <p class="cap">서버 반영은 됐는데 파일만 못 쓴 경우(권한·디스크) 점검은 새 값으로 돌지만 재시작하면 원래 파일 값으로 돌아갑니다 — 그래서 머리 줄 경고를 계속 둡니다. 꺼진 보드 문구는 1b에서 미룬 것(§B48 (2)).</p>
+</section>
+
+<section>
+  <h2>정할 것</h2>
+  <div class="qs">
+    <div class="q"><strong>Q1. 환경 변수 값을 화면에 보일까?</strong><span>벽 모니터라 토큰이 지나가는 사람에게 보일 수 있습니다. 추천: <b>전부 기본 가림</b>(<code>••••••••</code>), <b>v</b>로 이 화면에서만 잠깐 보기, 입력줄엔 고치는 값만. 대안: 이름에 TOKEN·KEY·SECRET·PASSWORD·AUTH가 든 것만 가림(BASE_URL 같은 주소는 바로 보임).</span></div>
+    <div class="q"><strong>Q2. 백업(.bak)은 언제 덮어쓸까?</strong><span>값을 고칠 때마다 저장하므로, 저장마다 .bak을 덮으면 백업은 "바로 전 상태" 하나뿐이고 GUI에서 받은 원본은 두 번째 저장에서 사라집니다. 추천: <b>원본 백업 하나 + 직전 백업 하나</b> — TUI가 처음 저장할 때 <code>board.json.orig.bak</code>가 없으면 원본을 그 이름으로 남기고(이후 안 덮음), 매 저장은 <code>board.json.bak</code>(직전). 대안: spec 그대로 .bak 하나(매번 덮음).</span></div>
+    <div class="q"><strong>Q3. 값 입력 중 자리 비움(5분)이면?</strong><span>1b 규칙대로 모니터로 돌아가고, 입력 중이던 값은 <b>저장하지 않고 버립니다</b>(추천). 이미 저장한 값은 그대로.</span></div>
+    <div class="q"><strong>Q4. 칸 설정에서 마우스</strong><span>추천: 줄 클릭 = 고르기, 같은 줄 다시 클릭 = Enter. 입력줄·목록은 키보드만.</span></div>
+  </div>
+</section>
+</div>

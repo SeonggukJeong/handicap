@@ -2,7 +2,7 @@
 
 - 날짜: 2026-11-10 · 유형: `correctness-bug` + `user-path` · 상위 설계: [tui-monitor 설계](2026-11-07-tui-monitor-design.md) §5.1 "시각 줄"의 **중간 눈금 규칙을 이 문서가 개정**한다(양 끝 눈금·형식 전환·빈 슬롯 규칙은 그대로) · 결정 기록: [ADR-0055](../../adr/0055-tui-monitor.md)
 - 범위: `crates/tui`만(`view/axis.rs` + 테스트 + 문서). 엔진·와이어·GUI 0-diff.
-- 상태: 완료(2026-11-10, 코드 `4fc1bfbc`..`891023a4`, 판단·연기 → roadmap §B49)
+- 상태: 완료(2026-11-10, 코드 `4fc1bfbc`..`891023a4`, 판단·연기 → roadmap §B50)
 
 ## 사용자 스토리 (US)
 

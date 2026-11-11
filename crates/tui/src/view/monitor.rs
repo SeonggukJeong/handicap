@@ -33,7 +33,7 @@ pub(crate) const C_GRAY_BORDER: &str = "#64748b";
 pub(crate) const C_BLOCKED_BORDER: &str = "#475569";
 pub(crate) const C_BRIGHT: &str = "#e2e8f0";
 /// 칸 바탕(어두운 터미널 기준) — 느림·실패 칸 바탕을 물들일 때 섞는 기준.
-const C_BG: &str = "#0b0f14";
+pub(crate) const C_BG: &str = "#0b0f14";
 /// 상태 색을 칸 바탕에 섞는 비율.
 const TINT_RATIO: f32 = 0.15;
 
@@ -62,6 +62,8 @@ pub struct MonitorScreen {
     pub panels: Vec<PanelView>,
     pub selected: usize,
     pub border: BorderStyle,
+    /// 머리 줄 알림(저장됨·파일 경고) — `header()`가 그대로 옮긴다.
+    pub notice: Option<HeaderNotice>,
 }
 
 /// 머리 줄 1행·키 안내 줄 1행을 뺀 영역을 `grid_for` 격자로 나눈다. 칸 최소 24×6.
@@ -595,10 +597,52 @@ fn clock(ms: i64, with_date: bool) -> String {
         .unwrap_or_default()
 }
 
+/// 머리 줄 알림 — 파일 저장 결과(spec §6.2-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderNotice {
+    /// 저장 성공 시각(ms) — 오른쪽에 초록 `저장됨 HH:MM:SS`. 5초 뒤 사라지는 건 호출 쪽.
+    Saved(i64),
+    /// 파일 쓰기 실패 — 왼쪽에 빨간 경고.
+    FileFailed,
+    /// 밖에서 바뀐 파일이라 안 씀 — 왼쪽에 빨간 경고.
+    ChangedOutside,
+}
+
+/// 머리 줄에 필요한 값 — 모니터와 새 화면(오류 보기·칸 설정)이 같이 쓴다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeaderView {
+    pub board_name: String,
+    /// (현재 순번 1부터, 전체)
+    pub board_pos: (usize, usize),
+    pub server_time: Option<i64>,
+    pub server_down: bool,
+    pub notice: Option<HeaderNotice>,
+}
+
+impl MonitorScreen {
+    pub fn header(&self) -> HeaderView {
+        HeaderView {
+            board_name: self.board_name.clone(),
+            board_pos: self.board_pos,
+            server_time: self.server_time,
+            server_down: self.server_down,
+            notice: self.notice.clone(),
+        }
+    }
+}
+
+fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
+    render_header_view(f, area, &s.header());
+}
+
 /// 머리 줄. 점검 상태는 절대 자르지 않고, 좁으면 날짜 → `Handicap 모니터 · ` → 시계 순으로 뺀다.
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
-fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
+/// 알림: `Saved`는 초록 `저장됨 HH:MM:SS`를 시계 앞에 두고 접두 다음·시계 앞에 빠진다. 경고(`FileFailed`·
+/// `ChangedOutside`)는 접두 자리에 빨갛게 — 날짜 → 보드 이름 → 시계 순으로 뺀 뒤에도 안 들어가면 경고를 `fit`한다.
+pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let w = usize::from(area.width);
+    // 보드 이름은 파일에서 온 문자열 — 탭·제어 문자가 폭 계산을 어긋내지 않게.
+    let board_name = crate::inspect::sanitize(&s.board_name);
     let status = if s.server_down {
         text::SERVER_DOWN
     } else {
@@ -609,39 +653,71 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
     } else {
         String::new()
     };
-    // (접두 표시, 시계 형식)
-    let steps: [(bool, Option<bool>); 4] = [
-        (true, Some(true)),
-        (true, Some(false)),
-        (false, Some(false)),
-        (false, None),
-    ];
+    let right_for = |date: Option<bool>| match (s.server_time, date) {
+        (Some(ms), Some(d)) => format!("{}  {} ", clock(ms, d), status),
+        _ => format!("{status} "),
+    };
+    let warn = match s.notice {
+        Some(HeaderNotice::FileFailed) => Some(text::FILE_SAVE_FAILED),
+        Some(HeaderNotice::ChangedOutside) => Some(text::FILE_CHANGED_OUTSIDE),
+        _ => None,
+    };
+    if let Some(warn) = warn {
+        render_warn_header(f, area, warn, &board_name, &pos, &right_for, status);
+        return;
+    }
+    let saved = match s.notice {
+        Some(HeaderNotice::Saved(ms)) => {
+            Some(format!("{} {}  ", text::FILE_SAVED, clock(ms, false)))
+        }
+        _ => None,
+    };
+    // (접두 표시, 시계 형식, 저장됨 표시)
+    let mut steps: Vec<(bool, Option<bool>, bool)> = Vec::new();
+    if saved.is_some() {
+        steps.extend([
+            (true, Some(true), true),
+            (true, Some(false), true),
+            (false, Some(false), true),
+            (false, Some(false), false),
+            (false, None, false),
+        ]);
+    } else {
+        steps.extend([
+            (true, Some(true), false),
+            (true, Some(false), false),
+            (false, Some(false), false),
+            (false, None, false),
+        ]);
+    }
     let mut chosen = None;
-    for (i, (prefix, date)) in steps.iter().enumerate() {
-        let right = match (s.server_time, date) {
-            (Some(ms), Some(d)) => format!("{}  {} ", clock(ms, *d), status),
-            _ => format!("{status} "),
-        };
+    for (i, (prefix, date, with_saved)) in steps.iter().enumerate() {
+        let mut right = right_for(*date);
+        let mut saved_len = 0;
+        if let (true, Some(sv)) = (*with_saved, saved.as_ref()) {
+            right = format!("{sv}{right}");
+            saved_len = sv.len();
+        }
         let head = if *prefix {
             format!(" {} · ", text::MONITOR_TITLE)
         } else {
             " ".to_string()
         };
         let fixed = text_width(&head) + text_width(&pos) + text_width(&right) + 1;
-        let name_w = text_width(&s.board_name);
+        let name_w = text_width(&board_name);
         let last = i == steps.len() - 1;
         if fixed + name_w <= w || last {
             let room = w.saturating_sub(fixed);
             let name = if room >= 2 || fixed + name_w <= w {
-                fit(&s.board_name, room)
+                fit(&board_name, room)
             } else {
                 String::new()
             };
-            chosen = Some((head, name, right));
+            chosen = Some((head, name, right, saved_len));
             break;
         }
     }
-    let (head, name, right) = chosen.unwrap_or_default();
+    let (head, name, right, saved_len) = chosen.unwrap_or_default();
     let (head, name, pos) = if text_width(&right) >= w {
         // 상태만으로도 넘치면 `…`로 줄인다.
         (String::new(), String::new(), String::new())
@@ -657,6 +733,88 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
     let right = fit(&right, w);
     let pad = w.saturating_sub(text_width(&left) + text_width(&right));
     let status_color = if s.server_down { C_FAIL } else { C_MUTED };
+    let mut spans = vec![
+        Span::styled(
+            left,
+            Style::default()
+                .fg(color(C_TEXT))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(pad)),
+    ];
+    match right.split_at_checked(saved_len) {
+        Some((sv, rest)) if saved_len > 0 => {
+            spans.push(Span::styled(
+                sv.to_string(),
+                Style::default().fg(color(C_OK)),
+            ));
+            spans.push(Span::styled(
+                rest.to_string(),
+                Style::default().fg(color(status_color)),
+            ));
+        }
+        _ => spans.push(Span::styled(
+            right,
+            Style::default().fg(color(status_color)),
+        )),
+    }
+    put(f, area, Line::from(spans));
+}
+
+/// 경고가 있는 머리 줄 — 왼쪽 `{경고} · {보드 이름}(i/n)`(빨강), 오른쪽 `[시계  ]점검 상태`.
+fn render_warn_header(
+    f: &mut Frame,
+    area: Rect,
+    warn: &str,
+    board_name: &str,
+    pos: &str,
+    right_for: &dyn Fn(Option<bool>) -> String,
+    status: &str,
+) {
+    let w = usize::from(area.width);
+    // (시계 형식, 보드 이름 표시) — 날짜 → 보드 이름 → 시계 순으로 뺀다.
+    let steps: [(Option<bool>, bool); 4] = [
+        (Some(true), true),
+        (Some(false), true),
+        (Some(false), false),
+        (None, false),
+    ];
+    let mut chosen = None;
+    for (date, with_name) in steps {
+        let right = right_for(date);
+        let left = if with_name {
+            format!(" {warn} · {board_name}{pos}")
+        } else {
+            format!(" {warn}")
+        };
+        if text_width(&left) + text_width(&right) < w {
+            chosen = Some((left, right));
+            break;
+        }
+    }
+    let (left, right) = chosen.unwrap_or_else(|| {
+        // 점검 상태는 그대로 두고 경고를 `fit` — 상태만으로도 넘치면 상태를 `fit`하고 경고는 뺀다.
+        let right = right_for(None);
+        let room = w.saturating_sub(text_width(&right) + 2);
+        let left = if room >= 1 {
+            format!(" {}", fit(warn, room))
+        } else {
+            String::new()
+        };
+        (left, right)
+    });
+    let right = fit(&right, w);
+    let left = if text_width(&left) + text_width(&right) > w {
+        String::new()
+    } else {
+        left
+    };
+    let pad = w.saturating_sub(text_width(&left) + text_width(&right));
+    let status_color = if status == text::SERVER_DOWN {
+        C_FAIL
+    } else {
+        C_MUTED
+    };
     put(
         f,
         area,
@@ -664,7 +822,7 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
             Span::styled(
                 left,
                 Style::default()
-                    .fg(color(C_TEXT))
+                    .fg(color(C_FAIL))
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" ".repeat(pad)),
@@ -746,11 +904,18 @@ pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) -> bool {
     }
     let keys = match bar {
         KeyBar::Monitor => {
-            let mut keys = vec![text::KEYS_MOVE];
+            // 앞 조각부터 통째로 빠진다 — 덜 중요한 `b`·`Tab`을 앞에(목업 §0).
+            let mut keys = vec![text::KEYS_BORDER];
             if s.board_pos.1 > 1 {
                 keys.push(text::KEYS_NEXT_BOARD);
             }
-            keys.extend([text::KEYS_BORDER, text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
+            keys.extend([
+                text::KEYS_MOVE,
+                text::KEYS_ERRORS,
+                text::KEYS_SETTINGS,
+                text::KEYS_HELP_OPEN,
+                text::KEYS_QUIT,
+            ]);
             keys
         }
         KeyBar::Help => vec![text::KEYS_HELP],

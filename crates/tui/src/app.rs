@@ -1,10 +1,12 @@
 //! 앱 루프 — 메인 스레드의 동기 UI 루프(`event::poll`)가 tokio 런타임을 `block_on`으로 부린다.
 //! 키·마우스 해석과 격자 이동은 순수 함수로 분리했다.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use ratatui::Terminal;
@@ -16,22 +18,53 @@ use ratatui::crossterm::event::{
 use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use handicap_controller::monitor::check::CheckResult;
+use handicap_controller::monitor::config::{BoardConfig, LatencySource, PanelConfig};
+
+use crate::api::Api;
+use crate::edit;
+use crate::filesave::{FileState, WriteError, WriteStage};
+use crate::input::{InputMode, InputOutcome, LineInput};
+use crate::inspect::{
+    BodyInput, BodyState, ErrorsInput, ErrorsState, Reason, RecordLoad, RecordState, StepLine,
+    clip_flags, error_results, errors_view, initial_step_cursor, load_of, move_cursor,
+    neighbor_http, reason_of, record_view, step_lines, visible_results,
+};
 use crate::judge::grid_for;
 use crate::logging::LogLoc;
+use crate::names::Names;
+use crate::panel_settings::{
+    condition_summary, condition_target, display_target, edit_menu_lines, ensure_visible,
+    group_note, settings_items_edit,
+};
 use crate::poll::{PollSnapshot, spawn_poller};
 use crate::prefs::{self, BorderStyle, Loaded, Prefs};
 use crate::session::{Session, Stage, StartError};
 use crate::terminal::TerminalGuard;
 use crate::text;
+use crate::view::edit::{
+    CondFormView, ListRow, ListView, VarRow, VarsView, cond_form_value_width, env_display,
+    fit_keys, render_list_with_form, render_vars,
+};
 use crate::view::error::{render_error, render_usage};
+use crate::view::inspect::{
+    body_height, errors_list_height, render_body, render_errors, render_record, sub_layout,
+};
 use crate::view::model::build_panels;
+use crate::view::monitor::{HeaderNotice, HeaderView};
 use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
-use crate::wire::BoardResponse;
+use crate::view::settings::{
+    EditMenuView, OverlayView, overlay_rows, render_edit_menu, settings_height,
+};
+use crate::wire::{BoardResponse, CheckRecord, EnvironmentResponse, ScenarioResponse};
+use crate::yaml_var;
+use handicap_controller::monitor::config::ConditionOp;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
@@ -41,6 +74,20 @@ pub enum Screen {
     QuitConfirm(Box<Screen>),
     Error(StartError),
     Usage,
+    /// 오류 목록(spec §5.3-1). 화면 상태는 `SubViews`에.
+    Errors,
+    /// 기록 자세히(§5.3-2)
+    Record,
+    /// 요청·응답 본문(§5.3-3)
+    Body,
+    /// 칸 설정 보기(§5.4) — 편집 모드에선 편집 메뉴(§6.1)
+    Settings,
+    /// 하위 목록(기준선·성공 조건·화면에 표시, §6.1 8·11·12)
+    EditList,
+    /// 환경 변수 화면(§6.3, 13)
+    EnvVars,
+    /// 시나리오 변수 화면(§6.4, 14)
+    ScenarioVars,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +111,19 @@ pub enum Action {
     Quit,
     Retry,
     ToggleBorder,
+    OpenErrors,
+    OpenSettings,
+    Activate,
+    ToggleAll,
+    ToggleReveal,
+    PrevStep,
+    NextStep,
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
 }
 
 /// 대문자(Caps Lock)와 한글 2벌식 자모(같은 물리 키)를 소문자 영문 키로 맞춘다.
@@ -77,6 +137,9 @@ fn normalize_char(c: char) -> char {
         'ㅣ' => 'l',
         'ㄱ' => 'r',
         'ㅠ' => 'b',
+        'ㄷ' => 'e',
+        'ㅁ' => 'a',
+        'ㅍ' => 'v',
         c => c.to_ascii_lowercase(),
     }
 }
@@ -90,6 +153,11 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
     let ctrl_c = ctrl && code == KeyCode::Char('c');
     let quit_key = ctrl_c || code == KeyCode::Char('q');
     let k = KeyEvent::new(code, k.modifiers);
+    // Ctrl이 눌린 문자 키(Ctrl+C·Ctrl+Q 밖)는 모니터·새 화면 넷에서 무동작 — Ctrl+B가 `b`로 읽히지 않게(§B46 (2)).
+    let ctrl_letter = ctrl && matches!(code, KeyCode::Char(_)) && !quit_key;
+    if ctrl_letter && (matches!(screen, Screen::Monitor) || is_sub(screen)) {
+        return Action::None;
+    }
     match screen {
         Screen::Starting => Action::None,
         Screen::Monitor => {
@@ -105,8 +173,24 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
                 KeyCode::BackTab if n_boards > 1 => Action::PrevBoard,
                 KeyCode::Char('b') => Action::ToggleBorder,
                 KeyCode::Char('?') => Action::OpenHelp,
+                KeyCode::Char('e') => Action::OpenErrors,
+                KeyCode::Enter => Action::OpenSettings,
                 _ => Action::None,
             }
+        }
+        // 편집 화면 넷(Settings·EditList·EnvVars·ScenarioVars)은 `edit` 상태가 있으면 `edit_key`로 간다 — 여기 오는 건
+        // 닿지 않는 방어 경로(`OpenSettings`가 늘 `EditUi`를 만든다).
+        Screen::Errors
+        | Screen::Record
+        | Screen::Body
+        | Screen::Settings
+        | Screen::EditList
+        | Screen::EnvVars
+        | Screen::ScenarioVars => {
+            if quit_key {
+                return Action::AskQuit;
+            }
+            sub_screen_key(screen, k.code)
         }
         Screen::Help => {
             if quit_key {
@@ -144,7 +228,2313 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
     }
 }
 
-/// 테두리 전환은 칸이 실제로 그려진 모니터 화면에서만(보이지 않는 변경을 저장하지 않게).
+/// 새 화면(오류 목록·자세히·본문·칸 설정 + 편집 하위 목록·환경 변수·시나리오 변수).
+fn is_sub(screen: &Screen) -> bool {
+    matches!(
+        screen,
+        Screen::Errors
+            | Screen::Record
+            | Screen::Body
+            | Screen::Settings
+            | Screen::EditList
+            | Screen::EnvVars
+            | Screen::ScenarioVars
+    )
+}
+
+/// 새 화면 넷의 키(종료 키는 호출 쪽이 먼저 본다).
+fn sub_screen_key(screen: &Screen, code: KeyCode) -> Action {
+    let common = match code {
+        KeyCode::Up | KeyCode::Char('k') => Some(Action::Up),
+        KeyCode::Down | KeyCode::Char('j') => Some(Action::Down),
+        KeyCode::PageUp => Some(Action::PageUp),
+        KeyCode::PageDown => Some(Action::PageDown),
+        KeyCode::Home => Some(Action::Home),
+        KeyCode::End => Some(Action::End),
+        KeyCode::Esc => Some(Action::Back),
+        _ => None,
+    };
+    if let Some(a) = common {
+        return a;
+    }
+    match (screen, code) {
+        (Screen::Errors, KeyCode::Char('a')) => Action::ToggleAll,
+        (Screen::Errors | Screen::Record, KeyCode::Enter) => Action::Activate,
+        (Screen::Body, KeyCode::Left | KeyCode::Char('h')) => Action::PrevStep,
+        (Screen::Body, KeyCode::Right | KeyCode::Char('l')) => Action::NextStep,
+        (Screen::Body, KeyCode::Char('v')) => Action::ToggleReveal,
+        _ => Action::None,
+    }
+}
+
+/// 새 화면 넷의 키 줄 조각을 고르는 데 쓰는 화면 상태.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyCtx {
+    pub quit_confirm: bool,
+    pub show_all: bool,
+    pub reveal: bool,
+    /// 본문 화면의 스텝에 요청 본문이 있는가
+    pub has_req_body: bool,
+}
+
+/// 새 화면 네 개의 키 줄 조각(앞 조각부터 통째로 빠진다 — 덜 중요한 것을 앞에). 목업처럼
+/// `q 종료`는 쓰지 않는다(`q`는 동작하고 도움말에 있다). 새 화면이 아니면 빈 목록.
+pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
+    if c.quit_confirm && is_sub(screen) {
+        return vec![text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL];
+    }
+    match screen {
+        Screen::Errors => vec![
+            text::KEYS_PICK,
+            if c.show_all {
+                text::KEYS_ALL_OFF
+            } else {
+                text::KEYS_ALL_ON
+            },
+            text::KEYS_DETAIL,
+            text::KEYS_TO_MONITOR,
+        ],
+        Screen::Record => vec![text::KEYS_PICK_STEP, text::KEYS_BODY, text::KEYS_TO_LIST],
+        Screen::Body => {
+            let mut keys = vec![text::KEYS_SCROLL, text::KEYS_STEP_NAV];
+            if c.has_req_body {
+                keys.push(if c.reveal {
+                    text::KEYS_HIDE
+                } else {
+                    text::KEYS_REVEAL
+                });
+            }
+            keys.push(text::KEYS_TO_DETAIL);
+            keys
+        }
+        // 편집 메뉴(overlay 없음). overlay·하위 목록·변수 화면의 키 줄은 `edit_keys`. `edit` 상태 없는 Settings용 —
+        // 닿지 않는 방어 경로(`OpenSettings`가 늘 `EditUi`를 만든다).
+        Screen::Settings => vec![
+            text::KEYS_PICK,
+            text::KEYS_NUMBER,
+            text::KEYS_EDIT,
+            text::KEYS_TO_MONITOR,
+        ],
+        _ => vec![],
+    }
+}
+
+// ---- 편집 모드 상태·키 판정(tui-2a-1, spec §6.7) — 순수. App 연결은 `App::edit_key_event`·`run_edit` ----
+
+/// 편집 화면 위에 뜨는 입력줄·목록 창·조건 수정·확인·저장 중·안내.
+/// `Debug`는 손으로 — 종류 이름만(입력값·서버 문구·환경 키 이름이 `{:?}`로 새지 않게).
+#[derive(Clone, PartialEq, Eq)]
+pub enum Overlay {
+    Input {
+        target: InputTarget,
+        input: LineInput,
+        error: Option<String>,
+        share: Option<String>,
+    },
+    Pick {
+        pick: edit::Pick,
+        options: Vec<(Option<String>, String)>,
+        cursor: usize,
+    },
+    CondForm {
+        index: usize,
+        ops: Vec<ConditionOp>,
+        op: usize,
+        value: LineInput,
+        ignore_case: bool,
+        trim: bool,
+        focus: CondFocus,
+        error: Option<String>,
+    },
+    Confirm {
+        text: String,
+        then: Pending,
+        y_only: bool,
+    },
+    /// 저장 중. `restore` = 서버가 거절하면 되살릴 overlay(Input·CondForm은 오류 줄을 채워서). Pick·Confirm(삭제·단계·환경 빠짐)·
+    /// 자리 바꾸기에서 온 저장은 `restore = None` — 거절이면 `Notice(서버 문구)`로 보인다.
+    Saving { restore: Option<Box<Overlay>> },
+    /// ReadOnly 안내·서버 거절 — 다음 키 하나로 닫힘(그 키는 메뉴로 넘어가지 않는다).
+    Notice(String),
+}
+
+impl std::fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Overlay::{}", self.kind())
+    }
+}
+
+impl Overlay {
+    /// 로그·`Debug`용 이름 — 내용(입력·서버 문구)은 담지 않는다.
+    fn kind(&self) -> &'static str {
+        match self {
+            Overlay::Input { .. } => "Input",
+            Overlay::Pick { .. } => "Pick",
+            Overlay::CondForm { .. } => "CondForm",
+            Overlay::Confirm { .. } => "Confirm",
+            Overlay::Saving { .. } => "Saving",
+            Overlay::Notice(_) => "Notice",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CondFocus {
+    Op,
+    Value,
+    IgnoreCase,
+    Trim,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputTarget {
+    Field(edit::Field),
+    ThresholdNew,
+    Threshold(usize),
+    EnvVar(String),
+    ScenarioVar(String),
+}
+
+/// 확인 뒤 할 일(저장 요청을 만들 재료).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pending {
+    SetStep(String),
+    SetEnv(Option<String>),
+    Remove(edit::ListKind, usize),
+}
+
+#[derive(Clone)]
+pub enum EnvLoad {
+    Loading { id: String },
+    Loaded(EnvironmentResponse),
+    Failed(String),
+}
+
+#[derive(Clone)]
+pub enum ScenLoad {
+    Loading {
+        id: String,
+    },
+    Loaded {
+        id: String,
+        yaml: String,
+        version: i64,
+        vars: Vec<yaml_var::StaticVar>,
+    },
+    Failed(String),
+}
+
+/// 편집 모드 화면 상태. `PartialEq` 없음(환경 응답을 품는다).
+#[derive(Clone, Default)]
+pub struct EditUi {
+    pub board_id: String,
+    pub panel_id: String,
+    /// 메뉴 항목 0..14
+    pub cursor: usize,
+    /// 하위 목록·변수 화면 줄
+    pub list_cursor: usize,
+    /// `1` 뒤 1초(번호, 누른 시각)
+    pub digit: Option<(u8, Instant)>,
+    pub overlay: Option<Overlay>,
+    /// 환경 값 보기(`EnvVars`를 나가면 false)
+    pub reveal: bool,
+    pub env: Option<EnvLoad>,
+    pub scen: Option<ScenLoad>,
+}
+
+/// 값이 로그로 새지 않게 손으로 쓴 `Debug` — `env`·`scen`은 있는지만, overlay는 종류만(입력줄·서버 문구 가림).
+impl std::fmt::Debug for EditUi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditUi")
+            .field("board_id", &self.board_id)
+            .field("panel_id", &self.panel_id)
+            .field("cursor", &self.cursor)
+            .field("list_cursor", &self.list_cursor)
+            .field("digit", &self.digit.map(|(d, _)| d))
+            .field("overlay", &self.overlay.as_ref().map(Overlay::kind))
+            .field("reveal", &self.reveal)
+            .field("env", &self.env.as_ref().map(|_| "<가림>"))
+            .field("scen", &self.scen.as_ref().map(|_| "<가림>"))
+            .finish()
+    }
+}
+
+impl EditUi {
+    /// `EnvVars`를 나갈 때: 값 보기를 끄고 받은 환경을 버린다.
+    pub fn leave_env(&mut self) {
+        self.reveal = false;
+        self.env = None;
+        self.list_cursor = 0;
+    }
+
+    /// `ScenarioVars`를 나갈 때: 받은 시나리오를 버린다.
+    pub fn leave_scen(&mut self) {
+        self.scen = None;
+        self.list_cursor = 0;
+    }
+
+    /// 숫자 대기 표시 갱신. **호출 쪽은 편집 화면의 모든 키 뒤에 이걸 부른다**: `DigitJump`면 그 `pending`을 저장하고,
+    /// 그 밖의 모든 액션이면 지운다(`1`, `↓`, `2`가 12로 가지 않게 — spec "`1` 뒤 1초 안에").
+    pub fn track_digit(&mut self, a: &EditAction) {
+        self.digit = match a {
+            EditAction::DigitJump { pending, .. } => *pending,
+            _ => None,
+        };
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditAction {
+    None,
+    AskQuit,
+    /// overlay 없음: 한 단계 뒤(`SubViews::back`).
+    Back,
+    /// 목록 창(`Pick`) 취소 — overlay만 닫는다.
+    PickCancel,
+    MoveCursor(isize),
+    /// 절대 위치(0-기반): Home=0, End=`usize::MAX`(호출 쪽이 마지막 줄로 자른다)
+    Jump(usize),
+    /// 메뉴의 숫자 키 — `edit_key`가 `digit_jump`로 푼 이동 번호(1..=14)와 새 대기 표시. 대기 표시는 `EditUi::track_digit`이 저장.
+    DigitJump {
+        no: usize,
+        pending: Option<(u8, Instant)>,
+    },
+    /// Enter
+    Activate,
+    Remove,
+    Swap,
+    Add,
+    ToggleReveal,
+    /// 입력줄(Input overlay 또는 CondForm의 값 칸)에 들어간 키의 결과 + 그 키를 적용한 **뒤의** 입력줄.
+    /// `edit_key`는 원래 버퍼를 바꾸지 않는다(복제본에 적용). 호출 쪽(`apply_edit`)은 진짜 입력줄을 두 번째 값으로
+    /// **교체**만 한다 — 키를 다시 적용하지 않는다(이중 적용·미적용 불가).
+    Input(InputOutcome, LineInput),
+    PickMove(isize),
+    PickChoose,
+    /// 조건 수정 칸의 폼 키(Tab·Shift+Tab·←→·Space·Enter·Esc) — 원시 키 그대로.
+    CondKey(KeyEvent),
+    ConfirmYes,
+    ConfirmNo,
+    CloseNotice,
+}
+
+/// 대기 표시가 유효한 시간 — **1초 미만**만 대기 안(정확히 1.0초는 지난 것: `<`).
+const DIGIT_WINDOW: Duration = Duration::from_secs(1);
+
+fn digit_pending(prev: Option<(u8, Instant)>, now: Instant) -> bool {
+    // 시계 역전은 0초(대기 안)로 본다.
+    matches!(prev, Some((1, at)) if now.saturating_duration_since(at) < DIGIT_WINDOW)
+}
+
+/// 숫자는 **언제나 즉시** 이동한다: `1`–`9` → 그 번호(그리고 `1`이면 1초 대기 표시를 남김). 대기 중(1초 안)에
+/// `0`–`4`가 오면 10–14로 **다시** 이동하고 대기를 지운다(`1`→`1`은 11 — 항목 11에 닿는 길이다, spec §6.7 표).
+/// 대기 중 `5`–`9`는 그 번호로(대기는 지운다). 타이머가 필요 없다 — `1`만 누르고 기다리면 이미 1번에 가 있다.
+/// 대기 없이 `0`이면 이동 없음 `(0, None)`(번호 0은 없다 — `edit_key`는 이 경우 `EditAction::None`).
+pub fn digit_jump(
+    prev: Option<(u8, Instant)>,
+    d: u8,
+    now: Instant,
+) -> (usize, Option<(u8, Instant)>) {
+    if digit_pending(prev, now) && d <= 4 {
+        return (10 + d as usize, None);
+    }
+    match d {
+        0 => (0, None),
+        1 => (1, Some((1, now))),
+        d => (d as usize, None),
+    }
+}
+
+/// 입력 중인 overlay(Input·Pick·CondForm·Confirm·Notice)를 버린다. `Saving`은 남기되 그 안의 되살릴 입력줄
+/// (`restore` — 환경 토큰 평문일 수 있다)은 버린다: 늦은 거절은 입력줄 대신 `Notice`(spec §6.6 "입력 중이던 값은 버린다").
+/// 값도 놓는다: 환경(값 보기 포함)·시나리오 받은 것·숫자 대기 — 5분 복귀 뒤 `edit`가 저장 중이라 살아 있어도 비밀이 남지 않게.
+pub fn idle_drop(ui: &mut EditUi) {
+    match &mut ui.overlay {
+        Some(Overlay::Saving { restore }) => *restore = None,
+        _ => ui.overlay = None,
+    }
+    ui.leave_env();
+    ui.leave_scen();
+    ui.digit = None;
+}
+
+/// 화면 규칙용 정규화: `normalize_char` + 새로 `ㅇ`→`d`·`ㄴ`→`s`(편집 화면 경로에서만 — 기존 화면 불변).
+fn normalize_edit_char(c: char) -> char {
+    match c {
+        'ㅇ' => 'd',
+        'ㄴ' => 's',
+        c => normalize_char(c),
+    }
+}
+
+/// 편집 모드의 키 → 동작. 순서: overlay 있음 → overlay 규칙(입력줄은 **원시 키** — 정규화 없음, `q`·`j`·`?`·한글이
+/// 글자, Ctrl+C만 종료 확인), 없음 → 화면 규칙(정규화 + `q`/Ctrl+C 종료 확인). `now`는 두 자리 번호 판정용.
+pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> EditAction {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    let norm = match k.code {
+        KeyCode::Char(c) => KeyCode::Char(normalize_edit_char(c)),
+        other => other,
+    };
+    let ctrl_c = ctrl && norm == KeyCode::Char('c');
+    // 기존 `handle_key`와 같다: Ctrl+C·`q`(Ctrl+Q 포함)가 종료 확인.
+    let quit_key = ctrl_c || norm == KeyCode::Char('q');
+    if let Some(o) = &ui.overlay {
+        return overlay_key(o, k, norm, ctrl, ctrl_c, quit_key);
+    }
+    if quit_key {
+        return EditAction::AskQuit;
+    }
+    if ctrl {
+        // 그 밖의 Ctrl+문자는 무동작(Ctrl+B가 `b`로 읽히지 않게).
+        return EditAction::None;
+    }
+    let menu = matches!(screen, Screen::Settings);
+    let sub = matches!(
+        screen,
+        Screen::EditList | Screen::EnvVars | Screen::ScenarioVars
+    );
+    if !menu && !sub {
+        return EditAction::None;
+    }
+    match norm {
+        KeyCode::Up | KeyCode::Char('k') => EditAction::MoveCursor(-1),
+        KeyCode::Down | KeyCode::Char('j') => EditAction::MoveCursor(1),
+        KeyCode::PageUp => EditAction::MoveCursor(-10),
+        KeyCode::PageDown => EditAction::MoveCursor(10),
+        KeyCode::Home => EditAction::Jump(0),
+        KeyCode::End => EditAction::Jump(usize::MAX),
+        KeyCode::Enter => EditAction::Activate,
+        KeyCode::Esc => EditAction::Back,
+        KeyCode::Char(c @ '0'..='9') if menu && !k.modifiers.contains(KeyModifiers::ALT) => {
+            let (no, pending) = digit_jump(ui.digit, c as u8 - b'0', now);
+            if no == 0 {
+                EditAction::None
+            } else {
+                EditAction::DigitJump { no, pending }
+            }
+        }
+        KeyCode::Char('a') if matches!(screen, Screen::EditList) => EditAction::Add,
+        KeyCode::Char('d') if matches!(screen, Screen::EditList) => EditAction::Remove,
+        KeyCode::Char('s') if matches!(screen, Screen::EditList) => EditAction::Swap,
+        KeyCode::Char('v') if matches!(screen, Screen::EnvVars) => EditAction::ToggleReveal,
+        _ => EditAction::None,
+    }
+}
+
+/// 입력줄에 **원시 키**를 넣어 본 결과(복제본 — `edit_key`는 상태를 바꾸지 않는다) + 적용 뒤의 입력줄.
+fn probe(li: &LineInput, k: KeyEvent) -> EditAction {
+    let mut next = li.clone();
+    let out = next.key(k);
+    EditAction::Input(out, next)
+}
+
+fn overlay_key(
+    o: &Overlay,
+    k: KeyEvent,
+    norm: KeyCode,
+    ctrl: bool,
+    ctrl_c: bool,
+    quit_key: bool,
+) -> EditAction {
+    match o {
+        Overlay::Input { input, .. } => probe(input, k),
+        Overlay::CondForm { value, focus, .. } => {
+            if *focus == CondFocus::Value {
+                // 값 칸 = 입력줄 규칙. 폼 이동·저장·취소 키만 폼으로.
+                return if matches!(
+                    k.code,
+                    KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter | KeyCode::Esc
+                ) {
+                    EditAction::CondKey(k)
+                } else {
+                    probe(value, k)
+                };
+            }
+            if ctrl_c {
+                return EditAction::AskQuit;
+            }
+            if !ctrl
+                && matches!(
+                    k.code,
+                    KeyCode::Tab
+                        | KeyCode::BackTab
+                        | KeyCode::Left
+                        | KeyCode::Right
+                        | KeyCode::Char(' ')
+                        | KeyCode::Enter
+                        | KeyCode::Esc
+                )
+            {
+                EditAction::CondKey(k)
+            } else {
+                EditAction::None
+            }
+        }
+        Overlay::Pick { .. } => {
+            if quit_key {
+                return EditAction::AskQuit;
+            }
+            if ctrl {
+                return EditAction::None;
+            }
+            match norm {
+                KeyCode::Up | KeyCode::Char('k') => EditAction::PickMove(-1),
+                KeyCode::Down | KeyCode::Char('j') => EditAction::PickMove(1),
+                KeyCode::Enter => EditAction::PickChoose,
+                KeyCode::Esc => EditAction::PickCancel,
+                _ => EditAction::None,
+            }
+        }
+        Overlay::Confirm { y_only, .. } => {
+            // spec §6.7: Enter(또는 삭제 확인은 y) 계속 · 그 밖 취소.
+            let yes = !ctrl
+                && if *y_only {
+                    norm == KeyCode::Char('y')
+                } else {
+                    k.code == KeyCode::Enter
+                };
+            if yes {
+                EditAction::ConfirmYes
+            } else {
+                EditAction::ConfirmNo
+            }
+        }
+        Overlay::Notice(_) => EditAction::CloseNotice,
+        // 저장 중: 다른 편집 키는 받지 않는다(Esc도 저장을 멈추지 않는다). 종료 확인만 열린다.
+        Overlay::Saving { .. } => {
+            if quit_key {
+                EditAction::AskQuit
+            } else {
+                EditAction::None
+            }
+        }
+    }
+}
+
+/// 입력 없이 이만큼 지나면 모니터 화면으로.
+pub const IDLE_RETURN: Duration = Duration::from_secs(300);
+
+/// 새 화면 넷, 또는 그 넷을 감싼 종료 확인창일 때만 대상 — 입력 없이 `IDLE_RETURN`이 지났으면 true.
+/// 도움말·모니터·모니터 위 종료 확인창·오류/사용법/시작 화면은 항상 false. 시계 역전은 0초로 본다.
+pub fn idle_expired(screen: &Screen, last_input: Instant, now: Instant) -> bool {
+    let target = match screen {
+        Screen::QuitConfirm(inner) => is_sub(inner),
+        s => is_sub(s),
+    };
+    target && now.saturating_duration_since(last_input) >= IDLE_RETURN
+}
+
+/// 5분 자동 복귀를 미루는 입력 — 키와 마우스 **조작**(누름·뗌·끌기·휠). 마우스 캡처가 움직임
+/// 보고까지 켜므로(`EnableMouseCapture`) 마우스가 화면 위를 스치기만 해도 복귀가 미뤄지지 않게
+/// 단순 이동은 뺀다. 크기 바뀜·포커스는 입력이 아니다. 붙여넣기는 입력이다.
+pub fn is_user_input(ev: &Event) -> bool {
+    match ev {
+        Event::Key(_) | Event::Paste(_) => true,
+        Event::Mouse(m) => !matches!(m.kind, MouseEventKind::Moved),
+        _ => false,
+    }
+}
+
+/// 기록 조회 요청(`spawn_fetch_worker`가 차례로 처리).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchReq {
+    /// 목록 사유 칸용(응답에서 reason·detail만 남긴다)
+    Reason {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+    },
+    /// 자세히 화면용
+    Record {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+    },
+}
+
+/// 기록 조회 결과.
+#[derive(Debug)]
+pub enum Fetched {
+    Reason {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+        reason: Reason,
+    },
+    Record {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+        load: RecordLoad,
+    },
+}
+
+/// 기록 조회 작업자 — 요청을 **하나씩 차례로** 처리한다(동시에 기록 둘을 메모리에 들지 않는다 —
+/// 한 기록이 최대 1 MiB 본문 × 스텝 수). `Reason` 요청은 응답에서 reason·detail만 남기고 기록을 버린다.
+/// 돌려받은 Sender를 버리면 작업자는 **큐에 남은 요청까지 다 처리한 뒤** 끝난다(tokio mpsc 의미) —
+/// 세션을 내릴 때는 그래서 돌려받은 핸들을 abort·await한다(`App::stop_session`). 결과 수신자가 사라져도 끝난다.
+/// 로그를 남기지 않는다(URL·본문·사유가 로그로 새지 않게).
+pub fn spawn_fetch_worker(
+    handle: &Handle,
+    api: Api,
+    out: mpsc::Sender<Fetched>,
+) -> (UnboundedSender<FetchReq>, JoinHandle<()>) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<FetchReq>();
+    let worker = handle.spawn(async move {
+        while let Some(req) = rx.recv().await {
+            let msg = match req {
+                FetchReq::Reason {
+                    board_id,
+                    panel_id,
+                    at_ms,
+                } => {
+                    let reason = reason_of(api.record(&board_id, &panel_id, at_ms).await);
+                    Fetched::Reason {
+                        board_id,
+                        panel_id,
+                        at_ms,
+                        reason,
+                    }
+                }
+                FetchReq::Record {
+                    board_id,
+                    panel_id,
+                    at_ms,
+                } => {
+                    let load = load_of(api.record(&board_id, &panel_id, at_ms).await);
+                    Fetched::Record {
+                        board_id,
+                        panel_id,
+                        at_ms,
+                        load,
+                    }
+                }
+            };
+            if out.send(msg).is_err() {
+                return;
+            }
+        }
+    });
+    (tx, worker)
+}
+
+/// 새 화면 상태 묶음 + 화면 전환(순수). App은 이 메서드만 부른다.
+#[derive(Debug, Default)]
+pub struct SubViews {
+    pub errors: Option<ErrorsState>,
+    pub record: Option<RecordState>,
+    pub body: Option<BodyState>,
+    pub settings_scroll: usize,
+    /// 편집 모드 상태(`Action::OpenSettings`가 연다). `clear()`는 이것도 비우므로, 진행 중 저장(`Overlay::Saving`)이
+    /// 있을 때의 5분 복귀는 호출 쪽이 `idle_drop` 뒤 `edit`를 남겨야 한다.
+    pub edit: Option<EditUi>,
+}
+
+impl SubViews {
+    /// 전부 비운다(재시도·보드 전환·5분 자동 복귀).
+    pub fn clear(&mut self) {
+        *self = SubViews::default();
+    }
+
+    /// 오류 보기를 연다. `rows_at` = 지금 목록(최신 순 at_ms) — 커서를 첫 줄의 at_ms에 고정한다.
+    pub fn open_errors(&mut self, board_id: &str, panel_id: &str, rows_at: &[i64]) -> Screen {
+        let mut st = ErrorsState {
+            board_id: board_id.to_string(),
+            panel_id: panel_id.to_string(),
+            ..ErrorsState::default()
+        };
+        st.pin_cursor(rows_at);
+        self.errors = Some(st);
+        self.record = None;
+        self.body = None;
+        Screen::Errors
+    }
+
+    pub fn open_settings(&mut self) -> Screen {
+        self.settings_scroll = 0;
+        Screen::Settings
+    }
+
+    /// 칸 설정 보기 스크롤: `Up`/`Down` ±1, `PageUp`/`PageDown` ±`height`, `Home`/`End` 처음/끝,
+    /// 그 밖(`None` 등)은 가두기만. 상한 = `n_lines − height`(끝까지 내려도 빈 화면이 되지 않게 —
+    /// 화면 크기가 바뀌면 다음 호출이 다시 가둔다).
+    pub fn scroll_settings(&mut self, a: Action, n_lines: usize, height: usize) {
+        let max = n_lines.saturating_sub(height) as isize;
+        let page = height.max(1) as isize;
+        let cur = (self.settings_scroll as isize).min(max);
+        let next = match a {
+            Action::Up => cur.saturating_sub(1),
+            Action::Down => cur.saturating_add(1),
+            Action::PageUp => cur.saturating_sub(page),
+            Action::PageDown => cur.saturating_add(page),
+            Action::Home => 0,
+            Action::End => max,
+            _ => cur,
+        };
+        self.settings_scroll = next.clamp(0, max) as usize;
+    }
+
+    /// 목록 → 자세히. errors가 없으면 None.
+    pub fn open_record(&mut self, clicked: CheckResult) -> Option<(Screen, FetchReq)> {
+        let e = self.errors.as_ref()?;
+        let req = FetchReq::Record {
+            board_id: e.board_id.clone(),
+            panel_id: e.panel_id.clone(),
+            at_ms: clicked.at_ms,
+        };
+        self.record = Some(RecordState {
+            board_id: e.board_id.clone(),
+            panel_id: e.panel_id.clone(),
+            at_ms: clicked.at_ms,
+            clicked,
+            load: RecordLoad::Loading,
+            cursor: 0,
+        });
+        self.body = None;
+        Some((Screen::Record, req))
+    }
+
+    /// 자세히 → 본문. `lines[cursor]`가 Http가 아니면 None. 본문은 언제나 새로(가림·스크롤·캐시 초기화).
+    pub fn open_body(&mut self, lines: &[StepLine]) -> Option<Screen> {
+        let cursor = self.record.as_ref()?.cursor;
+        if !matches!(lines.get(cursor), Some(StepLine::Http { .. })) {
+            return None;
+        }
+        self.body = Some(BodyState::new(cursor));
+        Some(Screen::Body)
+    }
+
+    /// 본문에서 옆 HTTP 스텝으로(사용자 확정 6). 옮겼으면 true — `BodyState`를 새로 만든다
+    /// (캐시 키에 스텝이 없어 그대로 두면 이전 스텝의 줄이 남는다).
+    pub fn step_body(&mut self, lines: &[StepLine], dir: isize) -> bool {
+        let (Some(body), Some(record)) = (self.body.as_mut(), self.record.as_mut()) else {
+            return false;
+        };
+        match neighbor_http(lines, body.line_idx, dir) {
+            Some(n) => {
+                *body = BodyState::new(n);
+                record.cursor = n;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `Esc` 한 단계 뒤. 그 외 화면은 None(상태 불변).
+    pub fn back(&mut self, screen: &Screen) -> Option<Screen> {
+        match screen {
+            Screen::Body => {
+                self.body = None;
+                Some(Screen::Record)
+            }
+            Screen::Record => {
+                self.record = None;
+                self.body = None;
+                Some(Screen::Errors)
+            }
+            Screen::Errors => {
+                self.clear_inspect();
+                Some(Screen::Monitor)
+            }
+            // 메뉴 → 모니터: 커서·대기·값이 남지 않게 비운다(저장 중엔 Esc가 무시되므로 `Saving`이 버려지지 않는다).
+            Screen::Settings => {
+                self.edit = None;
+                Some(Screen::Monitor)
+            }
+            Screen::Help => Some(Screen::Monitor),
+            Screen::EditList => {
+                if let Some(e) = &mut self.edit {
+                    e.list_cursor = 0;
+                }
+                Some(Screen::Settings)
+            }
+            Screen::EnvVars => {
+                if let Some(e) = &mut self.edit {
+                    e.leave_env();
+                }
+                Some(Screen::Settings)
+            }
+            Screen::ScenarioVars => {
+                if let Some(e) = &mut self.edit {
+                    e.leave_scen();
+                }
+                Some(Screen::Settings)
+            }
+            _ => None,
+        }
+    }
+
+    fn clear_inspect(&mut self) {
+        self.errors = None;
+        self.record = None;
+        self.body = None;
+    }
+
+    /// 현재 보고 있는 보드·칸·회차의 것만 받아들인다. 받아들였으면 true.
+    /// 묶음 칸들은 같은 at_ms를 나눠 쓰므로 Record는 보드·칸·회차 셋 다 맞춰 본다.
+    pub fn accept(&mut self, msg: Fetched) -> bool {
+        match msg {
+            Fetched::Reason {
+                board_id,
+                panel_id,
+                at_ms,
+                reason,
+            } => match self.errors.as_mut() {
+                Some(e) if e.board_id == board_id && e.panel_id == panel_id => {
+                    e.cache.put(at_ms, reason);
+                    true
+                }
+                _ => false,
+            },
+            Fetched::Record {
+                board_id,
+                panel_id,
+                at_ms,
+                load,
+            } => match self.record.as_mut() {
+                Some(r) if r.board_id == board_id && r.panel_id == panel_id && r.at_ms == at_ms => {
+                    r.load = load;
+                    true
+                }
+                _ => false,
+            },
+        }
+    }
+}
+
+// ---- 편집 작업자·저장 연결(tui-2a-1, spec §6.2) ----
+
+/// 편집 작업자 요청. `Debug`는 손으로 — 종류·id·길이만(환경 값·YAML·이름이 `{:?}`로 새지 않게).
+pub enum EditReq {
+    LoadEnv {
+        id: String,
+    },
+    LoadScenario {
+        id: String,
+    },
+    SaveBoard {
+        seq: u64,
+        board_id: String,
+        panel_id: String,
+        /// 서버 문구 `칸 {n}: ` 접두를 뗄 번호(1부터)
+        panel_no: usize,
+        name: String,
+        config: BoardConfig,
+    },
+    SaveEnv {
+        seq: u64,
+        id: String,
+        name: String,
+        vars: BTreeMap<String, String>,
+    },
+    SaveScenario {
+        seq: u64,
+        id: String,
+        yaml: String,
+        version: i64,
+    },
+}
+
+impl std::fmt::Debug for EditReq {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EditReq::LoadEnv { id } => f.debug_struct("LoadEnv").field("id", id).finish(),
+            EditReq::LoadScenario { id } => f.debug_struct("LoadScenario").field("id", id).finish(),
+            EditReq::SaveBoard {
+                seq,
+                board_id,
+                panel_id,
+                panel_no,
+                ..
+            } => f
+                .debug_struct("SaveBoard")
+                .field("seq", seq)
+                .field("board_id", board_id)
+                .field("panel_id", panel_id)
+                .field("panel_no", panel_no)
+                .finish_non_exhaustive(),
+            EditReq::SaveEnv { seq, id, vars, .. } => f
+                .debug_struct("SaveEnv")
+                .field("seq", seq)
+                .field("id", id)
+                .field("vars", &format_args!("<{} keys>", vars.len()))
+                .finish_non_exhaustive(),
+            EditReq::SaveScenario {
+                seq,
+                id,
+                yaml,
+                version,
+            } => f
+                .debug_struct("SaveScenario")
+                .field("seq", seq)
+                .field("id", id)
+                .field("yaml", &format_args!("<{} bytes>", yaml.len()))
+                .field("version", version)
+                .finish(),
+        }
+    }
+}
+
+/// 서버 반영 뒤 단계 실패: 내보내기 실패(`Export`, 서버 문구) 또는 파일 쓰기 실패.
+#[derive(Clone, PartialEq, Eq)]
+pub enum FileErr {
+    Export(String),
+    Write(WriteError),
+}
+
+impl std::fmt::Debug for FileErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileErr::Export(_) => f.write_str("Export(<가림>)"),
+            FileErr::Write(w) => write!(f, "Write({w:?})"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SavedWhat {
+    Board { board_id: String },
+    Env { id: String },
+    Scenario { id: String },
+}
+
+/// 서버가 돌려준 저장 결과. `Debug`는 id만(환경·시나리오 거울은 이미 손 Debug).
+#[derive(Clone)]
+pub enum SavedValue {
+    Board(BoardResponse),
+    Env(EnvironmentResponse),
+    Scenario(ScenarioResponse),
+}
+
+impl std::fmt::Debug for SavedValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SavedValue::Board(b) => write!(f, "Board({})", b.id),
+            SavedValue::Env(e) => write!(f, "Env({e:?})"),
+            SavedValue::Scenario(s) => write!(f, "Scenario({s:?})"),
+        }
+    }
+}
+
+pub enum EditDone {
+    Env {
+        id: String,
+        result: Result<EnvironmentResponse, String>,
+    },
+    Scenario {
+        id: String,
+        result: Result<ScenarioResponse, String>,
+    },
+    /// server: 서버 반영 결과(오류는 접두 뗀 문구). file: 서버 반영이 됐을 때만 Some — 파일 쓰기 결과.
+    Saved {
+        seq: u64,
+        req: SavedWhat,
+        server: Result<SavedValue, String>,
+        file: Option<Result<(), FileErr>>,
+    },
+}
+
+/// 서버 문구는 `<가림>`(사유에 값이 실릴 수 있다).
+fn hide_err<T: std::fmt::Debug>(r: &Result<T, String>) -> String {
+    match r {
+        Ok(v) => format!("Ok({v:?})"),
+        Err(_) => "Err(<가림>)".to_string(),
+    }
+}
+
+impl std::fmt::Debug for EditDone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EditDone::Env { id, result } => f
+                .debug_struct("Env")
+                .field("id", id)
+                .field("result", &format_args!("{}", hide_err(result)))
+                .finish(),
+            EditDone::Scenario { id, result } => f
+                .debug_struct("Scenario")
+                .field("id", id)
+                .field("result", &format_args!("{}", hide_err(result)))
+                .finish(),
+            EditDone::Saved {
+                seq,
+                req,
+                server,
+                file,
+            } => f
+                .debug_struct("Saved")
+                .field("seq", seq)
+                .field("req", req)
+                .field("server", &format_args!("{}", hide_err(server)))
+                .field("file", file)
+                .finish(),
+        }
+    }
+}
+
+/// 진행 중인 저장 하나(App이 든다 — 보드 전환·5분 복귀 뒤에도 남는다).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveTicket {
+    pub seq: u64,
+    pub board_id: String,
+    pub panel_id: String,
+}
+
+/// 작업자가 쓰는 파일 상태와 시작 바이트(`write_bundle`이 처음 성공하면 시작 바이트는 비운다).
+type FileSlot = Arc<Mutex<(FileState, Vec<u8>)>>;
+
+fn log_api_fail(stage: &'static str, e: &crate::api::ApiError) {
+    // 문구·URL은 남기지 않는다 — 단계와 HTTP 상태만.
+    tracing::warn!(stage, http_status = ?e.status, "edit request failed");
+}
+
+/// 서버 반영 뒤: export(세션 보드 전부, 가져온 순서) → 파일 쓰기(블로킹 풀에서).
+async fn persist(api: &Api, board_ids: &[String], slot: &FileSlot) -> Result<(), FileErr> {
+    let bytes = api.export(board_ids).await.map_err(|e| {
+        log_api_fail("export", &e);
+        FileErr::Export(e.message)
+    })?;
+    let slot = Arc::clone(slot);
+    let joined = tokio::task::spawn_blocking(move || {
+        let mut g = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (st, start) = &mut *g;
+        let r = crate::filesave::write_bundle(st, start, &bytes);
+        // `.orig.bak` 판단은 첫 **성공**까지 다시 일어난다 — 시작 바이트는 성공한 뒤에만 놓는다.
+        if st.first_done {
+            *start = Vec::new();
+        }
+        r
+    })
+    .await;
+    match joined {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(we)) => {
+            tracing::warn!(stage = ?we.stage, kind = ?we.kind, "board file write failed");
+            Err(FileErr::Write(we))
+        }
+        Err(_) => {
+            tracing::error!("board file write task failed");
+            Err(FileErr::Write(WriteError {
+                stage: WriteStage::Temp,
+                kind: None,
+            }))
+        }
+    }
+}
+
+/// 편집 작업자 — 요청을 하나씩. 저장은 서버 PUT → (성공 시) export(세션 보드 전부, 가져온 순서) → `filesave::write_bundle`
+/// 까지 한 번에(다음 요청은 앞 요청의 파일 쓰기까지 끝난 뒤). `FileState`·시작 바이트를 소유. 로그엔 단계·상태·ErrorKind만.
+/// 세션을 내릴 때는 돌려받은 핸들을 abort·await한다(통로를 닫기만 하면 큐를 다 처리한다).
+pub fn spawn_edit_worker(
+    handle: &Handle,
+    api: Api,
+    board_ids: Vec<String>,
+    file: FileState,
+    start_bytes: Vec<u8>,
+    out: mpsc::Sender<EditDone>,
+) -> (UnboundedSender<EditReq>, JoinHandle<()>) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<EditReq>();
+    let slot: FileSlot = Arc::new(Mutex::new((file, start_bytes)));
+    let worker = handle.spawn(async move {
+        while let Some(req) = rx.recv().await {
+            let done = match req {
+                EditReq::LoadEnv { id } => {
+                    let result = api.environment(&id).await.map_err(|e| {
+                        log_api_fail("load_env", &e);
+                        e.message
+                    });
+                    EditDone::Env { id, result }
+                }
+                EditReq::LoadScenario { id } => {
+                    let result = api.scenario(&id).await.map_err(|e| {
+                        log_api_fail("load_scenario", &e);
+                        e.message
+                    });
+                    EditDone::Scenario { id, result }
+                }
+                EditReq::SaveBoard {
+                    seq,
+                    board_id,
+                    panel_no,
+                    name,
+                    config,
+                    ..
+                } => {
+                    let server = api
+                        .put_board(&board_id, &name, &config)
+                        .await
+                        .map(SavedValue::Board)
+                        .map_err(|e| {
+                            log_api_fail("put_board", &e);
+                            edit::strip_panel_prefix(&e.message, panel_no).to_string()
+                        });
+                    let file = match server {
+                        Ok(_) => Some(persist(&api, &board_ids, &slot).await),
+                        Err(_) => None,
+                    };
+                    EditDone::Saved {
+                        seq,
+                        req: SavedWhat::Board { board_id },
+                        server,
+                        file,
+                    }
+                }
+                EditReq::SaveEnv {
+                    seq,
+                    id,
+                    name,
+                    vars,
+                } => {
+                    let server = api
+                        .put_environment(&id, &name, &vars)
+                        .await
+                        .map(SavedValue::Env)
+                        .map_err(|e| {
+                            log_api_fail("put_environment", &e);
+                            e.message
+                        });
+                    let file = match server {
+                        Ok(_) => Some(persist(&api, &board_ids, &slot).await),
+                        Err(_) => None,
+                    };
+                    EditDone::Saved {
+                        seq,
+                        req: SavedWhat::Env { id },
+                        server,
+                        file,
+                    }
+                }
+                EditReq::SaveScenario {
+                    seq,
+                    id,
+                    yaml,
+                    version,
+                } => {
+                    // 409 = 버전 어긋남 — `EditDone`엔 상태 코드가 없으니 문구는 여기서 바꾼다(spec §6.4).
+                    let server = api
+                        .put_scenario(&id, &yaml, version)
+                        .await
+                        .map(SavedValue::Scenario)
+                        .map_err(|e| {
+                            log_api_fail("put_scenario", &e);
+                            if e.status == Some(409) {
+                                text::SCENARIO_CONFLICT.to_string()
+                            } else {
+                                e.message
+                            }
+                        });
+                    let file = match server {
+                        Ok(_) => Some(persist(&api, &board_ids, &slot).await),
+                        Err(_) => None,
+                    };
+                    EditDone::Saved {
+                        seq,
+                        req: SavedWhat::Scenario { id },
+                        server,
+                        file,
+                    }
+                }
+            };
+            if out.send(done).is_err() {
+                return;
+            }
+        }
+    });
+    (tx, worker)
+}
+
+/// 편집 한 건(서버에 보낼 칸 설정 변환의 재료). `Debug`는 종류만(값 가림).
+#[derive(Clone, PartialEq, Eq)]
+pub enum Change {
+    Field(edit::Field, String),
+    Env(Option<String>),
+    Step(String),
+    Latency(Option<String>),
+    ThresholdAdd(u32),
+    ThresholdSet(usize, u32),
+    Remove(edit::ListKind, usize),
+    Swap,
+    Condition {
+        index: usize,
+        op: ConditionOp,
+        value: String,
+        ignore_case: bool,
+        trim: bool,
+    },
+}
+
+impl std::fmt::Debug for Change {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let k = match self {
+            Change::Field(field, _) => return write!(f, "Field({field:?})"),
+            Change::Env(_) => "Env",
+            Change::Step(_) => "Step",
+            Change::Latency(_) => "Latency",
+            Change::ThresholdAdd(_) => "ThresholdAdd",
+            Change::ThresholdSet(..) => "ThresholdSet",
+            Change::Remove(kind, i) => return write!(f, "Remove({kind:?}, {i})"),
+            Change::Swap => "Swap",
+            Change::Condition { index, .. } => return write!(f, "Condition({index})"),
+        };
+        f.write_str(k)
+    }
+}
+
+/// `edit.rs` 변환으로 새 보드 설정.
+pub fn apply_change(cfg: &BoardConfig, panel_idx: usize, c: &Change) -> BoardConfig {
+    match c {
+        Change::Field(f, v) => edit::set_field(cfg, panel_idx, *f, v),
+        Change::Env(e) => edit::set_env(cfg, panel_idx, e.clone()),
+        Change::Step(s) => edit::set_step(cfg, panel_idx, s),
+        Change::Latency(s) => edit::set_latency(cfg, panel_idx, s.as_deref()),
+        Change::ThresholdAdd(ms) => edit::threshold_add(cfg, panel_idx, *ms),
+        Change::ThresholdSet(i, ms) => edit::threshold_set(cfg, panel_idx, *i, *ms),
+        Change::Remove(k, i) => edit::remove_at(cfg, panel_idx, *k, *i),
+        Change::Swap => edit::swap_display(cfg, panel_idx),
+        Change::Condition {
+            index,
+            op,
+            value,
+            ignore_case,
+            trim,
+        } => edit::set_condition(cfg, panel_idx, *index, *op, value, *ignore_case, *trim),
+    }
+}
+
+/// 저장 전 확인이 필요하면 (문구, y_only). 볼 스텝을 **다른** 스텝으로 바꾸고 조건·표시 값이 있으면 단계 확인,
+/// 환경을 바꿔 옛 환경을 아무 칸도 안 쓰게 되면 빠짐 확인(이름 — 모르면 id), 삭제는 y_only. 그 밖 None.
+/// (plan 시그니처에 `names`를 더함 — 빠지는 환경의 이름이 필요하다.)
+pub fn confirm_for(
+    boards: &[BoardConfig],
+    board_idx: usize,
+    panel_idx: usize,
+    change: &Change,
+    names: &Names,
+) -> Option<(String, bool)> {
+    let p = boards.get(board_idx)?.panels.get(panel_idx)?;
+    match change {
+        Change::Step(s) => {
+            if p.step_id.as_deref() == Some(s.as_str()) {
+                return None;
+            }
+            let (c, d) = edit::step_change_counts(p);
+            ((c, d) != (0, 0)).then(|| (text::step_change_confirm(c, d), false))
+        }
+        Change::Env(new) => {
+            edit::dropped_env(boards, board_idx, panel_idx, new.as_deref()).map(|id| {
+                let name = names.env_name(&id).unwrap_or(&id).to_string();
+                (text::env_drop_confirm(&name), false)
+            })
+        }
+        Change::Remove(_, i) => Some((text::delete_confirm(i + 1), true)),
+        _ => None,
+    }
+}
+
+fn pending_of(c: &Change) -> Option<Pending> {
+    match c {
+        Change::Step(s) => Some(Pending::SetStep(s.clone())),
+        Change::Env(e) => Some(Pending::SetEnv(e.clone())),
+        Change::Remove(k, i) => Some(Pending::Remove(*k, *i)),
+        _ => None,
+    }
+}
+
+fn change_of(p: Pending) -> Change {
+    match p {
+        Pending::SetStep(s) => Change::Step(s),
+        Pending::SetEnv(e) => Change::Env(e),
+        Pending::Remove(k, i) => Change::Remove(k, i),
+    }
+}
+
+/// 거절 문구를 되살린 overlay에 싣는다(Input·CondForm은 오류 줄, 그 밖은 Notice).
+fn with_error(o: Overlay, m: String) -> Overlay {
+    match o {
+        Overlay::Input {
+            target,
+            input,
+            share,
+            ..
+        } => Overlay::Input {
+            target,
+            input,
+            error: Some(m),
+            share,
+        },
+        Overlay::CondForm {
+            index,
+            ops,
+            op,
+            value,
+            ignore_case,
+            trim,
+            focus,
+            ..
+        } => Overlay::CondForm {
+            index,
+            ops,
+            op,
+            value,
+            ignore_case,
+            trim,
+            focus,
+            error: Some(m),
+        },
+        _ => Overlay::Notice(m),
+    }
+}
+
+/// 메뉴 커서(0부터) → 하위 목록 종류(8·11·12번).
+pub fn list_kind_at(cursor: usize) -> Option<edit::ListKind> {
+    match cursor {
+        7 => Some(edit::ListKind::Thresholds),
+        10 => Some(edit::ListKind::Conditions),
+        11 => Some(edit::ListKind::Display),
+        _ => None,
+    }
+}
+
+fn list_len(p: &PanelConfig, k: edit::ListKind) -> usize {
+    match k {
+        edit::ListKind::Thresholds => p.thresholds.len(),
+        edit::ListKind::Conditions => p.conditions.len(),
+        edit::ListKind::Display => p.display_items.len(),
+    }
+}
+
+/// 받은 시나리오 → 화면 상태(고정 변수 줄은 `static_vars`로 — 줄마다 한 줄 모양으로 고칠 수 있어 보이는지 포함.
+/// ⑦ 검증만 잡는 모양은 저장 때 `submit_var`의 `splice_static_var`가 입력줄 오류 줄로 거절한다).
+fn scen_loaded(r: ScenarioResponse) -> ScenLoad {
+    let vars = yaml_var::static_vars(&r.yaml);
+    ScenLoad::Loaded {
+        id: r.id,
+        yaml: r.yaml,
+        version: r.version,
+        vars,
+    }
+}
+
+/// 편집 작업자가 없거나 멈춰 결과가 영영 오지 않을 때(리뷰 B2): 저장 표를 풀고, 그 칸 화면의 `저장 중…`은
+/// `Notice(SAVE_LOST)`, 기다리던 조회는 `Failed(LOAD_LOST)`. 바꾼 게 있으면 true.
+pub fn worker_gone(edit: Option<&mut EditUi>, ticket: &mut Option<SaveTicket>) -> bool {
+    let t = ticket.take();
+    let mut changed = t.is_some();
+    let Some(e) = edit else {
+        return changed;
+    };
+    if matches!(e.overlay, Some(Overlay::Saving { .. }))
+        && t.as_ref()
+            .is_none_or(|t| t.board_id == e.board_id && t.panel_id == e.panel_id)
+    {
+        e.overlay = Some(Overlay::Notice(text::SAVE_LOST.to_string()));
+        changed = true;
+    }
+    if matches!(e.env, Some(EnvLoad::Loading { .. })) {
+        e.env = Some(EnvLoad::Failed(text::LOAD_LOST.to_string()));
+        changed = true;
+    }
+    if matches!(e.scen, Some(ScenLoad::Loading { .. })) {
+        e.scen = Some(ScenLoad::Failed(text::LOAD_LOST.to_string()));
+        changed = true;
+    }
+    changed
+}
+
+/// 저장 결과 반영(순수). 표와 seq가 다른 `Saved`는 버린다. 캐시·알림은 **항상** 반영하고(`Notice(저장 중…)`도
+/// 어느 칸 화면이든 닫는다), overlay 복원·`Notice`는
+/// `edit`가 표의 보드·칸일 때만. 돌려주는 알림: 파일 Ok → `Saved(now_ms)`, 밖에서 바뀜 → `ChangedOutside`,
+/// 그 밖 파일 실패 → `FileFailed`, 서버 거절 → None(지금 알림 유지).
+/// 환경·시나리오 조회 결과(`Env`·`Scenario`)는 지금 그 id를 `Loading`으로 기다릴 때만 받는다 — 화면을 나갔거나
+/// (`None`) 다른 것을 기다리면 버린다(값이 다시 메모리에 들지 않게). 환경·시나리오 저장 성공은 그 화면에 같은 id가
+/// 이미 `Loaded`일 때만 응답으로 바꾼다(나간 뒤 온 성공은 알림만).
+pub fn apply_done(
+    edit: Option<&mut EditUi>,
+    boards: &mut [BoardResponse],
+    ticket: &mut Option<SaveTicket>,
+    done: EditDone,
+    now_ms: i64,
+) -> Option<HeaderNotice> {
+    let (seq, server, file) = match done {
+        EditDone::Env { id, result } => {
+            if let Some(e) = edit
+                && matches!(&e.env, Some(EnvLoad::Loading { id: want }) if *want == id)
+            {
+                e.env = Some(match result {
+                    Ok(r) => EnvLoad::Loaded(r),
+                    Err(m) => EnvLoad::Failed(m),
+                });
+                e.list_cursor = 0;
+            }
+            return None;
+        }
+        EditDone::Scenario { id, result } => {
+            if let Some(e) = edit
+                && matches!(&e.scen, Some(ScenLoad::Loading { id: want }) if *want == id)
+            {
+                e.scen = Some(match result {
+                    Ok(r) => scen_loaded(r),
+                    Err(m) => ScenLoad::Failed(m),
+                });
+                e.list_cursor = 0;
+            }
+            return None;
+        }
+        EditDone::Saved {
+            seq, server, file, ..
+        } => (seq, server, file),
+    };
+    let t = match ticket.take() {
+        Some(t) if t.seq == seq => t,
+        other => {
+            *ticket = other;
+            return None;
+        }
+    };
+    let mut edit = edit;
+    // `저장 중…` 안내(표가 있을 때 저장·다른 칸 열기)는 "지금 저장 중"이라는 뜻뿐 — 표의 칸과 화면 칸이 달라도
+    // 그 저장이 끝났으니 닫는다.
+    if let Some(e) = edit.as_deref_mut()
+        && matches!(&e.overlay, Some(Overlay::Notice(s)) if s == text::SAVING)
+    {
+        e.overlay = None;
+    }
+    let here = edit.filter(|e| e.board_id == t.board_id && e.panel_id == t.panel_id);
+    match server {
+        Err(m) => {
+            if let Some(e) = here
+                && let Some(Overlay::Saving { restore }) = &mut e.overlay
+            {
+                let r = restore.take();
+                e.overlay = Some(match r {
+                    Some(o) => with_error(*o, m),
+                    None => Overlay::Notice(m),
+                });
+            }
+            None
+        }
+        Ok(v) => {
+            let mut here = here;
+            match v {
+                SavedValue::Board(b) => {
+                    if let Some(slot) = boards.iter_mut().find(|x| x.id == b.id) {
+                        *slot = b;
+                    }
+                }
+                SavedValue::Env(r) => {
+                    if let Some(e) = here.as_deref_mut()
+                        && matches!(&e.env, Some(EnvLoad::Loaded(cur)) if cur.id == r.id)
+                    {
+                        e.env = Some(EnvLoad::Loaded(r));
+                    }
+                }
+                SavedValue::Scenario(r) => {
+                    if let Some(e) = here.as_deref_mut()
+                        && matches!(&e.scen, Some(ScenLoad::Loaded { id, .. }) if *id == r.id)
+                    {
+                        e.scen = Some(scen_loaded(r));
+                    }
+                }
+            }
+            if let Some(e) = here {
+                if matches!(e.overlay, Some(Overlay::Saving { .. })) {
+                    e.overlay = None;
+                }
+                // 삭제 뒤 목록 커서를 남은 줄 안으로.
+                let p = boards
+                    .iter()
+                    .find(|b| b.id == e.board_id)
+                    .and_then(|b| b.config.panels.iter().find(|p| p.id == e.panel_id));
+                if let (Some(p), Some(k)) = (p, list_kind_at(e.cursor)) {
+                    e.list_cursor = e.list_cursor.min(list_len(p, k).saturating_sub(1));
+                }
+            }
+            match file {
+                Some(Ok(())) => Some(HeaderNotice::Saved(now_ms)),
+                Some(Err(FileErr::Write(WriteError {
+                    stage: WriteStage::ChangedOutside,
+                    ..
+                }))) => Some(HeaderNotice::ChangedOutside),
+                Some(Err(_)) => Some(HeaderNotice::FileFailed),
+                None => None,
+            }
+        }
+    }
+}
+
+/// `edit_apply`가 쓰는 세션 쪽 값.
+pub struct EditCtx<'a> {
+    pub boards: &'a [BoardResponse],
+    pub names: &'a Names,
+    pub ticket: &'a mut Option<SaveTicket>,
+    /// 마지막으로 쓴 저장 번호(새 저장마다 +1)
+    pub seq: &'a mut u64,
+}
+
+/// `edit_apply`의 결과 — 화면 전환·작업자 요청·종료 확인.
+#[derive(Debug, Default)]
+pub struct EditOut {
+    pub screen: Option<Screen>,
+    pub req: Option<EditReq>,
+    /// 입력줄의 Ctrl+C — 종료 확인창(입력 유지)
+    pub ask_quit: bool,
+}
+
+const MENU_ITEMS: usize = 14;
+/// 글자 입력줄 상한(spec §6.7).
+const TEXT_MAX: usize = 2000;
+/// 숫자 입력줄 상한(자리 수).
+const DIGITS_MAX: usize = 6;
+
+fn locate(boards: &[BoardResponse], ui: &EditUi) -> Option<(usize, usize)> {
+    let bi = boards.iter().position(|b| b.id == ui.board_id)?;
+    let pi = boards[bi]
+        .config
+        .panels
+        .iter()
+        .position(|p| p.id == ui.panel_id)?;
+    Some((bi, pi))
+}
+
+/// 초기값이 입력 규칙(받는 글자·상한)을 그대로 통과할 때만 입력줄 — 아니면 안내(몰래 잘라 저장하지 않게).
+fn open_input(v: &str, mode: InputMode, mk: impl FnOnce(LineInput) -> Overlay) -> Overlay {
+    let li = LineInput::new(v, mode);
+    if li.text() == v {
+        mk(li)
+    } else {
+        Overlay::Notice(text::VALUE_UNEDITABLE.to_string())
+    }
+}
+
+fn field_input(target: InputTarget, v: &str, mode: InputMode) -> Overlay {
+    open_input(v, mode, |input| Overlay::Input {
+        target,
+        input,
+        error: None,
+        share: None,
+    })
+}
+
+fn parse_ms(s: &str) -> u32 {
+    s.trim().parse().unwrap_or(0)
+}
+
+/// 목록 창 옵션과 지금 값의 위치.
+fn pick_options(
+    pick: edit::Pick,
+    p: &PanelConfig,
+    names: &Names,
+) -> (Vec<(Option<String>, String)>, usize) {
+    let steps = || {
+        edit::step_options(names, &p.scenario_id)
+            .into_iter()
+            .map(|(id, l)| (Some(id), l))
+    };
+    let (opts, cur): (Vec<(Option<String>, String)>, Option<String>) = match pick {
+        edit::Pick::Env => (
+            std::iter::once((None, text::ENV_NONE.to_string()))
+                .chain(
+                    names
+                        .env_order()
+                        .iter()
+                        .map(|(id, n)| (Some(id.clone()), n.clone())),
+                )
+                .collect(),
+            p.environment_id.clone(),
+        ),
+        edit::Pick::Step => (steps().collect(), p.step_id.clone()),
+        edit::Pick::Latency => (
+            std::iter::once((None, text::LATENCY_TOTAL.to_string()))
+                .chain(steps())
+                .collect(),
+            match &p.latency_source {
+                LatencySource::Total => None,
+                LatencySource::Step { step_id } => Some(step_id.clone()),
+            },
+        ),
+    };
+    let i = opts.iter().position(|(id, _)| *id == cur).unwrap_or(0);
+    (opts, i)
+}
+
+fn cond_fields(op: ConditionOp) -> Vec<CondFocus> {
+    let mut v = vec![CondFocus::Op];
+    if op.needs_value() {
+        v.push(CondFocus::Value);
+    }
+    if op.has_flags() {
+        v.extend([CondFocus::IgnoreCase, CondFocus::Trim]);
+    }
+    v
+}
+
+fn clamp_move(cur: usize, d: isize, len: usize) -> usize {
+    let last = len.saturating_sub(1) as isize;
+    (cur as isize).saturating_add(d).clamp(0, last.max(0)) as usize
+}
+
+/// 편집 화면 동작의 줄 수(커서 가둠용).
+fn rows_on(screen: &Screen, ui: &EditUi, p: &PanelConfig) -> usize {
+    match screen {
+        Screen::Settings => MENU_ITEMS,
+        Screen::EditList => list_kind_at(ui.cursor).map_or(0, |k| list_len(p, k)),
+        Screen::EnvVars => match &ui.env {
+            Some(EnvLoad::Loaded(e)) => e.vars.len(),
+            _ => 0,
+        },
+        Screen::ScenarioVars => match &ui.scen {
+            Some(ScenLoad::Loaded { vars, .. }) => vars.len(),
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
+/// 확정: 저장 표가 있으면 `Notice(저장 중…)`, 확인이 필요하면 확인 줄, 아니면 저장 요청.
+fn commit(
+    ui: &mut EditUi,
+    cx: &mut EditCtx,
+    bi: usize,
+    pi: usize,
+    change: Change,
+    restore: Option<Overlay>,
+    confirmed: bool,
+) -> Option<EditReq> {
+    if cx.ticket.is_some() {
+        // 표 확인이 확인 줄보다 먼저 — 확인 뒤 거절되는 저장이 없게.
+        ui.overlay = Some(Overlay::Notice(text::SAVING.to_string()));
+        return None;
+    }
+    if !confirmed {
+        let cfgs: Vec<BoardConfig> = cx.boards.iter().map(|b| b.config.clone()).collect();
+        if let Some((t, y_only)) = confirm_for(&cfgs, bi, pi, &change, cx.names)
+            && let Some(then) = pending_of(&change)
+        {
+            ui.overlay = Some(Overlay::Confirm {
+                text: t,
+                then,
+                y_only,
+            });
+            return None;
+        }
+    }
+    let b = &cx.boards[bi];
+    let config = apply_change(&b.config, pi, &change);
+    let (board_id, panel_id, name) = (b.id.clone(), ui.panel_id.clone(), b.name.clone());
+    start_save(ui, cx, restore, |seq| EditReq::SaveBoard {
+        seq,
+        board_id,
+        panel_id,
+        panel_no: pi + 1,
+        name,
+        config,
+    })
+}
+
+/// 저장 하나 시작: 표가 있으면 `Notice(저장 중…)`(None). 아니면 번호를 올려 표(편집 화면의 보드·칸)와
+/// `Saving{restore}`를 세우고 `mk(seq)` 요청. 보드·환경·시나리오 저장이 함께 쓴다.
+fn start_save(
+    ui: &mut EditUi,
+    cx: &mut EditCtx,
+    restore: Option<Overlay>,
+    mk: impl FnOnce(u64) -> EditReq,
+) -> Option<EditReq> {
+    if cx.ticket.is_some() {
+        ui.overlay = Some(Overlay::Notice(text::SAVING.to_string()));
+        return None;
+    }
+    *cx.seq += 1;
+    let seq = *cx.seq;
+    *cx.ticket = Some(SaveTicket {
+        seq,
+        board_id: ui.board_id.clone(),
+        panel_id: ui.panel_id.clone(),
+    });
+    ui.overlay = Some(Overlay::Saving {
+        restore: restore.map(Box::new),
+    });
+    Some(mk(seq))
+}
+
+/// 환경·시나리오 변수 입력줄 확정(13·14). 환경 = 받은 `vars` 복제에서 그 키만 바꿔 `SaveEnv`. 시나리오 = 그 한 줄
+/// 교체(`splice_static_var`) — 안 되면 입력줄 오류 줄에 사유(저장 안 함), 되면 `SaveScenario{교체본, 받은 version}`.
+/// 받은 값이 없으면(불러오는 중·실패) 아무것도 안 한다.
+fn submit_var(ui: &mut EditUi, cx: &mut EditCtx, restore: Overlay, v: String) -> Option<EditReq> {
+    let Overlay::Input { target, .. } = &restore else {
+        return None;
+    };
+    match target {
+        InputTarget::EnvVar(key) => {
+            let Some(EnvLoad::Loaded(e)) = &ui.env else {
+                return None;
+            };
+            let (id, name) = (e.id.clone(), e.name.clone());
+            let mut vars = e.vars.clone();
+            vars.insert(key.clone(), v);
+            start_save(ui, cx, Some(restore), |seq| EditReq::SaveEnv {
+                seq,
+                id,
+                name,
+                vars,
+            })
+        }
+        InputTarget::ScenarioVar(key) => {
+            let Some(ScenLoad::Loaded {
+                id, yaml, version, ..
+            }) = &ui.scen
+            else {
+                return None;
+            };
+            match yaml_var::splice_static_var(yaml, key, &v) {
+                Err(why) => {
+                    ui.overlay = Some(with_error(restore, not_editable_text(why).to_string()));
+                    None
+                }
+                Ok(yaml) => {
+                    let (id, version) = (id.clone(), *version);
+                    start_save(ui, cx, Some(restore), |seq| EditReq::SaveScenario {
+                        seq,
+                        id,
+                        yaml,
+                        version,
+                    })
+                }
+            }
+        }
+        _ => None,
+    }
+}
+
+fn not_editable_text(why: yaml_var::NotEditable) -> &'static str {
+    match why {
+        yaml_var::NotEditable::Generated => text::VAR_GENERATED,
+        yaml_var::NotEditable::Shape => text::VAR_SHAPE,
+    }
+}
+
+/// 환경·시나리오 변수 화면에서 `Enter`(spec §6.3·§6.4): 고른 줄의 값만 평문으로 입력줄에. 시나리오의 못 고치는 줄은
+/// 사유 `Notice`, 값이 입력 규칙(받는 글자·2000자)을 못 지키면 `Notice(VALUE_UNEDITABLE)`. 같은 환경/시나리오를
+/// 쓰는 칸이 2개 이상이면 공유 문구. 받은 값이 없으면 아무것도 안 한다.
+fn activate_var(screen: &Screen, ui: &mut EditUi, cx: &EditCtx, p: &PanelConfig) {
+    let cfgs: Vec<BoardConfig> = cx.boards.iter().map(|b| b.config.clone()).collect();
+    let share_for = |(pn, bn): (usize, usize)| (pn >= 2).then(|| text::share_note(pn, bn));
+    let i = ui.list_cursor;
+    let (target, value, share) = match (screen, &ui.env, &ui.scen) {
+        (Screen::EnvVars, Some(EnvLoad::Loaded(e)), _) => {
+            let Some((k, v)) = e.vars.iter().nth(i) else {
+                return;
+            };
+            let id = e.id.as_str();
+            let share = share_for(edit::usage(&cfgs, |q| {
+                q.environment_id.as_deref() == Some(id)
+            }));
+            (InputTarget::EnvVar(k.clone()), v.clone(), share)
+        }
+        (Screen::ScenarioVars, _, Some(ScenLoad::Loaded { vars, .. })) => {
+            let Some(sv) = vars.get(i) else {
+                return;
+            };
+            if let Err(why) = sv.editable {
+                ui.overlay = Some(Overlay::Notice(not_editable_text(why).to_string()));
+                return;
+            }
+            let sc = p.scenario_id.as_str();
+            let share = share_for(edit::usage(&cfgs, |q| q.scenario_id == sc));
+            (
+                InputTarget::ScenarioVar(sv.key.clone()),
+                sv.value.clone(),
+                share,
+            )
+        }
+        _ => return,
+    };
+    ui.overlay = Some(open_input(
+        &value,
+        InputMode::Text {
+            max_chars: TEXT_MAX,
+        },
+        |input| Overlay::Input {
+            target,
+            input,
+            error: None,
+            share,
+        },
+    ));
+}
+
+/// 편집 동작 하나를 화면 상태에 적용(순수 — 서버 호출은 돌려준 요청으로). `Back`·`AskQuit`은 App이 먼저 처리한다
+/// (`SubViews::back`·종료 확인창). 13·14의 조회 결과·저장 결과 반영은 `apply_done`.
+pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAction) -> EditOut {
+    let mut out = EditOut::default();
+    let Some((bi, pi)) = locate(cx.boards, ui) else {
+        ui.overlay = None;
+        return out;
+    };
+    let p = &cx.boards[bi].config.panels[pi];
+    match a {
+        EditAction::None | EditAction::Back | EditAction::AskQuit => {}
+        EditAction::PickCancel | EditAction::ConfirmNo | EditAction::CloseNotice => {
+            ui.overlay = None;
+        }
+        EditAction::MoveCursor(d) => {
+            let n = rows_on(screen, ui, p);
+            if matches!(screen, Screen::Settings) {
+                ui.cursor = clamp_move(ui.cursor, d, n);
+            } else {
+                ui.list_cursor = clamp_move(ui.list_cursor, d, n);
+            }
+        }
+        EditAction::Jump(i) => {
+            let last = rows_on(screen, ui, p).saturating_sub(1);
+            if matches!(screen, Screen::Settings) {
+                ui.cursor = i.min(last);
+            } else {
+                ui.list_cursor = i.min(last);
+            }
+        }
+        EditAction::DigitJump { no, .. } => {
+            if matches!(screen, Screen::Settings) {
+                ui.cursor = no.clamp(1, MENU_ITEMS) - 1;
+            }
+        }
+        EditAction::Activate => match screen {
+            Screen::Settings => activate_menu(ui, cx, p, &mut out),
+            Screen::EditList => activate_list(ui, p),
+            Screen::EnvVars | Screen::ScenarioVars => activate_var(screen, ui, cx, p),
+            _ => {}
+        },
+        EditAction::Add => {
+            if matches!(screen, Screen::EditList)
+                && list_kind_at(ui.cursor) == Some(edit::ListKind::Thresholds)
+            {
+                ui.overlay = Some(field_input(
+                    InputTarget::ThresholdNew,
+                    &edit::threshold_default_ms(p).to_string(),
+                    InputMode::Digits { max: DIGITS_MAX },
+                ));
+            }
+        }
+        EditAction::Remove => {
+            if matches!(screen, Screen::EditList)
+                && let Some(k) = list_kind_at(ui.cursor)
+                && ui.list_cursor < list_len(p, k)
+            {
+                let c = Change::Remove(k, ui.list_cursor);
+                out.req = commit(ui, cx, bi, pi, c, None, false);
+            }
+        }
+        EditAction::Swap => {
+            if matches!(screen, Screen::EditList)
+                && list_kind_at(ui.cursor) == Some(edit::ListKind::Display)
+                && p.display_items.len() == 2
+            {
+                out.req = commit(ui, cx, bi, pi, Change::Swap, None, false);
+            }
+        }
+        EditAction::ToggleReveal => {
+            if matches!(screen, Screen::EnvVars) {
+                ui.reveal = !ui.reveal;
+            }
+        }
+        EditAction::Input(outcome, after) => {
+            match &mut ui.overlay {
+                Some(Overlay::Input { input, .. }) => *input = after,
+                Some(Overlay::CondForm {
+                    value,
+                    focus: CondFocus::Value,
+                    ..
+                }) => *value = after,
+                _ => return out,
+            }
+            match outcome {
+                InputOutcome::AskQuit => out.ask_quit = true,
+                InputOutcome::Cancel => ui.overlay = None,
+                InputOutcome::Submit => {
+                    if let Some(Overlay::Input {
+                        target,
+                        input,
+                        share,
+                        ..
+                    }) = &ui.overlay
+                    {
+                        let v = input.text();
+                        let change = match target {
+                            InputTarget::Field(f) => Some(Change::Field(*f, v.clone())),
+                            InputTarget::ThresholdNew => Some(Change::ThresholdAdd(parse_ms(&v))),
+                            InputTarget::Threshold(i) => {
+                                Some(Change::ThresholdSet(*i, parse_ms(&v)))
+                            }
+                            InputTarget::EnvVar(_) | InputTarget::ScenarioVar(_) => None,
+                        };
+                        let restore = Overlay::Input {
+                            target: target.clone(),
+                            input: input.clone(),
+                            error: None,
+                            share: share.clone(),
+                        };
+                        out.req = match change {
+                            Some(c) => commit(ui, cx, bi, pi, c, Some(restore), false),
+                            None => submit_var(ui, cx, restore, v),
+                        };
+                    }
+                }
+                InputOutcome::Edited | InputOutcome::Ignored => {}
+            }
+        }
+        EditAction::PickMove(d) => {
+            if let Some(Overlay::Pick {
+                options, cursor, ..
+            }) = &mut ui.overlay
+            {
+                *cursor = clamp_move(*cursor, d, options.len());
+            }
+        }
+        EditAction::PickChoose => {
+            if let Some(Overlay::Pick {
+                pick,
+                options,
+                cursor,
+            }) = &ui.overlay
+                && let Some((id, _)) = options.get(*cursor)
+            {
+                let change = match pick {
+                    edit::Pick::Env => Some(Change::Env(id.clone())),
+                    edit::Pick::Step => id.clone().map(Change::Step),
+                    edit::Pick::Latency => Some(Change::Latency(id.clone())),
+                };
+                if let Some(c) = change {
+                    out.req = commit(ui, cx, bi, pi, c, None, false);
+                }
+            }
+        }
+        EditAction::CondKey(k) => cond_key(ui, cx, bi, pi, k, &mut out),
+        EditAction::ConfirmYes => {
+            if let Some(Overlay::Confirm { then, .. }) = ui.overlay.take() {
+                out.req = commit(ui, cx, bi, pi, change_of(then), None, true);
+            }
+        }
+    }
+    out
+}
+
+fn activate_menu(ui: &mut EditUi, cx: &EditCtx, p: &PanelConfig, out: &mut EditOut) {
+    match edit::edit_kind(ui.cursor + 1, p, cx.names) {
+        edit::EditKind::Input(f) => {
+            let mode = if f == edit::Field::Title {
+                InputMode::Text {
+                    max_chars: TEXT_MAX,
+                }
+            } else {
+                InputMode::Digits { max: DIGITS_MAX }
+            };
+            ui.overlay = Some(field_input(
+                InputTarget::Field(f),
+                &edit::field_value(p, f),
+                mode,
+            ));
+        }
+        edit::EditKind::Pick(pick) => {
+            let (options, cursor) = pick_options(pick, p, cx.names);
+            ui.overlay = Some(if options.is_empty() {
+                Overlay::Notice(text::VALUE_UNEDITABLE.to_string())
+            } else {
+                Overlay::Pick {
+                    pick,
+                    options,
+                    cursor,
+                }
+            });
+        }
+        edit::EditKind::List(_) => {
+            ui.list_cursor = 0;
+            out.screen = Some(Screen::EditList);
+        }
+        edit::EditKind::EnvVars => {
+            if let Some(id) = &p.environment_id {
+                ui.leave_env();
+                ui.env = Some(EnvLoad::Loading { id: id.clone() });
+                out.req = Some(EditReq::LoadEnv { id: id.clone() });
+                out.screen = Some(Screen::EnvVars);
+            }
+        }
+        edit::EditKind::ScenarioVars => {
+            ui.leave_scen();
+            ui.scen = Some(ScenLoad::Loading {
+                id: p.scenario_id.clone(),
+            });
+            out.req = Some(EditReq::LoadScenario {
+                id: p.scenario_id.clone(),
+            });
+            out.screen = Some(Screen::ScenarioVars);
+        }
+        edit::EditKind::ReadOnly(m) => ui.overlay = Some(Overlay::Notice(m.to_string())),
+    }
+}
+
+fn activate_list(ui: &mut EditUi, p: &PanelConfig) {
+    let i = ui.list_cursor;
+    match list_kind_at(ui.cursor) {
+        Some(edit::ListKind::Thresholds) => {
+            if let Some(t) = p.thresholds.get(i) {
+                ui.overlay = Some(field_input(
+                    InputTarget::Threshold(i),
+                    &t.ms.to_string(),
+                    InputMode::Digits { max: DIGITS_MAX },
+                ));
+            }
+        }
+        Some(edit::ListKind::Conditions) => {
+            if let Some(c) = p.conditions.get(i) {
+                let ops = edit::ops_for(c.source);
+                let op = ops.iter().position(|o| *o == c.op).unwrap_or(0);
+                let (ignore_case, trim) = (c.ignore_case, c.trim);
+                ui.overlay = Some(open_input(
+                    &c.value,
+                    InputMode::Text {
+                        max_chars: TEXT_MAX,
+                    },
+                    |value| Overlay::CondForm {
+                        index: i,
+                        ops,
+                        op,
+                        value,
+                        ignore_case,
+                        trim,
+                        focus: CondFocus::Op,
+                        error: None,
+                    },
+                ));
+            }
+        }
+        // 표시 값은 삭제·자리 바꾸기만.
+        Some(edit::ListKind::Display) | None => {}
+    }
+}
+
+fn cond_key(
+    ui: &mut EditUi,
+    cx: &mut EditCtx,
+    bi: usize,
+    pi: usize,
+    k: KeyEvent,
+    out: &mut EditOut,
+) {
+    let Some(Overlay::CondForm {
+        index,
+        ops,
+        op,
+        value,
+        ignore_case,
+        trim,
+        focus,
+        ..
+    }) = &mut ui.overlay
+    else {
+        return;
+    };
+    let cur_op = ops.get(*op).copied().unwrap_or(ConditionOp::Exists);
+    let fields = cond_fields(cur_op);
+    let at = fields.iter().position(|f| f == focus).unwrap_or(0);
+    match k.code {
+        KeyCode::Tab => *focus = fields[(at + 1) % fields.len()],
+        KeyCode::BackTab => *focus = fields[(at + fields.len() - 1) % fields.len()],
+        KeyCode::Left | KeyCode::Right if *focus == CondFocus::Op && !ops.is_empty() => {
+            let n = ops.len();
+            *op = if k.code == KeyCode::Left {
+                (*op + n - 1) % n
+            } else {
+                (*op + 1) % n
+            };
+        }
+        KeyCode::Char(' ') if *focus == CondFocus::IgnoreCase => *ignore_case = !*ignore_case,
+        KeyCode::Char(' ') if *focus == CondFocus::Trim => *trim = !*trim,
+        KeyCode::Esc => ui.overlay = None,
+        KeyCode::Enter => {
+            let change = Change::Condition {
+                index: *index,
+                op: cur_op,
+                // 값이 필요 없는 규칙이면 비워 보낸다(서버도 비운다).
+                value: if cur_op.needs_value() {
+                    value.text()
+                } else {
+                    String::new()
+                },
+                ignore_case: *ignore_case,
+                trim: *trim,
+            };
+            let restore = ui.overlay.clone().map(|o| match o {
+                Overlay::CondForm {
+                    index,
+                    ops,
+                    op,
+                    value,
+                    ignore_case,
+                    trim,
+                    focus,
+                    ..
+                } => Overlay::CondForm {
+                    index,
+                    ops,
+                    op,
+                    value,
+                    ignore_case,
+                    trim,
+                    focus,
+                    error: None,
+                },
+                o => o,
+            });
+            out.req = commit(ui, cx, bi, pi, change, restore, false);
+        }
+        _ => {}
+    }
+}
+
+/// 5분 자동 복귀(spec §6.6): 화면 상태를 비우되 진행 중 저장(`Saving`)이 있으면 `edit`는 남긴다(입력·값은 `idle_drop`).
+pub fn idle_return(views: &mut SubViews) {
+    let keep = views.edit.take().and_then(|mut e| {
+        let saving = matches!(e.overlay, Some(Overlay::Saving { .. }));
+        idle_drop(&mut e);
+        saving.then_some(e)
+    });
+    views.clear();
+    views.edit = keep;
+}
+
+/// 편집 화면(메뉴·하위 목록·변수 화면)의 키 줄 조각. `list` = (하위 목록 종류, 실제 항목 수).
+pub fn edit_keys(
+    screen: &Screen,
+    ui: &EditUi,
+    list: Option<(edit::ListKind, usize)>,
+    quit_confirm: bool,
+) -> Vec<&'static str> {
+    if quit_confirm {
+        return vec![text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL];
+    }
+    match &ui.overlay {
+        Some(Overlay::Input { .. }) => vec![text::KEYS_SAVE, text::KEYS_CANCEL, text::KEYS_CLEAR],
+        Some(Overlay::Pick { .. }) => vec![text::KEYS_PICK, text::KEYS_SAVE, text::KEYS_CANCEL],
+        Some(Overlay::CondForm { .. }) => crate::view::edit::cond_form_keys(),
+        Some(Overlay::Confirm { .. } | Overlay::Saving { .. } | Overlay::Notice(_)) => vec![],
+        None => match screen {
+            Screen::Settings => vec![
+                text::KEYS_PICK,
+                text::KEYS_NUMBER,
+                text::KEYS_EDIT,
+                text::KEYS_TO_MONITOR,
+            ],
+            Screen::EditList => match list {
+                Some((k, n)) => crate::view::edit::list_keys(view_list_kind(k), n),
+                None => vec![text::KEYS_BACK],
+            },
+            Screen::EnvVars => crate::view::edit::vars_keys(true, ui.reveal),
+            Screen::ScenarioVars => crate::view::edit::vars_keys(false, false),
+            _ => vec![],
+        },
+    }
+}
+
+fn view_list_kind(k: edit::ListKind) -> crate::view::edit::ListKind {
+    match k {
+        edit::ListKind::Thresholds => crate::view::edit::ListKind::Thresholds,
+        edit::ListKind::Conditions => crate::view::edit::ListKind::Conditions,
+        edit::ListKind::Display => crate::view::edit::ListKind::Display,
+    }
+}
+// ---- 편집 화면 그리기용 뷰 모델(원문을 넘긴다 — sanitize는 view가) ----
+
+fn field_label(f: edit::Field) -> &'static str {
+    match f {
+        edit::Field::Title => text::SET_TITLE,
+        edit::Field::Interval => text::SET_INTERVAL,
+        edit::Field::Timeout => text::SET_TIMEOUT,
+        edit::Field::BarCount => text::SET_BAR_COUNT,
+        edit::Field::GraphMax => text::SET_GRAPH_MAX,
+    }
+}
+
+fn list_label(k: edit::ListKind) -> &'static str {
+    match k {
+        edit::ListKind::Thresholds => text::SET_THRESHOLDS,
+        edit::ListKind::Conditions => text::SET_CONDITIONS,
+        edit::ListKind::Display => text::SET_DISPLAY,
+    }
+}
+
+/// 목록 창 줄(Pick이 아니면 빈 목록) — `OverlayView::Pick`이 빌린다.
+fn pick_labels(ui: &EditUi) -> Vec<String> {
+    match &ui.overlay {
+        Some(Overlay::Pick { options, .. }) => options.iter().map(|(_, l)| l.clone()).collect(),
+        _ => vec![],
+    }
+}
+
+/// overlay → 그리기 모델(조건 수정 칸은 따로 그린다 — None). `w` = 입력줄 가로 창 계산 폭.
+fn overlay_view<'a>(o: &'a Overlay, picks: &'a [String], w: usize) -> Option<OverlayView<'a>> {
+    Some(match o {
+        Overlay::Input {
+            target,
+            input,
+            error,
+            share,
+        } => {
+            let (label, hint) = match target {
+                InputTarget::Field(f) => (
+                    field_label(*f),
+                    edit::field_range(*f).map(|(lo, hi)| text::range_hint(lo, hi)),
+                ),
+                InputTarget::ThresholdNew | InputTarget::Threshold(_) => {
+                    (text::SET_THRESHOLDS, Some(text::LATENCY_UNIT.to_string()))
+                }
+                InputTarget::EnvVar(k) | InputTarget::ScenarioVar(k) => (k.as_str(), None),
+            };
+            let (text, cursor_x) = input.view(w);
+            OverlayView::Input {
+                label,
+                text,
+                cursor_x,
+                hint,
+                error: error.as_deref(),
+                share: share.as_deref(),
+            }
+        }
+        Overlay::Pick { pick, cursor, .. } => OverlayView::Pick {
+            title: match pick {
+                edit::Pick::Env => text::SET_ENV,
+                edit::Pick::Step => text::SET_STEP,
+                edit::Pick::Latency => text::SET_LATENCY,
+            },
+            options: picks,
+            cursor: *cursor,
+        },
+        Overlay::CondForm { .. } => return None,
+        Overlay::Confirm { text, .. } => OverlayView::Confirm(text),
+        Overlay::Saving { .. } => OverlayView::Saving,
+        Overlay::Notice(m) => OverlayView::Notice(m),
+    })
+}
+
+fn dim_row(t: &str) -> ListRow {
+    ListRow {
+        text: t.to_string(),
+        color: None,
+        dim: true,
+    }
+}
+
+/// 하위 목록 줄(spec §6.1 8·11·12). 목록이 비면 빈 목록(호출 쪽이 안내 줄을 정한다).
+pub fn list_rows(k: edit::ListKind, p: &PanelConfig, names: &Names) -> Vec<ListRow> {
+    let sc = p.scenario_id.as_str();
+    let row = |text: String, color: Option<String>| ListRow {
+        text,
+        color,
+        dim: false,
+    };
+    match k {
+        edit::ListKind::Thresholds => p
+            .thresholds
+            .iter()
+            .map(|t| {
+                row(
+                    format!(
+                        "{} {}",
+                        crate::judge::format_stat_num(f64::from(t.ms)),
+                        text::LATENCY_UNIT
+                    ),
+                    Some(t.color.clone()),
+                )
+            })
+            .collect(),
+        edit::ListKind::Conditions => p
+            .conditions
+            .iter()
+            .map(|c| row(condition_summary(c, names.step_name(sc, &c.step_id)), None))
+            .collect(),
+        edit::ListKind::Display => p
+            .display_items
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let rank = text::DISPLAY_RANK.get(i).copied().unwrap_or("");
+                let step = names.step_name(sc, &d.step_id).unwrap_or(&d.step_id);
+                row(format!("{rank} {} · {step}", display_target(d)), None)
+            })
+            .collect(),
+    }
+}
+
+/// 환경 변수 화면 줄(키 순 — `BTreeMap`). `reveal`이 아니면 값 자리는 언제나 `env_display(_, false)`(고정 가림 문자) —
+/// 원래 값은 줄 어디에도 들지 않는다(렌더러는 원문을 받지 않는다, Review Focus 5).
+pub fn env_rows(e: &EnvironmentResponse, reveal: bool) -> Vec<VarRow> {
+    e.vars
+        .iter()
+        .map(|(k, v)| VarRow {
+            key: k.clone(),
+            value: env_display(v, reveal),
+            note: None,
+        })
+        .collect()
+}
+
+/// 시나리오 변수 화면 줄 — 가리지 않는다(설계). 못 고치는 줄은 사유(흐리게).
+pub fn scen_rows(vars: &[yaml_var::StaticVar]) -> Vec<VarRow> {
+    vars.iter()
+        .map(|v| VarRow {
+            key: v.key.clone(),
+            value: v.value.clone(),
+            note: v.editable.err().map(not_editable_text),
+        })
+        .collect()
+}
+
+/// 붙여넣기를 받을 overlay인가 — 입력줄(Input) 또는 조건 수정 칸의 값 칸 포커스(spec §6.7).
+pub fn paste_target(ui: &EditUi) -> bool {
+    matches!(
+        ui.overlay,
+        Some(Overlay::Input { .. })
+            | Some(Overlay::CondForm {
+                focus: CondFocus::Value,
+                ..
+            })
+    )
+}
+
+/// 붙여넣기 — 입력줄이면 `LineInput::paste`(줄바꿈·제어 문자를 빼고 넣는다 — 끝의 줄바꿈이 저장되지 않게),
+/// 아니면 버린다. 넣었으면 true.
+pub fn paste_into(ui: &mut EditUi, s: &str) -> bool {
+    match &mut ui.overlay {
+        Some(Overlay::Input { input, .. }) => input.paste(s),
+        Some(Overlay::CondForm {
+            value,
+            focus: CondFocus::Value,
+            ..
+        }) => value.paste(s),
+        _ => return false,
+    }
+    true
+}
+
+/// 편집 메뉴 그린 줄 표(`render_edit_menu`가 돌려준 (화면 y, 항목 0부터))에서 y의 항목.
+pub fn menu_item_at(table: &[(u16, usize)], y: u16) -> Option<usize> {
+    table.iter().find(|(row, _)| *row == y).map(|(_, n)| *n)
+}
+
+/// 편집 메뉴 클릭(spec §6.1 — 메뉴 화면·overlay 없음일 때만 부른다): 왼쪽 누름이 항목 줄이면 그 항목으로
+/// (`Jump`), 이미 고른 항목이면 `Activate`(= Enter). 그 밖 `None`.
+pub fn menu_click(table: &[(u16, usize)], cursor: usize, m: MouseEvent) -> EditAction {
+    if m.kind != MouseEventKind::Down(MouseButton::Left) {
+        return EditAction::None;
+    }
+    match menu_item_at(table, m.row) {
+        Some(n) if n == cursor => EditAction::Activate,
+        Some(n) => EditAction::Jump(n),
+        None => EditAction::None,
+    }
+}
+
+/// 칸 대상 동작(테두리·오류 보기·칸 설정)은 칸이 실제로 그려진 모니터 화면에서만 — 보이지 않는
+/// 변경을 저장하지 않고, 칸이 안 그려진 작은 화면에서 어느 칸인지 모르는 채 열리지 않게.
 pub fn toggle_allowed(screen: &Screen, panels_drawn: bool) -> bool {
     matches!(screen, Screen::Monitor) && panels_drawn
 }
@@ -194,6 +2584,10 @@ struct Running {
     session: Session,
     boards: Vec<BoardResponse>,
     poller: JoinHandle<()>,
+    /// 이 세션의 기록 조회 작업자
+    fetcher: JoinHandle<()>,
+    /// 이 세션의 편집 작업자(조회·저장)
+    editor: JoinHandle<()>,
 }
 
 struct App<'a> {
@@ -211,7 +2605,72 @@ struct App<'a> {
     border: BorderStyle,
     prefs_path: Option<PathBuf>,
     panels_drawn: Cell<bool>,
+    /// 새 화면 넷의 상태
+    views: SubViews,
+    /// 조회 결과 통로(작업자 → UI 루프)
+    fetch_out: (mpsc::Sender<Fetched>, mpsc::Receiver<Fetched>),
+    /// 세션마다 새 조회 작업자(세션이 없으면 None)
+    fetch_req: Option<UnboundedSender<FetchReq>>,
+    /// 마지막으로 잰 터미널 크기
+    size: Rect,
+    /// 마지막 키·마우스 입력 시각(5분 자동 복귀)
+    last_input: Instant,
+    /// 편집 결과 통로(작업자 → UI 루프)
+    edit_out: (mpsc::Sender<EditDone>, mpsc::Receiver<EditDone>),
+    /// 세션마다 새 편집 작업자(세션이 없으면 None)
+    edit_req: Option<UnboundedSender<EditReq>>,
+    /// 진행 중인 저장(보드 전환·5분 복귀 뒤에도 남는다)
+    save_in_flight: Option<SaveTicket>,
+    /// 마지막 저장 번호
+    save_seq: u64,
+    /// 머리 줄 알림(모든 화면) — `Saved`는 `saved_at` 5초 뒤 지운다
+    file_notice: Option<HeaderNotice>,
+    saved_at: Option<Instant>,
+    /// 마지막으로 그린 편집 메뉴의 (화면 y, 항목) 표 — 메뉴 줄 클릭용(spec §6.1)
+    menu_rows: RefCell<Vec<(u16, usize)>>,
 }
+
+/// `저장됨` 알림을 보이는 시간(spec §6.2-5).
+const SAVED_NOTICE: Duration = Duration::from_secs(5);
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+/// 기록의 `line` 줄(Http) 본문 입력. Http가 아니거나 trace에 그 스텝이 없으면 None.
+fn body_input<'a>(
+    panel_title: &'a str,
+    rec: &'a CheckRecord,
+    line: Option<&'a StepLine>,
+) -> Option<BodyInput<'a>> {
+    let Some(StepLine::Http {
+        trace_idx,
+        no,
+        name,
+        ..
+    }) = line
+    else {
+        return None;
+    };
+    let step = rec.trace.as_ref()?.steps.get(*trace_idx)?;
+    let (clipped_req, clipped_resp) = clip_flags(&rec.clipped, *trace_idx);
+    Some(BodyInput {
+        panel_title,
+        at_ms: rec.at_ms,
+        no: *no,
+        name,
+        step,
+        clipped_req,
+        clipped_resp,
+        limit_kb: rec.limit_kb,
+        reveal: false,
+    })
+}
+
+/// 칸 설정 화면의 (제목, 항목 번호가 붙은 줄, 각주).
+type SettingsView = (String, Vec<(String, Option<usize>)>, Option<String>);
 
 impl App<'_> {
     async fn start_inner(
@@ -248,12 +2707,18 @@ impl App<'_> {
     /// 세션을 (다시) 띄운다. 기존 세션이 있으면 먼저 내린다. 로그는 다시 초기화하지 않는다.
     fn start_session(&mut self) {
         self.stop_session();
+        self.views.clear();
+        // 옛 세션의 저장 결과·알림이 새 세션에 들지 않게(보드 id는 가져오기 사이에 보존된다).
+        self.file_notice = None;
+        self.saved_at = None;
+        self.save_in_flight = None;
+        while self.edit_out.1.try_recv().is_ok() {}
         self.poller_dead_logged.set(false);
         self.idx = 0;
         self.selected = 0;
         let rt = self.rt;
         match rt.block_on(self.start_inner()) {
-            Ok((session, boards)) => {
+            Ok((mut session, boards)) => {
                 let _guard = rt.enter();
                 self.board_tx.send_replace(boards[0].id.clone());
                 self.snap_tx.send_replace(PollSnapshot::default());
@@ -262,10 +2727,31 @@ impl App<'_> {
                     self.board_tx.subscribe(),
                     self.snap_tx.clone(),
                 );
+                let (fetch_req, fetcher) =
+                    spawn_fetch_worker(rt.handle(), session.api.clone(), self.fetch_out.0.clone());
+                self.fetch_req = Some(fetch_req);
+                let file = FileState {
+                    target: session.target.clone(),
+                    start: session.start_fp,
+                    expected: session.start_fp,
+                    first_done: false,
+                    state_dir: crate::logging::state_dir(),
+                };
+                let (edit_req, editor) = spawn_edit_worker(
+                    rt.handle(),
+                    session.api.clone(),
+                    session.boards.iter().map(|b| b.id.clone()).collect(),
+                    file,
+                    session.start_bytes.take().unwrap_or_default(),
+                    self.edit_out.0.clone(),
+                );
+                self.edit_req = Some(edit_req);
                 self.running = Some(Running {
                     session,
                     boards,
                     poller,
+                    fetcher,
+                    editor,
                 });
                 self.screen = screen_after_start(&Ok(()));
             }
@@ -280,11 +2766,19 @@ impl App<'_> {
     }
 
     fn stop_session(&mut self) {
+        self.fetch_req = None;
+        self.edit_req = None;
         if let Some(r) = self.running.take() {
-            // 중단을 기다린 뒤 세션을 내린다 — 폴러가 지워지는 DB를 읽는 일이 없게.
+            // 중단을 기다린 뒤 세션을 내린다 — 폴러·조회 작업자가 내려가는 컨트롤러·지워지는 DB에
+            // 요청하는 일이 없게. 통로를 닫는 것만으론 작업자가 큐에 남은 요청을 다 처리한다.
             self.rt.block_on(async {
                 r.poller.abort();
+                r.fetcher.abort();
+                r.editor.abort();
                 let _ = r.poller.await;
+                let _ = r.fetcher.await;
+                // 파일 쓰기가 블로킹 풀에서 도는 중이면 그 쓰기는 끝까지 간다(abort가 끊지 못한다 — 원자 교체).
+                let _ = r.editor.await;
             });
             self.rt.block_on(r.session.shutdown());
         }
@@ -294,6 +2788,247 @@ impl App<'_> {
         self.running
             .as_ref()
             .map_or(0, |r| r.boards[self.idx].config.panels.len())
+    }
+
+    fn board(&self) -> Option<&BoardResponse> {
+        self.running.as_ref().map(|r| &r.boards[self.idx])
+    }
+
+    /// 지금 보드에서 선택된 칸(모니터 화면과 같은 가둠).
+    fn selected_panel(&self) -> Option<&PanelConfig> {
+        let panels = &self.board()?.config.panels;
+        panels.get(self.selected.min(panels.len().saturating_sub(1)))
+    }
+
+    fn panel(&self, board_id: &str, panel_id: &str) -> Option<&PanelConfig> {
+        let b = self.board().filter(|b| b.id == board_id)?;
+        b.config.panels.iter().find(|p| p.id == panel_id)
+    }
+
+    /// 그 칸의 현재 막대 구간 결과(오래된 → 최신). 스냅샷이 다른 보드 것이면 빈 목록.
+    fn panel_results(&self, board_id: &str, panel_id: &str) -> Vec<CheckResult> {
+        let snap = self.snap_rx.borrow();
+        snap.last
+            .as_ref()
+            .filter(|_| snap.board_id == board_id)
+            .and_then(|s| s.panels.iter().find(|p| p.panel_id == panel_id))
+            .map(|p| p.results.clone())
+            .unwrap_or_default()
+    }
+
+    /// 자세히 화면의 스텝 줄(기록이 아직 없으면 빈 목록).
+    fn record_lines(&self) -> Vec<StepLine> {
+        let Some(st) = &self.views.record else {
+            return vec![];
+        };
+        let RecordLoad::Loaded(rec) = &st.load else {
+            return vec![];
+        };
+        let (Some(panel), Some(r)) = (self.panel(&st.board_id, &st.panel_id), &self.running) else {
+            return vec![];
+        };
+        rec.trace
+            .as_ref()
+            .map(|t| {
+                step_lines(
+                    t,
+                    &r.session.names,
+                    &panel.scenario_id,
+                    panel.step_id.as_deref(),
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    /// 편집 중인 보드·칸(편집 상태가 있으면 그 보드·칸 — 세션의 모든 보드 캐시에서, 없으면 선택 칸).
+    fn edit_target(&self) -> Option<(&BoardResponse, &PanelConfig)> {
+        let r = self.running.as_ref()?;
+        match &self.views.edit {
+            Some(e) => {
+                let b = r.boards.iter().find(|b| b.id == e.board_id)?;
+                let p = b.config.panels.iter().find(|p| p.id == e.panel_id)?;
+                Some((b, p))
+            }
+            None => Some((self.board()?, self.selected_panel()?)),
+        }
+    }
+
+    /// 칸 설정 화면의 (제목, 줄, 각주) — 편집 칸(없으면 선택 칸) 기준, 줄은 `width`에 맞춘다.
+    fn settings_view(&self, width: usize) -> Option<SettingsView> {
+        let r = self.running.as_ref()?;
+        let (board, panel) = self.edit_target()?;
+        let items = settings_items_edit(panel, &r.session.names, width);
+        let lines = edit_menu_lines(&items, width);
+        Some((panel.title.clone(), lines, group_note(&board.config, panel)))
+    }
+
+    /// 칸 설정 보기의 (줄 수, 보이는 줄 수) — 지금 크기 기준.
+    fn settings_dims(&self) -> (usize, usize) {
+        let body = sub_layout(self.size).body;
+        self.settings_view(usize::from(body.width))
+            .map_or((0, 0), |(_, lines, note)| {
+                (lines.len(), settings_height(body, note.is_some()))
+            })
+    }
+
+    fn send_fetch(&self, req: FetchReq) {
+        if let Some(tx) = &self.fetch_req {
+            let _ = tx.send(req);
+        }
+    }
+
+    /// 조회 결과를 받아들이고, 보이는 목록 줄의 사유를 요청하고, 본문 줄을 만든다.
+    /// 이벤트 루프가 그리기 전에 부른다. 화면이 바뀌었으면 true.
+    fn pump(&mut self) -> bool {
+        let mut changed = self.pump_edit();
+        let mut record_arrived = false;
+        while let Ok(msg) = self.fetch_out.1.try_recv() {
+            let is_record = matches!(msg, Fetched::Record { .. });
+            if self.views.accept(msg) {
+                changed = true;
+                record_arrived |= is_record;
+            }
+        }
+        if record_arrived {
+            let lines = self.record_lines();
+            if let Some(r) = self.views.record.as_mut()
+                && matches!(r.load, RecordLoad::Loaded(_))
+            {
+                r.cursor = initial_step_cursor(&lines);
+            }
+        }
+        let inner = match &self.screen {
+            Screen::QuitConfirm(inner) => (**inner).clone(),
+            s => s.clone(),
+        };
+        match inner {
+            Screen::Errors => changed |= self.pump_errors(),
+            Screen::Body => self.pump_body(),
+            Screen::Settings => self.pump_settings(),
+            _ => {}
+        }
+        changed
+    }
+
+    /// 편집 결과를 받아들이고 `저장됨`을 5초 뒤 지운다. 바뀌었으면 true. 작업자가 끝나 있으면(패닉) 남은 결과를
+    /// 다 받은 뒤 기다리던 저장·조회를 푼다 — 끝났는지를 **먼저** 본다(끝나기 전에 보낸 결과는 이미 통로에 있다).
+    fn pump_edit(&mut self) -> bool {
+        let mut changed = false;
+        let dead = self
+            .running
+            .as_ref()
+            .is_some_and(|r| r.editor.is_finished());
+        while let Ok(done) = self.edit_out.1.try_recv() {
+            changed = true;
+            let Some(r) = self.running.as_mut() else {
+                continue;
+            };
+            if let Some(n) = apply_done(
+                self.views.edit.as_mut(),
+                &mut r.boards,
+                &mut self.save_in_flight,
+                done,
+                now_ms(),
+            ) {
+                self.saved_at = matches!(n, HeaderNotice::Saved(_)).then(Instant::now);
+                self.file_notice = Some(n);
+            }
+        }
+        if dead && worker_gone(self.views.edit.as_mut(), &mut self.save_in_flight) {
+            tracing::error!("edit worker stopped");
+            changed = true;
+        }
+        if matches!(self.file_notice, Some(HeaderNotice::Saved(_)))
+            && self.saved_at.is_none_or(|at| at.elapsed() >= SAVED_NOTICE)
+        {
+            self.file_notice = None;
+            self.saved_at = None;
+            changed = true;
+        }
+        changed
+    }
+
+    /// 편집 메뉴 스크롤: 고른 항목의 줄이 다 보이게(이미 보이면 그대로). 편집 상태가 없으면 1b 가둠.
+    fn pump_settings(&mut self) {
+        let body = sub_layout(self.size).body;
+        let (w, bh) = (usize::from(body.width), usize::from(body.height));
+        let Some((_, lines, note)) = self.settings_view(w) else {
+            return;
+        };
+        let Some(ui) = self.views.edit.as_ref() else {
+            let h = settings_height(body, note.is_some());
+            self.views.scroll_settings(Action::None, lines.len(), h);
+            return;
+        };
+        let picks = pick_labels(ui);
+        let ov = ui.overlay.as_ref().and_then(|o| overlay_view(o, &picks, w));
+        let oh = overlay_rows(ov.as_ref(), w, bh).len().min(bh);
+        let h = if oh > 0 {
+            bh.saturating_sub(1).saturating_sub(oh)
+        } else {
+            settings_height(body, note.is_some())
+        };
+        let cursor = ui.cursor;
+        self.views.settings_scroll = ensure_visible(&lines, cursor, h, self.views.settings_scroll);
+    }
+
+    fn pump_errors(&mut self) -> bool {
+        let Some((board_id, panel_id)) = self
+            .views
+            .errors
+            .as_ref()
+            .map(|e| (e.board_id.clone(), e.panel_id.clone()))
+        else {
+            return false;
+        };
+        let results = self.panel_results(&board_id, &panel_id);
+        let height = errors_list_height(sub_layout(self.size).body);
+        let Some(e) = self.views.errors.as_mut() else {
+            return false;
+        };
+        let rows_at: Vec<i64> = error_results(&results, e.show_all)
+            .iter()
+            .map(|r| r.at_ms)
+            .collect();
+        e.pin_cursor(&rows_at);
+        let alive: HashSet<i64> = results.iter().map(|r| r.at_ms).collect();
+        e.cache.retain(&alive);
+        let visible = visible_results(&results, e, height);
+        let want = e.cache.wanted(&visible, results.last().map(|r| r.at_ms));
+        if want.is_empty() {
+            return false;
+        }
+        e.cache.mark_loading(&want);
+        for at_ms in want {
+            self.send_fetch(FetchReq::Reason {
+                board_id: board_id.clone(),
+                panel_id: panel_id.clone(),
+                at_ms,
+            });
+        }
+        true
+    }
+
+    fn pump_body(&mut self) {
+        let lines = self.record_lines();
+        let width = usize::from(sub_layout(self.size).body.width);
+        let title = self
+            .views
+            .record
+            .as_ref()
+            .and_then(|st| self.panel(&st.board_id, &st.panel_id))
+            .map(|p| p.title.clone())
+            .unwrap_or_default();
+        let SubViews { record, body, .. } = &mut self.views;
+        let (Some(st), Some(body)) = (record.as_ref(), body.as_mut()) else {
+            return;
+        };
+        let RecordLoad::Loaded(rec) = &st.load else {
+            return;
+        };
+        if let Some(input) = body_input(&title, rec, lines.get(body.line_idx)) {
+            body.ensure(&input, width);
+        }
     }
 
     fn monitor_screen(&self) -> Option<MonitorScreen> {
@@ -320,6 +3055,7 @@ impl App<'_> {
             panels,
             selected,
             border: self.border,
+            notice: self.file_notice.clone(),
         })
     }
 
@@ -346,7 +3082,8 @@ impl App<'_> {
                     KeyBar::Help
                 };
                 self.draw_with(f, &Screen::Monitor, b);
-                render_help(f, &self.file, &self.log);
+                let backups = self.running.as_ref().map(|r| &r.session.target);
+                render_help(f, &self.file, backups, &self.log);
             }
             Screen::QuitConfirm(inner) => {
                 self.draw_with(f, inner, KeyBar::QuitConfirm);
@@ -354,6 +3091,275 @@ impl App<'_> {
             }
             Screen::Error(e) => render_error(f, e, &self.file, &self.log),
             Screen::Usage => render_usage(f),
+            // 편집 화면 넷은 `draw_sub` → `draw_edit`.
+            Screen::Errors
+            | Screen::Record
+            | Screen::Body
+            | Screen::Settings
+            | Screen::EditList
+            | Screen::EnvVars
+            | Screen::ScenarioVars => {
+                self.panels_drawn.set(false);
+                self.draw_sub(f, screen, bar == KeyBar::QuitConfirm);
+            }
+        }
+    }
+
+    /// 새 화면 넷 — 맨 윗줄은 모니터와 같은 머리 줄(끊김 표시 포함).
+    fn draw_sub(&self, f: &mut ratatui::Frame, screen: &Screen, quit_confirm: bool) {
+        let Some(head) = self.monitor_screen().map(|m| m.header()) else {
+            return;
+        };
+        let Some(r) = self.running.as_ref() else {
+            return;
+        };
+        let mut ctx = KeyCtx {
+            quit_confirm,
+            show_all: self.views.errors.as_ref().is_some_and(|e| e.show_all),
+            reveal: self.views.body.as_ref().is_some_and(|b| b.reveal),
+            has_req_body: false,
+        };
+        match screen {
+            Screen::Errors => {
+                let Some(st) = &self.views.errors else {
+                    return;
+                };
+                let Some(panel) = self.panel(&st.board_id, &st.panel_id) else {
+                    return;
+                };
+                let results = self.panel_results(&st.board_id, &st.panel_id);
+                // 꺼진 보드 = `/status`의 enabled(그 보드 스냅샷이 아직 없으면 켜진 것으로 — 기존 문구).
+                let enabled = {
+                    let snap = self.snap_rx.borrow();
+                    snap.last
+                        .as_ref()
+                        .filter(|_| snap.board_id == st.board_id)
+                        .is_none_or(|s| s.enabled)
+                };
+                let input = ErrorsInput {
+                    title: &panel.title,
+                    results: &results,
+                    thresholds: &panel.thresholds,
+                    interval_seconds: panel.interval_seconds,
+                    enabled,
+                };
+                let height = errors_list_height(sub_layout(f.area()).body);
+                let v = errors_view(&input, st, height);
+                render_errors(f, &head, &v, &sub_keys(screen, ctx));
+            }
+            Screen::Record => {
+                let Some(st) = &self.views.record else {
+                    return;
+                };
+                let Some(panel) = self.panel(&st.board_id, &st.panel_id) else {
+                    return;
+                };
+                let v = record_view(panel, st, &r.session.names);
+                render_record(f, &head, &v, &sub_keys(screen, ctx));
+            }
+            Screen::Body => {
+                let Some(body) = &self.views.body else {
+                    return;
+                };
+                let lines = self.record_lines();
+                if let Some(StepLine::Http { trace_idx, .. }) = lines.get(body.line_idx)
+                    && let Some(RecordState {
+                        load: RecordLoad::Loaded(rec),
+                        ..
+                    }) = &self.views.record
+                {
+                    ctx.has_req_body = rec
+                        .trace
+                        .as_ref()
+                        .and_then(|t| t.steps.get(*trace_idx))
+                        .and_then(|s| s.request.as_ref())
+                        .and_then(|q| q.body.as_deref())
+                        .is_some_and(|b| !b.is_empty());
+                }
+                render_body(f, &head, body.lines(), body.scroll, &sub_keys(screen, ctx));
+            }
+            Screen::Settings | Screen::EditList | Screen::EnvVars | Screen::ScenarioVars => {
+                self.draw_edit(f, screen, &head, quit_confirm)
+            }
+            _ => {}
+        }
+    }
+
+    /// 편집 메뉴·하위 목록·변수 화면(편집 상태가 없으면 고른 항목 없는 메뉴).
+    fn draw_edit(&self, f: &mut ratatui::Frame, screen: &Screen, head: &HeaderView, quit: bool) {
+        self.menu_rows.borrow_mut().clear();
+        let Some(r) = self.running.as_ref() else {
+            return;
+        };
+        let key_w = f.area().width;
+        let names = &r.session.names;
+        let body = sub_layout(f.area()).body;
+        let w = usize::from(body.width);
+        let Some(ui) = self.views.edit.as_ref() else {
+            // 닿지 않는 방어 경로(`OpenSettings`가 늘 `EditUi`를 만든다) — 고른 항목 없는 메뉴(`cursor: usize::MAX`).
+            if let Some((title, lines, note)) = self.settings_view(w) {
+                let view = EditMenuView {
+                    title: &title,
+                    lines: &lines,
+                    cursor: usize::MAX,
+                    scroll: self.views.settings_scroll,
+                    note: note.as_deref(),
+                    overlay: None,
+                };
+                let keys = sub_keys(
+                    screen,
+                    KeyCtx {
+                        quit_confirm: quit,
+                        show_all: false,
+                        reveal: false,
+                        has_req_body: false,
+                    },
+                );
+                let _ = render_edit_menu(f, head, &view, &keys);
+            }
+            return;
+        };
+        let Some((_, p)) = self.edit_target() else {
+            return;
+        };
+        let picks = pick_labels(ui);
+        let overlay = ui.overlay.as_ref().and_then(|o| overlay_view(o, &picks, w));
+        match screen {
+            Screen::Settings => {
+                let Some((title, lines, note)) = self.settings_view(w) else {
+                    return;
+                };
+                let view = EditMenuView {
+                    title: &title,
+                    lines: &lines,
+                    cursor: ui.cursor,
+                    scroll: self.views.settings_scroll,
+                    note: note.as_deref(),
+                    overlay,
+                };
+                let keys = fit_keys(&edit_keys(screen, ui, None, quit), key_w);
+                *self.menu_rows.borrow_mut() = render_edit_menu(f, head, &view, &keys);
+            }
+            Screen::EditList => {
+                let Some(kind) = list_kind_at(ui.cursor) else {
+                    return;
+                };
+                let rows = list_rows(kind, p, names);
+                let n = rows.len();
+                let rows = match (n, kind) {
+                    (0, edit::ListKind::Conditions) => vec![dim_row(text::EDIT_NO_CONDITIONS)],
+                    (0, edit::ListKind::Display) => vec![dim_row(text::EDIT_NO_DISPLAY)],
+                    _ => rows,
+                };
+                let title = format!("{} · {}", list_label(kind), p.title);
+                let keys = fit_keys(&edit_keys(screen, ui, Some((kind, n)), quit), key_w);
+                let view = ListView {
+                    title: &title,
+                    rows,
+                    cursor: ui.list_cursor,
+                    overlay,
+                };
+                let cond = match &ui.overlay {
+                    Some(Overlay::CondForm {
+                        index,
+                        ops,
+                        op,
+                        value,
+                        ignore_case,
+                        trim,
+                        focus,
+                        error,
+                    }) => p.conditions.get(*index).map(|c| {
+                        let labels: Vec<&'static str> =
+                            ops.iter().map(|o| text::cond_op_label(*o)).collect();
+                        let cur = ops.get(*op).copied().unwrap_or(c.op);
+                        let fw = cond_form_value_width(body.width);
+                        (
+                            labels,
+                            condition_target(c),
+                            *op,
+                            cur.needs_value().then(|| value.view(fw)),
+                            cur.has_flags().then_some((*ignore_case, *trim)),
+                            *focus,
+                            error.as_deref(),
+                        )
+                    }),
+                    _ => None,
+                };
+                let form = cond
+                    .as_ref()
+                    .map(
+                        |(labels, target, op, value, flags, focus, error)| CondFormView {
+                            target,
+                            ops: labels,
+                            op: *op,
+                            value: value.clone(),
+                            flags: *flags,
+                            focus: *focus,
+                            error: *error,
+                        },
+                    );
+                render_list_with_form(f, head, &view, &keys, form.as_ref());
+            }
+            Screen::EnvVars => {
+                let id = p.environment_id.as_deref().unwrap_or_default();
+                let cfgs: Vec<BoardConfig> = r.boards.iter().map(|b| b.config.clone()).collect();
+                let (pn, bn) = edit::usage(&cfgs, |q| q.environment_id.as_deref() == Some(id));
+                let (rows, loading, failed) = match &ui.env {
+                    Some(EnvLoad::Loaded(e)) => (env_rows(e, ui.reveal), false, None),
+                    Some(EnvLoad::Failed(m)) => (vec![], false, Some(m.as_str())),
+                    _ => (vec![], true, None),
+                };
+                let view = VarsView {
+                    title: format!(
+                        "{} · {}",
+                        text::SET_ENV_VARS,
+                        names.env_name(id).unwrap_or(id)
+                    ),
+                    usage: text::usage_note(pn, bn),
+                    rows,
+                    cursor: ui.list_cursor,
+                    loading,
+                    failed,
+                    overlay,
+                };
+                render_vars(
+                    f,
+                    head,
+                    &view,
+                    &fit_keys(&edit_keys(screen, ui, None, quit), key_w),
+                );
+            }
+            Screen::ScenarioVars => {
+                let sc = p.scenario_id.as_str();
+                let cfgs: Vec<BoardConfig> = r.boards.iter().map(|b| b.config.clone()).collect();
+                let (pn, bn) = edit::usage(&cfgs, |q| q.scenario_id == sc);
+                let (rows, loading, failed) = match &ui.scen {
+                    Some(ScenLoad::Loaded { vars, .. }) => (scen_rows(vars), false, None),
+                    Some(ScenLoad::Failed(m)) => (vec![], false, Some(m.as_str())),
+                    _ => (vec![], true, None),
+                };
+                let view = VarsView {
+                    title: format!(
+                        "{} · {}",
+                        text::SET_SCEN_VARS,
+                        names.scenario_name(sc).unwrap_or(sc)
+                    ),
+                    usage: text::usage_note_scenario(pn, bn),
+                    rows,
+                    cursor: ui.list_cursor,
+                    loading,
+                    failed,
+                    overlay,
+                };
+                render_vars(
+                    f,
+                    head,
+                    &view,
+                    &fit_keys(&edit_keys(screen, ui, None, quit), key_w),
+                );
+            }
+            _ => {}
         }
     }
 
@@ -380,6 +3386,7 @@ impl App<'_> {
                     };
                     self.selected = 0;
                     self.board_tx.send_replace(r.boards[self.idx].id.clone());
+                    self.views.clear();
                 }
             }
             Action::ToggleBorder => {
@@ -401,8 +3408,8 @@ impl App<'_> {
             Action::Back => {
                 if let Screen::QuitConfirm(inner) = &self.screen {
                     self.screen = (**inner).clone();
-                } else if matches!(self.screen, Screen::Help) {
-                    self.screen = Screen::Monitor;
+                } else if let Some(s) = self.views.back(&self.screen) {
+                    self.screen = s;
                 }
             }
             Action::AskQuit => {
@@ -413,8 +3420,255 @@ impl App<'_> {
                 self.screen = Screen::Starting;
                 return false;
             }
+            Action::OpenErrors => {
+                if toggle_allowed(&self.screen, self.panels_drawn.get())
+                    && let (Some(board), Some(panel)) = (self.board(), self.selected_panel())
+                {
+                    let (board_id, panel_id) = (board.id.clone(), panel.id.clone());
+                    let rows_at: Vec<i64> =
+                        error_results(&self.panel_results(&board_id, &panel_id), false)
+                            .iter()
+                            .map(|r| r.at_ms)
+                            .collect();
+                    self.screen = self.views.open_errors(&board_id, &panel_id, &rows_at);
+                }
+            }
+            Action::OpenSettings => {
+                if toggle_allowed(&self.screen, self.panels_drawn.get())
+                    && let (Some(board), Some(panel)) = (self.board(), self.selected_panel())
+                {
+                    let (board_id, panel_id) = (board.id.clone(), panel.id.clone());
+                    // 저장 중이면: 그 칸이면 `저장 중…`(결과가 오면 닫힌다), 다른 칸이면 안내 한 번.
+                    let overlay = self.save_in_flight.as_ref().map(|t| {
+                        if t.board_id == board_id && t.panel_id == panel_id {
+                            Overlay::Saving { restore: None }
+                        } else {
+                            Overlay::Notice(text::SAVING.to_string())
+                        }
+                    });
+                    self.screen = self.views.open_settings();
+                    self.views.edit = Some(EditUi {
+                        board_id,
+                        panel_id,
+                        overlay,
+                        ..EditUi::default()
+                    });
+                }
+            }
+            Action::Activate => self.activate(),
+            Action::ToggleAll => {
+                if matches!(self.screen, Screen::Errors)
+                    && let Some((b, p)) = self
+                        .views
+                        .errors
+                        .as_ref()
+                        .map(|e| (e.board_id.clone(), e.panel_id.clone()))
+                {
+                    let results = self.panel_results(&b, &p);
+                    if let Some(e) = self.views.errors.as_mut() {
+                        e.show_all = !e.show_all;
+                        let rows_at: Vec<i64> = error_results(&results, e.show_all)
+                            .iter()
+                            .map(|r| r.at_ms)
+                            .collect();
+                        e.pin_cursor(&rows_at);
+                    }
+                }
+            }
+            Action::ToggleReveal => {
+                if matches!(self.screen, Screen::Body)
+                    && let Some(b) = self.views.body.as_mut()
+                {
+                    b.reveal = !b.reveal;
+                }
+            }
+            Action::PrevStep | Action::NextStep => {
+                if matches!(self.screen, Screen::Body) {
+                    let lines = self.record_lines();
+                    let dir = if a == Action::PrevStep { -1 } else { 1 };
+                    self.views.step_body(&lines, dir);
+                }
+            }
+            Action::Up
+            | Action::Down
+            | Action::PageUp
+            | Action::PageDown
+            | Action::Home
+            | Action::End => self.scroll(a),
         }
         false
+    }
+
+    /// 편집 화면(메뉴·하위 목록·변수 화면)이고 편집 상태가 있는가 — 그러면 키는 `edit_key`가 먼저.
+    fn on_edit_screen(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::Settings | Screen::EditList | Screen::EnvVars | Screen::ScenarioVars
+        ) && self.views.edit.is_some()
+    }
+
+    /// 편집 화면의 키. 종료해야 하면 `true`.
+    fn edit_key_event(&mut self, k: KeyEvent) -> bool {
+        let Some(ui) = self.views.edit.as_ref() else {
+            return false;
+        };
+        let a = edit_key(&self.screen, ui, k, Instant::now());
+        self.run_edit(a)
+    }
+
+    /// 편집 메뉴의 마우스(spec §6.1 — 메뉴 화면·overlay 없음일 때만, 그 밖은 무시).
+    fn edit_mouse(&mut self, m: MouseEvent) -> bool {
+        let Some(ui) = self.views.edit.as_ref() else {
+            return false;
+        };
+        if !matches!(self.screen, Screen::Settings) || ui.overlay.is_some() {
+            return false;
+        }
+        let a = menu_click(&self.menu_rows.borrow(), ui.cursor, m);
+        if a == EditAction::None {
+            return false;
+        }
+        self.run_edit(a)
+    }
+
+    /// 편집 동작 하나를 적용하고 요청을 작업자에게. 종료해야 하면 `true`.
+    fn run_edit(&mut self, a: EditAction) -> bool {
+        if let Some(ui) = self.views.edit.as_mut() {
+            ui.track_digit(&a);
+        }
+        match a {
+            EditAction::Back => self.apply(Action::Back),
+            EditAction::AskQuit => self.apply(Action::AskQuit),
+            a => {
+                let (Some(r), Some(ui)) = (self.running.as_ref(), self.views.edit.as_mut()) else {
+                    return false;
+                };
+                let mut cx = EditCtx {
+                    boards: &r.boards,
+                    names: &r.session.names,
+                    ticket: &mut self.save_in_flight,
+                    seq: &mut self.save_seq,
+                };
+                let out = edit_apply(&self.screen, ui, &mut cx, a);
+                if let Some(req) = out.req {
+                    let sent = self
+                        .edit_req
+                        .as_ref()
+                        .is_some_and(|tx| tx.send(req).is_ok());
+                    if !sent {
+                        // 작업자가 없다(패닉 등) — 결과가 영영 안 오니 `저장 중…`에 갇히지 않게(리뷰 B2).
+                        tracing::error!("edit worker unavailable");
+                        worker_gone(self.views.edit.as_mut(), &mut self.save_in_flight);
+                    }
+                }
+                if out.ask_quit {
+                    self.screen = Screen::QuitConfirm(Box::new(self.screen.clone()));
+                } else if let Some(s) = out.screen {
+                    self.screen = s;
+                }
+                false
+            }
+        }
+    }
+
+    /// `Enter` — 목록 → 자세히(정상 회차도), 자세히 → 본문.
+    fn activate(&mut self) {
+        match self.screen {
+            Screen::Errors => {
+                let Some(e) = &self.views.errors else {
+                    return;
+                };
+                let results = self.panel_results(&e.board_id, &e.panel_id);
+                let list = error_results(&results, e.show_all);
+                let rows_at: Vec<i64> = list.iter().map(|r| r.at_ms).collect();
+                let Some(clicked) = (!list.is_empty())
+                    .then(|| list[crate::inspect::cursor_index(&rows_at, e.cursor_at)].clone())
+                else {
+                    return;
+                };
+                // open_record는 본문 상태를 비운다 — 다른 회차를 열면 가림·캐시가 새로 시작한다.
+                if let Some((s, req)) = self.views.open_record(clicked) {
+                    self.screen = s;
+                    self.send_fetch(req);
+                }
+            }
+            Screen::Record => {
+                let lines = self.record_lines();
+                if let Some(s) = self.views.open_body(&lines) {
+                    self.screen = s;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// 새 화면의 위·아래·쪽·처음·끝.
+    fn scroll(&mut self, a: Action) {
+        let body = sub_layout(self.size).body;
+        match self.screen {
+            Screen::Errors => {
+                let Some((b, p)) = self
+                    .views
+                    .errors
+                    .as_ref()
+                    .map(|e| (e.board_id.clone(), e.panel_id.clone()))
+                else {
+                    return;
+                };
+                let results = self.panel_results(&b, &p);
+                let page = errors_list_height(body).max(1) as isize;
+                let delta = match a {
+                    Action::Up => -1,
+                    Action::Down => 1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    Action::Home => isize::MIN,
+                    _ => isize::MAX,
+                };
+                if let Some(e) = self.views.errors.as_mut() {
+                    let rows_at: Vec<i64> = error_results(&results, e.show_all)
+                        .iter()
+                        .map(|r| r.at_ms)
+                        .collect();
+                    e.cursor_at = move_cursor(&rows_at, e.cursor_at, delta);
+                }
+            }
+            Screen::Record => {
+                let len = self.record_lines().len();
+                if let Some(r) = self.views.record.as_mut() {
+                    let last = len.saturating_sub(1) as isize;
+                    let cur = r.cursor as isize;
+                    let next = match a {
+                        Action::Up => cur - 1,
+                        Action::Down => cur + 1,
+                        Action::PageUp => cur - 10,
+                        Action::PageDown => cur + 10,
+                        Action::Home => 0,
+                        _ => last,
+                    };
+                    r.cursor = next.clamp(0, last) as usize;
+                }
+            }
+            Screen::Body => {
+                let h = body_height(self.size);
+                if let Some(b) = self.views.body.as_mut() {
+                    let page = h.max(1) as isize;
+                    match a {
+                        Action::Up => b.scroll_by(-1, h),
+                        Action::Down => b.scroll_by(1, h),
+                        Action::PageUp => b.scroll_by(-page, h),
+                        Action::PageDown => b.scroll_by(page, h),
+                        Action::Home => b.scroll = 0,
+                        _ => b.scroll_to_end(h),
+                    }
+                }
+            }
+            Screen::Settings => {
+                let (n, h) = self.settings_dims();
+                self.views.scroll_settings(a, n, h);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -436,6 +3690,16 @@ fn event_loop(
         if quit_signal.load(Ordering::SeqCst) {
             draw_closing(term);
             return Ok(());
+        }
+        let s = term.size()?;
+        app.size = Rect::new(0, 0, s.width, s.height);
+        if idle_expired(&app.screen, app.last_input, Instant::now()) {
+            app.screen = Screen::Monitor;
+            idle_return(&mut app.views);
+            dirty = true;
+        }
+        if app.pump() {
+            dirty = true;
         }
         // 바뀐 것이 있을 때(입력·새 스냅샷·크기 변경)와 시계용으로 1초에 한 번만 그린다.
         if dirty || app.snap_rx.has_changed().unwrap_or(false) || last_draw.elapsed() >= REDRAW_MAX
@@ -459,8 +3723,40 @@ fn event_loop(
             continue;
         }
         let n_boards = app.running.as_ref().map_or(0, |r| r.boards.len());
-        let action = match event::read()? {
+        let ev = event::read()?;
+        if is_user_input(&ev) {
+            app.last_input = Instant::now();
+        }
+        let action = match ev {
+            Event::Key(k) if k.kind == KeyEventKind::Press && app.on_edit_screen() => {
+                dirty = true;
+                if app.edit_key_event(k) {
+                    draw_closing(term);
+                    return Ok(());
+                }
+                Action::None
+            }
             Event::Key(k) if k.kind == KeyEventKind::Press => handle_key(&app.screen, k, n_boards),
+            // 브래킷 붙여넣기: 편집 화면의 입력줄일 때만(아니면 버림 — spec §6.7).
+            Event::Paste(p) => {
+                if app.on_edit_screen()
+                    && let Some(ui) = app.views.edit.as_mut()
+                    && paste_into(ui, &p)
+                {
+                    dirty = true;
+                }
+                Action::None
+            }
+            Event::Mouse(m) if app.on_edit_screen() => {
+                if app.edit_mouse(m) {
+                    draw_closing(term);
+                    return Ok(());
+                }
+                if m.kind != MouseEventKind::Moved {
+                    dirty = true;
+                }
+                Action::None
+            }
             Event::Mouse(m) => {
                 let size = term.size()?;
                 let lay = app.current_layout(Rect::new(0, 0, size.width, size.height));
@@ -542,6 +3838,18 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         border,
         prefs_path,
         panels_drawn: Cell::new(false),
+        views: SubViews::default(),
+        fetch_out: mpsc::channel(),
+        fetch_req: None,
+        size: Rect::default(),
+        last_input: Instant::now(),
+        edit_out: mpsc::channel(),
+        edit_req: None,
+        save_in_flight: None,
+        save_seq: 0,
+        file_notice: None,
+        saved_at: None,
+        menu_rows: RefCell::new(Vec::new()),
     };
     let quit_signal = crate::shutdown::install(rt);
     let result = event_loop(&mut app, &mut term, &quit_signal);

@@ -4,7 +4,7 @@
 
 > 도메인 함정은 각 디렉토리의 중첩 `CLAUDE.md`(그 디렉토리 작업 시 자동 로드) — [도메인별 함정 인덱스](#도메인별-함정-인덱스). 이 root엔 전역 규칙·상태·크로스커팅 함정만.
 
-**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = tui-axis-ticks (2026-11-10, 코드 `4fc1bfbc`..`891023a4` — 터미널 모니터 시각 줄: 자리가 있으면 양 끝 사이 중간 시각이 고른 간격으로 보이고, 중간 눈금 앞 `▲`가 그 시각의 막대를 정확히 가리킴, crates/tui만 변경). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
+**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = tui-2a-1 (2026-11-11, 코드 `94bae76`..`8b2e86a` — 터미널 모니터 `handicap-tui` 칸 설정 수정: 번호로 항목을 골라 고치면 서버 반영 후 보드 파일에 저장[`.bak`·`.orig.bak`], 환경 변수 값[기본 가림]·시나리오 고정 변수 한 줄 교체, 붙여넣기·마우스, crates/tui만 변경). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
 
 ## 한 줄 아키텍처
 
@@ -91,7 +91,7 @@ docs/
 | `ui/CLAUDE.md` | pnpm build 게이트·Zod default 누출, FlowOutline 아웃라인·dnd-kit 드래그(구 React Flow 제거 ADR-0044)·Monaco/Zustand, yaml Document API 양방향 sync·dirty-flag, React Query·multipart client, jsdom·blob 다운로드, 폼 UX·resolveForDisplay, CSP 오프라인; 하위 6개 문서 목록은 ui/CLAUDE.md 머리 |
 | `deploy/CLAUDE.md` | Helm fullname/PVC/snapshot, Dockerfile no-CMD·Node OOM, port-forward 함정 4종, K8s 테스트 격리 |
 | `desktop/CLAUDE.md` | Tauri v2 셸: 자체 빈 `[workspace]`(cargo 중첩 패키지), `externalBin`이 `cargo build`도 바이너리 요구, `NO_COLOR` 파이프 무력→`parse_rest_port` ANSI strip, `.dmg` GUI 세션 필요·`.app` headless, desktop 테스트 게이트 밖, lib명 `desktop_lib`·창 label "main"=capability |
-| `crates/tui/CLAUDE.md` | 좁은 화면 통째 축약, SIGHUP tty 막힘·감시견, 테스트 신호 처리기 격리, tmux 라이브 검증, 와이어 거울 `deny_unknown_fields` |
+| `crates/tui/CLAUDE.md` | 좁은 화면 통째 축약, SIGHUP tty 막힘·감시견, 테스트 신호 처리기 격리, tmux 라이브 검증, 와이어 거울 `deny_unknown_fields`, 편집 키 계약(적용 뒤 버퍼)·값 Debug 가림·YAML 글자 교체 가드 |
 
 ## 로컬 dev 실행 함정 (크로스커팅)
 

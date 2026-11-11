@@ -373,3 +373,176 @@ fn text_labels_match_ko() {
     assert_eq!(text::SERVER_DOWN, "서버 응답 없음");
     assert_eq!(text::NO_VALUE, "—");
 }
+
+/// GUI와 같은 뜻의 TUI 문구가 `ui/src/i18n/ko.ts` 값과 글자까지 같다(이후 task가 행을 더한다).
+#[test]
+fn mirrored_text_exists_in_ko_ts() {
+    let ko = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/src/i18n/ko.ts"
+    ))
+    .unwrap();
+    assert_eq!(text::LOADING, "불러오는 중…");
+    assert!(
+        ko.contains(&format!("loading: \"{}\"", text::LOADING)),
+        "ko.monitor.loading"
+    );
+    assert_eq!(
+        text::record_load_error("m"),
+        "기록을 불러오지 못했습니다: m"
+    );
+    let tmpl = text::record_load_error("${msg}");
+    assert!(
+        ko.contains(&format!("recordLoadError: (msg: string) => `{tmpl}`")),
+        "ko.monitor.recordLoadError"
+    );
+    for (key, val) in [
+        ("recordMissing", text::RECORD_MISSING),
+        ("recordNoTraceConfig", text::RECORD_NO_TRACE_CONFIG),
+        ("recordNoTraceTimeout", text::RECORD_NO_TRACE_TIMEOUT),
+        ("recordTraceCut", text::RECORD_TRACE_CUT),
+        ("scenario", text::SET_SCENARIO),
+        ("environment", text::SET_ENV),
+        ("recordReqHeaders", text::RECORD_REQ_HEADERS),
+        ("recordReqBody", text::RECORD_REQ_BODY),
+        ("recordRespHeaders", text::RECORD_RESP_HEADERS),
+        ("recordRespBody", text::RECORD_RESP_BODY),
+        ("recordReqBodyHidden", text::RECORD_REQ_BODY_HIDDEN),
+        ("recordEngineTruncated", text::RECORD_ENGINE_TRUNCATED),
+        ("recordTreeTooLarge", text::RECORD_TREE_TOO_LARGE),
+        ("recordTreeTooDeep", text::RECORD_TREE_TOO_DEEP),
+        ("recordMaskedHint", text::RECORD_MASKED_HINT),
+    ] {
+        assert!(
+            ko.contains(&format!("{key}: \"{val}\"")),
+            "ko.monitor.{key}"
+        );
+    }
+    let e = text::record_trace_error("${e}");
+    assert!(
+        ko.contains(&format!("recordTraceError: (e: string) => `{e}`")),
+        "ko.monitor.recordTraceError"
+    );
+    let b = text::record_if_row("${branch}");
+    assert!(
+        ko.contains(&format!("recordIfRow: (branch: string) => `{b}`")),
+        "ko.monitor.recordIfRow"
+    );
+    let t = text::record_title("${title}", "${when}");
+    assert!(
+        ko.contains(&format!(
+            "recordTitle: (title: string, when: string) => `{t}`"
+        )),
+        "ko.monitor.recordTitle"
+    );
+    assert_eq!(text::record_clipped(64), "기록 상한 64KB에서 잘림");
+    let c = text::record_clipped(0).replacen("0KB", "${kb}KB", 1);
+    assert!(
+        ko.contains(&format!("recordClipped: (kb: number) => `{c}`")),
+        "ko.monitor.recordClipped"
+    );
+    let chip = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/src/scenario/chipResults.ts"
+    ))
+    .unwrap();
+    assert!(
+        chip.contains(&format!("none: \"{}\"", text::BRANCH_NONE)),
+        "BRANCH_LABEL.none"
+    );
+
+    // 칸 설정 보기(Task 6)
+    for (key, val) in [
+        ("panelTitle", text::SET_TITLE),
+        ("stepPick", text::SET_STEP),
+        ("wholeScenario", text::WHOLE_SCENARIO),
+        ("environmentNone", text::ENV_NONE),
+        ("interval", text::SET_INTERVAL),
+        ("timeout", text::SET_TIMEOUT),
+        ("latencySource", text::SET_LATENCY),
+        ("latencyTotal", text::LATENCY_TOTAL),
+        ("thresholds", text::SET_THRESHOLDS),
+        ("thresholdMs", text::THRESHOLD_MS),
+        ("barCount", text::SET_BAR_COUNT),
+        ("graphMax", text::SET_GRAPH_MAX),
+        ("conditions", text::SET_CONDITIONS),
+        ("displayTitle", text::SET_DISPLAY),
+        ("noTitle", text::NO_TITLE),
+        ("condStepGone", text::COND_STEP_GONE),
+        ("condIgnoreCase", text::COND_IGNORE_CASE),
+        ("condTrim", text::COND_TRIM),
+        ("condTargetBodyRoot", text::COND_TARGET_BODY_ROOT),
+        ("condTargetStatus", text::COND_TARGET_STATUS),
+        ("condTargetBodyText", text::COND_TARGET_BODY_TEXT),
+    ] {
+        assert!(
+            ko.contains(&format!("{key}: \"{val}\"")),
+            "ko.monitor.{key}"
+        );
+    }
+    let h = text::cond_target_header("${n}");
+    assert!(
+        ko.contains(&format!("condTargetHeader: (n: string) => `{h}`")),
+        "ko.monitor.condTargetHeader"
+    );
+    let [r1, r2] = text::DISPLAY_RANK;
+    assert!(
+        ko.contains(&format!("displayRank: [\"{r1}\", \"{r2}\"]")),
+        "ko.monitor.displayRank"
+    );
+    let g = text::group_title("${n}");
+    assert!(
+        ko.contains(&format!("groupTitle: (n: number) => `{g}`")),
+        "ko.monitor.groupTitle"
+    );
+    use handicap_controller::monitor::config::ConditionOp as O;
+    let ops = ko
+        .split_once("condOpLabel: {")
+        .and_then(|(_, rest)| rest.split_once('}'))
+        .map(|(body, _)| body.to_string())
+        .expect("ko.monitor.condOpLabel");
+    for (key, op) in [
+        ("eq", O::Eq),
+        ("ne", O::Ne),
+        ("exists", O::Exists),
+        ("not_empty", O::NotEmpty),
+        ("contains", O::Contains),
+        ("gt", O::Gt),
+        ("lt", O::Lt),
+        ("gte", O::Gte),
+        ("lte", O::Lte),
+        ("one_of", O::OneOf),
+    ] {
+        let want = format!("{key}: \"{}\"", text::cond_op_label(op));
+        assert!(ops.contains(&want), "ko.monitor.condOpLabel.{key}");
+    }
+}
+
+#[test]
+fn format_date_hms_shape() {
+    let ms = 1_700_000_000_123;
+    let s = handicap_tui::judge::format_date_hms(ms);
+    let b = s.as_bytes();
+    assert_eq!(s.len(), 19, "{s}");
+    assert_eq!(b[4], b'-');
+    assert_eq!(b[7], b'-');
+    assert_eq!(b[10], b' ');
+    assert_eq!(b[13], b':');
+    let want = chrono::TimeZone::timestamp_millis_opt(&chrono::Local, ms)
+        .unwrap()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    assert_eq!(s, want);
+    assert!(s.ends_with(&handicap_tui::judge::format_hms(ms)));
+}
+
+#[test]
+fn reason_parts_multibyte_needle() {
+    assert_eq!(
+        reason_parts("\"한글\" 포함 안 됨", Some("본문 전체 글자 포함 x")),
+        ReasonParts::NotContained {
+            needle: "한글".into(),
+            small: "본문 전체 글자 포함 x".into(),
+        }
+    );
+}

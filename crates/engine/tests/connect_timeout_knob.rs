@@ -24,11 +24,68 @@ enum Mode {
     Open,
 }
 
-// 비라우팅 IP — SYN에 응답이 없어 connect 단계에서 정지한다. 실측 확정:
-// E1의 `tests/error_kind.rs::connect_stall_classifies_connect_timeout`이 같은 주소로
-// 0.5초에 결정적 통과, raw 소켓으로 >2.6초 무응답 확인 → 아래 1초 임계는 안전.
-// spec §9.1이 남긴 backlog-포화 대체안은 불필요.
-const YAML: &str = "version: 1
+// connect 단계 정체 픽스처 — accept 안 하는 backlog 1 리스너의 대기열을 채워 이후
+// SYN이 로컬에서 결정적으로 멈춘다(spec §9.1 backlog-포화 대체안). 예전 비라우팅 IP
+// `10.255.255.1:81`은 SYN을 조용히 버리는 네트워크에서만 정체했고, 즉시 거부·unreachable을
+// 주는 환경(사내 VPN·클라우드 샌드박스)에선 4 테스트가 실패해 pre-commit 게이트를 막았다
+// (`crates/engine/CLAUDE.md`). 대기는 connect_timeout(1s)/전체 timeout이 끊을 때까지 계속된다.
+/// accept하지 않는 backlog 1 리스너 + 대기열을 채운 연결들. 살아 있는 동안
+/// 이 주소로의 새 connect는 SYN 단계에서 정체한다(Linux: 대기열이 차면 SYN을 버림).
+/// 대기열 크기(backlog+1 등)는 OS마다 달라, 새 connect가 실제로 멈출 때까지 채운다.
+///
+/// macOS는 예외: 대기열이 차면 SYN을 버리지 않고 일부 연결을 RST(`ConnectionReset`)로
+/// 끊어 로컬 정체가 생기지 않는다(2026-11-11 맥 실측 — `listen(1)`에 300번 connect,
+/// 29번째부터 간헐 RST·멈춤 0). 그래서 macOS만 예전 비라우팅 IP `10.255.255.1:81`을 쓴다
+/// (VPN이 10/8 라우트를 밀면 실패할 수 있다 — `crates/engine/CLAUDE.md`).
+struct StalledListener {
+    _listener: Option<tokio::net::TcpListener>,
+    _fill: Vec<tokio::net::TcpStream>,
+    addr: std::net::SocketAddr,
+}
+
+impl StalledListener {
+    async fn new() -> Self {
+        if cfg!(target_os = "macos") {
+            return Self {
+                _listener: None,
+                _fill: Vec::new(),
+                addr: "10.255.255.1:81".parse().unwrap(),
+            };
+        }
+        let sock = tokio::net::TcpSocket::new_v4().unwrap();
+        sock.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let listener = sock.listen(1).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut fill = Vec::new();
+        for _ in 0..16 {
+            match tokio::time::timeout(
+                Duration::from_millis(200),
+                tokio::net::TcpStream::connect(addr),
+            )
+            .await
+            {
+                Ok(Ok(s)) => fill.push(s),
+                Ok(Err(e)) => panic!("backlog fill connect failed: {:?}", e.kind()),
+                Err(_) => {
+                    return Self {
+                        _listener: Some(listener),
+                        _fill: fill,
+                        addr,
+                    };
+                }
+            }
+        }
+        panic!("backlog never filled after 16 connections");
+    }
+
+    fn url(&self) -> String {
+        format!("http://{}/", self.addr)
+    }
+}
+
+fn yaml(url: &str) -> String {
+    format!(
+        "version: 1
 name: ct
 steps:
   - id: 01HX0000000000000000000001
@@ -36,8 +93,10 @@ steps:
     name: stall
     request:
       method: GET
-      url: http://10.255.255.1:81/
-";
+      url: {url}
+"
+    )
+}
 
 fn plan(
     mode: Mode,
@@ -98,7 +157,8 @@ async fn kind_totals(
     http_timeout: Duration,
     connect_timeout: Option<Duration>,
 ) -> Vec<(ErrorKind, u64)> {
-    let scenario = Arc::new(Scenario::from_yaml(YAML).unwrap());
+    let stall = StalledListener::new().await;
+    let scenario = Arc::new(Scenario::from_yaml(&yaml(&stall.url())).unwrap());
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let p = plan(mode, dur_ms, http_timeout, connect_timeout);
     let cancel = CancellationToken::new();

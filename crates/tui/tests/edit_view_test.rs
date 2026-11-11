@@ -1,0 +1,625 @@
+//! 하위 목록·조건 수정 칸·환경/시나리오 변수 화면 그리기(목업 §4·§5, tui-2a-1 Task 9).
+
+use handicap_tui::app::CondFocus;
+use handicap_tui::text;
+use handicap_tui::view::edit::{
+    CondFormView, ListKind, ListRow, ListView, VarRow, VarsView, cond_form_keys, env_display,
+    list_keys, render_cond_form, render_list, render_vars, vars_keys,
+};
+use handicap_tui::view::monitor::HeaderView;
+use handicap_tui::view::settings::OverlayView;
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier};
+use ratatui::text::Span;
+
+fn buffer_text(buf: &Buffer) -> String {
+    let area = buf.area;
+    let mut out = String::new();
+    for y in 0..area.height {
+        let mut skip = 0usize;
+        for x in 0..area.width {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            }
+            let sym = buf[(x, y)].symbol();
+            skip = Span::raw(sym.to_string()).width().saturating_sub(1);
+            out.push_str(sym);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn width(s: &str) -> usize {
+    Span::raw(s.to_string()).width()
+}
+
+fn head() -> HeaderView {
+    HeaderView {
+        board_name: "운영 API 보드".into(),
+        board_pos: (1, 1),
+        server_time: Some(1_700_000_000_000),
+        server_down: false,
+        notice: None,
+    }
+}
+
+fn row(text: &str) -> ListRow {
+    ListRow {
+        text: text.into(),
+        color: None,
+        dim: false,
+    }
+}
+
+fn draw_list(w: u16, h: u16, v: &ListView, keys: &[&str]) -> (Buffer, String) {
+    let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+    t.draw(|f| render_list(f, &head(), v, keys)).unwrap();
+    let buf = t.backend().buffer().clone();
+    let txt = buffer_text(&buf);
+    (buf, txt)
+}
+
+fn draw_vars(w: u16, h: u16, v: &VarsView, keys: &[&str]) -> (Buffer, String) {
+    let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+    t.draw(|f| render_vars(f, &head(), v, keys)).unwrap();
+    let buf = t.backend().buffer().clone();
+    let txt = buffer_text(&buf);
+    (buf, txt)
+}
+
+fn draw_form(w: u16, h: u16, v: &CondFormView) -> (Buffer, String) {
+    let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+    t.draw(|f| render_cond_form(f, Rect::new(0, 0, w, h), v))
+        .unwrap();
+    let buf = t.backend().buffer().clone();
+    let txt = buffer_text(&buf);
+    (buf, txt)
+}
+
+fn vars_view<'a>(rows: Vec<VarRow>, cursor: usize) -> VarsView<'a> {
+    VarsView {
+        title: "환경 변수 · 운영".into(),
+        usage: text::usage_note(4, 2),
+        rows,
+        cursor,
+        loading: false,
+        failed: None,
+        overlay: None,
+    }
+}
+
+fn vrow(key: &str, value: &str) -> VarRow {
+    VarRow {
+        key: key.into(),
+        value: value.into(),
+        note: None,
+    }
+}
+
+/// 고른 줄 바탕(`monitor.rs` `C_TEXT`).
+const SEL_BG: Color = Color::Rgb(0xf2, 0xf5, 0xf8);
+
+/// `needle`이 든 첫 **본문** 줄(머리 줄 y=0 제외)의 y.
+fn row_with(buf: &Buffer, needle: &str) -> u16 {
+    (1..buf.area.height)
+        .find(|&y| {
+            // 넓은 글자의 둘째 칸(채움 공백)은 건너뛴다.
+            let mut line = String::new();
+            let mut skip = false;
+            for x in 0..buf.area.width {
+                if skip {
+                    skip = false;
+                    continue;
+                }
+                let sym = buf[(x, y)].symbol();
+                skip = ratatui::text::Span::raw(sym.to_string()).width() == 2;
+                line.push_str(sym);
+            }
+            line.contains(needle)
+        })
+        .unwrap_or_else(|| panic!("{needle:?} 줄 없음"))
+}
+
+/// 그 줄의 `sym` 칸 x.
+fn col_of(buf: &Buffer, y: u16, sym: &str) -> u16 {
+    (0..buf.area.width)
+        .find(|&x| buf[(x, y)].symbol() == sym)
+        .unwrap_or_else(|| panic!("{sym:?} 칸 없음"))
+}
+
+fn find_cell(buf: &Buffer, sym: &str) -> Option<(u16, u16)> {
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            if buf[(x, y)].symbol() == sym {
+                return Some((x, y));
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn env_values_masked_until_v() {
+    assert_eq!(env_display("", false), "••••••••");
+    assert_eq!(env_display("SECRET-TOKEN", false), "••••••••");
+    assert_eq!(
+        env_display("x", false),
+        env_display(&"y".repeat(500), false)
+    );
+    assert_eq!(env_display("SECRET-TOKEN", true), "SECRET-TOKEN");
+
+    let masked = vars_view(
+        vec![
+            vrow("API_TOKEN", &env_display("SECRET-TOKEN", false)),
+            vrow("SHOP_ID", &env_display("", false)),
+        ],
+        0,
+    );
+    let (_, txt) = draw_vars(100, 20, &masked, &[]);
+    assert!(!txt.contains("SECRET"), "{txt}");
+    assert!(txt.contains("••••••••"), "{txt}");
+    let shown = vars_view(
+        vec![vrow("API_TOKEN", &env_display("SECRET-TOKEN", true))],
+        0,
+    );
+    let (_, txt) = draw_vars(100, 20, &shown, &[]);
+    assert!(txt.contains("SECRET-TOKEN"), "{txt}");
+}
+
+#[test]
+fn vars_rows_notes() {
+    let mut gen_row = vrow("nonce", "");
+    gen_row.note = Some(text::VAR_GENERATED);
+    let v = vars_view(
+        vec![vrow("order_id", "A-1001"), vrow("page_size", "20"), gen_row],
+        0,
+    );
+    let (buf, txt) = draw_vars(100, 20, &v, &["↑↓ 고르기"]);
+    assert!(txt.contains("환경 변수 · 운영"), "{txt}");
+    assert!(txt.contains("이 환경을 쓰는 칸 4개(보드 2개)"), "{txt}");
+    assert!(txt.contains("생성 변수 — GUI에서"), "{txt}");
+    assert!(txt.contains("▶ order_id"), "{txt}");
+    // 생성 변수 줄은 흐림: 일반 줄 글자색과 다르다.
+    let gy = row_with(&buf, "nonce");
+    let py = row_with(&buf, "page_size");
+    assert_ne!(
+        buf[(col_of(&buf, gy, "n"), gy)].fg,
+        buf[(col_of(&buf, py, "p"), py)].fg
+    );
+    // 고른 줄은 줄 전체가 흰 바탕, 고르지 않은 줄은 아니다.
+    let sy = row_with(&buf, "▶ order_id");
+    for x in [
+        col_of(&buf, sy, "▶"),
+        col_of(&buf, sy, "A"),
+        buf.area.width - 2,
+    ] {
+        assert_eq!(buf[(x, sy)].bg, SEL_BG, "x={x}");
+    }
+    assert_ne!(buf[(col_of(&buf, py, "p"), py)].bg, SEL_BG);
+    assert_ne!(buf[(col_of(&buf, gy, "n"), gy)].bg, SEL_BG);
+}
+
+#[test]
+fn list_thresholds_colored() {
+    let v = ListView {
+        title: "응답속도 기준선 · 주문 조회",
+        rows: vec![
+            ListRow {
+                text: "800 ms".into(),
+                color: Some("#f59e0b".into()),
+                dim: false,
+            },
+            ListRow {
+                text: "1,500 ms".into(),
+                color: Some("zz-not-a-color".into()),
+                dim: false,
+            },
+        ],
+        cursor: 0,
+        overlay: None,
+    };
+    let (buf, txt) = draw_list(100, 20, &v, &[text::KEYS_PICK]);
+    assert!(txt.contains("▶ 1  ■ 800 ms"), "{txt}");
+    assert!(txt.contains("2  ■ 1,500 ms"), "{txt}");
+    let mut found = vec![];
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            if buf[(x, y)].symbol() == "■" {
+                found.push(buf[(x, y)].fg);
+            }
+        }
+    }
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0], Color::Rgb(0xf5, 0x9e, 0x0b));
+    assert_ne!(found[1], Color::Rgb(0xf5, 0x9e, 0x0b));
+    // 고른 줄만 흰 바탕.
+    let sy = row_with(&buf, "▶ 1  ■ 800 ms");
+    let uy = row_with(&buf, "2  ■ 1,500 ms");
+    assert_eq!(buf[(col_of(&buf, sy, "▶"), sy)].bg, SEL_BG);
+    assert_eq!(buf[(col_of(&buf, sy, "8"), sy)].bg, SEL_BG);
+    assert_ne!(buf[(col_of(&buf, uy, "2"), uy)].bg, SEL_BG);
+}
+
+#[test]
+fn list_empty_shows_guidance() {
+    let guide = ListRow {
+        text: text::EDIT_NO_CONDITIONS.into(),
+        color: None,
+        dim: true,
+    };
+    let v = ListView {
+        title: "성공 조건 · 주문 조회",
+        rows: vec![guide],
+        cursor: 0,
+        overlay: None,
+    };
+    let (buf, txt) = draw_list(100, 20, &v, &[]);
+    assert!(txt.contains(text::EDIT_NO_CONDITIONS), "{txt}");
+    assert!(!txt.contains('▶'), "안내 줄은 고르지 않는다: {txt}");
+    let gy = row_with(&buf, text::EDIT_NO_CONDITIONS);
+    assert_ne!(buf[(col_of(&buf, gy, "조"), gy)].bg, SEL_BG);
+    // 줄이 하나도 없으면 `없음`.
+    let v = ListView {
+        title: "응답속도 기준선 · 주문 조회",
+        rows: vec![],
+        cursor: 0,
+        overlay: None,
+    };
+    let (_, txt) = draw_list(100, 20, &v, &[]);
+    assert!(txt.contains(text::NONE), "{txt}");
+}
+
+fn form<'a>(op: usize, ops: &'a [&'static str], focus: CondFocus) -> CondFormView<'a> {
+    let has_value = op == 0;
+    CondFormView {
+        target: "status",
+        ops,
+        op,
+        value: has_value.then(|| ("OK".to_string(), 2)),
+        flags: has_value.then_some((true, false)),
+        focus,
+        error: None,
+    }
+}
+
+#[test]
+fn cond_form_layout() {
+    let ops = ["= 같음", "키 있음"];
+    let v = form(0, &ops, CondFocus::Op);
+    let (buf, txt) = draw_form(60, 8, &v);
+    assert!(txt.contains("대상    status"), "{txt}");
+    assert!(txt.contains("규칙    "), "{txt}");
+    assert!(txt.contains("= 같음"), "{txt}");
+    assert!(txt.contains("값      OK"), "{txt}");
+    assert!(
+        txt.contains("[x] 대소문자 무시   [ ] 앞뒤 공백 무시"),
+        "{txt}"
+    );
+    // 포커스 칸(규칙) 반전.
+    let (x, y) = find_cell(&buf, "=").unwrap();
+    assert!(buf[(x, y)].modifier.contains(Modifier::REVERSED));
+    let (tx, ty) = find_cell(&buf, "s").unwrap();
+    assert!(!buf[(tx, ty)].modifier.contains(Modifier::REVERSED));
+    // 체크 포커스 = 그 체크만 반전.
+    let v = form(0, &ops, CondFocus::Trim);
+    let (buf, _) = draw_form(60, 8, &v);
+    let (x, y) = find_cell(&buf, "앞").unwrap();
+    assert!(buf[(x, y)].modifier.contains(Modifier::REVERSED));
+    let (x, y) = find_cell(&buf, "대").unwrap();
+    assert!(!buf[(x, y)].modifier.contains(Modifier::REVERSED));
+    // 값 칸 포커스 = 커서 칸 반전.
+    let v = form(0, &ops, CondFocus::Value);
+    let (buf, _) = draw_form(60, 8, &v);
+    let reversed = (0..buf.area.width)
+        .filter(|x| buf[(*x, 2)].modifier.contains(Modifier::REVERSED))
+        .count();
+    assert_eq!(reversed, 1);
+    // exists = 값 줄·체크 줄 없음.
+    let v = form(1, &ops, CondFocus::Op);
+    let (_, txt) = draw_form(60, 8, &v);
+    assert!(txt.contains("키 있음"), "{txt}");
+    assert!(!txt.contains("값 "), "{txt}");
+    assert!(!txt.contains("[x]") && !txt.contains("[ ]"), "{txt}");
+    // 오류 줄.
+    let mut v = form(0, &ops, CondFocus::Op);
+    v.error = Some("값이 비어 있습니다");
+    let (_, txt) = draw_form(60, 8, &v);
+    assert!(txt.contains("값이 비어 있습니다"), "{txt}");
+}
+
+#[test]
+fn vars_loading_and_failed() {
+    let mut v = vars_view(vec![], 0);
+    v.loading = true;
+    let (_, txt) = draw_vars(80, 12, &v, &[]);
+    assert!(txt.contains("불러오는 중…"), "{txt}");
+    v.loading = false;
+    v.failed = Some("환경을 찾을 수 없습니다");
+    let (_, txt) = draw_vars(80, 12, &v, &[]);
+    assert!(txt.contains("환경을 찾을 수 없습니다"), "{txt}");
+    assert!(!txt.contains("불러오는 중…"), "{txt}");
+}
+
+#[test]
+fn remote_strings_sanitized() {
+    // 키.
+    let v = vars_view(vec![vrow("K\u{202E}E\x1bY", "v")], 0);
+    let (_, txt) = draw_vars(80, 12, &v, &[]);
+    assert!(txt.contains("K\u{FFFD}E\u{FFFD}Y"), "key: {txt}");
+    assert!(!txt.contains('\u{202E}'));
+    // 드러낸 값.
+    let v = vars_view(vec![vrow("K", &env_display("a\u{202E}b\x1bc", true))], 0);
+    let (_, txt) = draw_vars(80, 12, &v, &[]);
+    assert!(txt.contains("a\u{FFFD}b\u{FFFD}c"), "value: {txt}");
+    // 서버 실패 문구.
+    let mut v = vars_view(vec![], 0);
+    v.failed = Some("x\u{202E}y");
+    let (_, txt) = draw_vars(80, 12, &v, &[]);
+    assert!(txt.contains("x\u{FFFD}y"), "failed: {txt}");
+    // 제목.
+    let mut v = vars_view(vec![], 0);
+    v.title = "환경 \u{202E}이름".into();
+    let (_, txt) = draw_vars(80, 12, &v, &[]);
+    assert!(txt.contains("환경 \u{FFFD}이름"), "title: {txt}");
+    // 목록 줄.
+    let v = ListView {
+        title: "성공 조건",
+        rows: vec![row("status = a\u{202E}b")],
+        cursor: 0,
+        overlay: None,
+    };
+    let (_, txt) = draw_list(80, 12, &v, &[]);
+    assert!(txt.contains("status = a\u{FFFD}b"), "list row: {txt}");
+    // 목록 제목.
+    let v = ListView {
+        title: "성공 \u{2028}조건",
+        rows: vec![row("a")],
+        cursor: 0,
+        overlay: None,
+    };
+    let (_, txt) = draw_list(80, 12, &v, &[]);
+    assert!(txt.contains("성공 \u{FFFD}조건"), "list title: {txt}");
+    // 조건 칸 대상·값·오류.
+    let ops = ["= 같음"];
+    let mut v = form(0, &ops, CondFocus::Op);
+    v.target = "h\u{202E}x";
+    v.value = Some(("v\u{202E}w".into(), 1));
+    v.error = Some("e\u{202E}r");
+    let (_, txt) = draw_form(60, 8, &v);
+    assert!(txt.contains("h\u{FFFD}x"), "target: {txt}");
+    assert!(txt.contains("v\u{FFFD}w"), "form value: {txt}");
+    assert!(txt.contains("e\u{FFFD}r"), "form error: {txt}");
+}
+
+#[test]
+fn key_fragments() {
+    assert_eq!(
+        vars_keys(true, false),
+        vec!["↑↓ 고르기", "Enter 수정", "v 값 보기", "Esc 뒤로"]
+    );
+    assert_eq!(vars_keys(true, true)[2], "v 가리기");
+    assert_eq!(
+        vars_keys(false, false),
+        vec!["↑↓ 고르기", "Enter 수정", "Esc 뒤로"]
+    );
+    assert_eq!(
+        list_keys(ListKind::Thresholds, 2),
+        vec!["↑↓ 고르기", "Enter 수정", "a 추가", "d 삭제", "Esc 뒤로"]
+    );
+    assert_eq!(
+        list_keys(ListKind::Conditions, 2),
+        vec!["↑↓ 고르기", "Enter 수정", "d 삭제", "Esc 뒤로"]
+    );
+    assert_eq!(
+        list_keys(ListKind::Display, 2),
+        vec!["↑↓ 고르기", "s 자리 바꾸기", "d 삭제", "Esc 뒤로"]
+    );
+    assert_eq!(
+        list_keys(ListKind::Display, 1),
+        vec!["↑↓ 고르기", "d 삭제", "Esc 뒤로"]
+    );
+    // 빈 목록 = 삭제·수정 없음.
+    assert_eq!(
+        list_keys(ListKind::Thresholds, 0),
+        vec!["↑↓ 고르기", "a 추가", "Esc 뒤로"]
+    );
+    // 조건 수정 칸에는 `d 삭제`가 없다(spec §6.7 — 그 칸의 키가 아니다).
+    assert_eq!(
+        cond_form_keys(),
+        vec!["Tab 다음 칸", "Space 켜기·끄기", "Enter 저장", "Esc 취소"]
+    );
+}
+
+#[test]
+fn large_list_keeps_cursor_visible() {
+    let rows: Vec<ListRow> = (0..100).map(|i| row(&format!("조건-{i}"))).collect();
+    let v = ListView {
+        title: "성공 조건",
+        rows,
+        cursor: 99,
+        overlay: None,
+    };
+    let (_, txt) = draw_list(80, 12, &v, &[]);
+    assert!(txt.contains("▶ 100  조건-99"), "{txt}");
+    let v = ListView {
+        title: "성공 조건",
+        rows: (0..100).map(|i| row(&format!("조건-{i}"))).collect(),
+        cursor: 50,
+        overlay: None,
+    };
+    let (_, txt) = draw_list(80, 12, &v, &[]);
+    assert!(txt.contains("▶ 51   조건-50"), "{txt}");
+    let vars = vars_view((0..100).map(|i| vrow(&format!("K{i}"), "v")).collect(), 99);
+    let (_, txt) = draw_vars(80, 12, &vars, &[]);
+    assert!(txt.contains("▶ K99"), "{txt}");
+}
+
+fn overlays<'a>(opts: &'a [String]) -> Vec<Option<OverlayView<'a>>> {
+    vec![
+        None,
+        Some(OverlayView::Input {
+            label: "기준선(ms)",
+            text: "1800".into(),
+            cursor_x: 4,
+            hint: Some("1~600000".into()),
+            error: Some("오류 문구"),
+            share: Some("이 값을 쓰는 칸 4개가 함께 바뀝니다"),
+        }),
+        Some(OverlayView::Pick {
+            title: "고르기",
+            options: opts,
+            cursor: 1,
+        }),
+        Some(OverlayView::Confirm(
+            "1번을 지울까요? y 지우기 · 다른 키 취소",
+        )),
+        Some(OverlayView::Saving),
+        Some(OverlayView::Notice("알림")),
+    ]
+}
+
+#[test]
+fn render_sweep_no_panic() {
+    let opts: Vec<String> = vec!["가".into(), "나나".into(), "다다다".into()];
+    let ops = ["= 같음", "≠ 다름", "키 있음"];
+    let rows = || -> Vec<ListRow> {
+        vec![
+            ListRow {
+                text: "800 ms 가나다".into(),
+                color: Some("#f59e0b".into()),
+                dim: false,
+            },
+            row("상태코드 = 200 · 주문 상세 · 대소문자 무시"),
+            ListRow {
+                text: String::new(),
+                color: Some(String::new()),
+                dim: true,
+            },
+        ]
+    };
+    let mut vr = vec![vrow("API_TOKEN", "••••••••"), vrow("한글키", "값")];
+    vr.push(VarRow {
+        key: "nonce".into(),
+        value: String::new(),
+        note: Some(text::VAR_SHAPE),
+    });
+    vr.push(vrow("", ""));
+    for w in 1..=60u16 {
+        for h in 1..=16u16 {
+            for (oi, _) in overlays(&opts).iter().enumerate() {
+                for cursor in [0usize, 1, 2, 7, usize::MAX] {
+                    let ov = overlays(&opts).into_iter().nth(oi).unwrap();
+                    let v = ListView {
+                        title: "응답속도 기준선 · 주문 조회",
+                        rows: rows(),
+                        cursor,
+                        overlay: ov,
+                    };
+                    let _ = draw_list(w, h, &v, &[text::KEYS_PICK, text::KEYS_EDIT]);
+                    let ov = overlays(&opts).into_iter().nth(oi).unwrap();
+                    let mut vv = vars_view(vr.clone(), cursor);
+                    vv.overlay = ov;
+                    let _ = draw_vars(w, h, &vv, &[text::KEYS_PICK]);
+                }
+            }
+            let ov = ListView {
+                title: "빈",
+                rows: vec![],
+                cursor: usize::MAX,
+                overlay: None,
+            };
+            let _ = draw_list(w, h, &ov, &[]);
+            let mut ld = vars_view(vec![], 0);
+            ld.loading = true;
+            let _ = draw_vars(w, h, &ld, &[]);
+            ld.loading = false;
+            ld.failed = Some("서버 문구가 아주 길어서 좁은 화면에서는 잘려야 합니다");
+            let _ = draw_vars(w, h, &ld, &[]);
+            for op in 0..3 {
+                for focus in [
+                    CondFocus::Op,
+                    CondFocus::Value,
+                    CondFocus::IgnoreCase,
+                    CondFocus::Trim,
+                ] {
+                    let mut f = form(op.min(1), &ops, focus);
+                    f.op = op.min(2);
+                    f.value = (op == 0).then(|| ("값값값".to_string(), usize::MAX));
+                    f.error = Some("오류");
+                    let _ = draw_form(w, h, &f);
+                }
+            }
+        }
+    }
+    // 큰 화면.
+    let v = ListView {
+        title: "성공 조건",
+        rows: rows(),
+        cursor: 1,
+        overlay: None,
+    };
+    let (_, txt) = draw_list(200, 60, &v, &[]);
+    assert!(txt.contains("▶ 2"));
+    let (buf, _) = draw_vars(200, 60, &vars_view(vr, 1), &[]);
+    for y in 0..buf.area.height {
+        let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+        assert!(width(&line) <= 200 * 2);
+    }
+}
+
+/// 리뷰 B4: 조건 수정 칸이 열려 있으면 목록은 폼 높이만큼 줄어든 영역에 그려져 고른(마지막) 줄 `▶`가 폼 위에 보인다.
+#[test]
+fn cond_form_does_not_hide_selected_row() {
+    use handicap_tui::view::edit::render_list_with_form;
+    let rows: Vec<ListRow> = (1..=12).map(|i| row(&format!("조건-{i:02}"))).collect();
+    let ops = ["= 같음", "키 있음"];
+    let fv = form(0, &ops, CondFocus::Op);
+    for h in [12u16, 14, 16, 20, 24] {
+        let v = ListView {
+            title: "성공 조건 · 핑",
+            rows: rows.clone(),
+            cursor: 11,
+            overlay: None,
+        };
+        let mut t = Terminal::new(TestBackend::new(60, h)).unwrap();
+        t.draw(|f| render_list_with_form(f, &head(), &v, &[], Some(&fv)))
+            .unwrap();
+        let txt = buffer_text(t.backend().buffer());
+        let lines: Vec<&str> = txt.lines().collect();
+        let sel = lines
+            .iter()
+            .position(|l| l.contains("▶") && l.contains("조건-12"))
+            .unwrap_or_else(|| panic!("h{h}: selected row hidden\n{txt}"));
+        let target = lines
+            .iter()
+            .position(|l| l.contains("대상"))
+            .unwrap_or_else(|| panic!("h{h}: form missing\n{txt}"));
+        assert!(sel < target, "h{h}: selected row below form\n{txt}");
+    }
+    // 폼 없음 = render_list와 같은 화면.
+    let v = ListView {
+        title: "성공 조건 · 핑",
+        rows: rows.clone(),
+        cursor: 11,
+        overlay: None,
+    };
+    let mut a = Terminal::new(TestBackend::new(60, 16)).unwrap();
+    a.draw(|f| render_list_with_form(f, &head(), &v, &[], None))
+        .unwrap();
+    let mut b = Terminal::new(TestBackend::new(60, 16)).unwrap();
+    b.draw(|f| render_list(f, &head(), &v, &[])).unwrap();
+    assert_eq!(a.backend().buffer(), b.backend().buffer());
+    // 아주 작은 화면에서도 패닉 없음.
+    for w in 1..=20u16 {
+        for h in 1..=8u16 {
+            let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+            t.draw(|f| render_list_with_form(f, &head(), &v, &[], Some(&fv)))
+                .unwrap();
+        }
+    }
+}

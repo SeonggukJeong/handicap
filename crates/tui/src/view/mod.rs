@@ -1,12 +1,16 @@
-//! 화면 렌더링 — 뷰 모델(`model`)·시각 줄(`axis`)·모니터(`monitor`)·팝업(`overlay`)·오류(`error`).
+//! 화면 렌더링 — 뷰 모델(`model`)·시각 줄(`axis`)·모니터(`monitor`)·팝업(`overlay`)·오류(`error`)·
+//! 오류 보기 등 새 화면 틀(`inspect`)·칸 설정 보기(`settings`).
 
 pub mod axis;
 pub mod bigfont;
+pub mod edit;
 pub mod error;
 pub mod graph;
+pub mod inspect;
 pub mod model;
 pub mod monitor;
 pub mod overlay;
+pub mod settings;
 pub mod tier;
 
 use ratatui::layout::Rect;
@@ -37,6 +41,24 @@ pub(crate) fn fit(s: &str, w: usize) -> String {
     }
     out.push('…');
     out
+}
+
+/// 표시 폭 `w` 행들로 글자 단위로 자른다(넓은 문자는 쪼개지 않는다).
+pub(crate) fn wrap_width(s: &str, w: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut cur = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        let cw = text_width(c.encode_utf8(&mut [0; 4]));
+        if used + cw > w && !cur.is_empty() {
+            rows.push(std::mem::take(&mut cur));
+            used = 0;
+        }
+        cur.push(c);
+        used += cw;
+    }
+    rows.push(cur);
+    rows
 }
 
 /// 키 안내 줄 — 폭에 안 들어가면 앞 조각부터 통째로 뺀다(마지막 조각은 남기고, 그래도 넘치면 `…`).

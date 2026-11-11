@@ -9,6 +9,7 @@ use handicap_tui::logging::LogLoc;
 use handicap_tui::poll::PollSnapshot;
 use handicap_tui::prefs::BorderStyle;
 use handicap_tui::session::{Stage, StartError};
+use handicap_tui::text;
 use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
 use handicap_tui::view::graph::{column, label_width, threshold_rows};
@@ -16,7 +17,8 @@ use handicap_tui::view::model::{
     Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows_s, parse_hex,
 };
 use handicap_tui::view::monitor::{
-    KeyBar, MonitorScreen, layout, panel_at, render, render_with_keys,
+    HeaderNotice, KeyBar, MonitorScreen, layout, panel_at, render, render_header_view,
+    render_with_keys,
 };
 use handicap_tui::view::overlay::{render_help, render_quit_confirm};
 use handicap_tui::wire::{BoardResponse, PanelStatus, StatusResponse};
@@ -146,6 +148,7 @@ fn screen(panels: Vec<PanelView>, pos: (usize, usize), selected: usize) -> Monit
         panels,
         selected,
         border: BorderStyle::Heavy,
+        notice: None,
     }
 }
 
@@ -422,9 +425,11 @@ fn render_monitor_contains() {
         assert!(text.contains(want), "{want}\n{text}");
     }
     assert!(
-        text.contains("←↑↓→ 칸 이동  Tab 다음 보드  b 테두리  ? 도움말  q 종료"),
+        text.contains("Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"),
         "{text}"
     );
+    // 80열·보드 2개는 다 안 들어가 맨 앞 `b 테두리`만 통째로 빠진다.
+    assert!(!text.contains("b 테두리"), "{text}");
     // 모든 칸이 같은 굵은 테두리, 선택은 `▶` 제목으로 구분한다.
     assert_eq!(text.matches('┏').count(), 3, "{text}");
     assert!(!text.contains('┌'), "{text}");
@@ -440,7 +445,7 @@ fn render_key_bar_single_board_omits_tab() {
     );
     let text = draw(80, 24, |f| render(f, &s));
     assert!(
-        text.contains("←↑↓→ 칸 이동  b 테두리  ? 도움말  q 종료"),
+        text.contains("b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"),
         "{text}"
     );
     assert!(!text.contains("Tab 다음 보드"), "{text}");
@@ -484,6 +489,7 @@ fn render_help_has_paths() {
         render_help(
             f,
             Path::new("/tmp/b.json"),
+            None,
             &LogLoc::Path("/tmp/tui.log".into()),
         )
     });
@@ -495,6 +501,7 @@ fn render_help_has_paths() {
         render_help(
             f,
             Path::new("/tmp/b.json"),
+            None,
             &LogLoc::Unavailable("권한 없음".into()),
         )
     });
@@ -1201,6 +1208,7 @@ fn help_short_terminal_keeps_esc_row_and_aligns() {
         render_help(
             f,
             Path::new("/tmp/b.json"),
+            None,
             &LogLoc::Unavailable("권한 없음".into()),
         )
     });
@@ -1215,7 +1223,8 @@ fn help_short_terminal_keeps_esc_row_and_aligns() {
         Span::raw(l[..idx].to_string()).width()
     };
     assert_eq!(col("칸 선택 이동"), col("다음 / 이전 보드"));
-    assert_eq!(col("칸 선택 이동"), col("테두리 모양 바꾸기"));
+    // 높이 12: 키 줄은 앞 5줄만(고정 줄 4 = 경로·로그·무입력·복사) — 보이는 줄끼리 정렬.
+    assert_eq!(col("칸 선택 이동"), col("선택 칸 오류 보기"));
     assert_eq!(col("칸 선택 이동"), col("글자 크기"));
 }
 
@@ -1223,7 +1232,12 @@ fn help_short_terminal_keeps_esc_row_and_aligns() {
 fn help_long_path_keeps_log_and_copy_rows() {
     let path = format!("/{}", "Z".repeat(150));
     let text = draw(80, 24, |f| {
-        render_help(f, Path::new(&path), &LogLoc::Path("/tmp/tui.log".into()))
+        render_help(
+            f,
+            Path::new(&path),
+            None,
+            &LogLoc::Path("/tmp/tui.log".into()),
+        )
     });
     println!("{text}");
     assert_eq!(text.matches('Z').count(), 150, "{text}");
@@ -1237,15 +1251,15 @@ fn help_long_path_keeps_log_and_copy_rows() {
 fn help_tiny_height_drops_key_rows_before_paths() {
     let path = format!("/{}", "Z".repeat(150));
     let log = LogLoc::Path("/tmp/tui.log".into());
-    // 높이 9: 본문 6행 = 경로 3 + 로그 1 + 복사 1 + 키 1
-    let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
+    // 높이 9: 본문 6행 = 경로 3 + 로그 1 + 무입력 1 + 복사 1 (키 줄 0 — 키 줄이 먼저 빠진다)
+    let text = draw(80, 9, |f| render_help(f, Path::new(&path), None, &log));
     println!("{text}");
     assert_eq!(text.matches('Z').count(), 150, "{text}");
     assert!(text.contains("로그: /tmp/tui.log"), "{text}");
     assert!(text.contains("Shift+드래그"), "{text}");
     assert!(!text.contains("마우스 왼쪽 클릭"), "{text}");
     // 높이 7: 본문 4행 — 복사 안내가 먼저 빠지지만 경로·로그는 남는다.
-    let text = draw(80, 7, |f| render_help(f, Path::new(&path), &log));
+    let text = draw(80, 7, |f| render_help(f, Path::new(&path), None, &log));
     println!("{text}");
     assert_eq!(text.matches('Z').count(), 150, "{text}");
     assert!(text.contains("로그: /tmp/tui.log"), "{text}");
@@ -1446,7 +1460,7 @@ fn bottom_key_bar_shows_only_keys_of_the_open_screen() {
     let monitor = key_bar_row(KeyBar::Monitor);
     assert_eq!(
         monitor,
-        "←↑↓→ 칸 이동  Tab 다음 보드  b 테두리  ? 도움말  q 종료"
+        "Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
     // 도움말: 닫기 키만.
     assert_eq!(key_bar_row(KeyBar::Help), "Esc 닫기");
@@ -2672,15 +2686,17 @@ fn key_bar_has_border_key() {
     let t = draw(80, 12, |f| render(f, &s));
     assert_eq!(
         t.lines().last().unwrap().trim(),
-        "←↑↓→ 칸 이동  b 테두리  ? 도움말  q 종료"
+        "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
     let t = draw(24, 8, |f| render(f, &s));
     let last = t.lines().last().unwrap();
     assert!(!last.contains("칸 이동"), "{t}");
     assert!(last.contains("q 종료"), "{t}");
+    // 좁으면 앞 조각(`b 테두리` → `칸 이동` → …)부터 통째로 빠지고 `? 도움말  q 종료`는 남는다.
     let t = draw(30, 8, |f| render(f, &s));
     let last = t.lines().last().unwrap();
-    assert!(last.contains("b 테두리  ? 도움말  q 종료"), "{t}");
+    assert!(last.contains("? 도움말  q 종료"), "{t}");
+    assert!(!last.contains("b 테두리"), "{t}");
 }
 
 #[test]
@@ -2688,13 +2704,17 @@ fn help_zoom_row_whole_from_50_columns() {
     // US3: 고정 방법(`--zoom=1.6`)이 좁은 터미널에서도 단어 중간에서 잘리지 않는다(도움말은 줄바꿈 안 함).
     let log = LogLoc::Path("/tmp/tui.log".into());
     for w in 50..=80u16 {
-        let text = draw(w, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+        let text = draw(w, 24, |f| {
+            render_help(f, Path::new("/tmp/b.json"), None, &log)
+        });
         let line = text.lines().find(|l| l.contains("Ctrl + + / -")).unwrap();
         assert!(line.contains("--zoom=1.6"), "w{w}\n{text}");
         assert!(line.contains("글자 크기"), "w{w}\n{text}");
     }
     // 80칸에서는 키 줄 전부가 통째로 보인다.
-    let text = draw(80, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+    let text = draw(80, 24, |f| {
+        render_help(f, Path::new("/tmp/b.json"), None, &log)
+    });
     for (k, d) in handicap_tui::text::HELP_KEYS {
         let line = text
             .lines()
@@ -2713,7 +2733,9 @@ fn help_zoom_row_whole_from_50_columns() {
 #[test]
 fn help_zoom_row_first_and_survives_small_height() {
     let log = LogLoc::Path("/tmp/tui.log".into());
-    let text = draw(80, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+    let text = draw(80, 24, |f| {
+        render_help(f, Path::new("/tmp/b.json"), None, &log)
+    });
     let line = text.lines().find(|l| l.contains("Ctrl + + / -")).unwrap();
     assert!(line.contains("--zoom=1.6"), "{text}");
     let zoom_at = text.find("Ctrl + + / -").unwrap();
@@ -2721,7 +2743,343 @@ fn help_zoom_row_first_and_survives_small_height() {
         assert!(zoom_at < text.find(other).unwrap(), "{other} {text}");
     }
     let path = format!("/{}", "Z".repeat(150));
-    let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
+    // 높이 10: 본문 7행 = 경로 3 + 로그 1 + 무입력 1 + 복사 1 + 키 1 — 남는 한 줄이 글자 크기 줄.
+    let text = draw(80, 10, |f| render_help(f, Path::new(&path), None, &log));
     assert!(text.contains("Ctrl + + / -"), "{text}");
     assert!(!text.contains("방향키"), "{text}");
+}
+
+#[test]
+fn header_view_matches_monitor_header() {
+    for (w, pos, down) in [
+        (100u16, (1, 2), false),
+        (80, (1, 1), true),
+        (40, (2, 3), false),
+        (24, (1, 2), true),
+    ] {
+        let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], pos, 0);
+        sc.server_down = down;
+        let monitor = draw(w, 8, |f| render(f, &sc));
+        let h = sc.header();
+        assert_eq!(h.board_name, sc.board_name);
+        let alone = draw(w, 1, |f| render_header_view(f, f.area(), &h));
+        assert_eq!(
+            alone.lines().next().unwrap(),
+            monitor.lines().next().unwrap(),
+            "w={w}"
+        );
+    }
+}
+
+#[test]
+fn key_bar_has_errors_and_settings_keys() {
+    let one = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    let t = draw(100, 12, |f| render(f, &one));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    let two = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    let t = draw(100, 12, |f| render(f, &two));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "b 테두리  Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    let t = draw(80, 12, |f| render(f, &two));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    let t = draw(60, 12, |f| render(f, &two));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+}
+
+#[test]
+fn help_lists_new_keys_and_idle_rule() {
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    assert_eq!(handicap_tui::text::HELP_KEYS.len(), 10);
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/b.json"), None, &log)
+    });
+    println!("{text}");
+    for want in [
+        "선택 칸 오류 보기",
+        "선택 칸 설정 보기",
+        "5분 동안 입력이 없으면 모니터로 돌아갑니다",
+    ] {
+        assert!(text.contains(want), "{want}\n{text}");
+    }
+    // `e`·`Enter` 줄은 `b` 줄 앞.
+    let at = |n: &str| text.find(n).unwrap();
+    assert!(at("선택 칸 오류 보기") < at("테두리 모양 바꾸기"), "{text}");
+    assert!(at("선택 칸 설정 보기") < at("테두리 모양 바꾸기"), "{text}");
+    // 50열: 무입력 문장이 상자 안에서 두 줄로 나뉘고, 테두리 밖 글자·말줄임이 없다.
+    let text = draw(50, 30, |f| {
+        render_help(f, Path::new("/tmp/b.json"), None, &log)
+    });
+    println!("{text}");
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("5분") || l.contains("돌아갑니다"))
+        .collect();
+    assert_eq!(rows.len(), 2, "{text}");
+    for l in &rows {
+        assert!(l.trim_end().ends_with('│'), "{l:?}\n{text}");
+    }
+    let joined: String = rows
+        .iter()
+        .map(|l| l.trim().trim_matches('│').trim())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        joined.contains("5분 동안 입력이 없으면 모니터로 돌아갑니다"),
+        "{joined}"
+    );
+    assert!(!text.contains('…'), "{text}");
+}
+
+#[test]
+fn help_errors_row_whole_at_50_columns() {
+    // e 줄 설명이 50칸 도움말 상자 안에서 잘리지 않는다(말줄임 없이 통째로).
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let (_, d) = handicap_tui::text::HELP_KEYS
+        .iter()
+        .find(|(k, _)| *k == "e")
+        .unwrap();
+    for w in 50..=80u16 {
+        let text = draw(w, 30, |f| {
+            render_help(f, Path::new("/tmp/b.json"), None, &log)
+        });
+        let line = text.lines().find(|l| l.contains("│e ")).unwrap();
+        assert!(line.contains(d), "w{w}\n{text}");
+        assert!(line.trim_end().ends_with('│'), "w{w}\n{text}");
+    }
+}
+
+// ---------- tui-2a-1 Task 8: 머리 줄 알림 ----------
+
+fn local_hms(ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .unwrap()
+        .format("%H:%M:%S")
+        .to_string()
+}
+
+fn header_with(w: u16, notice: Option<HeaderNotice>) -> (String, Buffer) {
+    let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    sc.notice = notice;
+    // 모니터 전체는 좁으면 "창을 키워 주세요"만 그리므로 머리 줄만 그린다(`header_view_matches_monitor_header`가 둘이 같음을 고정).
+    let h = sc.header();
+    let mut t = Terminal::new(TestBackend::new(w, 1)).unwrap();
+    t.draw(|f| render_header_view(f, f.area(), &h)).unwrap();
+    let buf = t.backend().buffer().clone();
+    let row0 = buffer_text(&buf).lines().next().unwrap().to_string();
+    (row0, buf)
+}
+
+#[test]
+fn header_notice_saved_and_failed() {
+    let saved_at = 1_700_000_005_000;
+    let want = format!("저장됨 {}", local_hms(saved_at));
+    let (h120, buf) = header_with(120, Some(HeaderNotice::Saved(saved_at)));
+    assert!(h120.contains(&want), "{h120}");
+    assert!(h120.contains("점검 중"), "{h120}");
+    assert!(h120.contains("Handicap 모니터 · 운영 API 보드"), "{h120}");
+    // 저장됨 글자는 초록, 점검 상태는 그 색이 아니다.
+    let x = h120
+        .find("저장됨")
+        .map(|i| {
+            h120[..i]
+                .chars()
+                .map(|c| Span::raw(c.to_string()).width())
+                .sum::<usize>()
+        })
+        .unwrap();
+    assert_eq!(
+        buf[(x as u16, 0)].style().fg,
+        Some(Color::Rgb(0x22, 0xc5, 0x5e))
+    );
+
+    // 좁으면 저장됨이 접두보다 늦게, 점검 상태보다 먼저 빠진다 — 점검 상태는 늘 남는다.
+    for w in [20u16, 30, 40, 60] {
+        let (h, _) = header_with(w, Some(HeaderNotice::Saved(saved_at)));
+        assert!(h.contains("점검 중"), "{w}: {h}");
+    }
+
+    let (h, buf) = header_with(120, Some(HeaderNotice::FileFailed));
+    assert!(h.contains(text::FILE_SAVE_FAILED), "{h}");
+    assert!(h.contains("운영 API 보드"), "{h}");
+    assert!(!h.contains("Handicap"), "{h}");
+    assert_eq!(buf[(1, 0)].style().fg, Some(Color::Rgb(0xef, 0x44, 0x44)));
+    let (h, _) = header_with(120, Some(HeaderNotice::ChangedOutside));
+    assert!(h.contains(text::FILE_CHANGED_OUTSIDE), "{h}");
+
+    // 40폭: 경고 문구가 보드 이름보다 먼저 남는다. 점검 상태는 절대 안 잘린다.
+    let (h, _) = header_with(40, Some(HeaderNotice::FileFailed));
+    assert!(h.contains("파일에 저장"), "{h}");
+    assert!(!h.contains("운영 API"), "{h}");
+    assert!(h.contains("점검 중"), "{h}");
+    let (h, _) = header_with(70, Some(HeaderNotice::FileFailed));
+    assert!(h.contains(text::FILE_SAVE_FAILED), "{h}");
+    assert!(h.contains("점검 중"), "{h}");
+}
+
+#[test]
+fn header_notice_sweep_no_panic() {
+    for n in [
+        None,
+        Some(HeaderNotice::Saved(1_700_000_005_000)),
+        Some(HeaderNotice::FileFailed),
+        Some(HeaderNotice::ChangedOutside),
+    ] {
+        for w in 1..=130u16 {
+            let (h, _) = header_with(w, n.clone());
+            assert!(
+                Span::raw(h.trim_end().to_string()).width() <= usize::from(w),
+                "{w}: {h}"
+            );
+        }
+    }
+}
+
+#[test]
+fn header_notice_flows_through_monitor_screen() {
+    let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    sc.notice = Some(HeaderNotice::FileFailed);
+    assert_eq!(sc.header().notice, Some(HeaderNotice::FileFailed));
+    let full = draw(100, 8, |f| render(f, &sc));
+    let (alone, _) = header_with(100, Some(HeaderNotice::FileFailed));
+    assert_eq!(full.lines().next().unwrap(), alone);
+}
+
+// ---------- tui-2a-1 Task 11: 도움말 새 줄 ----------
+
+#[test]
+fn help_long_backup_paths_wrap_and_show_both() {
+    // 실제 경로는 길다 — 한 줄로 자르면 `원본:` 쪽이 통째로 사라진다. 길면 두 경로를 따로 줄바꿈해 둘 다 보인다.
+    use handicap_tui::filesave::FileTarget;
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let real = format!("/home/operator/{}/board.json", "monitor-boards".repeat(5));
+    let target = FileTarget {
+        given: "/tmp/link.json".into(),
+        real: real.clone().into(),
+    };
+    let text = draw(80, 40, |f| {
+        render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
+    });
+    let flat: String = text
+        .lines()
+        .map(|l| l.trim_matches(|c: char| c == '│' || c.is_whitespace()))
+        .collect();
+    assert!(flat.contains(&format!("백업: {real}.bak")), "{text}");
+    assert!(flat.contains(&format!("원본: {real}.orig.bak")), "{text}");
+    assert!(!text.contains('…'), "경로를 자르지 않는다: {text}");
+}
+
+#[test]
+fn help_board_file_path_is_sanitized() {
+    // 보드 파일 경로도 파일 시스템 유래 — 백업 경로처럼 그리기 전에 sanitize.
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/a\u{202E}b.json"), None, &log)
+    });
+    assert!(text.contains("보드 파일: /tmp/a\u{FFFD}b.json"), "{text}");
+    assert!(!text.contains('\u{202E}'), "{text}");
+}
+
+#[test]
+fn help_lists_backup_and_warning() {
+    use handicap_tui::filesave::FileTarget;
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let target = FileTarget {
+        given: "/tmp/link.json".into(),
+        real: "/data/real.json".into(),
+    };
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
+    });
+    println!("{text}");
+    assert!(text.contains("선택 칸 설정 보기·수정"), "{text}");
+    assert!(
+        text.contains("새 파일로 바꾸면 이 PC에서 고친 값은 사라집니다"),
+        "{text}"
+    );
+    assert!(text.contains("보드 파일: /tmp/link.json"), "{text}");
+    assert!(
+        text.contains("백업: /data/real.json.bak · 원본: /data/real.json.orig.bak"),
+        "{text}"
+    );
+    // 순서: 키 줄 → 경고 → 보드 파일 → 백업 → 로그.
+    let at = |n: &str| text.find(n).unwrap();
+    assert!(at("마우스 왼쪽 클릭") < at("새 파일로 바꾸면"), "{text}");
+    assert!(at("새 파일로 바꾸면") < at("보드 파일:"), "{text}");
+    assert!(at("보드 파일:") < at("백업:"), "{text}");
+    assert!(at("백업:") < at("로그: /tmp/tui.log"), "{text}");
+    // 경고 줄은 노랑.
+    let mut t = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    t.draw(|f| render_help(f, Path::new("/tmp/link.json"), Some(&target), &log))
+        .unwrap();
+    let buf = t.backend().buffer();
+    let cell = (0..30u16)
+        .flat_map(|y| (0..80u16).map(move |x| (x, y)))
+        .find(|&(x, y)| buf[(x, y)].symbol() == "새")
+        .unwrap();
+    assert_eq!(buf[cell].fg, ratatui::style::Color::Yellow, "warn color");
+    // 세션이 없으면 백업 줄 없음.
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/b.json"), None, &log)
+    });
+    assert!(!text.contains("백업:"), "{text}");
+    assert!(text.contains("새 파일로 바꾸면"), "{text}");
+    // 높이가 모자라면 새 두 줄부터(백업 → 경고) 빠지고 키 줄은 그다음.
+    // 높이 18: 본문 15 = 키 10 + 보드 1 + 로그 1 + 무입력 1 + 복사 1 + 1 → 경고만 남고 백업이 빠진다.
+    let text = draw(80, 18, |f| {
+        render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
+    });
+    println!("{text}");
+    assert!(!text.contains("백업:"), "{text}");
+    assert!(text.contains("새 파일로 바꾸면"), "{text}");
+    assert!(text.contains("마우스 왼쪽 클릭"), "{text}");
+    // 높이 17: 본문 14 = 키 10 + 고정 4 → 경고도 빠지고 키 줄은 전부.
+    let text = draw(80, 17, |f| {
+        render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
+    });
+    println!("{text}");
+    assert!(
+        !text.contains("백업:") && !text.contains("새 파일로 바꾸면"),
+        "{text}"
+    );
+    assert!(text.contains("마우스 왼쪽 클릭"), "{text}");
+    // 긴 실제 경로는 줄바꿈한다(자르지 않고, 상자 밖으로도 안 나감).
+    let long = FileTarget {
+        given: "/tmp/b.json".into(),
+        real: format!("/{}", "Z".repeat(120)).into(),
+    };
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/b.json"), Some(&long), &log)
+    });
+    let line = text.lines().find(|l| l.contains("백업:")).unwrap();
+    assert!(!line.contains('…'), "{line}");
+    assert!(line.trim_end().ends_with('│'), "{line}");
+    assert!(text.contains("원본:"), "{text}");
+    assert_eq!(
+        text.matches('Z').count(),
+        240,
+        "두 경로의 글자가 전부 보인다: {text}"
+    );
+    // 원격 유래가 아닌 경로라도 제어 문자는 가린다.
+    let odd = FileTarget {
+        given: "/tmp/b.json".into(),
+        real: "/tmp/a\u{202E}b.json".into(),
+    };
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/b.json"), Some(&odd), &log)
+    });
+    assert!(text.contains("a\u{FFFD}b.json.bak"), "{text}");
 }

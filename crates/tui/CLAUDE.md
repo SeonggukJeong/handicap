@@ -13,3 +13,17 @@
 - **CI 러너는 UTC, 개발기는 KST — 로컬 시각(`chrono::Local`) 표시를 단언하는 테스트는 기대값도 `Local`로 구할 것** (v0.13.0 릴리즈): `header_degrades_by_whole_parts`가 `"2023-11-15"`(KST)를 하드코딩해 pre-commit은 통과·첫 push의 CI만 실패했다. 재현은 `TZ=UTC cargo test -p handicap-tui`.
 - **워크트리-격리 세션에서 tmux 매트릭스는 python 드라이버(`subprocess.run(["tmux", …])`)로** (tui-readability 라이브): `bash x.sh`·`$VAR`이 든 tmux 인자·`for` 루프는 git 검증 불가로 거부된다. 테스트용 `XDG_CONFIG_HOME`/`XDG_STATE_HOME`은 scratchpad로 격리(실 `~/.config/handicap/tui.json` 보호).
 - **막대↔시각 줄 정렬 렌더 테스트는 막대 높이를 이웃끼리 다르게 하고, 기대 시각은 시각 줄 글자가 아니라 막대 데이터 위치에서 구할 것** (tui-axis-ticks 최종 리뷰): 모든 결과를 100 ms로 두고 `▲` 열의 기대 시각을 오른쪽 눈금과의 거리로 계산하면, 시각 줄 전체가 한 칸 밀려도 두 값이 함께 움직여 통과한다. 지연을 순환(예: 200/700/1200/1800/400)시키고, 맨 오른쪽 막대 글자를 기준으로 열→결과를 대응시켜 `▲` 아래 막대와 ±1열 막대가 다른지까지 단언한다.
+- **꺼진 보드의 `/status`는 칸마다 `results: []`, 기록 API는 404 — "결과 0개"가 "실패 없음"과 구분되지 않는다** (tui-monitor-1b 라이브): 빈 목록 문구를 고를 때 보드·칸의 꺼짐 상태를 먼저 볼 것(roadmap §B48 (2)).
+- **조건 칸 `CheckResult`의 `reason`은 받은 값, `detail`은 조건식** (tui-monitor-1b 라이브): "판정 상세 = 받은 값"으로 문구를 쓰면 틀린다. 미치환 `${ENV}` URL은 trace를 남긴다(`builder error`) — trace가 null인 설정 오류는 조건 스텝이 없는 칸.
+- **tmux `send-keys question`은 `?`가 아니라 글자** (tui-monitor-1b 라이브): `send-keys -l '?'`로.
+- **원격 문자열은 `inspect::sanitize`를 폭 계산 *전에* — 제어 문자·U+2028/2029·bidi 제어(202A–202E·2066–2069 등)를 `�`로** (tui-monitor-1b 보안 리뷰): ratatui가 ESC grapheme을 이미 걸러 `\x1b` 부재 단언은 공허, 회귀 가드는 `\u{FFFD}`가 *보이는지* 긍정 단언.
+- **tokio mpsc는 Sender를 다 버려도 남은 큐를 다 꺼낸 뒤 `None`** (tui-monitor-1b 최종 리뷰): 세션을 내릴 때 작업자는 통로 닫기만이 아니라 `JoinHandle` abort·await.
+- **입력줄 키 판정은 "적용 뒤 버퍼"를 함께 돌려줄 것 — 결과만 돌려주면 호출 쪽 이중 적용·미적용 함정, 글자 그대로임은 `text()`로 단언** (tui-2a-1 Task 7 리뷰): `edit_key`가 복제본에 키를 넣어 `Input(Edited)`만 돌려주던 때는 정규화된 키(`ㅂ`→`q`)를 넣어도 테스트가 통과했다. `EditAction::Input(결과, 적용 뒤 LineInput)` + 편집 화면의 모든 키 뒤 `track_digit`.
+- **값을 품는 타입은 derive `Debug` 금지 — `LineInput`·`Overlay`·`EditReq`·`EditDone`·`ScenarioResponse`는 손 Debug(종류·길이만)** (tui-2a-1): `Vec<char>` 버퍼는 `'T', 'Y'`로 찍혀 값 부분문자열 단언을 빠져나간다. `Saving{restore}`도 입력값을 품는다 — 5분 복귀(`idle_drop`)에서 비울 것.
+- **YAML 글자 교체의 구조 재검증은 주석을 못 본다 + "정확히 1개" 가드 테스트는 닮은 줄을 진짜 줄 *뒤*에** (tui-2a-1 Task 2 리뷰): `값<탭># 주석`을 값으로 삼켜 주석이 조용히 지워졌다(탭+`#`도 주석). 닮은 줄이 앞이면 다른 경로로 거절돼 가드를 지워도 통과한다 — 변이로 RED를 확인할 것.
+- **목록을 그릴 때 항목마다 전체 파싱 금지 — `static_vars`가 변수마다 YAML을 4번 파싱해 UI 스레드가 분 단위로 멈췄다** (tui-2a-1 보안 F1): 편집 가능 판정은 글자 위치 찾기만, 검증은 저장 때.
+- **TestBackend에서 넓은 글자의 둘째 칸은 공백 — 줄 문자열 검색은 그 칸을 건너뛰고, 고른 줄 바탕 단언은 머리 줄(y=0)이 아닌 본문 줄에서** (tui-2a-1 Task 9 리뷰): `find_cell("A")`가 머리 줄 칸을 집어 머리 줄끼리 비교하는 공허 단언이 됐다. 선택 스타일을 지워 RED 확인.
+- **`key_bar`는 앞 조각부터 뺀다 — 가장 중요한 `Enter 저장`을 끝까지 남기려면 `view::edit::fit_keys`(표시 순서는 그대로, 빠지는 순서만 따로)** (tui-2a-1 Task 10 리뷰).
+- **도움말의 경로 줄은 `fit` 한 줄 금지 — 실제 경로 길이에선 뒤쪽 경로가 통째로 잘린다, `wrap_width`로** (tui-2a-1 라이브).
+- **root 컨테이너에선 `chmod`로 쓰기 실패를 못 만든다 — 실패 주입은 권한이 아니라 모양으로(`<파일>.bak` 자리에 디렉터리, FIFO는 `mkfifo` + 5초 제한 스레드)** (tui-2a-1).
+- **tmux 붙여넣기 검증은 `load-buffer` + `paste-buffer -p`(브래킷), 마우스는 SGR 누름+뗌 둘 다** (tui-2a-1 라이브).

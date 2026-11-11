@@ -1,12 +1,17 @@
 //! 루프백 REST 클라이언트(컨트롤러 in-process, `127.0.0.1:<임시 포트>`).
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use handicap_controller::monitor::transfer::ImportResult;
 use serde::de::DeserializeOwned;
 
-use crate::wire::{BoardResponse, StatusResponse};
+use handicap_controller::monitor::config::BoardConfig;
+
+use crate::wire::{
+    BoardResponse, CheckRecord, EnvironmentResponse, ScenarioResponse, StatusResponse,
+};
 
 /// 폴링 요청 제한(ms).
 pub const POLL_TIMEOUT: Duration = Duration::from_millis(3000);
@@ -180,6 +185,118 @@ impl Api {
             .map_err(transport)?;
         parse(resp).await
     }
+
+    /// 점검 1회의 기록(요청·응답, 가림·상한 적용본).
+    /// 없는 보드·칸·밀려난 기록은 모두 `ApiError{status: Some(404)}`.
+    pub async fn record(
+        &self,
+        board_id: &str,
+        panel_id: &str,
+        at_ms: i64,
+    ) -> Result<CheckRecord, ApiError> {
+        let resp = self
+            .client
+            .get(format!(
+                "{}/monitor-boards/{board_id}/panels/{panel_id}/records/{at_ms}",
+                self.base
+            ))
+            .timeout(POLL_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
+
+    /// PUT /monitor-boards/{id} — 정규화된 보드(묶음 미러 적용본)를 돌려준다.
+    pub async fn put_board(
+        &self,
+        id: &str,
+        name: &str,
+        config: &BoardConfig,
+    ) -> Result<BoardResponse, ApiError> {
+        let resp = self
+            .client
+            .put(format!("{}/monitor-boards/{id}", self.base))
+            .timeout(WRITE_TIMEOUT)
+            .json(&serde_json::json!({ "name": name, "config": config }))
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
+
+    /// POST /monitor-boards/export — 응답 바이트 그대로(재직렬화 금지).
+    pub async fn export(&self, board_ids: &[String]) -> Result<Vec<u8>, ApiError> {
+        let resp = self
+            .client
+            .post(format!("{}/monitor-boards/export", self.base))
+            .timeout(WRITE_TIMEOUT)
+            .json(&serde_json::json!({ "board_ids": board_ids }))
+            .send()
+            .await
+            .map_err(transport)?;
+        if !resp.status().is_success() {
+            return Err(error_of(resp).await);
+        }
+        resp.bytes().await.map(|b| b.to_vec()).map_err(transport)
+    }
+
+    pub async fn environment(&self, id: &str) -> Result<EnvironmentResponse, ApiError> {
+        let resp = self
+            .client
+            .get(format!("{}/environments/{id}", self.base))
+            .timeout(POLL_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
+
+    pub async fn put_environment(
+        &self,
+        id: &str,
+        name: &str,
+        vars: &BTreeMap<String, String>,
+    ) -> Result<EnvironmentResponse, ApiError> {
+        let resp = self
+            .client
+            .put(format!("{}/environments/{id}", self.base))
+            .timeout(WRITE_TIMEOUT)
+            .json(&serde_json::json!({ "name": name, "vars": vars }))
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
+
+    pub async fn scenario(&self, id: &str) -> Result<ScenarioResponse, ApiError> {
+        let resp = self
+            .client
+            .get(format!("{}/scenarios/{id}", self.base))
+            .timeout(POLL_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
+
+    /// 409 = 버전 어긋남(`ApiError.status == Some(409)`).
+    pub async fn put_scenario(
+        &self,
+        id: &str,
+        yaml: &str,
+        version: i64,
+    ) -> Result<ScenarioResponse, ApiError> {
+        let resp = self
+            .client
+            .put(format!("{}/scenarios/{id}", self.base))
+            .timeout(WRITE_TIMEOUT)
+            .json(&serde_json::json!({ "yaml": yaml, "version": version }))
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
 }
 
 #[cfg(test)]
@@ -192,7 +309,10 @@ mod tests {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = l.local_addr().unwrap();
         drop(l);
-        let e = reqwest::Client::new()
+        let e = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
             .get(format!("http://{addr}/"))
             .send()
             .await

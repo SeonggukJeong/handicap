@@ -71,6 +71,26 @@ async fn bom_file_imports() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn session_keeps_names_from_bundle() {
+    let srv = target().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let file = write(tmp.path(), "b.json", bundle_for(&srv).as_bytes());
+    let dbdir = tempfile::tempdir().unwrap();
+    let s = Session::start(&file, dbdir.path()).await.unwrap();
+    assert_eq!(
+        s.names
+            .step_name("01J0000000000000000000SC01", "01J0000000000000000000ST01"),
+        Some("ping")
+    );
+    assert_eq!(
+        s.names.scenario_name("01J0000000000000000000SC01"),
+        Some("tui-fixture")
+    );
+    assert_eq!(s.names.env_name("01J0000000000000000000EN01"), Some("대상"));
+    s.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn bad_json_is_import_stage_error() {
     let tmp = tempfile::tempdir().unwrap();
     let file = write(tmp.path(), "b.json", b"{");

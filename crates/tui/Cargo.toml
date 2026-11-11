@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 handicap-controller = { path = "../controller", features = ["in-process"] }
+handicap-engine = { path = "../engine" }
 ratatui = "0.30"
 anyhow.workspace = true
 chrono.workspace = true
@@ -24,10 +25,12 @@ clap.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tempfile = "3"
+sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
