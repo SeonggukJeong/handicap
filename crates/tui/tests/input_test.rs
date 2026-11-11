@@ -225,3 +225,10 @@ fn view_window_invariants() {
         }
     }
 }
+
+#[test]
+fn line_input_debug_hides_text() {
+    let li = LineInput::new("TYPED-SECRET", InputMode::Text { max_chars: 100 });
+    let d = format!("{li:?}");
+    assert!(!d.contains("TYPED") && !d.contains("'T'"), "{d}");
+}

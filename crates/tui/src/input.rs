@@ -11,12 +11,23 @@ pub enum InputMode {
     Digits { max: usize },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LineInput {
     buf: Vec<char>,
     /// 글자 위치(0..=buf.len()).
     cursor: usize,
     mode: InputMode,
+}
+
+/// 입력한 값이 로그로 새지 않게 글자 수·커서·모드만 찍는다.
+impl std::fmt::Debug for LineInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LineInput")
+            .field("chars", &self.buf.len())
+            .field("cursor", &self.cursor)
+            .field("mode", &self.mode)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

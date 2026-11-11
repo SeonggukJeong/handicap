@@ -871,25 +871,21 @@ fn ek(screen: &Screen, ui: &EditUi, k: KeyEvent) -> EditAction {
 fn input_mode_keys_are_literal() {
     let ui = ui_with(input_overlay(""));
     for c in ['q', 'ㅂ', 'j', '?', 'Q'] {
-        assert_eq!(
-            ek(&Screen::Settings, &ui, key(KeyCode::Char(c))),
-            EditAction::Input(InputOutcome::Edited),
-            "{c}"
-        );
+        // 돌려받은 입력줄이 그 글자 그대로 끝난다(정규화된 키가 들어가면 `ㅂ`→`q`, `Q`→`q`로 바뀐다).
+        let EditAction::Input(out, li) = ek(&Screen::Settings, &ui, key(KeyCode::Char(c))) else {
+            panic!("{c}: Input이 아님");
+        };
+        assert_eq!(out, InputOutcome::Edited, "{c}");
+        assert_eq!(li.text(), c.to_string(), "{c}");
     }
-    assert_eq!(
-        ek(&Screen::Settings, &ui, ctrl('c')),
-        EditAction::Input(InputOutcome::AskQuit)
-    );
-    assert_eq!(
-        ek(&Screen::Settings, &ui, key(KeyCode::Enter)),
-        EditAction::Input(InputOutcome::Submit)
-    );
-    assert_eq!(
-        ek(&Screen::Settings, &ui, key(KeyCode::Esc)),
-        EditAction::Input(InputOutcome::Cancel)
-    );
-    // edit_key는 버퍼를 바꾸지 않는다(호출 쪽이 키를 한 번 적용).
+    let outcome = |k| match ek(&Screen::Settings, &ui, k) {
+        EditAction::Input(o, _) => o,
+        other => panic!("Input이 아님: {other:?}"),
+    };
+    assert_eq!(outcome(ctrl('c')), InputOutcome::AskQuit);
+    assert_eq!(outcome(key(KeyCode::Enter)), InputOutcome::Submit);
+    assert_eq!(outcome(key(KeyCode::Esc)), InputOutcome::Cancel);
+    // edit_key는 원래 버퍼를 바꾸지 않는다(복제본에 적용한 결과를 돌려준다).
     let Some(Overlay::Input { input, .. }) = &ui.overlay else {
         unreachable!()
     };
@@ -974,7 +970,7 @@ fn menu_digit_jump() {
         (12, None)
     );
 
-    // edit_key: 0 단독은 무동작, 1 뒤 0은 Digit(0)
+    // edit_key: 0 단독은 무동작, 1 뒤 0은 10으로
     let mut ui = EditUi::default();
     assert_eq!(
         edit_key(&Screen::Settings, &ui, key(KeyCode::Char('0')), t0),
@@ -982,7 +978,10 @@ fn menu_digit_jump() {
     );
     assert_eq!(
         edit_key(&Screen::Settings, &ui, key(KeyCode::Char('3')), t0),
-        EditAction::Digit(3)
+        EditAction::DigitJump {
+            no: 3,
+            pending: None
+        }
     );
     ui.digit = Some((1, t0));
     assert_eq!(
@@ -992,7 +991,10 @@ fn menu_digit_jump() {
             key(KeyCode::Char('0')),
             t0 + Duration::from_millis(300)
         ),
-        EditAction::Digit(0)
+        EditAction::DigitJump {
+            no: 10,
+            pending: None
+        }
     );
     assert_eq!(
         edit_key(
@@ -1011,6 +1013,58 @@ fn menu_digit_jump() {
             key(KeyCode::Char('3'))
         ),
         EditAction::None
+    );
+}
+
+#[test]
+fn digit_pending_is_cleared_by_any_other_key() {
+    let t0 = Instant::now();
+    let s = Screen::Settings;
+    let mut ui = EditUi::default();
+    // 1 → ↓ → 2(1초 안) = 2번(12 아님)
+    let a = edit_key(&s, &ui, key(KeyCode::Char('1')), t0);
+    assert_eq!(
+        a,
+        EditAction::DigitJump {
+            no: 1,
+            pending: Some((1, t0))
+        }
+    );
+    ui.track_digit(&a);
+    assert_eq!(ui.digit, Some((1, t0)));
+    let a = edit_key(&s, &ui, key(KeyCode::Down), t0 + Duration::from_millis(100));
+    assert_eq!(a, EditAction::MoveCursor(1));
+    ui.track_digit(&a);
+    assert_eq!(ui.digit, None);
+    let a = edit_key(
+        &s,
+        &ui,
+        key(KeyCode::Char('2')),
+        t0 + Duration::from_millis(200),
+    );
+    assert_eq!(
+        a,
+        EditAction::DigitJump {
+            no: 2,
+            pending: None
+        }
+    );
+    // 1 → 1(1초 안) = 11
+    let mut ui = EditUi::default();
+    let a = edit_key(&s, &ui, key(KeyCode::Char('1')), t0);
+    ui.track_digit(&a);
+    let a = edit_key(
+        &s,
+        &ui,
+        key(KeyCode::Char('1')),
+        t0 + Duration::from_millis(300),
+    );
+    assert_eq!(
+        a,
+        EditAction::DigitJump {
+            no: 11,
+            pending: None
+        }
     );
 }
 
@@ -1100,18 +1154,16 @@ fn cond_form_keys() {
     assert_eq!(ek(&s, &ui, ctrl('c')), EditAction::AskQuit);
     // 값 칸 = 입력줄 규칙: 글자·Space는 글자, Tab·Enter·Esc는 폼으로.
     let ui = ui_with(form(CondFocus::Value));
-    assert_eq!(
-        ek(&s, &ui, key(KeyCode::Char('q'))),
-        EditAction::Input(InputOutcome::Edited)
-    );
-    assert_eq!(
-        ek(&s, &ui, key(KeyCode::Char(' '))),
-        EditAction::Input(InputOutcome::Edited)
-    );
-    assert_eq!(
-        ek(&s, &ui, key(KeyCode::Left)),
-        EditAction::Input(InputOutcome::Edited)
-    );
+    for k in [
+        key(KeyCode::Char('q')),
+        key(KeyCode::Char(' ')),
+        key(KeyCode::Left),
+    ] {
+        assert!(matches!(
+            ek(&s, &ui, k),
+            EditAction::Input(InputOutcome::Edited, _)
+        ));
+    }
     assert_eq!(
         ek(&s, &ui, key(KeyCode::Tab)),
         EditAction::CondKey(key(KeyCode::Tab))
@@ -1124,10 +1176,13 @@ fn cond_form_keys() {
         ek(&s, &ui, key(KeyCode::Esc)),
         EditAction::CondKey(key(KeyCode::Esc))
     );
-    assert_eq!(
+    assert!(matches!(
         ek(&s, &ui, ctrl('c')),
-        EditAction::Input(InputOutcome::AskQuit)
-    );
+        EditAction::Input(InputOutcome::AskQuit, _)
+    ));
+    // Ctrl 여부와 무관하게 폼 키(Ctrl+Enter가 입력줄 Submit으로 새지 않는다).
+    let ctrl_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL);
+    assert_eq!(ek(&s, &ui, ctrl_enter), EditAction::CondKey(ctrl_enter));
 }
 
 #[test]
@@ -1154,6 +1209,11 @@ fn confirm_y_only() {
     assert_eq!(ek(&s, &del, key(KeyCode::Esc)), EditAction::ConfirmNo);
     let step = confirm(false);
     assert_eq!(ek(&s, &step, key(KeyCode::Enter)), EditAction::ConfirmYes);
+    // y_only가 아니면 y는 예가 아니다(Enter만 예).
+    assert_eq!(
+        ek(&s, &step, key(KeyCode::Char('y'))),
+        EditAction::ConfirmNo
+    );
     assert_eq!(ek(&s, &step, key(KeyCode::Esc)), EditAction::ConfirmNo);
     assert_eq!(
         ek(&s, &step, key(KeyCode::Char('x'))),
@@ -1172,7 +1232,6 @@ fn notice_swallows_next_key() {
     ] {
         assert_eq!(ek(&Screen::Settings, &ui, k), EditAction::CloseNotice);
     }
-    assert_eq!(ui.cursor, 0);
 }
 
 #[test]
@@ -1189,7 +1248,7 @@ fn pick_and_saving_keys() {
         EditAction::PickMove(-1)
     );
     assert_eq!(ek(&s, &pick, key(KeyCode::Enter)), EditAction::PickChoose);
-    assert_eq!(ek(&s, &pick, key(KeyCode::Esc)), EditAction::Back);
+    assert_eq!(ek(&s, &pick, key(KeyCode::Esc)), EditAction::PickCancel);
     assert_eq!(ek(&s, &pick, key(KeyCode::Char('q'))), EditAction::AskQuit);
     assert_eq!(ek(&s, &pick, key(KeyCode::Char('d'))), EditAction::None);
     let saving = ui_with(Overlay::Saving { restore: None });
@@ -1200,6 +1259,10 @@ fn pick_and_saving_keys() {
         EditAction::AskQuit
     );
     assert_eq!(ek(&s, &saving, ctrl('c')), EditAction::AskQuit);
+    // Ctrl+Q도 종료 확인(기존 handle_key와 같다) — 메뉴·목록 창·저장 중 모두.
+    assert_eq!(ek(&s, &saving, ctrl('q')), EditAction::AskQuit);
+    assert_eq!(ek(&s, &pick, ctrl('q')), EditAction::AskQuit);
+    assert_eq!(ek(&s, &EditUi::default(), ctrl('q')), EditAction::AskQuit);
 }
 
 #[test]
@@ -1222,11 +1285,19 @@ fn idle_drops_overlay_keeps_pending_save() {
         idle_drop(&mut ui);
         assert!(ui.overlay.is_none());
     }
-    let mut ui = ui_with(Overlay::Saving {
-        restore: Some(Box::new(input_overlay("v"))),
-    });
+    let mut ui = EditUi {
+        overlay: Some(Overlay::Saving {
+            restore: Some(Box::new(input_overlay("v"))),
+        }),
+        reveal: true,
+        env: Some(EnvLoad::Loading { id: "e".into() }),
+        scen: Some(ScenLoad::Failed("x".into())),
+        digit: Some((1, Instant::now())),
+        ..EditUi::default()
+    };
     idle_drop(&mut ui);
     assert!(matches!(ui.overlay, Some(Overlay::Saving { .. })));
+    assert!(!ui.reveal && ui.env.is_none() && ui.scen.is_none() && ui.digit.is_none());
 }
 
 #[test]
@@ -1268,6 +1339,25 @@ fn back_from_edit_screens_clears_secret_state() {
 }
 
 #[test]
+fn back_from_settings_clears_edit_state() {
+    let mut v = SubViews {
+        edit: Some(EditUi {
+            cursor: 5,
+            digit: Some((1, Instant::now())),
+            reveal: true,
+            ..EditUi::default()
+        }),
+        ..SubViews::default()
+    };
+    assert_eq!(v.back(&Screen::Settings), Some(Screen::Monitor));
+    assert!(v.edit.is_none());
+    // 도움말은 편집 상태를 건드리지 않는다.
+    v.edit = Some(EditUi::default());
+    assert_eq!(v.back(&Screen::Help), Some(Screen::Monitor));
+    assert!(v.edit.is_some());
+}
+
+#[test]
 fn edit_ui_debug_hides_values() {
     let ui = EditUi {
         overlay: Some(Overlay::Input {
@@ -1301,4 +1391,25 @@ fn edit_ui_debug_hides_values() {
         assert!(!d.contains(leak), "{leak} leaked: {d}");
     }
     assert!(d.contains("<가림>"));
+    // Overlay 자체의 Debug도 종류 이름만.
+    for o in [
+        ui.overlay.clone().unwrap(),
+        Overlay::Notice("SERVER-MSG-12".into()),
+        Overlay::Confirm {
+            text: "SERVER-MSG-12".into(),
+            then: Pending::SetStep("STEP-ID-9".into()),
+            y_only: true,
+        },
+    ] {
+        let d = format!("{o:?}");
+        for leak in [
+            "TYPED-SECRET-77",
+            "'T'",
+            "API_KEY_NAME",
+            "SERVER-MSG-12",
+            "STEP-ID-9",
+        ] {
+            assert!(!d.contains(leak), "{leak} leaked: {d}");
+        }
+    }
 }

@@ -304,7 +304,8 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
 // ---- 편집 모드 상태·키 판정(tui-2a-1 Task 7, spec §6.7) — 순수. App 연결은 Task 10·11 ----
 
 /// 편집 화면 위에 뜨는 입력줄·목록 창·조건 수정·확인·저장 중·안내.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `Debug`는 손으로 — 종류 이름만(입력값·서버 문구·환경 키 이름이 `{:?}`로 새지 않게).
+#[derive(Clone, PartialEq, Eq)]
 pub enum Overlay {
     Input {
         target: InputTarget,
@@ -337,6 +338,12 @@ pub enum Overlay {
     Saving { restore: Option<Box<Overlay>> },
     /// ReadOnly 안내·서버 거절 — 다음 키 하나로 닫힘(그 키는 메뉴로 넘어가지 않는다).
     Notice(String),
+}
+
+impl std::fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Overlay::{}", self.kind())
+    }
 }
 
 impl Overlay {
@@ -430,7 +437,6 @@ impl std::fmt::Debug for EditUi {
             .field("reveal", &self.reveal)
             .field("env", &self.env.as_ref().map(|_| "<가림>"))
             .field("scen", &self.scen.as_ref().map(|_| "<가림>"))
-            .field("overlay_values", &"<가림>")
             .finish()
     }
 }
@@ -448,29 +454,43 @@ impl EditUi {
         self.scen = None;
         self.list_cursor = 0;
     }
+
+    /// 숫자 대기 표시 갱신. **호출 쪽은 편집 화면의 모든 키 뒤에 이걸 부른다**: `DigitJump`면 그 `pending`을 저장하고,
+    /// 그 밖의 모든 액션이면 지운다(`1`, `↓`, `2`가 12로 가지 않게 — spec "`1` 뒤 1초 안에").
+    pub fn track_digit(&mut self, a: &EditAction) {
+        self.digit = match a {
+            EditAction::DigitJump { pending, .. } => *pending,
+            _ => None,
+        };
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditAction {
     None,
     AskQuit,
-    /// overlay 없음: 한 단계 뒤(`SubViews::back`). `Pick`이 열려 있을 땐 "목록 창 취소"(overlay만 닫는다).
+    /// overlay 없음: 한 단계 뒤(`SubViews::back`).
     Back,
+    /// 목록 창(`Pick`) 취소 — overlay만 닫는다.
+    PickCancel,
     MoveCursor(isize),
     /// 절대 위치(0-기반): Home=0, End=`usize::MAX`(호출 쪽이 마지막 줄로 자른다)
     Jump(usize),
-    /// 메뉴의 숫자 키 — 호출 쪽이 `digit_jump(ui.digit, d, now)`로 이동·대기 표시를 갱신한다.
-    Digit(u8),
+    /// 메뉴의 숫자 키 — `edit_key`가 `digit_jump`로 푼 이동 번호(1..=14)와 새 대기 표시. 대기 표시는 `EditUi::track_digit`이 저장.
+    DigitJump {
+        no: usize,
+        pending: Option<(u8, Instant)>,
+    },
     /// Enter
     Activate,
     Remove,
     Swap,
     Add,
     ToggleReveal,
-    /// 입력줄(Input overlay 또는 CondForm의 값 칸)에 들어간 키의 결과. **`edit_key`는 버퍼를 바꾸지 않는다** —
-    /// 복제본에 키를 적용해 결과만 알려 준다. 호출 쪽(`apply_edit`)은 이 액션을 받으면 같은 `KeyEvent`를
-    /// 진짜 `LineInput::key`에 **정확히 한 번** 적용한다(결과는 같다 — 순수·결정적).
-    Input(InputOutcome),
+    /// 입력줄(Input overlay 또는 CondForm의 값 칸)에 들어간 키의 결과 + 그 키를 적용한 **뒤의** 입력줄.
+    /// `edit_key`는 원래 버퍼를 바꾸지 않는다(복제본에 적용). 호출 쪽(`apply_edit`)은 진짜 입력줄을 두 번째 값으로
+    /// **교체**만 한다 — 키를 다시 적용하지 않는다(이중 적용·미적용 불가).
+    Input(InputOutcome, LineInput),
     PickMove(isize),
     PickChoose,
     /// 조건 수정 칸의 폼 키(Tab·Shift+Tab·←→·Space·Enter·Esc) — 원시 키 그대로.
@@ -508,10 +528,14 @@ pub fn digit_jump(
 }
 
 /// 입력 중인 overlay(Input·Pick·CondForm·Confirm·Notice)를 버린다. `Saving`은 남긴다(진행 중 저장).
+/// 값도 놓는다: 환경(값 보기 포함)·시나리오 받은 것·숫자 대기 — 5분 복귀 뒤 `edit`가 저장 중이라 살아 있어도 비밀이 남지 않게.
 pub fn idle_drop(ui: &mut EditUi) {
     if !matches!(ui.overlay, Some(Overlay::Saving { .. })) {
         ui.overlay = None;
     }
+    ui.leave_env();
+    ui.leave_scen();
+    ui.digit = None;
 }
 
 /// 화면 규칙용 정규화: `normalize_char` + 새로 `ㅇ`→`d`·`ㄴ`→`s`(편집 화면 경로에서만 — 기존 화면 불변).
@@ -532,20 +556,17 @@ pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> Edit
         other => other,
     };
     let ctrl_c = ctrl && norm == KeyCode::Char('c');
-    let quit_key = ctrl_c || (!ctrl && norm == KeyCode::Char('q'));
+    // 기존 `handle_key`와 같다: Ctrl+C·`q`(Ctrl+Q 포함)가 종료 확인.
+    let quit_key = ctrl_c || norm == KeyCode::Char('q');
     if let Some(o) = &ui.overlay {
         return overlay_key(o, k, norm, ctrl, ctrl_c, quit_key);
     }
-    if ctrl {
-        // Ctrl+C 밖의 Ctrl+문자는 무동작(Ctrl+B가 `b`로 읽히지 않게).
-        return if ctrl_c {
-            EditAction::AskQuit
-        } else {
-            EditAction::None
-        };
-    }
     if quit_key {
         return EditAction::AskQuit;
+    }
+    if ctrl {
+        // 그 밖의 Ctrl+문자는 무동작(Ctrl+B가 `b`로 읽히지 않게).
+        return EditAction::None;
     }
     let menu = matches!(screen, Screen::Settings);
     let sub = matches!(
@@ -565,11 +586,11 @@ pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> Edit
         KeyCode::Enter => EditAction::Activate,
         KeyCode::Esc => EditAction::Back,
         KeyCode::Char(c @ '0'..='9') if menu && !k.modifiers.contains(KeyModifiers::ALT) => {
-            let d = c as u8 - b'0';
-            if d == 0 && !digit_pending(ui.digit, now) {
+            let (no, pending) = digit_jump(ui.digit, c as u8 - b'0', now);
+            if no == 0 {
                 EditAction::None
             } else {
-                EditAction::Digit(d)
+                EditAction::DigitJump { no, pending }
             }
         }
         KeyCode::Char('a') if matches!(screen, Screen::EditList) => EditAction::Add,
@@ -580,9 +601,11 @@ pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> Edit
     }
 }
 
-/// 입력줄에 **원시 키**를 넣어 본 결과(복제본 — `edit_key`는 상태를 바꾸지 않는다).
+/// 입력줄에 **원시 키**를 넣어 본 결과(복제본 — `edit_key`는 상태를 바꾸지 않는다) + 적용 뒤의 입력줄.
 fn probe(li: &LineInput, k: KeyEvent) -> EditAction {
-    EditAction::Input(li.clone().key(k))
+    let mut next = li.clone();
+    let out = next.key(k);
+    EditAction::Input(out, next)
 }
 
 fn overlay_key(
@@ -598,11 +621,10 @@ fn overlay_key(
         Overlay::CondForm { value, focus, .. } => {
             if *focus == CondFocus::Value {
                 // 값 칸 = 입력줄 규칙. 폼 이동·저장·취소 키만 폼으로.
-                return if !ctrl
-                    && matches!(
-                        k.code,
-                        KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter | KeyCode::Esc
-                    ) {
+                return if matches!(
+                    k.code,
+                    KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter | KeyCode::Esc
+                ) {
                     EditAction::CondKey(k)
                 } else {
                     probe(value, k)
@@ -639,13 +661,18 @@ fn overlay_key(
                 KeyCode::Up | KeyCode::Char('k') => EditAction::PickMove(-1),
                 KeyCode::Down | KeyCode::Char('j') => EditAction::PickMove(1),
                 KeyCode::Enter => EditAction::PickChoose,
-                KeyCode::Esc => EditAction::Back,
+                KeyCode::Esc => EditAction::PickCancel,
                 _ => EditAction::None,
             }
         }
         Overlay::Confirm { y_only, .. } => {
-            let yes =
-                !ctrl && (norm == KeyCode::Char('y') || (!*y_only && k.code == KeyCode::Enter));
+            // spec §6.7: Enter(또는 삭제 확인은 y) 계속 · 그 밖 취소.
+            let yes = !ctrl
+                && if *y_only {
+                    norm == KeyCode::Char('y')
+                } else {
+                    k.code == KeyCode::Enter
+                };
             if yes {
                 EditAction::ConfirmYes
             } else {
@@ -889,7 +916,12 @@ impl SubViews {
                 self.clear_inspect();
                 Some(Screen::Monitor)
             }
-            Screen::Settings | Screen::Help => Some(Screen::Monitor),
+            // 메뉴 → 모니터: 커서·대기·값이 남지 않게 비운다(저장 중엔 Esc가 무시되므로 `Saving`이 버려지지 않는다).
+            Screen::Settings => {
+                self.edit = None;
+                Some(Screen::Monitor)
+            }
+            Screen::Help => Some(Screen::Monitor),
             Screen::EditList => {
                 if let Some(e) = &mut self.edit {
                     e.list_cursor = 0;
