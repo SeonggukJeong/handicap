@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 handicap-controller = { path = "../controller", features = ["in-process"] }
+handicap-engine = { path = "../engine" }
 ratatui = "0.30"
 anyhow.workspace = true
 chrono.workspace = true

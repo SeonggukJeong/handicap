@@ -6,7 +6,7 @@ use std::time::Duration;
 use handicap_controller::monitor::transfer::ImportResult;
 use serde::de::DeserializeOwned;
 
-use crate::wire::{BoardResponse, StatusResponse};
+use crate::wire::{BoardResponse, CheckRecord, StatusResponse};
 
 /// 폴링 요청 제한(ms).
 pub const POLL_TIMEOUT: Duration = Duration::from_millis(3000);
@@ -180,6 +180,27 @@ impl Api {
             .map_err(transport)?;
         parse(resp).await
     }
+
+    /// 점검 1회의 기록(요청·응답, 가림·상한 적용본).
+    /// 없는 보드·칸·밀려난 기록은 모두 `ApiError{status: Some(404)}`.
+    pub async fn record(
+        &self,
+        board_id: &str,
+        panel_id: &str,
+        at_ms: i64,
+    ) -> Result<CheckRecord, ApiError> {
+        let resp = self
+            .client
+            .get(format!(
+                "{}/monitor-boards/{board_id}/panels/{panel_id}/records/{at_ms}",
+                self.base
+            ))
+            .timeout(POLL_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
+    }
 }
 
 #[cfg(test)]
@@ -192,7 +213,10 @@ mod tests {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = l.local_addr().unwrap();
         drop(l);
-        let e = reqwest::Client::new()
+        let e = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
             .get(format!("http://{addr}/"))
             .send()
             .await

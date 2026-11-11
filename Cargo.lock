@@ -1518,6 +1518,7 @@ dependencies = [
  "chrono",
  "clap",
  "handicap-controller",
+ "handicap-engine",
  "libc",
  "ratatui",
  "reqwest",
