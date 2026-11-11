@@ -41,7 +41,7 @@
 
 ## Review Focus
 
-1. **터미널로 가는 원격 문자열**: 응답 본문·헤더·URL·`StepTrace.error`·사유에 ESC·탭·CR 같은 제어 문자가 있어도 화면이 깨지거나 폭 계산이 어긋나지 않는다. → Task 5 `sanitize_replaces_control_chars`·`body_lines_escape_sequence_is_inert`.
+1. **터미널로 가는 원격 문자열**: 응답 본문·헤더·URL·`StepTrace.error`·사유에 ESC·탭·CR 같은 제어 문자가 있어도 화면이 깨지거나 폭 계산이 어긋나지 않는다. → Task 3 `sanitize_replaces_control_chars`, Task 5·`body_lines_escape_sequence_is_inert`.
 2. **늦게 도착한 조회 결과**: 다른 칸·다른 회차로 옮긴 뒤(또는 `r` 재시도 뒤) 도착한 응답을 현재 화면에 넣지 않는다. 묶음 칸들은 같은 `at_ms`를 쓰므로 보드·칸·회차 **셋 다** 맞춰 본다. → Task 7 `fetched_for_other_panel_is_dropped`.
 3. **목록이 살아 움직인다**(사용자 확정 3 — 열자마자도: 커서를 첫 줄의 `at_ms`에 고정, Task 7 `open_errors_pins_cursor_to_first_row`): 1초마다 새 결과가 앞에 끼고 오래된 것이 밀려나도 커서는 같은 회차(`at_ms`)에 머문다. 밀려났으면 가장 가까운 더 오래된 줄. → Task 3 `cursor_stays_on_same_round_when_new_results_arrive`·`cursor_falls_to_next_older_when_evicted`.
 4. **작은 터미널**: 새 화면 네 개가 1×1부터 패닉 없이 그려진다. 무입력 안내 줄·개수·`보기 전용` 같은 덧붙은 글자는 잘리지 않고 통째로 빠진다. → Task 3–6 `*_size_sweep_no_panic`, Task 3 `render_errors_narrow_drops_whole_parts`.
@@ -62,7 +62,7 @@
 | `crates/tui/src/api.rs` (수정) | `Api::record` | 1 |
 | `crates/tui/src/names.rs` (새) | 번들 → 시나리오·스텝·환경 이름, `flatten_http_steps`, 스텝 메서드·URL(적힌 그대로) | 2 |
 | `crates/tui/src/session.rs` (수정) | `Session.names` | 2 |
-| `crates/tui/src/inspect.rs` (새) | 오류 보기 상태·순수 모델(목록 줄·커서·사유 캐시·스텝 줄·본문 줄) | 3, 4, 5 |
+| `crates/tui/src/inspect.rs` (새) | 오류 보기 상태·순수 모델(목록 줄·커서·사유 캐시·스텝 줄·본문 줄), `pin_cursor`(7) | 3, 4, 5, 7 |
 | `crates/tui/src/view/inspect.rs` (새) | 새 화면 공용 틀(머리 줄·무입력 안내 줄·키 줄) + 목록·상세·본문 그리기 | 3, 4, 5 |
 | `crates/tui/src/panel_settings.rs` (새) | 설정 항목 12개, 조건·표시 값 한 줄 문구 | 6 |
 | `crates/tui/src/view/settings.rs` (새) | 설정 번호 목록 그리기 | 6 |
@@ -623,7 +623,7 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
   5. 요청 본문이 비어 있지 않을 때만: `Heading` `요청 본문` → `reveal == false`면 `Note` `요청 본문은 가려져 있습니다`, `true`면 본문 `Text` 줄들(아래 본문 규칙). 어느 쪽이든 `clipped_req`면 `Note` `text::record_clipped(limit_kb)`.
   6. 응답이 있으면: `Heading` `응답 헤더` + 줄들, 응답 본문이 비어 있지 않으면 `Heading` `응답 본문` → (`clipped_resp`면 `Note` 잘림) → (`body_truncated`면 `Note` `text::RECORD_ENGINE_TRUNCATED`) → 본문 `Text` 줄들.
   7. URL·헤더 값 어디든 `••••`(U+2022×4)가 있으면 끝에 `Note` `인증 값은 ••••로 가렸습니다`(GUI `masked`).
-  **본문 규칙**(사용자 확정 5, GUI `RecordBody.tsx`와 같은 갈래): 잘렸으면(`clipped_*`·`body_truncated`) `pretty_json`을 부르지 않고 원문. 아니면 `Json(p)` → `p`, `Raw` → 원문, `TooLarge` → 본문 앞에 `Note` `text::RECORD_TREE_TOO_LARGE` + 원문, `TooDeep` → `Note` `text::RECORD_TREE_TOO_DEEP` + 원문(두 안내문은 GUI 글자 그대로). 본문 `Text`는 2칸 들여쓴다. 모든 `Text`·`Title`·`Summary`·`Error` 글자는 `\n`으로 나눈 뒤 `sanitize` → `wrap_width`.
+  **본문 규칙**(사용자 확정 5, 크기·깊이·잘림 갈래는 GUI `RecordBody.tsx`와 같음 — 감싼 JSON 풀기는 안 함, 끝 "목업과 다른 점"): 잘렸으면(`clipped_*`·`body_truncated`) `pretty_json`을 부르지 않고 원문. 아니면 `Json(p)` → `p`, `Raw` → 원문, `TooLarge` → 본문 앞에 `Note` `text::RECORD_TREE_TOO_LARGE` + 원문, `TooDeep` → `Note` `text::RECORD_TREE_TOO_DEEP` + 원문(두 안내문은 GUI 글자 그대로). 본문 `Text`는 2칸 들여쓴다. 모든 `Text`·`Title`·`Summary`·`Error` 글자는 `\n`으로 나눈 뒤 `sanitize` → `wrap_width`.
 - Produces (`view/inspect.rs`):
   ```rust
   pub fn body_height(area: Rect) -> usize;             // sub_layout(area).body.height
@@ -721,7 +721,7 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
 - Modify: `crates/tui/src/lib.rs`(`pub mod panel_settings;`), `crates/tui/src/view/mod.rs`(`pub mod settings;`), `crates/tui/src/text.rs`, `crates/tui/tests/judge_parity_test.rs`
 
 **Interfaces:**
-- Consumes: Task 2 `Names`, Task 3 `render_frame`·`HeaderView`, Task 5 `sanitize`·`wrap_width`.
+- Consumes: Task 2 `Names`, Task 3 `render_frame`·`HeaderView`·`sanitize`, Task 5 `wrap_width`.
 - Consumes (`names.rs`, Task 2): `StepInfo{id, name, method, url}`·`Names::step_info(scenario_id, step_id) -> Option<(순번, &StepInfo)>` — `url`은 시나리오에 적힌 그대로(사용자 확정 4).
 - Produces (`panel_settings.rs`):
   ```rust
@@ -834,7 +834,7 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
 spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(`a`·`v`·`←→`·무입력 5분 복귀), §5.1 "키 안내 줄". Review Focus 2·5·9. **키 줄은 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html` §0(모니터 키 줄)과 §1–§4의 맨 아래 키 줄을 따른다(글자 배치 재량 범위 내 — 조각 순서는 아래 표가 우선).** 이 task는 App 구조체를 건드리지 않는다(연결은 Task 8).
 
 **Files:**
-- Modify: `crates/tui/src/app.rs`(순수 함수·타입만), `crates/tui/src/text.rs`, `crates/tui/src/view/monitor.rs`(모니터 키 줄), `crates/tui/src/view/overlay.rs`(도움말)
+- Modify: `crates/tui/src/app.rs`(순수 함수·타입만), `crates/tui/src/inspect.rs`(`ErrorsState::pin_cursor`), `crates/tui/src/text.rs`, `crates/tui/src/view/monitor.rs`(모니터 키 줄), `crates/tui/src/view/overlay.rs`(도움말)
 - Test: `crates/tui/tests/app_test.rs`, `crates/tui/tests/view_test.rs`
 
 **Interfaces:**
@@ -1054,7 +1054,7 @@ async fn fetch_worker_answers_in_order_and_stops() {
 - Modify: `docs/dev/tui-monitor.md`, `docs/superpowers/specs/2026-11-07-tui-monitor-design.md`
 
 - [ ] **Step 1: 매뉴얼 §3 키 표**에 행 추가: `e`(선택 칸 오류 보기 — 목록에서 `↑↓`·`a` 전체 회차/실패만·`Enter` 자세히·`Esc` 뒤로), `Enter`(선택 칸 설정 보기 — 읽기 전용, 수정은 다음 버전), 자세히 화면 `Enter`(그 스텝의 요청·응답), 본문 화면 `↑↓`·`PgUp`/`PgDn`·`Home`/`End`·`←`/`→`(이전·다음 스텝)·`v`(요청 본문 보기/가리기). 표 아래 한 줄: **"오류 보기·칸 설정 화면은 5분 동안 입력이 없으면 모니터로 돌아갑니다"**(화면 키 줄 위와 도움말에도 같은 문장). `Esc` 행을 "한 단계 뒤로(본문 → 상세 → 목록 → 모니터)"로.
-- [ ] **Step 2: 매뉴얼 새 절 "오류 보기"**(§4 "화면 읽는 법" 뒤): ① 목록은 그 칸의 막대 구간 안 회차만 — 기록도 막대 개수만큼만 보관되어 그보다 오래된 회차는 `기록 지남` ② 사유는 보이는 줄만 그때그때 불러온다(`불러오는 중…`) ③ 요청 본문은 기본 가림(`v`), 인증 값은 `••••` ④ JSON 본문은 들여써서 보여 주고(64KB 초과·잘린 본문·JSON이 아닌 본문은 원문), `기록 상한 NKB에서 잘림`은 보드의 점검 기록 상한 ⑤ TUI를 다시 띄우면 기록은 비워진다 ⑥ 자리를 비워도 5분 뒤 모니터 화면으로 돌아가므로 벽 화면이 목록에 멈춰 있지 않는다(요청 본문도 다시 가려진다) ⑦ 칸 설정 보기의 URL은 시나리오에 적힌 그대로(`{{변수}}` 미치환) — 실제 값은 오류 보기의 요청·응답에서. §9 "보안 전제"에 한 줄: "오류 보기의 요청·응답은 화면에만 그리고 파일·로그에 남기지 않는다. 화면을 볼 수 있는 사람은 응답 본문(업무 데이터)을 볼 수 있다."
+- [ ] **Step 2: 매뉴얼 새 절 "오류 보기"**(§4 "화면 읽는 법" 뒤): ① 목록은 그 칸의 막대 구간 안 회차만 — 기록도 막대 개수만큼만 보관되어 그보다 오래된 회차는 `기록 지남` ② 사유는 보이는 줄만 그때그때 불러온다(`불러오는 중…`) ③ 요청 본문은 기본 가림(`v`), 인증 값은 `••••` ④ JSON 본문은 들여써서 보여 주고(64KB 초과·64단 넘게 중첩된 본문·잘린 본문·JSON이 아닌 본문은 원문), `기록 상한 NKB에서 잘림`은 보드의 점검 기록 상한 ⑤ TUI를 다시 띄우면 기록은 비워진다 ⑥ 자리를 비워도 5분 뒤 모니터 화면으로 돌아가므로 벽 화면이 목록에 멈춰 있지 않는다(요청 본문도 다시 가려진다) ⑦ 칸 설정 보기의 URL은 시나리오에 적힌 그대로(`{{변수}}` 미치환) — 실제 값은 오류 보기의 요청·응답에서. §9 "보안 전제"에 한 줄: "오류 보기의 요청·응답은 화면에만 그리고 파일·로그에 남기지 않는다. 화면을 볼 수 있는 사람은 응답 본문(업무 데이터)을 볼 수 있다."
 - [ ] **Step 3: spec** — 5행 상태 줄을 "1a 완료 … **1b 구현**(plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`), 2 미착수"로(코드 범위·날짜는 `/finish-slice`가 채운다). §5.3 "이름 해석" 끝 문장 뒤에 "→ 1b 계획 확정: 공개된 엔진 대응 함수 없음(`reqgen::collect_http` 비공개·컨트롤러 `collect_http_steps` `pub(crate)`), TUI `names.rs`에 같은 순서로 이식." §5.3-4의 `"기록 상한(N KB)에서 잘림"` 옆에 "(화면 문구는 `ko.monitor.recordClipped` 그대로 `기록 상한 NKB에서 잘림`)". (§5.3·§5.4의 "1b 확정" 블록은 plan 저작 때 이미 넣었다 — 구현이 그 블록과 달라졌으면 여기서 고친다.)
 - [ ] **Step 4: 커밋** — docs-only. `docs(tui): 1b 오류 보기·칸 설정 보기 매뉴얼·spec 확정 표시`.
 
@@ -1091,7 +1091,8 @@ spec §8 라이브 항 + `crates/tui/CLAUDE.md` tmux 함정. 워크트리 자체
 
 | 목업 | 이 plan | 이유 |
 |---|---|---|
-| §0 모니터 키 줄 글자 순서 `칸 이동 · e · Enter · Tab · ? · q`, `b 테두리` 없음 | `b 테두리 · Tab · 칸 이동 · e · Enter · ? · q` | `b` 키는 그대로 있어야 하고(tui-readability), 1a `key_bar`는 **앞 조각부터** 뺀다 — 목업의 "좁으면 b·Tab부터 뺀다"를 지키려면 그 둘이 앞에 와야 한다. 빼는 규칙을 우선순위 방식으로 바꾸는 것은 범위 밖 **1a·tui-readability의 빼는 순서(`칸 이동` → `Tab` → `b`)가 `b` → `Tab` → `칸 이동`으로 바뀐다** — 갱신할 기존 단언: `view_test.rs` 키 줄 문자열 5곳 + 앞 조각 탈락 단언(Task 7). 사용자에게 알림(반대 없으면 유지) |
+| (목업 밖) GUI는 문자열로 감싼 JSON(루트·안쪽 값)을 풀어 트리로 보여 준다(`ui/src/monitor/conditions.ts` `parseBodyJson`, §B47) | 감싼 JSON은 풀지 않음 — 문자열 루트는 원문, 안쪽은 이스케이프된 문자열 그대로 들여쓰기 | 들여쓰기 범위만 사용자 확정(5). 풀기는 범위 밖 |
+| §0 모니터 키 줄 글자 순서 `칸 이동 · e · Enter · Tab · ? · q`, `b 테두리` 없음 | `b 테두리 · Tab · 칸 이동 · e · Enter · ? · q` | `b` 키는 그대로 있어야 하고(tui-readability), 1a `key_bar`는 **앞 조각부터** 뺀다 — 목업의 "좁으면 b·Tab부터 뺀다"를 지키려면 그 둘이 앞에 와야 한다. 빼는 규칙을 우선순위 방식으로 바꾸는 것은 범위 밖 — **1a·tui-readability의 빼는 순서(`칸 이동` → `Tab` → `b`)가 `b` → `Tab` → `칸 이동`으로 바뀐다** — 갱신할 기존 단언: `view_test.rs` 키 줄 문자열 5곳 + 앞 조각 탈락 단언(Task 7). 사용자에게 알림(반대 없으면 유지) |
 | §4 항목 이름 `점검 주기`·`제한 시간`·`그래프 최대 높이`·`화면 표시 값`, 값 `5초`·`2,000 ms` | ko.ts 값 그대로 `점검 주기(초)`·`제한 시간(초)`·`그래프 최대 높이(ms)`·`화면에 표시`, 값은 숫자만 | 목업 설명도 "항목 이름은 GUI 칸 편집기와 같은 말" — 실제 ko.ts 값은 단위가 이름에 들어 있다(C11). 단위를 값에도 쓰면 `점검 주기(초) 5초`로 겹친다 |
 | §4 각주 `점검 묶음 "주문 흐름 묶음"의 값` | `점검 묶음 {n}의 값` | 묶음에는 이름 필드가 없다(`CheckGroup{id, scenario_id, environment_id, interval_seconds}`). GUI도 `점검 묶음 N`으로 부른다(C20) |
 | §4 조건 줄 `status = "OK"`, 표시 값 `재고  stock.count` | GUI `conditionSummary`·표시 항목 줄 그대로(`… · {스텝 이름}`, `① 큰 글자 …`) | GUI와 같은 문구(반목표 "GUI와 다른 문구"), 표시 항목에는 이름 필드가 없다 |
