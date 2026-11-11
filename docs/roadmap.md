@@ -955,7 +955,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **저장 진행 중에 다른 값을 확정하면 친 글이 사라진다**(B5 — `저장 중…` 안내로 바뀜). 해소: Input/CondForm을 유지하고 오류 줄에 `저장 중…`.
 - **보안 F2 — `write_bundle`의 TOCTOU**(`metadata` → `read` → `metadata` 세 번이 각각 링크를 따라간다): 그 디렉터리에 쓸 수 있는 다른 사용자가 같은 내용의 0644 파일 링크로 바꾸면 새 파일·백업이 0644로 만들어진다(단일 사용자 PC 전제 밖). 해소: `O_NOFOLLOW|O_NONBLOCK`으로 한 번 열어 `fstat`한 핸들에서 읽고 권한도 거기서.
 - **보안 F3/F4**: 저장하면 그룹이 실행 사용자의 기본 그룹으로 바뀐다(0640 원본의 그룹 읽기 대상이 달라짐) · 바꾼 토큰의 옛 값이 `.bak`·`.orig.bak`에 남는다 — 둘 다 매뉴얼에 적음. 해소(F3): 임시 파일에 `fchown(-1, 원래 gid)`.
-- **`Names`는 세션 시작 때 한 번** — 2a-1은 키·이름을 바꾸지 않아 틀린 화면이 안 나오지만, 2b가 조건/표시를 추가하거나 키를 건드리면 재계산이 필요하다.
+- **`Names`는 세션 시작 때 한 번** — 2a-1은 키·이름을 바꾸지 않아 틀린 화면이 안 나온다. ~~2b가 조건/표시를 추가하거나 키를 건드리면 재계산이 필요하다~~ → 정정(tui-2b spec §4.4): `Names`는 조건·표시 값을 들지 않는다(시나리오·스텝·환경 이름과 변수 키뿐) — 2b는 재계산 없이 끝났다. 재개 신호는 "TUI가 변수 **키**나 시나리오 이름을 바꾸게 될 때"만.
 - **Windows**: `tui-writes.json`이 HOME 기반 `state_dir()`이라 Windows에선 기록이 없어 매 세션 첫 저장에 `.orig.bak`이 덮인다. `std::fs::canonicalize`가 `\\?\` 경로를 돌려줘 도움말 백업 줄·기록 키에 그대로 보인다.
 - **`InputTarget`·`Pending`은 derive Debug**(환경 키 이름·스텝 id) — 지금 로그에 찍는 곳은 없다. 찍게 되면 손 Debug로.
 - **아주 좁은 폭**(≤ 9열)에서 조건 수정 칸의 포커스 표시가 사라지고, 5–6열에선 변수 화면의 키 열이 숨는다. 넓은 글자가 창 끝에 걸릴 때 입력줄 커서 칸 한 칸 어긋남 가능(sanitize가 `view` 뒤) — 패닉 없음.
@@ -979,7 +979,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 ### B51. 터미널 모니터 `r` 지금 점검 (tui-check-now, 2026-11-11, 코드 `9074630`..`a532eab`, spec `docs/superpowers/specs/2026-11-11-tui-check-now-design.md`, plan `docs/superpowers/plans/2026-11-11-tui-check-now.md`) 판단·연기
 
-**다음 슬라이스**: TUI **2b 조건·표시 값 추가**(US9 — 진입점은 "미리 실행 결과"가 아니라 요청·응답 기록 화면, 상위 설계 §0 표). 2a-2 "미리 실행"(메뉴 `p`)은 이 슬라이스가 대체 — 판정을 고쳐 볼 일이 생기면 사용자가 새로 요청(spec US 앵커). **머지 전 사용자 확인**: 맥에서 merge + 전체 게이트(cloud 컨테이너는 `cargo test --workspace` 폴백만 돌았다 — nextest·macOS 미실행), Ubuntu 19.04 실기에서 `r`.
+**다음 슬라이스**: ~~TUI **2b 조건·표시 값 추가**(US9 — 진입점은 "미리 실행 결과"가 아니라 요청·응답 기록 화면, 상위 설계 §0 표)~~ ✅ 완료(tui-2b §B52, 코드 `ebe98dc`..`d97f708`). 2a-2 "미리 실행"(메뉴 `p`)은 이 슬라이스가 대체 — 판정을 고쳐 볼 일이 생기면 사용자가 새로 요청(spec US 앵커). **머지 전 사용자 확인**: 맥에서 merge + 전체 게이트(cloud 컨테이너는 `cargo test --workspace` 폴백만 돌았다 — nextest·macOS 미실행), Ubuntu 19.04 실기에서 `r`.
 
 (1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
 - **spec §7의 TUI in-process "끈 보드 → `ApiError.status == Some(409)`" 테스트 미작성**(plan이 의식적으로 뺌, 최종 리뷰 Minor 3 기각): `Session`이 REST 주소를 밖에 주지 않고 `Api`에 정지 메서드가 없어 테스트만을 위해 production 표면을 늘려야 한다. cost-if-wrong: TUI 쪽 409 → 문구 경로의 통합 회귀를 단위에서 못 잡는다 — 공용 `parse`(기존 409 테스트)·`check_notice`/`check_reply` 순수 테스트·컨트롤러 `check_now_404_409_200`·라이브 US4(c)가 그물. 해소: `Api::stop`이 생기면(GUI처럼 TUI에서 보드를 끄는 기능) 한 줄 추가.
@@ -1001,6 +1001,30 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **`Alt+r`도 지금 점검**(Task 5 리뷰 M2 — 기존 `a`/`d`/`s`/`v`와 같은 수준, 숫자 키만 ALT를 뺀다) · 조회 작업자가 패닉하면 대기 창은 `Esc`까지 남는다(spec §10 "제한 시간 없음"과 같은 뒷문).
 - **spec §10 그대로**: GUI에 지금 점검 버튼 없음(서버 길만) · 자세히·요청·응답 화면에서 다시 점검 키 없음 · 꺼진 보드는 지금 점검 불가 · 대기 창 제한 시간 없음(폴링 끊김·시계 역행 포함) · 기준을 읽은 직후 결과가 들어오면 덤 회차 1회.
 - **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48·§B49와 같은 항목.
+
+### B52. 터미널 모니터 응답에서 값을 골라 조건·표시 값 추가 (tui-2b, 2026-11-11, 코드 `ebe98dc`..`d97f708`, spec `docs/superpowers/specs/2026-11-11-tui-2b-add-from-response-design.md`, plan `docs/superpowers/plans/2026-11-11-tui-2b-add-from-response.md`) 판단·연기
+
+**다음 슬라이스**: ②b 겹침 질문 흐름, 또는 아래 (2)의 2b 후속. **머지 전 사용자 확인**: 맥에서 merge + 전체 게이트(cloud 컨테이너는 `cargo test --workspace` 폴백 — nextest 아님) · Ubuntu 19.04 실기에서 `a` 흐름과 모호 폭 문자(`▶`·`…`·`‹ ›`) · GUI **클릭 경로** 대조(아래 (1) 셋째 항목).
+
+(1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
+- **구현 중 spec을 고쳤다 — `spec-plan-reviewer` 재검토 없이**(code-quality 리뷰 finding 반영): §2.1 본문 표에 새 7행(값 줄 경로 글자 합계 4 MiB 초과 → `본문 전체` + `키가 너무 길거나 값이 너무 많은 본문은 값을 고를 수 없습니다`)·"6·7행은 먼저 만난 쪽"·§4.1 "화면 글자·칸 폭도 열 때 한 번"·§10 한계 3줄. 새 화면 문구와 한도 값(4 MiB)은 사용자 승인 US 밖의 추가다(세션 중 사용자에게 알림). cost-if-wrong: 한도가 실제 응답에서 걸리면 본문 값을 못 고른다(64KB를 숫자로만 채운 배열 + 경로 30자가 약 1 MiB라 여유 4배). 해소: `pick::MAX_PATH_BYTES`·`text::PICK_TOO_MANY_PATHS` 한 줄씩.
+- **plan의 인터페이스를 구현 중 바꿨다**(같은 리뷰): `ValueRowView` 삭제 → `pick::RowText`(필드 비공개)·`ValuesState::new`·`ValuesView { rows: &[RowText], target_width, marks: &dyn Fn }`, 선택 창 머리 `fit` → 줄바꿈(plan이 spec §3.1과 어긋나 있었다), 머리는 본문 높이 5부터. plan 문서는 같은 커밋들에서 고쳤다.
+- **라이브의 "GUI와 같은 설정" 행은 Playwright 클릭 경로가 아니라 GUI 순수 함수 실행으로 대조했다**: cloud 컨테이너에서 `pnpm build`가 OOM(exit 134)으로 죽고 세션 작업자까지 재시작돼 `ui/dist`를 못 만들었다 — `ui/src/monitor/conditions.ts` `defaultCondition`·`ui/src/scenario/jsonPath.ts` `segmentsToPath`를 esbuild로 묶어 node로 돌린 결과와 TUI가 저장한 보드 파일의 조건 6종(문자열·숫자·`null`·50자 문자열·응답 코드·보통 헤더)을 필드 단위로 비교 → 전부 일치. cost-if-wrong: GUI의 클릭 → 대상 경로 조립(`PreviewResult`의 트리 → `segments`)에 버그가 있으면 못 잡는다(그 층은 GUI 선재 코드·0-diff). 해소: 맥에서 spec §8 표 둘째 행을 그대로.
+- **인증 헤더 행은 값이 실제로 가려졌는지 보지 않고 이름만 본다**(Task 2 리뷰 minor, spec §10에 기록): 빈 `set-cookie:`·`authorization:`을 고르면 `값 있음` + "가려진 값" 안내 → 그대로 저장하면 실패하는 조건. cost-if-wrong: 드문 헤더에서 한 번 헛저장. 해소: 가림 문자열(`••••`)이 있을 때만 ★ 행(컨트롤러 `MASK`를 TUI가 알아야 한다).
+- **`App` 조립 층은 단위 테스트가 없다**(`draw_values`의 제목·칸 조회, `pump_auto_values`, `run_edit`의 "조회 작업자 없으면 대기 창 안 띄움"): 판정은 순수 함수(`value_target`·`enter_values`·`take_auto_values`·`auto_target`·`is_edit_screen`·`check_open_allowed`)로 뺐고 연결은 라이브 표가 그물(§B49·§B51과 한 뿌리).
+- **orchestrator가 직접 고친 커밋 2개**: `0dbd736`(선택 창 머리 한도 off-by-one — 수정 지시에 적은 한도가 한 줄 틀렸다, 같은 리뷰어 재검토 APPROVED)·`d97f708`(최종 리뷰 minor 3건 — 동작 불변, 재리뷰 없이 게이트만). 리뷰 두 단계는 동시에 띄웠고 Task 8(문서)은 리뷰 1명(spec+정확성 합침), 구현자는 Task 4·5·7만 Opus(나머지 Sonnet).
+- **plan Step 1 테스트 수와 다르다**: Task 1 9개(성질 테스트가 "덜 만든" 회귀를 못 잡아 보강)·Task 3 +`mark_text_forms`·Task 4 +`keys_bar_on_values`·Task 5 +`edit_screens_include_values`·`back_from_values_ignored_while_saving`, `ctx_with` 도우미 대신 `mod save`의 기존 `run`. plan 체크박스 미갱신(커밋이 진실의 원천).
+- **라이브 중 거짓 경보 1건**: 스텝 칸 `11` → `a`가 "대기 창에서 멈춘다"로 보였으나 확인 글자(`값 고르기`)가 빈 목록 안내 문구에도 들어 있어 대기 창이 뜬 순간을 잘못 읽은 것 — 그 화면에만 있는 제목 접미 `— 값 고르기`로 다시 확인해 5회 모두 정상(`crates/tui/CLAUDE.md`). 같은 오류로 무작위 간격 20회 반복 스크립트의 "정상"도 무효라 세지 않았다.
+
+(2) 연기(재개 신호 = 그 파일을 만질 때 / 운영에서 실제로 밟을 때)
+- **짧은 비밀이 비교값으로 미리 채워진다**(보안 리뷰 low — GUI `defaultCondition`과 같은 규칙): 서버가 가리는 것은 인증 헤더 4종뿐이라 본문의 32자 세션 id·`x-api-key` 응답 헤더 같은 40자 이하 값은 `=` + 그 값으로 조건 칸에 채워지고, `Enter`면 보드 파일(내보내 공유할 수 있다)과 판정 상세에 남는다. `화면에 추가`는 그 값을 늘 보이는 화면에 올린다. spec §9가 수용("운영자가 보고 고친 뒤 저장"). 해소: 키·헤더 이름이 `token|secret|pass|session|key|csrf|auth`에 맞으면 `값 있음` + 안내(GUI와 함께).
+- **선재(GUI) — 엔진이 자른(1 MiB) 본문에도 `+ 본문 전체 포함 조건` 버튼이 나온다**(spec §2.1 표 2행): 서버는 그 조건을 늘 실패시킨다. TUI는 줄을 내지 않는다. 해소: `PreviewResult.tsx`의 `!treeBody` 갈래에 `body_truncated` 제외.
+- **선재(서버) — 조건 `value`는 길이만 검사**(보안 info, `config.rs` `validate_conditions`): 제어 문자·bidi·U+2028/2029가 든 값이 다른 곳에서 만든 보드 파일로 들어올 수 있다(TUI·GUI 입력 길은 걸러진다). 해소: 서버에서 거절.
+- **아주 크거나 작은 소수는 지수 없이 수백 자로 풀려 서버 200자 한도에 걸린다**(Task 1 리뷰 minor, spec §10) · **본문 값은 64KB 이하 JSON만**(GUI 트리는 큰 본문도 연다) · **`serde_json` 재귀 상한 판별이 오류 문구 접두에 기댄다**(`body_table` 200단 케이스가 지킨다).
+- **조건 칸의 `대상` 줄은 한 줄 `fit`**(긴 경로의 전체는 선택 창 머리에서만 — `본문 전체`는 선택 창이 없지만 대상이 짧다) · **`fit_head`가 글자 단위 폭 합으로 잘라 `❤️`류에서 1칸 넘칠 수 있다**(줄 전체 `fit`이 흡수) · **값 목록이 열린 채 칸이 보드에서 사라지면 빈 화면**(다른 하위 화면과 같은 동작, `Esc`는 된다) · **터미널 높이 6줄 이하에서는 선택 창 머리(대상 = 받은 값)가 안 보인다**.
+- **라이브로 돌려 보지 않은 것**: 저장 중 `Esc`·`q`(저장이 수 ms라 때를 못 맞춤 — `esc_ignored_while_saving`·`back_from_values_ignored_while_saving` 단위 테스트만) · 11·12 `a` 뒤 종료 확인창이 떠 있는 동안 기록이 오는 순서(`take_auto_values_sequence` 단위만) · 경로 합계 4 MiB 초과 본문(단위 테스트만).
+- **spec §10 그대로**: 꺼진 보드는 추가 길 없음 · 반복 스텝의 앞 실행에서 고르면 판정(마지막 실행)과 다른 값을 본다(안내 줄만) · 판정 미리 보기 없음 · 12번에서 표시 값 2개면 그 길로는 조건도 못 단다(11번이나 요청·응답의 `a`로).
+- **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48·§B49·§B51과 같은 항목.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 
