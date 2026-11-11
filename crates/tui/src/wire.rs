@@ -5,6 +5,7 @@ use handicap_controller::monitor::check::CheckResult;
 use handicap_controller::monitor::config::BoardConfig;
 use handicap_engine::ScenarioTrace;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +65,39 @@ pub struct CheckRecord {
     pub result: CheckResult,
     pub trace: Option<ScenarioTrace>,
     pub clipped: Vec<Clipped>,
+}
+
+/// 컨트롤러 `api/environments.rs` `EnvironmentResponse`의 거울.
+/// `Debug`는 손으로 — `vars` 값 대신 키 수만(값이 `{:?}`로 로그에 새지 않게).
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentResponse {
+    pub id: String,
+    pub name: String,
+    pub vars: BTreeMap<String, String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl std::fmt::Debug for EnvironmentResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvironmentResponse")
+            .field("id", &self.id)
+            .field("vars", &format_args!("<{} keys>", self.vars.len()))
+            .finish_non_exhaustive()
+    }
+}
+
+/// 컨트롤러 `api/scenarios.rs` `ScenarioResponse`의 거울.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioResponse {
+    pub id: String,
+    pub name: String,
+    pub yaml: String,
+    pub version: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[cfg(test)]
