@@ -13,6 +13,7 @@ pub mod judge;
 pub mod logging;
 pub mod names;
 pub mod panel_settings;
+pub mod pick;
 pub mod poll;
 pub mod prefs;
 pub mod session;
