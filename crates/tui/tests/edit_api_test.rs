@@ -125,3 +125,15 @@ async fn put_environment_and_scenario() {
     assert_eq!(e.status, Some(409));
     s.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scenario_debug_hides_yaml() {
+    let srv = target().await;
+    let (s, _t, _d) = start(&srv).await;
+    let sc = s.api.scenario(SC_ID).await.unwrap();
+    let dbg = format!("{sc:?}");
+    assert!(!dbg.contains("ping"), "Debug leaked yaml: {dbg}");
+    assert!(!dbg.contains("BASE_URL"), "Debug leaked yaml: {dbg}");
+    assert!(dbg.contains(SC_ID));
+    s.shutdown().await;
+}

@@ -551,7 +551,7 @@ fn sub_keys_per_screen() {
     assert!(sub_keys(&Screen::Body, shown).contains(&"v 가리기"));
     assert_eq!(
         sub_keys(&Screen::Settings, ctx()),
-        ["↑↓ 스크롤", "Esc 모니터로"]
+        ["↑↓ 고르기", "1–14 번호", "Enter 수정", "Esc 모니터로"]
     );
     let q = KeyCtx {
         quit_confirm: true,
@@ -1411,5 +1411,748 @@ fn edit_ui_debug_hides_values() {
         ] {
             assert!(!d.contains(leak), "{leak} leaked: {d}");
         }
+    }
+}
+
+// ---- tui-2a-1 Task 10: 저장 결과 반영·확인 판정·저장 표(순수) ----
+
+mod save {
+    use super::*;
+    use handicap_controller::monitor::config::{
+        BoardConfig, Condition, ConditionOp, DisplayItem, PanelConfig,
+    };
+    use handicap_tui::app::{
+        Change, EditCtx, EditDone, EditReq, FileErr, SaveTicket, SavedValue, SavedWhat, apply_done,
+        confirm_for, edit_apply,
+    };
+    use handicap_tui::filesave::{WriteError, WriteStage};
+    use handicap_tui::names::Names;
+    use handicap_tui::view::monitor::HeaderNotice;
+    use handicap_tui::wire::BoardResponse;
+
+    const BUNDLE: &str = include_str!("fixtures/bundle_template.json");
+    const ENV: &str = "01J0000000000000000000EN01";
+    const SC: &str = "01J0000000000000000000SC01";
+    const ST: &str = "01J0000000000000000000ST01";
+
+    fn names() -> Names {
+        Names::from_bundle(BUNDLE.as_bytes())
+    }
+
+    fn panel(id: &str) -> PanelConfig {
+        PanelConfig {
+            id: id.into(),
+            title: format!("칸-{id}"),
+            scenario_id: SC.into(),
+            environment_id: Some(ENV.into()),
+            ..PanelConfig::default()
+        }
+    }
+
+    fn board(id: &str, panels: Vec<PanelConfig>) -> BoardResponse {
+        BoardResponse {
+            id: id.into(),
+            name: format!("보드-{id}"),
+            config: BoardConfig {
+                panels,
+                ..BoardConfig::default()
+            },
+            enabled: true,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn boards() -> Vec<BoardResponse> {
+        vec![
+            board("B1", vec![panel("P1"), panel("P2")]),
+            board("B2", vec![panel("Q1")]),
+        ]
+    }
+
+    fn ticket(seq: u64, b: &str, p: &str) -> Option<SaveTicket> {
+        Some(SaveTicket {
+            seq,
+            board_id: b.into(),
+            panel_id: p.into(),
+        })
+    }
+
+    fn ui(b: &str, p: &str, overlay: Option<Overlay>) -> EditUi {
+        EditUi {
+            board_id: b.into(),
+            panel_id: p.into(),
+            overlay,
+            ..EditUi::default()
+        }
+    }
+
+    fn digits(v: &str) -> LineInput {
+        LineInput::new(v, InputMode::Digits { max: 6 })
+    }
+
+    fn timeout_input(v: &str, error: Option<&str>) -> Overlay {
+        Overlay::Input {
+            target: InputTarget::Field(Field::Timeout),
+            input: digits(v),
+            error: error.map(str::to_string),
+            share: None,
+        }
+    }
+
+    fn saving(restore: Option<Overlay>) -> Overlay {
+        Overlay::Saving {
+            restore: restore.map(Box::new),
+        }
+    }
+
+    fn saved_board(seq: u64, b: BoardResponse, file: Option<Result<(), FileErr>>) -> EditDone {
+        EditDone::Saved {
+            seq,
+            req: SavedWhat::Board {
+                board_id: b.id.clone(),
+            },
+            server: Ok(SavedValue::Board(b)),
+            file,
+        }
+    }
+
+    fn rejected(seq: u64, b: &str, m: &str) -> EditDone {
+        EditDone::Saved {
+            seq,
+            req: SavedWhat::Board { board_id: b.into() },
+            server: Err(m.into()),
+            file: None,
+        }
+    }
+
+    fn changed_b1() -> BoardResponse {
+        let mut b = boards().remove(0);
+        b.config.panels[0].timeout_seconds = 9;
+        b.updated_at = 2;
+        b
+    }
+
+    #[test]
+    fn apply_done_rejection_keeps_cache_and_restores() {
+        let mut bs = boards();
+        let before: Vec<_> = bs.iter().map(|b| b.config.clone()).collect();
+        let mut t = ticket(3, "B1", "P1");
+        let mut u = ui("B1", "P1", Some(saving(Some(timeout_input("45", None)))));
+        let n = apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            rejected(3, "B1", "제한 시간은 1~30초여야 합니다"),
+            0,
+        );
+        assert_eq!(n, None);
+        assert_eq!(t, None);
+        let after: Vec<_> = bs.iter().map(|b| b.config.clone()).collect();
+        assert_eq!(after, before);
+        assert_eq!(
+            u.overlay,
+            Some(timeout_input("45", Some("제한 시간은 1~30초여야 합니다")))
+        );
+    }
+
+    #[test]
+    fn apply_done_pick_rejection_is_notice() {
+        let mut bs = boards();
+        let mut t = ticket(1, "B1", "P1");
+        let mut u = ui("B1", "P1", Some(saving(None)));
+        apply_done(Some(&mut u), &mut bs, &mut t, rejected(1, "B1", "거절"), 0);
+        assert_eq!(u.overlay, Some(Overlay::Notice("거절".into())));
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn apply_done_ok_replaces_board_and_notice() {
+        // 성공 + 파일 Ok → Saved(now), 캐시 교체, overlay 닫힘.
+        let mut bs = boards();
+        let mut t = ticket(5, "B1", "P1");
+        let mut u = ui("B1", "P1", Some(saving(Some(timeout_input("9", None)))));
+        let n = apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            saved_board(5, changed_b1(), Some(Ok(()))),
+            1234,
+        );
+        assert_eq!(n, Some(HeaderNotice::Saved(1234)));
+        assert_eq!(bs[0].config.panels[0].timeout_seconds, 9);
+        assert_eq!(bs[0].updated_at, 2);
+        assert_eq!(bs[1].config, boards()[1].config);
+        assert_eq!(u.overlay, None);
+        assert_eq!(t, None);
+        // 내보내기·다른 쓰기 실패 → FileFailed.
+        for e in [
+            FileErr::Export("x".into()),
+            FileErr::Write(WriteError {
+                stage: WriteStage::Persist,
+                kind: None,
+            }),
+        ] {
+            let mut t = ticket(6, "B1", "P1");
+            let n = apply_done(
+                None,
+                &mut bs,
+                &mut t,
+                saved_board(6, changed_b1(), Some(Err(e))),
+                0,
+            );
+            assert_eq!(n, Some(HeaderNotice::FileFailed));
+        }
+        // 밖에서 바뀜 → ChangedOutside.
+        let mut t = ticket(7, "B1", "P1");
+        let n = apply_done(
+            None,
+            &mut bs,
+            &mut t,
+            saved_board(
+                7,
+                changed_b1(),
+                Some(Err(FileErr::Write(WriteError {
+                    stage: WriteStage::ChangedOutside,
+                    kind: None,
+                }))),
+            ),
+            0,
+        );
+        assert_eq!(n, Some(HeaderNotice::ChangedOutside));
+        // 표와 다른 seq는 버린다(캐시·알림·표 불변).
+        let mut bs = boards();
+        let mut t = ticket(8, "B1", "P1");
+        let n = apply_done(
+            None,
+            &mut bs,
+            &mut t,
+            saved_board(7, changed_b1(), Some(Ok(()))),
+            0,
+        );
+        assert_eq!(n, None);
+        assert_eq!(bs[0].config.panels[0].timeout_seconds, 5);
+        assert_eq!(t, ticket(8, "B1", "P1"));
+    }
+
+    #[test]
+    fn apply_done_stale_panel_no_overlay() {
+        // 표 = B1/P1, 지금 화면 = B1/P2(입력줄 열림) → 캐시는 바뀌고 overlay 불변.
+        let mut bs = boards();
+        let mut t = ticket(2, "B1", "P1");
+        let open = timeout_input("3", None);
+        let mut u = ui("B1", "P2", Some(open.clone()));
+        let n = apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            saved_board(2, changed_b1(), Some(Ok(()))),
+            9,
+        );
+        assert_eq!(n, Some(HeaderNotice::Saved(9)));
+        assert_eq!(bs[0].config.panels[0].timeout_seconds, 9);
+        assert_eq!(u.overlay, Some(open.clone()));
+        // 거절도 다른 칸 화면엔 Notice를 띄우지 않는다.
+        let mut t = ticket(3, "B1", "P1");
+        apply_done(Some(&mut u), &mut bs, &mut t, rejected(3, "B1", "거절"), 0);
+        assert_eq!(u.overlay, Some(open));
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn apply_done_after_idle_keeps_notice() {
+        let mut bs = boards();
+        let mut t = ticket(4, "B1", "P1");
+        let n = apply_done(
+            None,
+            &mut bs,
+            &mut t,
+            saved_board(4, changed_b1(), Some(Ok(()))),
+            77,
+        );
+        assert_eq!(n, Some(HeaderNotice::Saved(77)));
+        assert_eq!(bs[0].config.panels[0].timeout_seconds, 9);
+        assert_eq!(t, None);
+        // 5분 복귀 뒤 남은 Saving(edit 유지)도 닫힌다.
+        let mut t = ticket(5, "B1", "P1");
+        let mut u = ui("B1", "P1", Some(saving(None)));
+        idle_drop(&mut u);
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            saved_board(5, changed_b1(), Some(Ok(()))),
+            0,
+        );
+        assert_eq!(u.overlay, None);
+    }
+
+    #[test]
+    fn ticket_blocks_second_save() {
+        let bs = boards();
+        let nm = names();
+        let submit = || {
+            let li = digits("9");
+            EditAction::Input(InputOutcome::Submit, li)
+        };
+        // 표 없음 → 저장 요청 + 표 + Saving(restore = 입력줄).
+        let mut t = None;
+        let mut seq = 0;
+        let mut u = ui("B1", "P1", Some(timeout_input("9", None)));
+        let out = {
+            let mut cx = EditCtx {
+                boards: &bs,
+                names: &nm,
+                ticket: &mut t,
+                seq: &mut seq,
+            };
+            edit_apply(&Screen::Settings, &mut u, &mut cx, submit())
+        };
+        let Some(EditReq::SaveBoard {
+            seq: s1,
+            board_id,
+            panel_id,
+            panel_no,
+            config,
+            ..
+        }) = out.req
+        else {
+            panic!("no save request");
+        };
+        assert_eq!(
+            (board_id.as_str(), panel_id.as_str(), panel_no),
+            ("B1", "P1", 1)
+        );
+        assert_eq!(config.panels[0].timeout_seconds, 9);
+        assert_eq!(config.panels[1], bs[0].config.panels[1]);
+        assert_eq!(t, ticket(s1, "B1", "P1"));
+        assert_eq!(u.overlay, Some(saving(Some(timeout_input("9", None)))));
+        // 표가 있는 동안 다른 칸에서 확정 → 요청 없음·Notice(저장 중)·표 그대로.
+        let mut u2 = ui("B1", "P2", Some(timeout_input("7", None)));
+        let out2 = {
+            let mut cx = EditCtx {
+                boards: &bs,
+                names: &nm,
+                ticket: &mut t,
+                seq: &mut seq,
+            };
+            edit_apply(&Screen::Settings, &mut u2, &mut cx, submit())
+        };
+        assert!(out2.req.is_none());
+        assert_eq!(u2.overlay, Some(Overlay::Notice("저장 중…".into())));
+        assert_eq!(t, ticket(s1, "B1", "P1"));
+    }
+
+    #[test]
+    fn confirm_for_table() {
+        let nm = names();
+        let mut grouped = panel("G1");
+        grouped.group_id = Some("g".into());
+        grouped.step_id = Some(ST.into());
+        grouped.conditions = vec![Condition {
+            step_id: ST.into(),
+            op: ConditionOp::Exists,
+            ..Condition::default()
+        }];
+        grouped.display_items = vec![DisplayItem::default(), DisplayItem::default()];
+        let mut alone = panel("A1");
+        alone.environment_id = Some("E-ONLY".into());
+        let cfgs = vec![
+            BoardConfig {
+                panels: vec![grouped, alone, panel("P3")],
+                ..BoardConfig::default()
+            },
+            BoardConfig {
+                panels: vec![panel("Q1")],
+                ..BoardConfig::default()
+            },
+        ];
+        // 단계 확인(조건 1·표시 2) — 다른 스텝으로 바꿀 때만.
+        assert_eq!(
+            confirm_for(&cfgs, 0, 0, &Change::Step("OTHER".into()), &nm),
+            Some((
+                "조건 1개·표시 값 2개도 이 스텝으로 바뀝니다 — Enter 계속 · Esc 취소".into(),
+                false
+            ))
+        );
+        assert_eq!(
+            confirm_for(&cfgs, 0, 0, &Change::Step(ST.into()), &nm),
+            None
+        );
+        assert_eq!(
+            confirm_for(&cfgs, 0, 2, &Change::Step("OTHER".into()), &nm),
+            None
+        );
+        // 환경 빠짐: 자기만 쓰던 환경을 떠나면(이름이 없으면 id).
+        assert_eq!(
+            confirm_for(&cfgs, 0, 1, &Change::Env(Some(ENV.into())), &nm),
+            Some((
+                "\"E-ONLY\" 환경은 다른 칸이 안 써서 파일에서 빠집니다 — Enter 계속 · Esc 취소"
+                    .into(),
+                false
+            ))
+        );
+        // 다른 칸도 쓰는 환경을 떠나면 확인 없음.
+        assert_eq!(confirm_for(&cfgs, 0, 2, &Change::Env(None), &nm), None);
+        // 마지막 사용 칸이 떠나면 이름으로.
+        let only = vec![BoardConfig {
+            panels: vec![panel("Z1")],
+            ..BoardConfig::default()
+        }];
+        assert_eq!(
+            confirm_for(&only, 0, 0, &Change::Env(None), &nm),
+            Some((
+                "\"대상\" 환경은 다른 칸이 안 써서 파일에서 빠집니다 — Enter 계속 · Esc 취소"
+                    .into(),
+                false
+            ))
+        );
+        // 삭제 = y_only, 번호는 1부터.
+        assert_eq!(
+            confirm_for(&cfgs, 0, 0, &Change::Remove(ListKind::Conditions, 0), &nm),
+            Some(("1번을 지울까요? y 지우기 · 다른 키 취소".into(), true))
+        );
+        // 확인 없음.
+        for c in [
+            Change::Field(Field::Timeout, "9".into()),
+            Change::Latency(None),
+            Change::ThresholdAdd(1000),
+            Change::ThresholdSet(0, 900),
+            Change::Swap,
+        ] {
+            assert_eq!(confirm_for(&cfgs, 0, 0, &c, &nm), None, "{c:?}");
+        }
+    }
+
+    fn run(
+        screen: &Screen,
+        u: &mut EditUi,
+        bs: &[BoardResponse],
+        t: &mut Option<SaveTicket>,
+        a: EditAction,
+    ) -> handicap_tui::app::EditOut {
+        let nm = names();
+        let mut seq = 10;
+        let mut cx = EditCtx {
+            boards: bs,
+            names: &nm,
+            ticket: t,
+            seq: &mut seq,
+        };
+        edit_apply(screen, u, &mut cx, a)
+    }
+
+    #[test]
+    fn menu_activate_opens_by_kind() {
+        let bs = boards();
+        let mut t = None;
+        // 6 → 지금 값으로 채운 숫자 입력줄.
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 5;
+        run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(u.overlay, Some(timeout_input("5", None)));
+        // 2 → 읽기 전용 안내.
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 1;
+        run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(
+            u.overlay,
+            Some(Overlay::Notice("시나리오는 GUI에서 바꿉니다".into()))
+        );
+        // 3 → 환경 목록(환경 없음 + 번들 순서), 커서 = 지금 값.
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 2;
+        run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        match &u.overlay {
+            Some(Overlay::Pick {
+                pick: Pick::Env,
+                options,
+                cursor,
+            }) => {
+                assert_eq!(options[0], (None, "환경 없음".to_string()));
+                assert_eq!(options[1], (Some(ENV.to_string()), "대상".to_string()));
+                assert_eq!(*cursor, 1);
+            }
+            o => panic!("{o:?}"),
+        }
+        // 8 → 하위 목록 화면.
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 7;
+        let out = run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(out.screen, Some(Screen::EditList));
+        // 13 → 환경 변수 화면(불러오는 중) + 조회 요청.
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 12;
+        let out = run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(out.screen, Some(Screen::EnvVars));
+        assert!(matches!(out.req, Some(EditReq::LoadEnv { ref id }) if id == ENV));
+        assert!(matches!(u.env, Some(EnvLoad::Loading { ref id }) if id == ENV));
+        // 숫자 이동.
+        let mut u = ui("B1", "P1", None);
+        run(
+            &Screen::Settings,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::DigitJump {
+                no: 12,
+                pending: None,
+            },
+        );
+        assert_eq!(u.cursor, 11);
+        run(
+            &Screen::Settings,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Jump(usize::MAX),
+        );
+        assert_eq!(u.cursor, 13);
+        run(
+            &Screen::Settings,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::MoveCursor(-20),
+        );
+        assert_eq!(u.cursor, 0);
+    }
+
+    #[test]
+    fn unacceptable_initial_value_is_notice() {
+        // 제목에 받지 않는 글자(U+2028)가 있으면 입력줄을 열지 않는다(몰래 잘라 저장하지 않게).
+        let mut bs = boards();
+        bs[0].config.panels[0].title = "a\u{2028}b".into();
+        let mut t = None;
+        let mut u = ui("B1", "P1", None);
+        run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(
+            u.overlay,
+            Some(Overlay::Notice(
+                "이 값은 TUI에서 못 고칩니다 — GUI에서".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn input_replaces_buffer_and_cancel_closes() {
+        let bs = boards();
+        let mut t = None;
+        let mut u = ui("B1", "P1", Some(timeout_input("5", None)));
+        run(
+            &Screen::Settings,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Input(InputOutcome::Edited, digits("57")),
+        );
+        assert_eq!(u.overlay, Some(timeout_input("57", None)));
+        run(
+            &Screen::Settings,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Input(InputOutcome::Cancel, digits("57")),
+        );
+        assert_eq!(u.overlay, None);
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn list_remove_asks_then_saves() {
+        let mut bs = boards();
+        bs[0].config.panels[0].thresholds = vec![
+            handicap_controller::monitor::config::Threshold {
+                ms: 800,
+                color: "#f59e0b".into(),
+            },
+            handicap_controller::monitor::config::Threshold {
+                ms: 1500,
+                color: "#ef4444".into(),
+            },
+        ];
+        let mut t = None;
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 7;
+        u.list_cursor = 1;
+        run(&Screen::EditList, &mut u, &bs, &mut t, EditAction::Remove);
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Confirm { text, y_only: true, .. }) if text == "2번을 지울까요? y 지우기 · 다른 키 취소"
+        ));
+        let out = run(
+            &Screen::EditList,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::ConfirmYes,
+        );
+        match out.req {
+            Some(EditReq::SaveBoard { config, .. }) => {
+                assert_eq!(config.panels[0].thresholds.len(), 1);
+                assert_eq!(config.panels[0].thresholds[0].ms, 800);
+            }
+            r => panic!("{r:?}"),
+        }
+        assert_eq!(u.overlay, Some(saving(None)));
+    }
+
+    #[test]
+    fn empty_pick_is_notice() {
+        // 볼 스텝 후보가 0개(시나리오를 모름) → 빈 목록 창 대신 안내.
+        let mut bs = boards();
+        let p = &mut bs[0].config.panels[0];
+        p.group_id = Some("g".into());
+        p.scenario_id = "UNKNOWN".into();
+        let mut t = None;
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 3;
+        run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Activate);
+        assert!(matches!(u.overlay, Some(Overlay::Notice(_))));
+    }
+
+    #[test]
+    fn idle_return_keeps_pending_save() {
+        use handicap_tui::app::idle_return;
+        let mut v = SubViews::default();
+        v.open_errors("B1", "P1", &[]);
+        v.edit = Some(ui("B1", "P1", Some(saving(None))));
+        idle_return(&mut v);
+        assert!(v.errors.is_none());
+        assert_eq!(v.edit.as_ref().unwrap().overlay, Some(saving(None)));
+        // 입력 중(저장 없음) → 편집 상태까지 버린다(입력값 버림 — Q3).
+        let mut v = SubViews {
+            edit: Some(ui("B1", "P1", Some(timeout_input("45", None)))),
+            ..SubViews::default()
+        };
+        idle_return(&mut v);
+        assert!(v.edit.is_none());
+    }
+
+    #[test]
+    fn edit_keys_per_mode() {
+        use handicap_tui::app::edit_keys;
+        let menu = ui("B1", "P1", None);
+        assert_eq!(
+            edit_keys(&Screen::Settings, &menu, None, false),
+            ["↑↓ 고르기", "1–14 번호", "Enter 수정", "Esc 모니터로"]
+        );
+        assert_eq!(
+            edit_keys(&Screen::Settings, &menu, None, true),
+            ["y 종료", "다른 키 취소"]
+        );
+        let input = ui("B1", "P1", Some(timeout_input("5", None)));
+        assert_eq!(
+            edit_keys(&Screen::Settings, &input, None, false),
+            ["Enter 저장", "Esc 취소", "Ctrl+U 지우기"]
+        );
+        let pick = ui(
+            "B1",
+            "P1",
+            Some(Overlay::Pick {
+                pick: Pick::Env,
+                options: vec![(None, "환경 없음".into())],
+                cursor: 0,
+            }),
+        );
+        assert_eq!(
+            edit_keys(&Screen::Settings, &pick, None, false),
+            ["↑↓ 고르기", "Enter 저장", "Esc 취소"]
+        );
+        for o in [
+            Overlay::Confirm {
+                text: "x".into(),
+                then: Pending::SetEnv(None),
+                y_only: false,
+            },
+            saving(None),
+            Overlay::Notice("x".into()),
+        ] {
+            assert!(edit_keys(&Screen::Settings, &ui("B1", "P1", Some(o)), None, false).is_empty());
+        }
+        assert_eq!(
+            edit_keys(
+                &Screen::EditList,
+                &menu,
+                Some((ListKind::Thresholds, 2)),
+                false
+            ),
+            ["↑↓ 고르기", "Enter 수정", "a 추가", "d 삭제", "Esc 뒤로"]
+        );
+        let form = ui(
+            "B1",
+            "P1",
+            Some(Overlay::CondForm {
+                index: 0,
+                ops: vec![ConditionOp::Eq],
+                op: 0,
+                value: text_input("a"),
+                ignore_case: false,
+                trim: false,
+                focus: CondFocus::Op,
+                error: None,
+            }),
+        );
+        let k = edit_keys(
+            &Screen::EditList,
+            &form,
+            Some((ListKind::Conditions, 1)),
+            false,
+        );
+        assert!(!k.contains(&"d 삭제"), "{k:?}");
+        assert!(k.contains(&"Enter 저장"));
+        assert_eq!(
+            edit_keys(&Screen::EnvVars, &menu, None, false),
+            ["↑↓ 고르기", "Enter 수정", "v 값 보기", "Esc 뒤로"]
+        );
+    }
+
+    #[test]
+    fn cond_form_edits_and_saves() {
+        let mut bs = boards();
+        bs[0].config.panels[0].conditions = vec![Condition {
+            step_id: ST.into(),
+            source: handicap_controller::monitor::config::ConditionSource::Status,
+            op: ConditionOp::Eq,
+            value: "200".into(),
+            ..Condition::default()
+        }];
+        let mut t = None;
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 10;
+        run(&Screen::EditList, &mut u, &bs, &mut t, EditAction::Activate);
+        let Some(Overlay::CondForm { ops, op, .. }) = &u.overlay else {
+            panic!("{:?}", u.overlay);
+        };
+        assert_eq!(ops[*op], ConditionOp::Eq);
+        let k = |c| EditAction::CondKey(KeyEvent::new(c, KeyModifiers::NONE));
+        // Tab → 값 칸, 값 교체, Enter → 저장 요청.
+        run(&Screen::EditList, &mut u, &bs, &mut t, k(KeyCode::Tab));
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::CondForm {
+                focus: CondFocus::Value,
+                ..
+            })
+        ));
+        run(
+            &Screen::EditList,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Input(InputOutcome::Edited, text_input("201")),
+        );
+        let out = run(&Screen::EditList, &mut u, &bs, &mut t, k(KeyCode::Enter));
+        match out.req {
+            Some(EditReq::SaveBoard { config, .. }) => {
+                assert_eq!(config.panels[0].conditions[0].value, "201");
+                assert_eq!(config.panels[0].conditions[0].op, ConditionOp::Eq);
+            }
+            r => panic!("{r:?}"),
+        }
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Saving { restore: Some(_) })
+        ));
     }
 }

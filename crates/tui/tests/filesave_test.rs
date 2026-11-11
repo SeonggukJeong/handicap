@@ -183,3 +183,81 @@ fn record_file_roundtrip_and_corrupt() {
     fs::write(s.path().join("tui-writes.json"), b"{not json").unwrap();
     assert_eq!(last_written(s.path(), a), None);
 }
+
+/// `f`를 다른 스레드에서 돌려 5초 안에 끝나는지(막히면 실패 — 테스트가 영원히 걸리지 않게).
+#[cfg(unix)]
+fn within_5s<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .expect("blocked on a FIFO")
+}
+
+#[cfg(unix)]
+fn mkfifo(p: &Path) {
+    let st = std::process::Command::new("mkfifo")
+        .arg(p)
+        .status()
+        .unwrap();
+    assert!(st.success());
+}
+
+#[cfg(unix)]
+#[test]
+fn write_refuses_fifo_target() {
+    let (_d, _s, mut st) = setup(b"A");
+    fs::remove_file(&st.target.real).unwrap();
+    mkfifo(&st.target.real);
+    let (st, r) = within_5s(move || {
+        let r = write_bundle(&mut st, b"A", b"B");
+        (st, r)
+    });
+    assert_eq!(r.unwrap_err().stage, WriteStage::ReadCurrent);
+    assert!(!st.target.bak().exists());
+    assert!(!st.target.orig_bak().exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn record_fifo_reads_as_none() {
+    let (_d, s, st) = setup(b"A");
+    mkfifo(&s.path().join("tui-writes.json"));
+    let state = s.path().to_path_buf();
+    let real = st.target.real.clone();
+    assert_eq!(within_5s(move || last_written(&state, &real)), None);
+    // 기록 파일이 FIFO여도 저장은 막히지 않고 성공한다(기록은 새 일반 파일로 바뀐다).
+    let mut st = st;
+    let st = within_5s(move || {
+        write_bundle(&mut st, b"A", b"B").unwrap();
+        st
+    });
+    assert_eq!(fs::read(&st.target.real).unwrap(), b"B");
+}
+
+#[test]
+fn oversized_record_reads_as_none() {
+    let (_d, s, st) = setup(b"A");
+    record_written(s.path(), &st.target.real, &fingerprint(b"A")).unwrap();
+    assert_eq!(
+        last_written(s.path(), &st.target.real),
+        Some(fingerprint(b"A"))
+    );
+    // 같은 항목 + 1 MB를 넘는 덧붙임 키 — 상한을 넘으면 읽지 않는다.
+    let mut map = std::collections::BTreeMap::new();
+    map.insert(
+        st.target.real.to_string_lossy().into_owned(),
+        fingerprint(b"A")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+    );
+    map.insert("pad".to_string(), "x".repeat(1_100_000));
+    fs::write(
+        s.path().join("tui-writes.json"),
+        serde_json::to_vec(&map).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(last_written(s.path(), &st.target.real), None);
+}

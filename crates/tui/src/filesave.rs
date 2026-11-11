@@ -189,11 +189,24 @@ fn unhex(s: &str) -> Option<Fingerprint> {
     Some(out)
 }
 
+/// 지문 기록 파일 크기 상한 — 넘으면 없는 것으로 본다.
+const MAX_RECORD_BYTES: u64 = 1024 * 1024;
+
+/// 기록 파일을 읽는다. 일반 파일이 아니거나(FIFO·장치 — 열기에서 막힐 수 있다) 상한을 넘거나 못 읽으면 빈 맵.
 fn read_map(state_dir: &Path) -> BTreeMap<String, String> {
-    std::fs::read(state_dir.join(RECORD_FILE))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    use std::io::Read;
+    let p = state_dir.join(RECORD_FILE);
+    match std::fs::metadata(&p) {
+        Ok(md) if md.is_file() && md.len() <= MAX_RECORD_BYTES => {}
+        _ => return BTreeMap::new(),
+    }
+    let mut buf = Vec::new();
+    let read =
+        std::fs::File::open(&p).and_then(|f| f.take(MAX_RECORD_BYTES + 1).read_to_end(&mut buf));
+    if read.is_err() || buf.len() as u64 > MAX_RECORD_BYTES {
+        return BTreeMap::new();
+    }
+    serde_json::from_slice(&buf).unwrap_or_default()
 }
 
 pub fn last_written(state_dir: &Path, real: &Path) -> Option<Fingerprint> {

@@ -89,7 +89,8 @@ impl std::fmt::Debug for EnvironmentResponse {
 }
 
 /// 컨트롤러 `api/scenarios.rs` `ScenarioResponse`의 거울.
-#[derive(Debug, Clone, Deserialize)]
+/// `Debug`는 손으로 — `yaml`(변수 값·인라인 토큰)은 길이만.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioResponse {
     pub id: String,
@@ -98,6 +99,16 @@ pub struct ScenarioResponse {
     pub version: i64,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl std::fmt::Debug for ScenarioResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScenarioResponse")
+            .field("id", &self.id)
+            .field("yaml", &format_args!("<{} bytes>", self.yaml.len()))
+            .field("version", &self.version)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(test)]
