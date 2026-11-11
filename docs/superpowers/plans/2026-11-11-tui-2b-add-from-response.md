@@ -34,9 +34,9 @@ spec은 `spec-plan-reviewer` clean APPROVE(2라운드, 2026-11-11). plan은 리�
 2. **늘 실패하는 조건을 만들지 않는가**: 엔진이 자른 본문에 `본문 전체` 줄 없음, 인증 헤더의 가린 값이 비교값으로 안 들어감. → Task 1·2.
 3. **경로**: 만든 경로가 전부 서버 허용 문법 안이고 서버와 같은 값을 찾는가(감싼 JSON 안쪽 포함). → Task 1 성질 테스트 + Task 6 통합.
 4. **GUI와 같은 기본 조건**(★ 두 행 제외), 막힘 순서(2개 → 중복 → 인증 헤더). → Task 2.
-5. **값이 새지 않는가**: 손 `Debug`, 5분 복귀가 값 목록·창·`restore`를 버리는가, `sanitize`. → Task 1·4·5.
+5. **값이 새지 않는가**: 손 `Debug`, 5분 복귀가 값 목록·창·`restore`를 버리는가, `sanitize`(값 목록 줄·선택 창 머리·조건 칸의 받은 값). → Task 1·3·4.
 6. **커서**: 칸 설정 경로에서 저장 성공 뒤 값 목록 커서가 그대로. → Task 4.
-7. **`Esc` 사슬과 `EditUi` 수명**: 오류 보기 경로 = 값 목록을 나가면 `EditUi` 없음, 칸 설정 경로 = 남음. 저장 중 `Esc` 무시. → Task 5.
+7. **`Esc` 사슬과 `EditUi` 수명**: 오류 보기 경로 = 값 목록을 나가면 `EditUi` 없음, 칸 설정 경로 = 남음. 저장 중 `Esc` 무시. → Task 4(9-1·10)·Task 5.
 8. **11·12 `a`**: 10개·2개면 요청 없음, 종료 확인창이 떠 있을 때 기록이 와도 창이 안 닫힘, 표지 1회. → Task 7.
 9. 기존 동작 회귀: 2a 조건 수정(`CondTarget::Existing`)·기준선 `a`·메뉴 `r`·오류 보기 → 자세히 → 요청·응답의 키.
 
@@ -118,7 +118,7 @@ spec §2.2–§2.6, §4.1. US1·US2·US4의 규칙.
 - Test: `crates/tui/tests/pick_test.rs`, `crates/tui/tests/edit_test.rs`, `crates/tui/tests/judge_parity_test.rs`.
 
 **Interfaces (Produces):**
-- `pub fn is_auth_header(name: &str) -> bool`(§2.3의 4종 — 앞뒤 공백·대소문자 무시. 컨트롤러 `AUTH_HEADERS`는 `pub(crate)`라 TUI에 같은 4개를 적는다).
+- `pub const AUTH_HEADERS: [&str; 4]` + `pub fn is_auth_header(name: &str) -> bool`(§2.3의 4종 — 앞뒤 공백·대소문자 무시. 컨트롤러 `AUTH_HEADERS`는 `pub(crate)`라 TUI에 같은 4개를 적고, 아래 대조 테스트로 어긋남을 막는다).
 - `pub enum Hint { Volatile, Masked }`(`text()` → `text::COND_VOLATILE_HINT` / `text::PICK_MASKED_HINT`).
 - `pub struct Draft { pub cond: Condition, pub hint: Option<Hint>, pub focus_value: bool }`.
 - `pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft` — spec §2.4 표. 우선순위: 인증 헤더 → 입력줄이 못 받는 값(`LineInput::new(v, InputMode::Text { max_chars: 2000 }).text() != v`) → 40자 초과(글자 수 `chars().count()`) → `=`. `focus_value`는 `본문 전체`만 `true`.
@@ -140,6 +140,7 @@ spec §2.2–§2.6, §4.1. US1·US2·US4의 규칙.
     4. `marks_counts`: 조건 0·1·2개(같은 스텝·같은 대상), 다른 스텝의 같은 경로는 세지 않음, 표시 값 있음/없음, 헤더는 이름 글자 그대로.
     5. `open_values_rules`: 스텝 칸 + 다른 스텝 → `OtherStep { name }`(이름 해석·없으면 id), 줄 0개; **묶음이 아닌 `step_id` 칸**도 제한; 응답 `None` → `NoResponse`; 흐름 전체 칸은 아무 스텝이나 → 줄 있음·`step_id` = 그 스텝; 같은 스텝이 뒤에 또 실행된 trace의 앞 실행 → `notes[0] == LaterRun`, 마지막 실행 → 없음; `If` 줄은 세지 않음.
     6. `values_state_debug_hides_values`.
+    7. `auth_headers_match_controller`: `crates/controller/src/monitor/config.rs`를 글자로 읽어(`concat!(env!("CARGO_MANIFEST_DIR"), "/../controller/src/monitor/config.rs")`) `const AUTH_HEADERS` 줄부터 `];`까지의 따옴표 글자들을 뽑아 `pick::AUTH_HEADERS`와 **집합이 같다**(`mirrored_text_exists_in_ko_ts`와 같은 방식 — 컨트롤러 목록이 바뀌면 RED).
   - `edit_test.rs`: `add_condition_appends`(끝에 붙음·다른 칸 불변·흐름 칸은 `step_id` 그대로·스텝 칸은 칸 스텝으로 덮어씀), `add_display_appends`(같은 4가지).
   - `judge_parity_test.rs` `mirrored_text_exists_in_ko_ts`의 표에 행: `("condChooseCondition", text::COND_ADD_CHOICE)`, `("condChooseDisplay", text::DISPLAY_ADD_CHOICE)`, `("condMax", text::COND_MAX)`, `("displayMax", text::DISPLAY_MAX)`, `("displayDup", text::DISPLAY_DUP)`, `("displayAuthHeader", text::DISPLAY_AUTH_HEADER)`, `("previewUnwrapped", text::PICK_UNWRAPPED)`, `("condVolatileHint", text::COND_VOLATILE_HINT)`.
 - [ ] **Step 2: 구현.**
@@ -182,9 +183,9 @@ spec §3.1, §3.2. 뷰 모델만 받아 그린다(`app.rs` 연결은 Task 4·5).
     7. `width_sweep_no_panic`: 폭 1..=120 × 높이 {3, 6, 10, 24} × (overlay 없음 / `Choice` / 조건 칸) × 커서 {0, 중간, 끝} — 패닉 없음(넓은 글자 대상·빈 값 포함).
     8. `remote_strings_sanitized`: 대상·값에 `\u{1b}[31m`·`\u{202e}` → 화면에 `\u{FFFD}`가 **보인다**(긍정 단언).
     9. `choice_rows`: `Choice` — 머리 줄, 고른 줄 `▶`, 막힌 줄에 ` — 화면 표시는 최대 2개까지`.
-  - `edit_view_test.rs`: `cond_form_received_and_hint`(두 줄이 그려지고, 높이가 모자라면 안내 → 받은 값 순으로 빠지며 규칙·값 줄은 남는다), 기존 `form` 도우미에 새 필드.
+  - `edit_view_test.rs`: `cond_form_received_and_hint`(두 줄이 그려지고, 높이가 모자라면 안내 → 받은 값 순으로 빠지며 규칙·값 줄은 남는다), `cond_form_received_sanitized`(`received`에 `\u{1b}[31m`·`\u{202e}` → 화면에 `\u{FFFD}`가 보인다 — `sanitize`를 빼면 RED), 기존 `form` 도우미에 새 필드.
 - [ ] **Step 2: 구현.**
-- [ ] **Step 3: 이빨 실증** — ① 선택 스타일 제거 → 2번 RED ② `fit_head`를 `fit`으로 → 4번 RED ③ `saturating_sub` 하나를 `-`로 → 7번 RED(패닉) ④ `sanitize` 제거 → 8번 RED.
+- [ ] **Step 3: 이빨 실증** — ① 선택 스타일 제거 → 2번 RED ② `fit_head`를 `fit`으로 → 4번 RED ③ **받은 값 칸 폭 계산**(본문 폭 − `▶` − 대상 칸 − 간격)의 `saturating_sub`를 `-`로 → 7번이 폭 1~3에서 패닉으로 RED(실증에 쓴 식과 폭을 보고서에 적는다 — 넘칠 수 없는 빼기를 골라 GREEN이 나오면 실증이 아니다) ④ `sanitize` 제거 → 8번 RED.
 - [ ] **Step 4: 검증** — `cargo test -p handicap-tui` 전체 + clippy.
 - [ ] **Step 5: 커밋** — `feat(tui): 값 목록 화면·선택 창 그리기, 조건 칸에 받은 값·안내 줄`.
 
@@ -214,7 +215,7 @@ spec §2.3–§2.6, §4.2. `App` 연결(요청·응답의 `a`, 그리기)은 Tas
   - `cond_key`의 `Enter`: `Existing(i)` → 지금과 같다(`Change::Condition`); `New{..}` → `Change::AddCondition(Condition { step_id, source, path, op, value(규칙이 값이 필요 없으면 빈), ignore_case, trim })`.
 - `SubViews::back(&Screen::Values)` → `edit.values = None`, 그 기록이 `RecordOrigin::Errors`면 `self.edit = None`, `Some(Screen::Body)`(`body`·`record`는 그대로).
 - `edit_keys`: `Screen::Values` + 창 없음 → 줄이 있고 막히지 않았으면 `[KEYS_PICK, KEYS_ADD_ENTER, KEYS_TO_BODY]`, 아니면 `[KEYS_TO_BODY]`; `AddChoice` → `[KEYS_PICK, KEYS_CHOOSE, KEYS_CANCEL]`. `text.rs`: `KEYS_ADD_ENTER = "Enter 추가"`, `KEYS_TO_BODY = "Esc 요청·응답으로"`, `KEYS_CHOOSE = "Enter 선택"`.
-- `overlay_view`: `Overlay::AddChoice` → `OverlayView::Choice`(머리 = 고른 줄의 `target()`·`shown()` — 함수 인자에 `values`가 필요하다: 시그니처에 `Option<&pick::ValuesState>`를 더하거나 `AddChoice` 갈래만 호출 쪽에서 만든다. 어느 쪽이든 기존 3개 호출부를 맞춘다).
+- `overlay_view`: `Overlay::AddChoice` → `OverlayView::Choice`(머리 = 고른 줄의 `target()`·`shown()` — 함수 인자에 `values`가 필요하다: 시그니처에 `Option<&pick::ValuesState>`를 더하거나 `AddChoice` 갈래만 호출 쪽에서 만든다. 어느 쪽이든 기존 호출부 2곳 — `pump_settings`·`draw_edit`, `grep -n "overlay_view(" crates/tui/src/app.rs` — 를 맞춘다).
 
 - [ ] **Step 1: 실패하는 테스트 작성** (`app_test.rs` — 기존 `ek`·`ui_with`·`ch`·`key`·`ctrl`·`result` 도우미 + 새 도우미 `values_ui(rows…)`·`ctx_with(boards…)`. `edit_apply`를 부르는 기존 테스트의 `EditCtx` 만드는 법은 `grep -n "EditCtx {" crates/tui/tests/app_test.rs`)
   1. `values_keys`: `Screen::Values`에서 `↓`/`j`·`↑`/`k`·`PgDn`·`Home`·`End` → 이동 동작, `Enter` → `Activate`, `Esc` → `Back`, `q`·`Ctrl+C` → `AskQuit`, `Ctrl+B`·`1`·`r`·`a`·`d`·`s`·`v` → `None`.
@@ -224,8 +225,9 @@ spec §2.3–§2.6, §4.2. `App` 연결(요청·응답의 `a`, 그리기)은 Tas
   5. `choose_condition_opens_prefilled_form`: 문자열 줄 → 조건 칸 `New { source: Body, path, shown: "\"OK\"", hint: None }`, 규칙 `=`, 값 `OK`; 41자 줄 → 규칙 `값 있음`·`hint: Some(Volatile)`; 인증 헤더 줄 → `Some(Masked)`.
   6. `save_new_condition_request`: 조건 칸(`New`)에서 `Enter` → `EditReq::SaveBoard`의 `config.panels[i].conditions` 끝에 새 조건(필드 전부 단언), `panel_id` = `ui.panel_id`, 창 = `Saving { restore: Some(조건 칸) }`. 규칙을 `키 있음`으로 바꾸고 저장 → 값 빈 글자. 스텝 칸이면 `step_id` = 칸 스텝.
   7. `save_new_display_request`: `AddChoice`에서 `화면에 추가` → `display_items` 끝에 추가, `Saving { restore: None }`.
-  8. `save_results`: `apply_done` 성공 → 창 닫힘·`values` 그대로·**`values.cursor` 그대로**(메뉴 커서 `cursor = 10`인 `EditUi`로 — `list_cursor`를 같이 쓰면 RED), 보드 캐시 갱신 뒤 `pick::marks`가 1. 서버 거절(조건) → 조건 칸이 `error`를 달고 되살아나며 `target`이 `New` 그대로; 거절(표시) → `Notice(서버 문구)`.
+  8. `save_results`: `apply_done` 성공 → 창 닫힘·`values` 그대로·**`values.cursor` 그대로**. 픽스처를 못 박는다: 줄 8개·`values.cursor = 5`·메뉴 커서 `cursor = 10`(11번)·저장 뒤 조건 1개 → `values.cursor == 5`(`apply_done`은 `list_cursor`를 `조건 수 − 1 = 0`으로 자른다 — 커서를 `list_cursor`와 같이 쓰면 5 → 0으로 튀어 RED. 커서가 0·1이면 이 회귀를 못 잡는다), 보드 캐시 갱신 뒤 `pick::marks`가 1. 서버 거절(조건) → 조건 칸이 `error`를 달고 되살아나며 `target`이 `New` 그대로; 거절(표시) → `Notice(서버 문구)`.
   9. `saving_in_flight`: 표(`ticket`)가 있을 때 저장 시도 → `Notice(text::SAVING)`·요청 없음(기존 규칙).
+  9-1. `esc_ignored_while_saving`: `Screen::Values` + 창 `Saving` → `Esc`·`Enter`·`↓` = `EditAction::None`, `q` = `AskQuit`(진행 중 저장이 버려지지 않는다).
   10. `back_from_values`: `RecordOrigin::Errors` 기록 + `edit` → `back(&Screen::Values)` = `Screen::Body`, `edit` **None**, `body`·`record` 그대로; `RecordOrigin::Settings` → `edit` Some·`values` None·`cursor` 그대로.
   11. `idle_drops_values`: `idle_drop` 뒤 `values` None·창 없음; `Saving` 중이면 `Saving`은 남고 `restore`·`values`는 None. `idle_expired(&Screen::Values, …)` = 5분 뒤 true.
   12. `existing_condition_edit_unchanged`(회귀): 2a의 조건 수정 테스트가 `CondTarget::Existing`으로 그대로 통과(기존 테스트를 옮긴 것 — 지우지 않는다).
@@ -247,8 +249,9 @@ spec §2.2, §3.3, §4.2("`EditUi`가 누구 것인가"·"그리기").
 
 **Interfaces (Produces):**
 - `Action::AddValue`. `sub_screen_key`: `(Screen::Body, KeyCode::Char('a')) => Action::AddValue`(`ㅁ`은 `normalize_char`가 이미 `a`로).
-- `SubViews::open_values(&mut self, state: pick::ValuesState, ticket: Option<&SaveTicket>) -> Option<Screen>` — `record`가 없으면 `None`. `edit`가 **없거나 `record`의 보드·칸과 다르면** 새 `EditUi { board_id, panel_id, overlay, ..default }`(`overlay` = `OpenSettings`와 같은 규칙: 표가 그 칸이면 `Saving { restore: None }`, 다른 칸이면 `Notice(text::SAVING)`, 없으면 `None` — 그 규칙을 `fn overlay_for_ticket(ticket, board_id, panel_id) -> Option<Overlay>`로 빼 `OpenSettings`도 쓴다). 같은 칸이면 그 `EditUi`를 그대로 쓴다. `edit.values = Some(state)`, `Some(Screen::Values)`.
-- `App::apply(Action::AddValue)`: 화면이 `Screen::Body`이고 기록이 `Loaded`·본문 줄이 `StepLine::Http { trace_idx, .. }`·칸을 찾았을 때 `pick::open_values(panel, trace, trace_idx, clip_flags(&rec.clipped, trace_idx).1, rec.limit_kb, names)` → `views.open_values(state, self.save_in_flight.as_ref())` → 화면 전환. (Task 7이 다시 쓰도록 `fn open_values_here(&mut self) -> bool`로 뺀다.)
+- `SubViews::value_target(&self, screen: &Screen, lines: &[StepLine]) -> Option<usize>` — 값 목록을 열 수 있는 자리인가(순수): 화면이 **정확히** `Screen::Body` · `record`가 `Loaded` · `body.line_idx`의 줄이 `StepLine::Http` → 그 `trace_idx`. 아니면 `None`.
+- `SubViews::enter_values(&mut self, state: pick::ValuesState, ticket: Option<&SaveTicket>) -> Option<Screen>`(`pick::open_values`와 이름이 겹치지 않게 `enter_`) — `record`가 없으면 `None`. `edit`가 **없거나 `record`의 보드·칸과 다르면** 새 `EditUi { board_id, panel_id, overlay, ..default }`(`overlay` = `OpenSettings`와 같은 규칙: 표가 그 칸이면 `Saving { restore: None }`, 다른 칸이면 `Notice(text::SAVING)`, 없으면 `None` — 그 규칙을 `fn overlay_for_ticket(ticket, board_id, panel_id) -> Option<Overlay>`로 빼 `OpenSettings`도 쓴다). 같은 칸이면 그 `EditUi`를 그대로 쓴다. `edit.values = Some(state)`, `Some(Screen::Values)`.
+- `App::apply(Action::AddValue)` = `fn open_values_here(&mut self) -> bool`(Task 7이 다시 쓴다): `views.value_target(&self.screen, &lines)`가 `Some(trace_idx)`이고 칸을 찾았을 때 `pick::open_values(panel, trace, trace_idx, clip_flags(&rec.clipped, trace_idx).1, rec.limit_kb, names)` → `views.enter_values(state, self.save_in_flight.as_ref())` → 화면 전환. 판단은 전부 `value_target`·`enter_values`(순수)에 두고 `App`에는 잇는 코드만 남긴다.
 - `on_edit_screen`에 `Screen::Values`. `draw_sub`에 `Screen::Values` 갈래 → 새 `fn draw_values`: 제목 = 요청·응답 화면 제목(`{칸 제목} · {format_hms(at_ms)} · {no} {스텝 이름}`) + `text::PICK_TITLE_SUFFIX`, 줄 = `values.list.rows` → `ValueRowView`(표지 = `pick::marks(지금 칸 설정, …)`), 안내 = `notes`의 `text()`, `blocked`의 `text()`, 창 = `overlay_view`/조건 칸(`New`: 대상 = `"{대상 글자} · {스텝 이름}"`, `received` = `shown`, `hint`). 조건 칸 그리기 재료를 만드는 코드는 `draw_edit`(하위 목록)와 공유한다(`Existing` = 지금 그대로).
 - 요청·응답 키 줄: `sub_keys(Screen::Body)`가 `text::KEYS_ADD_VALUE`(`"a 조건·표시 추가"`)를 `KEYS_TO_DETAIL` **바로 앞**에.
 - `text::HELP_KEYS` 12줄 — `("a", "요청·응답에서 조건·표시 추가")`를 `Enter` 줄 **뒤**에(설명 30칸 이내 — 한글 2칸으로 28칸).
@@ -256,16 +259,17 @@ spec §2.2, §3.3, §4.2("`EditUi`가 누구 것인가"·"그리기").
 - [ ] **Step 1: 실패하는 테스트 작성**
   - `app_test.rs`:
     1. `body_a_key`: `Screen::Body`에서 `a`·`A`·`ㅁ` → `Action::AddValue`; `Ctrl+A` → `None`; `Screen::Record`·`Screen::Errors`(여긴 `a` = 전체 회차 토글 그대로)·`Screen::Monitor`에서는 `AddValue`가 아님.
-    2. `open_values_creates_edit_for_record_panel`: `edit` 없음 + 기록(보드 B·칸 P) → `edit`의 보드·칸 = B·P, `values` Some, `Screen::Values`.
-    3. **`open_values_replaces_other_panels_edit`**: `edit`가 칸 A(창 없음 — 5분 복귀 뒤 저장이 끝난 상태) + 기록은 칸 B → `edit.panel_id == B`. 이어서 `edit_apply`로 조건 저장 → `EditReq::SaveBoard.panel_id == B`이고 바뀐 칸이 B(칸 A의 조건 수 불변).
-    4. `open_values_keeps_same_panel_edit`: 칸 설정 경로(`edit`가 그 칸·`cursor = 10`) → 같은 `EditUi`(`cursor` 그대로)·`values` Some.
-    5. `open_values_with_save_in_flight`: 새로 만들 때 표가 그 칸 → `Saving { restore: None }`; 다른 칸 → `Notice(text::SAVING)`; `record` 없음 → `None`.
+    2. `value_target_rules`: (`Body`, `Loaded`, Http 줄) → `Some(trace_idx)`; `QuitConfirm(Body)`·`Record`·`Values` → `None`; 기록 `Loading`/`Gone` → `None`; `body` 없음 → `None`.
+    2-1. `enter_values_creates_edit_for_record_panel`: `edit` 없음 + 기록(보드 B·칸 P) → `edit`의 보드·칸 = B·P, `values` Some, `Screen::Values`.
+    3. **`enter_values_replaces_other_panels_edit`**: `edit`가 칸 A(창 없음 — 5분 복귀 뒤 저장이 끝난 상태) + 기록은 칸 B → `edit.panel_id == B`. 이어서 `edit_apply`로 조건 저장 → `EditReq::SaveBoard.panel_id == B`이고 바뀐 칸이 B(칸 A의 조건 수 불변).
+    4. `enter_values_keeps_same_panel_edit`: 칸 설정 경로(`edit`가 그 칸·`cursor = 10`) → 같은 `EditUi`(`cursor` 그대로)·`values` Some.
+    5. `enter_values_with_save_in_flight`: 새로 만들 때 표가 그 칸 → `Saving { restore: None }`; 다른 칸 → `Notice(text::SAVING)`; `record` 없음 → `None`.
     6. `esc_chain_errors_path`: 오류 목록 → 자세히 → 요청·응답 → 값 목록 → `back`×4 = 요청·응답 → 자세히 → 목록 → 모니터, 값 목록을 나온 뒤 `edit` None.
     7. `esc_chain_settings_path`: 칸 설정 `r`로 연 자세히 → 요청·응답 → 값 목록 → `back`×3 = 요청·응답 → 자세히 → 칸 설정, `edit` Some.
     8. `body_keys_bar`: `sub_keys(&Screen::Body, …)`의 끝 두 조각이 `KEYS_ADD_VALUE`, `KEYS_TO_DETAIL`(요청 본문 유무 둘 다).
-  - `view_test.rs`: `HELP_KEYS.len() == 12`(기존 11 단언 갱신 — `grep -n "HELP_KEYS.len()" crates/tui/tests/view_test.rs`), `a` 줄이 `Enter` 줄 뒤, 50칸 도움말 상자에서 `a` 줄 설명이 통째로 보인다(기존 `r`·`e` 줄 단언과 같은 방식 — `grep -n "선택 칸 지금 점검" crates/tui/tests/view_test.rs`). 80×24 도움말에 기존 줄이 빠지지 않는지 기존 단언이 지킨다(깨지면 STOP — 줄 예산).
+  - `view_test.rs`: `HELP_KEYS.len() == 12`(기존 11 단언 갱신 — `grep -n "HELP_KEYS.len()" crates/tui/tests/view_test.rs`), `a` 줄이 `Enter` 줄 뒤, 50칸 도움말 상자에서 `a` 줄 설명이 통째로 보인다(기존 `help_errors_row_whole_at_50_columns`와 같은 방식 — 그 테스트에 `a` 줄을 더한다). 80×24 도움말에 키 줄이 전부 보이는지는 기존 `help_zoom_row_whole_from_50_columns`가 지킨다(깨지면 STOP — 줄 예산).
 - [ ] **Step 2: 구현.**
-- [ ] **Step 3: 이빨 실증** — ① `open_values`가 남은 `EditUi`를 그대로 쓰게(칸 비교 제거) → 3번 RED ② `on_edit_screen`에서 `Values`를 빼면… 순수 테스트로는 안 잡힌다 — Task 뒤 라이브가 그물(보고서에 그렇게 적는다) ③ 키 줄 순서를 바꾸면 8번 RED.
+- [ ] **Step 3: 이빨 실증** — ① `enter_values`가 남은 `EditUi`를 그대로 쓰게(칸 비교 제거) → 3번 RED ② `on_edit_screen`에서 `Values`를 빼면… 순수 테스트로는 안 잡힌다 — Task 뒤 라이브가 그물(보고서에 그렇게 적는다) ③ 키 줄 순서를 바꾸면 8번 RED.
 - [ ] **Step 4: 화면 손 확인(구현자)** — `cargo build -p handicap-tui` 뒤 tmux로 한 번 띄워(방법 `crates/tui/CLAUDE.md` — 번들 fixture + 응답기) 요청·응답 → `a` → 값 목록 → `Enter` → 조건 저장까지 캡처 1장을 보고서에(정식 라이브는 Task 뒤).
 - [ ] **Step 5: 검증** — `cargo test -p handicap-tui` 전체 + clippy + `cargo build --workspace --tests`.
 - [ ] **Step 6: 커밋** — `feat(tui): 요청·응답 화면에서 a — 응답 값을 골라 성공 조건·표시 값 추가`.
@@ -306,8 +310,10 @@ spec §2.7, §4.3. US1·2·4와 독립 — 앞 task들이 green인 뒤.
 - `EditOut.check: Option<CheckThen>` — `edit_apply`의 `EditAction::Add`가 하위 목록 11·12에서: 조건 10개(11번)·표시 값 2개(12번)면 `Notice(COND_MAX / DISPLAY_MAX)`, 아니면 `out.check = Some(CheckThen::Values)`. 기준선(8번)의 `Add`는 지금 그대로. `run_edit`이 `out.check`를 보고 `start_check` + `send_fetch`(조회 작업자가 없으면 창을 띄우지 않는다 — 메뉴 `r`과 같은 가드).
 - `RecordState.auto_values: bool`(리터럴 사이트 `grep -rn "RecordState {" crates/tui`). `SubViews::open_record_from_settings(clicked, auto_values: bool)`.
 - `pick::auto_target(lines: &[StepLine], step_panel: bool) -> Option<usize>` — 스텝 칸: `focus: true`인 줄의 위치; 흐름 전체 칸: `StepLine::Http`가 정확히 1개일 때 그 위치; 그 밖 `None`.
-- `pub fn auto_values_ready(screen: &Screen, record: Option<&RecordState>) -> Option<bool>` — 화면이 **정확히** `Screen::Record`이고 `auto_values`가 서 있을 때: 기록이 `Loading`이면 `None`(기다림), `Loaded`면 `Some(true)`(대상 줄을 정해 보라), `Gone`·`Failed`면 `Some(false)`(표지만 내림). 화면이 다르거나 표지가 없으면 `None`.
-- `App::pump`: `pump_check_ready` 옆에서 `auto_values_ready` → `Some(_)`이면 표지를 내리고, `Some(true)`면 `pick::auto_target(&lines, panel.step_id.is_some())` → 있으면 `record.cursor = 그 줄` → `views.open_body(&lines)` → `open_values_here()`(Task 5). `pump_check_ready`는 창의 `then`으로 `check_open_allowed`와 `open_record_from_settings(clicked, then == Values)`를 부른다.
+- `SubViews::take_auto_values(&mut self, screen: &Screen, lines: &[StepLine], step_panel: bool) -> Option<Screen>`(순수 — 판단과 상태 변경을 전부 여기에):
+  - 화면이 **정확히** `Screen::Record`가 아니거나 · `record`가 없거나 · `auto_values`가 내려가 있거나 · 기록이 `Loading`이면 → `None`, **표지 그대로**(종료 확인창이 떠 있는 동안은 기다린다).
+  - 그 밖(기록이 `Loaded`·`Gone`·`Failed`)이면 **표지를 내린다**. `Loaded`이고 `pick::auto_target(lines, step_panel)`이 `Some(i)`면 `record.cursor = i` → `self.open_body(lines)`의 결과(`Some(Screen::Body)`)를 돌려준다. 아니면 `None`(자세히에 머문다).
+- `App::pump`: `pump_check_ready` **뒤**에 `take_auto_values(&self.screen, &lines, 칸.step_id.is_some())` → `Some(s)`면 **먼저 `self.screen = s`(요청·응답)로 바꾼 뒤** `open_values_here()`(Task 5 — `value_target`이 화면 `Body`를 요구한다). `App`에는 이 두 줄만 남긴다. `pump_check_ready`는 창의 `then`으로 `check_open_allowed`와 `open_record_from_settings(clicked, then == Values)`를 부른다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
   - `edit_test.rs`: `edit_kind(11|12, 빈 칸)` → `List`(기존 `ReadOnly` 단언 갱신 — `grep -n "EDIT_NO_\|ReadOnly" crates/tui/tests/edit_test.rs`).
@@ -319,10 +325,11 @@ spec §2.7, §4.3. US1·2·4와 독립 — 앞 task들이 green인 뒤.
     3. `start_check_carries_then`: `start_check(.., CheckThen::Values)` → `Checking { then: Values, wait: Sent, .. }`; 메뉴 `r` 경로는 `Record`.
     4. `check_open_allowed_by_intent`: (`Settings`, `Record`) true · (`EditList`, `Record`) false · (`EditList`, `Values`) true · (`Settings`, `Values`) false · (`QuitConfirm(EditList)`, `Values`) false.
     5. `open_record_from_settings_sets_flag`: `auto_values` true/false가 `RecordState`에 실린다; `back(&Screen::Record)` → `Screen::Settings`(지금과 같다).
-    6. `auto_values_ready_rules`: (`Record`, 표지, `Loading`) → `None`; (`Record`, 표지, `Loaded`) → `Some(true)`; (`Record`, 표지, `Gone`/`Failed`) → `Some(false)`; (`QuitConfirm(Record)`, 표지, `Loaded`) → `None`(**창을 닫지 않는다**); (`Body`, 표지, `Loaded`) → `None`; 표지 없음 → `None`; `record` 없음 → `None`.
+    6. `take_auto_values_sequence`(스텝 칸·focus 줄 있는 `lines`, 기록 `Loaded`·표지 선 상태에서 **차례로**): ① 화면 `QuitConfirm(Record)` → `None`, **표지 그대로**, `body` 없음(창을 닫지 않는다) ② 화면 `Record` → `Some(Screen::Body)`, 표지 내려감, `record.cursor` = focus 줄, `body` 있음 ③ 다시 부르면(`Record`) → `None`(한 번만). 이어서 `value_target(&Screen::Body, &lines)`가 `Some`(= `open_values_here`가 열 수 있다).
+    6-1. `take_auto_values_rules`: 기록 `Loading` → `None`·표지 그대로; `Gone`/`Failed` → `None`·표지 내려감; `Loaded`인데 대상 없음(흐름 HTTP 2줄) → `None`·표지 내려감·`body` 없음; 표지 없음·`record` 없음·화면 `Body` → `None`·상태 불변; 기록을 기다리다 `back(&Screen::Record)`으로 떠나면 `record`째 사라져 그 뒤 `None`.
     7. `idle_and_cancel`: 대기 창 `Esc`(`CheckCancel`) → 창 닫힘(기존); `idle_drop`이 `Checking { then: Values }`도 버린다.
 - [ ] **Step 2: 구현.**
-- [ ] **Step 3: 이빨 실증** — ① `auto_values_ready`의 화면 검사를 `QuitConfirm` 안쪽까지 보게 풀면 6번 RED ② 10개 가드를 빼면 2번 RED ③ `check_open_allowed`가 의도를 무시하면 4번 RED.
+- [ ] **Step 3: 이빨 실증** — ① `take_auto_values`의 화면 검사를 `QuitConfirm` 안쪽까지 보게 풀면 6번 ①이 RED, 표지를 안 내리면 6번 ③이 RED ② 10개 가드를 빼면 2번 RED ③ `check_open_allowed`가 의도를 무시하면 4번 RED.
 - [ ] **Step 4: 화면 손 확인(구현자)** — tmux: 스텝 1개 흐름 칸의 11번 → `a` → 대기 창 → 값 목록이 바로 뜨는 캡처 1장.
 - [ ] **Step 5: 검증** — `cargo test -p handicap-tui` 전체 + clippy + `cargo build --workspace --tests`.
 - [ ] **Step 6: 커밋** — `feat(tui): 칸 설정 11·12에서 a — 지금 점검 뒤 값 목록까지`.
