@@ -3793,6 +3793,22 @@ mod save {
         }
 
         #[test]
+        fn enter_values_replaces_other_boards_edit_with_same_panel_id() {
+            // 남은 EditUi = 다른 보드 B2의 같은 칸 id P2, 기록 = B1/P2.
+            let mut v = errors_views("B1", "P2");
+            let mut left = ui("B2", "P2", None);
+            left.cursor = 7;
+            v.edit = Some(left);
+            assert_eq!(
+                v.enter_values(state(vec![body_str("$.status", "OK")]), None),
+                Some(Screen::Values)
+            );
+            let u = v.edit.as_ref().unwrap();
+            assert_eq!((u.board_id.as_str(), u.panel_id.as_str()), ("B1", "P2"));
+            assert_eq!(u.cursor, 0, "다른 보드의 EditUi를 쓰지 않는다");
+        }
+
+        #[test]
         fn enter_values_keeps_same_panel_edit() {
             let mut v = settings_views();
             assert_eq!(

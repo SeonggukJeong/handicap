@@ -5,9 +5,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_controller::monitor::config::BoardConfig;
 use handicap_tui::app::{EditDone, EditReq, FileErr, SavedValue, SavedWhat, spawn_edit_worker};
+use handicap_tui::edit;
 use handicap_tui::filesave::{FileState, WriteError, WriteStage};
+use handicap_tui::names::Names;
+use handicap_tui::pick::{self, RowKind, ValueRow, ValuesState};
 use handicap_tui::session::Session;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
@@ -502,5 +506,262 @@ async fn scenario_stale_version_409() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(std::fs::read(&r.file).unwrap(), r.start);
+    shutdown(r).await;
+}
+
+// ---- tui-2b Task 6: 응답에서 고른 조건·표시 값이 서버 판정까지 닿는다 ----
+
+const PICK_BODY_OK: &str = r#"{"status":"OK","count":42,"wrap":"{\"id\":7}","we'ird key":{"n":1}}"#;
+const PICK_BODY_DOWN: &str =
+    r#"{"status":"DOWN","count":42,"wrap":"{\"id\":7}","we'ird key":{"n":1}}"#;
+
+/// JSON 본문 + `x-id: abc` 헤더로 답하는 응답기.
+async fn mount_json(srv: &MockServer, body: &str) {
+    srv.reset().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-id", "abc")
+                .set_body_raw(body.as_bytes().to_vec(), "application/json"),
+        )
+        .mount(srv)
+        .await;
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+/// `after_ms`보다 늦게 *시작한* 점검 결과가 올 때까지(최대 10초). 점검 중 요청은 버려지니 다시 깨운다.
+async fn fresh_result(r: &Rig, after_ms: i64) -> CheckResult {
+    let board = r.s.boards[0].id.clone();
+    let panel = r.s.api.board(&board).await.unwrap().config.panels[0]
+        .id
+        .clone();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let _ = r.s.api.check_now(&board, &panel).await;
+        let st = r.s.api.status(&board).await.unwrap();
+        if let Some(res) = st.panels[0]
+            .results
+            .iter()
+            .rev()
+            .find(|x| x.at_ms > after_ms)
+        {
+            return res.clone();
+        }
+        assert!(Instant::now() < deadline, "no fresh result within 10s");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+/// 새 점검의 기록에서 값 목록을 연다(칸은 스텝 미지정 흐름 칸).
+async fn open_list(r: &Rig, after_ms: i64) -> ValuesState {
+    let res = fresh_result(r, after_ms).await;
+    let board = r.s.boards[0].id.clone();
+    let b = r.s.api.board(&board).await.unwrap();
+    let panel = &b.config.panels[0];
+    let rec = r.s.api.record(&board, &panel.id, res.at_ms).await.unwrap();
+    let trace = rec.trace.expect("trace");
+    pick::open_values(
+        panel,
+        &trace,
+        0,
+        !rec.clipped.is_empty(),
+        rec.limit_kb,
+        &Names::default(),
+    )
+}
+
+fn find_row<'a>(vs: &'a ValuesState, what: &str, pred: impl Fn(&RowKind) -> bool) -> &'a ValueRow {
+    vs.list
+        .rows
+        .iter()
+        .find(|x| pred(&x.kind))
+        .unwrap_or_else(|| {
+            let all: Vec<String> = vs.list.rows.iter().map(|x| x.target()).collect();
+            panic!("no row for {what}: {all:?}")
+        })
+}
+
+fn body_row<'a>(vs: &'a ValuesState, path: &str) -> &'a ValueRow {
+    find_row(
+        vs,
+        path,
+        |k| matches!(k, RowKind::Body { path: p } if p == path),
+    )
+}
+
+fn add_cond_req(
+    r: &Rig,
+    seq: u64,
+    cfg: &BoardConfig,
+    vs: &ValuesState,
+    rows: &[&ValueRow],
+) -> EditReq {
+    let mut config = cfg.clone();
+    for row in rows {
+        let d = pick::default_condition(&vs.step_id, row);
+        config = edit::add_condition(&config, 0, d.cond);
+    }
+    EditReq::SaveBoard {
+        seq,
+        board_id: r.s.boards[0].id.clone(),
+        panel_id: cfg.panels[0].id.clone(),
+        panel_no: 1,
+        name: "테스트 보드".into(),
+        config,
+    }
+}
+
+async fn board_cfg(r: &Rig) -> BoardConfig {
+    r.s.api.board(&r.s.boards[0].id).await.unwrap().config
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn added_condition_judges_next_checks() {
+    let srv = target().await;
+    mount_json(&srv, PICK_BODY_OK).await;
+    let r = rig(&srv).await;
+    let vs = open_list(&r, 0).await;
+    let row = body_row(&vs, "$.status");
+    let req = add_cond_req(&r, 1, &board_cfg(&r).await, &vs, &[row]);
+    r.tx.send(req).unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            seq: 1,
+            server: Ok(SavedValue::Board(b)),
+            file: Some(Ok(())),
+            ..
+        } => {
+            assert_eq!(b.config.panels[0].conditions.len(), 1);
+            assert_eq!(b.config.panels[0].conditions[0].path, "$.status");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    // 파일을 다시 가져온 새 세션에서도 그 조건.
+    let db2 = tempfile::tempdir().unwrap();
+    let s2 = Session::start(&r.file, db2.path()).await.unwrap();
+    let b2 = s2.api.board(&s2.boards[0].id).await.unwrap();
+    assert_eq!(b2.config.panels[0].conditions.len(), 1);
+    s2.shutdown().await;
+    let res = fresh_result(&r, now_ms()).await;
+    assert_eq!(res.verdict, Verdict::Ok, "{res:?}");
+    mount_json(&srv, PICK_BODY_DOWN).await;
+    let res = fresh_result(&r, now_ms()).await;
+    assert_eq!(res.verdict, Verdict::Fail, "{res:?}");
+    shutdown(r).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn added_paths_resolve_on_server() {
+    let srv = target().await;
+    mount_json(&srv, PICK_BODY_OK).await;
+    let r = rig(&srv).await;
+    let vs = open_list(&r, 0).await;
+    let wrapped = find_row(
+        &vs,
+        "wrap.id",
+        |k| matches!(k, RowKind::Body { path } if path.contains("wrap") && path.ends_with("id")),
+    );
+    let quoted = find_row(
+        &vs,
+        "quoted key",
+        |k| matches!(k, RowKind::Body { path } if path.contains("ird key") && path.ends_with('n')),
+    );
+    let header = find_row(
+        &vs,
+        "x-id",
+        |k| matches!(k, RowKind::Header { name } if name == "x-id"),
+    );
+    let status = find_row(&vs, "status", |k| matches!(k, RowKind::Status));
+    let req = add_cond_req(
+        &r,
+        1,
+        &board_cfg(&r).await,
+        &vs,
+        &[wrapped, quoted, header, status],
+    );
+    r.tx.send(req).unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            server: Ok(SavedValue::Board(b)),
+            file: Some(Ok(())),
+            ..
+        } => assert_eq!(b.config.panels[0].conditions.len(), 4),
+        other => panic!("unexpected {other:?}"),
+    }
+    let res = fresh_result(&r, now_ms()).await;
+    assert_eq!(res.verdict, Verdict::Ok, "{res:?}");
+    shutdown(r).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn added_display_shows_value() {
+    let srv = target().await;
+    mount_json(&srv, PICK_BODY_OK).await;
+    let r = rig(&srv).await;
+    let vs = open_list(&r, 0).await;
+    let row = body_row(&vs, "$.count");
+    let item = pick::display_item(&vs.step_id, row).unwrap();
+    let config = edit::add_display(&board_cfg(&r).await, 0, item);
+    let cfg0 = board_cfg(&r).await;
+    r.tx.send(EditReq::SaveBoard {
+        seq: 1,
+        board_id: r.s.boards[0].id.clone(),
+        panel_id: cfg0.panels[0].id.clone(),
+        panel_no: 1,
+        name: "테스트 보드".into(),
+        config,
+    })
+    .unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            server: Ok(_),
+            file: Some(Ok(())),
+            ..
+        } => {}
+        other => panic!("unexpected {other:?}"),
+    }
+    let res = fresh_result(&r, now_ms()).await;
+    assert_eq!(res.display, vec![Some("42".to_string())], "{res:?}");
+    shutdown(r).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_rejects_over_limit() {
+    let srv = target().await;
+    mount_json(&srv, PICK_BODY_OK).await;
+    let r = rig(&srv).await;
+    let vs = open_list(&r, 0).await;
+    let row = body_row(&vs, "$.status");
+    let cfg0 = board_cfg(&r).await;
+    let mut d = pick::default_condition(&vs.step_id, row);
+    d.cond.path = format!("$.{}", "a".repeat(499));
+    assert_eq!(d.cond.path.chars().count(), 501);
+    let config = edit::add_condition(&cfg0, 0, d.cond);
+    r.tx.send(EditReq::SaveBoard {
+        seq: 5,
+        board_id: r.s.boards[0].id.clone(),
+        panel_id: cfg0.panels[0].id.clone(),
+        panel_no: 1,
+        name: "테스트 보드".into(),
+        config,
+    })
+    .unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            seq: 5,
+            server: Err(m),
+            file: None,
+            ..
+        } => assert_eq!(m, "본문 경로는 1~500자여야 합니다"),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(std::fs::read(&r.file).unwrap(), r.start);
+    assert!(board_cfg(&r).await.panels[0].conditions.is_empty());
     shutdown(r).await;
 }
