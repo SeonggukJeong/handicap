@@ -606,6 +606,12 @@ pub enum HeaderNotice {
     FileFailed,
     /// 밖에서 바뀐 파일이라 안 씀 — 왼쪽에 빨간 경고.
     ChangedOutside,
+    /// 모니터 `r`로 지금 점검을 요청한 시각(ms) — `Saved`와 같은 자리·색의 초록 `지금 점검 HH:MM:SS`.
+    CheckSent(i64),
+    /// 지금 점검 요청이 409(보드 점검 꺼짐) — 왼쪽에 빨간 경고.
+    CheckOff,
+    /// 지금 점검 요청 실패(404·연결 실패·시간 초과) — 왼쪽에 빨간 경고.
+    CheckFailed,
 }
 
 /// 머리 줄에 필요한 값 — 모니터와 새 화면(오류 보기·칸 설정)이 같이 쓴다.
@@ -637,8 +643,8 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
 
 /// 머리 줄. 점검 상태는 절대 자르지 않고, 좁으면 날짜 → `Handicap 모니터 · ` → 시계 순으로 뺀다.
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
-/// 알림: `Saved`는 초록 `저장됨 HH:MM:SS`를 시계 앞에 두고 접두 다음·시계 앞에 빠진다. 경고(`FileFailed`·
-/// `ChangedOutside`)는 접두 자리에 빨갛게 — 날짜 → 보드 이름 → 시계 순으로 뺀 뒤에도 안 들어가면 경고를 `fit`한다.
+/// 알림: `Saved`·`CheckSent`는 초록 `저장됨`/`지금 점검 HH:MM:SS`를 시계 앞에 두고 접두 다음·시계 앞에 빠진다. 경고(`FileFailed`·
+/// `ChangedOutside`·`CheckOff`·`CheckFailed`)는 접두 자리에 빨갛게 — 날짜 → 보드 이름 → 시계 순으로 뺀 뒤에도 안 들어가면 경고를 `fit`한다.
 pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let w = usize::from(area.width);
     // 보드 이름은 파일에서 온 문자열 — 탭·제어 문자가 폭 계산을 어긋내지 않게.
@@ -660,6 +666,8 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let warn = match s.notice {
         Some(HeaderNotice::FileFailed) => Some(text::FILE_SAVE_FAILED),
         Some(HeaderNotice::ChangedOutside) => Some(text::FILE_CHANGED_OUTSIDE),
+        Some(HeaderNotice::CheckOff) => Some(text::CHECK_OFF),
+        Some(HeaderNotice::CheckFailed) => Some(text::CHECK_NOW_FAILED),
         _ => None,
     };
     if let Some(warn) = warn {
@@ -669,6 +677,9 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let saved = match s.notice {
         Some(HeaderNotice::Saved(ms)) => {
             Some(format!("{} {}  ", text::FILE_SAVED, clock(ms, false)))
+        }
+        Some(HeaderNotice::CheckSent(ms)) => {
+            Some(format!("{} {}  ", text::CHECK_NOW_SENT, clock(ms, false)))
         }
         _ => None,
     };
@@ -904,8 +915,9 @@ pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) -> bool {
     }
     let keys = match bar {
         KeyBar::Monitor => {
-            // 앞 조각부터 통째로 빠진다 — 덜 중요한 `b`·`Tab`을 앞에(목업 §0).
-            let mut keys = vec![text::KEYS_BORDER];
+            // 앞 조각부터 통째로 빠진다 — 덜 중요한 `b`·`Tab`을 앞에(목업 §0). `r 지금 점검`은 `b` 바로 뒤:
+            // 새 조각이 `Tab 다음 보드`를 밀어내지 않게 그 앞에 둔다.
+            let mut keys = vec![text::KEYS_BORDER, text::KEYS_CHECK_NOW];
             if s.board_pos.1 > 1 {
                 keys.push(text::KEYS_NEXT_BOARD);
             }

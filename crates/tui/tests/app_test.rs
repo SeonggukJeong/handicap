@@ -2920,3 +2920,51 @@ mod save {
         );
     }
 }
+
+// ---------- tui-check-now Task 4: 모니터 `r` · 머리 줄 알림 ----------
+
+#[test]
+fn monitor_r_checks_now() {
+    for c in ['r', 'R', 'ㄱ'] {
+        assert_eq!(
+            handle_key(&Screen::Monitor, ch(c), 1),
+            Action::CheckNow,
+            "{c}"
+        );
+    }
+    assert_eq!(handle_key(&Screen::Monitor, ctrl('r'), 1), Action::None);
+}
+
+#[test]
+fn r_elsewhere_keeps_old_meaning() {
+    // 시작 오류 화면의 다시 시도는 그대로.
+    assert_eq!(handle_key(&Screen::Error(err()), ch('r'), 1), Action::Retry);
+    // 오류 보기·자세히·요청·응답·도움말에서는 무동작.
+    for s in [Screen::Errors, Screen::Record, Screen::Body, Screen::Help] {
+        for c in ['r', 'R', 'ㄱ'] {
+            assert_eq!(handle_key(&s, ch(c), 1), Action::None, "{s:?} {c}");
+        }
+    }
+}
+
+#[test]
+fn check_notice_maps_reply() {
+    use handicap_tui::app::check_notice;
+    use handicap_tui::view::monitor::HeaderNotice;
+    assert_eq!(check_notice(&Ok(Some(1)), 99), HeaderNotice::CheckSent(99));
+    assert_eq!(check_notice(&Ok(None), 99), HeaderNotice::CheckSent(99));
+    assert_eq!(check_notice(&Err(Some(409)), 99), HeaderNotice::CheckOff);
+    assert_eq!(check_notice(&Err(Some(404)), 99), HeaderNotice::CheckFailed);
+    assert_eq!(check_notice(&Err(None), 99), HeaderNotice::CheckFailed);
+}
+
+#[test]
+fn shown_notice_prefers_check_over_file() {
+    use handicap_tui::app::shown_notice;
+    use handicap_tui::view::monitor::HeaderNotice;
+    let check = HeaderNotice::CheckSent(5);
+    let file = HeaderNotice::FileFailed;
+    assert_eq!(shown_notice(Some(&check), Some(&file)), Some(check.clone()));
+    assert_eq!(shown_notice(None, Some(&file)), Some(file));
+    assert_eq!(shown_notice(None, None), None);
+}

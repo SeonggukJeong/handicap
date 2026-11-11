@@ -444,10 +444,12 @@ fn render_key_bar_single_board_omits_tab() {
         0,
     );
     let text = draw(80, 24, |f| render(f, &s));
+    // 80칸·보드 1개: 7조각 전체가 81칸이라 맨 앞 `b 테두리`만 통째로 빠진다.
     assert!(
-        text.contains("b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"),
+        text.contains("r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"),
         "{text}"
     );
+    assert!(!text.contains("b 테두리"), "{text}");
     assert!(!text.contains("Tab 다음 보드"), "{text}");
     assert!(!text.contains("(1/1)"), "{text}");
 }
@@ -2683,10 +2685,16 @@ fn render_with_keys_reports_panels_drawn() {
 #[test]
 fn key_bar_has_border_key() {
     let s = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    // 테두리 안내는 90칸부터 보인다(80칸·보드 1개에선 `r 지금 점검`을 남기고 `b 테두리`가 빠진다).
+    let t = draw(90, 12, |f| render(f, &s));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "b 테두리  r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
     let t = draw(80, 12, |f| render(f, &s));
     assert_eq!(
         t.lines().last().unwrap().trim(),
-        "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+        "r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
     let t = draw(24, 8, |f| render(f, &s));
     let last = t.lines().last().unwrap();
@@ -2777,14 +2785,38 @@ fn key_bar_has_errors_and_settings_keys() {
     let t = draw(100, 12, |f| render(f, &one));
     assert_eq!(
         t.lines().last().unwrap().trim(),
-        "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+        "b 테두리  r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
     let two = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
     let t = draw(100, 12, |f| render(f, &two));
     assert_eq!(
         t.lines().last().unwrap().trim(),
-        "b 테두리  Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+        "b 테두리  r 지금 점검  Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
+    // 90·96칸·보드 2개: `r 지금 점검`이 `Tab 다음 보드`를 밀어내지 않고 맨 앞 `b 테두리`만 빠진다.
+    for w in [90u16, 96] {
+        let t = draw(w, 12, |f| render(f, &two));
+        assert_eq!(
+            t.lines().last().unwrap().trim(),
+            "r 지금 점검  Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료",
+            "w={w}"
+        );
+    }
+    // 90칸·보드 1개: 7조각 전부.
+    let t = draw(90, 12, |f| render(f, &one));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "b 테두리  r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    // 어느 폭에서도 잘린 조각(`…`)이 없다.
+    for w in 20..=110u16 {
+        for sc in [&one, &two] {
+            let t = draw(w, 12, |f| render(f, sc));
+            let last = t.lines().last().unwrap();
+            assert!(!last.contains('…'), "w={w}: {last}");
+            assert!(last.contains("q 종료"), "w={w}: {last}");
+        }
+    }
     let t = draw(80, 12, |f| render(f, &two));
     assert_eq!(
         t.lines().last().unwrap().trim(),
@@ -2800,7 +2832,7 @@ fn key_bar_has_errors_and_settings_keys() {
 #[test]
 fn help_lists_new_keys_and_idle_rule() {
     let log = LogLoc::Path("/tmp/tui.log".into());
-    assert_eq!(handicap_tui::text::HELP_KEYS.len(), 10);
+    assert_eq!(handicap_tui::text::HELP_KEYS.len(), 11);
     let text = draw(80, 30, |f| {
         render_help(f, Path::new("/tmp/b.json"), None, &log)
     });
@@ -2937,6 +2969,9 @@ fn header_notice_sweep_no_panic() {
         Some(HeaderNotice::Saved(1_700_000_005_000)),
         Some(HeaderNotice::FileFailed),
         Some(HeaderNotice::ChangedOutside),
+        Some(HeaderNotice::CheckSent(1_700_000_005_000)),
+        Some(HeaderNotice::CheckOff),
+        Some(HeaderNotice::CheckFailed),
     ] {
         for w in 1..=130u16 {
             let (h, _) = header_with(w, n.clone());
@@ -3038,16 +3073,16 @@ fn help_lists_backup_and_warning() {
     assert!(!text.contains("백업:"), "{text}");
     assert!(text.contains("새 파일로 바꾸면"), "{text}");
     // 높이가 모자라면 새 두 줄부터(백업 → 경고) 빠지고 키 줄은 그다음.
-    // 높이 18: 본문 15 = 키 10 + 보드 1 + 로그 1 + 무입력 1 + 복사 1 + 1 → 경고만 남고 백업이 빠진다.
-    let text = draw(80, 18, |f| {
+    // 높이 19: 본문 16 = 키 11 + 보드 1 + 로그 1 + 무입력 1 + 복사 1 + 1 → 경고만 남고 백업이 빠진다.
+    let text = draw(80, 19, |f| {
         render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
     });
     println!("{text}");
     assert!(!text.contains("백업:"), "{text}");
     assert!(text.contains("새 파일로 바꾸면"), "{text}");
     assert!(text.contains("마우스 왼쪽 클릭"), "{text}");
-    // 높이 17: 본문 14 = 키 10 + 고정 4 → 경고도 빠지고 키 줄은 전부.
-    let text = draw(80, 17, |f| {
+    // 높이 18: 본문 15 = 키 11 + 고정 4 → 경고도 빠지고 키 줄은 전부.
+    let text = draw(80, 18, |f| {
         render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
     });
     println!("{text}");
@@ -3082,4 +3117,128 @@ fn help_lists_backup_and_warning() {
         render_help(f, Path::new("/tmp/b.json"), Some(&odd), &log)
     });
     assert!(text.contains("a\u{FFFD}b.json.bak"), "{text}");
+}
+
+// ---------- tui-check-now Task 4: 지금 점검 알림·도움말 ----------
+
+/// 머리 줄 한 줄의 첫 `needle` 글자가 시작하는 칸 x.
+fn col_of(row: &str, needle: &str) -> u16 {
+    let i = row.find(needle).unwrap();
+    u16::try_from(Span::raw(row[..i].to_string()).width()).unwrap()
+}
+
+#[test]
+fn header_notice_check_sent_matches_saved_steps() {
+    let at = 1_700_000_005_000;
+    let want = format!("{} {}", text::CHECK_NOW_SENT, local_hms(at));
+    let (h, buf) = header_with(120, Some(HeaderNotice::CheckSent(at)));
+    assert!(h.contains(&want), "{h}");
+    assert!(h.contains("점검 중"), "{h}");
+    assert_eq!(
+        buf[(col_of(&h, "지금 점검"), 0)].style().fg,
+        Some(Color::Rgb(0x22, 0xc5, 0x5e))
+    );
+    // `저장됨`과 같은 순서로 빠진다 — 문구 폭이 달라 문턱 폭은 2칸 어긋나도, 넓은 쪽에서 좁은 쪽으로 가며
+    // 거치는 상태(알림·접두·날짜·보드 이름·시계)의 순서가 같다.
+    let states = |mk: &dyn Fn() -> HeaderNotice, mark: &str| {
+        let mut out: Vec<(bool, bool, bool, bool, usize)> = Vec::new();
+        for w in (1..=130u16).rev() {
+            let (h, _) = header_with(w, Some(mk()));
+            let st = (
+                h.contains(mark),
+                h.contains("Handicap 모니터"),
+                h.contains("2023-"),
+                h.contains("운영 API 보드"),
+                h.matches(':').count(),
+            );
+            if w >= 20 {
+                assert!(h.contains("점검 중"), "w={w}: {h}");
+            }
+            if out.last() != Some(&st) {
+                out.push(st);
+            }
+        }
+        out
+    };
+    let saved = states(&|| HeaderNotice::Saved(at), "저장됨");
+    let sent = states(&|| HeaderNotice::CheckSent(at), "지금 점검");
+    assert_eq!(saved, sent);
+    assert!(saved.len() >= 4, "{saved:?}");
+}
+
+#[test]
+fn header_notice_check_off_and_failed_are_red_warns() {
+    for (n, msg, file) in [
+        (
+            HeaderNotice::CheckOff,
+            text::CHECK_OFF,
+            HeaderNotice::FileFailed,
+        ),
+        (
+            HeaderNotice::CheckFailed,
+            text::CHECK_NOW_FAILED,
+            HeaderNotice::FileFailed,
+        ),
+    ] {
+        let (h, buf) = header_with(120, Some(n.clone()));
+        assert!(h.contains(msg), "{h}");
+        assert!(h.contains("운영 API 보드"), "{h}");
+        assert!(!h.contains("Handicap"), "{h}");
+        assert_eq!(buf[(1, 0)].style().fg, Some(Color::Rgb(0xef, 0x44, 0x44)));
+        // 파일 경고와 같은 축약 — 문구 폭이 달라 문턱은 어긋나도, 넓은 쪽에서 좁은 쪽으로 가며 거치는
+        // 상태(보드 이름·날짜·`(i/n)`)의 순서가 같고 점검 상태는 늘 남는다.
+        let states = |notice: &HeaderNotice| {
+            let mut out: Vec<(bool, bool, bool)> = Vec::new();
+            for w in (20..=130u16).rev() {
+                let (h, _) = header_with(w, Some(notice.clone()));
+                assert!(h.contains("점검 중"), "w={w}: {h}");
+                let st = (
+                    h.contains("운영 API 보드"),
+                    h.contains("2023-"),
+                    h.contains("(1/2)"),
+                );
+                if out.last() != Some(&st) {
+                    out.push(st);
+                }
+            }
+            out
+        };
+        assert_eq!(states(&file), states(&n));
+    }
+    let (h, _) = header_with(40, Some(HeaderNotice::CheckFailed));
+    assert!(h.contains("지금 점검을"), "{h}");
+}
+
+#[test]
+fn help_has_check_now_row_and_everything_fits_at_80x24() {
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let (_, d) = handicap_tui::text::HELP_KEYS
+        .iter()
+        .find(|(k, _)| *k == "r")
+        .unwrap();
+    // `r` 줄은 `e` 줄 앞.
+    let keys: Vec<&str> = handicap_tui::text::HELP_KEYS
+        .iter()
+        .map(|(k, _)| *k)
+        .collect();
+    let r = keys.iter().position(|k| *k == "r").unwrap();
+    let e = keys.iter().position(|k| *k == "e").unwrap();
+    assert_eq!(r + 1, e);
+    let target = handicap_tui::filesave::FileTarget {
+        given: "/tmp/link.json".into(),
+        real: "/data/real.json".into(),
+    };
+    let text = draw(80, 24, |f| {
+        render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
+    });
+    println!("{text}");
+    assert!(text.contains(d), "{text}");
+    for (k, d) in handicap_tui::text::HELP_KEYS {
+        assert!(text.contains(d), "{k}\n{text}");
+    }
+    assert!(
+        text.contains(handicap_tui::text::HELP_REPLACE_WARN),
+        "{text}"
+    );
+    assert!(text.contains(".bak"), "{text}");
 }

@@ -112,6 +112,7 @@ pub enum Action {
     Retry,
     ToggleBorder,
     OpenErrors,
+    CheckNow,
     OpenSettings,
     Activate,
     ToggleAll,
@@ -174,6 +175,7 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
                 KeyCode::Char('b') => Action::ToggleBorder,
                 KeyCode::Char('?') => Action::OpenHelp,
                 KeyCode::Char('e') => Action::OpenErrors,
+                KeyCode::Char('r') => Action::CheckNow,
                 KeyCode::Enter => Action::OpenSettings,
                 _ => Action::None,
             }
@@ -788,6 +790,7 @@ pub enum Fetched {
 /// 한 기록이 최대 1 MiB 본문 × 스텝 수). `Reason` 요청은 응답에서 reason·detail만 남기고 기록을 버린다.
 /// 돌려받은 Sender를 버리면 작업자는 **큐에 남은 요청까지 다 처리한 뒤** 끝난다(tokio mpsc 의미) —
 /// 세션을 내릴 때는 그래서 돌려받은 핸들을 abort·await한다(`App::stop_session`). 결과 수신자가 사라져도 끝난다.
+/// `CheckNow` 요청은 기록을 싣지 않는다 — 지금 점검을 요청하고 HTTP 상태(성공이면 `last_at_ms`)만 돌려준다.
 /// 로그를 남기지 않는다(URL·본문·사유가 로그로 새지 않게).
 pub fn spawn_fetch_worker(
     handle: &Handle,
@@ -1030,7 +1033,7 @@ impl SubViews {
                 }
                 _ => false,
             },
-            // 이 결과는 `App`이 `accept` 전에 가로챈다(Task 4·5) — 여기로 오면 받아들이지 않는다.
+            // 모니터에서 보낸 결과는 `App::pump`가 머리 줄 알림으로 가로채고, 칸 설정에서 보낸 결과는 아직 버려진다 — 여기까지 오면 받아들이지 않는다.
             Fetched::CheckNow { .. } => false,
         }
     }
@@ -2660,12 +2663,31 @@ struct App<'a> {
     /// 머리 줄 알림(모든 화면) — `Saved`는 `saved_at` 5초 뒤 지운다
     file_notice: Option<HeaderNotice>,
     saved_at: Option<Instant>,
+    /// 모니터 `r`(지금 점검)의 머리 줄 알림과 받은 때 — 5초 동안 파일 알림보다 앞서 보이고, 파일 알림은 따로 보관한다.
+    check_alert: Option<(HeaderNotice, Instant)>,
     /// 마지막으로 그린 편집 메뉴의 (화면 y, 항목) 표 — 메뉴 줄 클릭용(spec §6.1)
     menu_rows: RefCell<Vec<(u16, usize)>>,
 }
 
 /// `저장됨` 알림을 보이는 시간(spec §6.2-5).
 const SAVED_NOTICE: Duration = Duration::from_secs(5);
+
+/// 지금 점검 요청 결과 → 머리 줄 알림(성공은 받은 시각 `now_ms`, 409는 꺼짐, 그 밖은 실패).
+pub fn check_notice(result: &CheckReply, now_ms: i64) -> HeaderNotice {
+    match result {
+        Ok(_) => HeaderNotice::CheckSent(now_ms),
+        Err(Some(409)) => HeaderNotice::CheckOff,
+        Err(_) => HeaderNotice::CheckFailed,
+    }
+}
+
+/// 머리 줄 알림은 자리가 하나 — 지금 점검 알림(5초)이 파일 알림보다 앞선다.
+pub fn shown_notice(
+    check: Option<&HeaderNotice>,
+    file: Option<&HeaderNotice>,
+) -> Option<HeaderNotice> {
+    check.or(file).cloned()
+}
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -2745,6 +2767,7 @@ impl App<'_> {
         // 옛 세션의 저장 결과·알림이 새 세션에 들지 않게(보드 id는 가져오기 사이에 보존된다).
         self.file_notice = None;
         self.saved_at = None;
+        self.check_alert = None;
         self.save_in_flight = None;
         while self.edit_out.1.try_recv().is_ok() {}
         self.poller_dead_logged.set(false);
@@ -2917,11 +2940,28 @@ impl App<'_> {
         let mut changed = self.pump_edit();
         let mut record_arrived = false;
         while let Ok(msg) = self.fetch_out.1.try_recv() {
+            if let Fetched::CheckNow { wait, result, .. } = &msg {
+                // 모니터에서 보낸 것(`wait: None`)만 머리 줄 알림이 된다. 칸 설정에서 보낸 것(`Some`)은 칸 설정의
+                // 대기 창이 받도록 이어지기 전까지 여기서 버린다.
+                if wait.is_none() {
+                    self.check_alert = Some((check_notice(result, now_ms()), Instant::now()));
+                    changed = true;
+                }
+                continue;
+            }
             let is_record = matches!(msg, Fetched::Record { .. });
             if self.views.accept(msg) {
                 changed = true;
                 record_arrived |= is_record;
             }
+        }
+        if self
+            .check_alert
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= SAVED_NOTICE)
+        {
+            self.check_alert = None;
+            changed = true;
         }
         if record_arrived {
             let lines = self.record_lines();
@@ -3089,7 +3129,10 @@ impl App<'_> {
             panels,
             selected,
             border: self.border,
-            notice: self.file_notice.clone(),
+            notice: shown_notice(
+                self.check_alert.as_ref().map(|(n, _)| n),
+                self.file_notice.as_ref(),
+            ),
         })
     }
 
@@ -3465,6 +3508,18 @@ impl App<'_> {
                             .map(|r| r.at_ms)
                             .collect();
                     self.screen = self.views.open_errors(&board_id, &panel_id, &rows_at);
+                }
+            }
+            Action::CheckNow => {
+                if toggle_allowed(&self.screen, self.panels_drawn.get())
+                    && let (Some(board), Some(panel)) = (self.board(), self.selected_panel())
+                {
+                    let (board_id, panel_id) = (board.id.clone(), panel.id.clone());
+                    self.send_fetch(FetchReq::CheckNow {
+                        board_id,
+                        panel_id,
+                        wait: None,
+                    });
                 }
             }
             Action::OpenSettings => {
@@ -3883,6 +3938,7 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         save_seq: 0,
         file_notice: None,
         saved_at: None,
+        check_alert: None,
         menu_rows: RefCell::new(Vec::new()),
     };
     let quit_signal = crate::shutdown::install(rt);

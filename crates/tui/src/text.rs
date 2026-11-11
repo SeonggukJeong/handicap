@@ -38,6 +38,7 @@ pub const MONITOR_TITLE: &str = "Handicap 모니터";
 pub const KEYS_MOVE: &str = "←↑↓→ 칸 이동";
 pub const KEYS_NEXT_BOARD: &str = "Tab 다음 보드";
 pub const KEYS_BORDER: &str = "b 테두리";
+pub const KEYS_CHECK_NOW: &str = "r 지금 점검";
 pub const KEYS_HELP_OPEN: &str = "? 도움말";
 pub const KEYS_QUIT: &str = "q 종료";
 pub const KEYS_RETRY: &str = "r 다시 시도";
@@ -64,7 +65,7 @@ pub const KEYS_TO_LIST: &str = "Esc 목록으로";
 pub const KEYS_TO_DETAIL: &str = "Esc 자세히로";
 
 pub const HELP_TITLE: &str = "도움말";
-pub const HELP_KEYS: [(&str, &str); 10] = [
+pub const HELP_KEYS: [(&str, &str); 11] = [
     (
         "Ctrl + + / -",
         // 터미널 글꼴 크기 — 고정은 자동 시작 줄의 `--zoom=` (50칸 터미널에서도 통째로 보이게 짧게).
@@ -73,6 +74,7 @@ pub const HELP_KEYS: [(&str, &str); 10] = [
     ("방향키 / h j k l", "칸 선택 이동"),
     ("Tab / Shift+Tab", "다음 / 이전 보드"),
     // 50칸 터미널 도움말 상자(설명 칸 30열)에서도 통째로 보이게 짧게.
+    ("r", "선택 칸 지금 점검(주기 전에)"),
     ("e", "선택 칸 오류 보기(실패 목록)"),
     ("Enter", "선택 칸 설정 보기·수정"),
     ("b", "테두리 모양 바꾸기(굵은 선 / 반 칸 블록, 기억됨)"),
@@ -430,6 +432,10 @@ pub const VAR_SHAPE: &str = "이 값의 모양은 TUI에서 못 고칩니다 —
 
 /// 파일 저장 결과 머리 줄(성공 뒤에 ` HH:MM:SS`가 붙는다).
 pub const FILE_SAVED: &str = "저장됨";
+/// 모니터 `r` 결과 머리 줄 알림(tui-check-now).
+pub const CHECK_NOW_SENT: &str = "지금 점검";
+pub const CHECK_OFF: &str = "점검이 꺼져 있습니다";
+pub const CHECK_NOW_FAILED: &str = "지금 점검을 요청하지 못했습니다";
 pub const FILE_SAVE_FAILED: &str = "파일에 저장 못 함 — 재시작하면 사라짐";
 pub const FILE_CHANGED_OUTSIDE: &str =
     "보드 파일이 밖에서 바뀌었습니다 — 저장 안 됨, TUI를 다시 시작하세요";
