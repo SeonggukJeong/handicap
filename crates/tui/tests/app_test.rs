@@ -6,10 +6,13 @@ use std::time::{Duration, Instant};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_tui::app::{
-    Action, Dir, FetchReq, Fetched, IDLE_RETURN, KeyCtx, Screen, SubViews, effective_server_down,
-    handle_key, handle_mouse, idle_expired, is_user_input, move_sel, screen_after_start, sub_keys,
-    toggle_allowed,
+    Action, CondFocus, Dir, EditAction, EditUi, EnvLoad, FetchReq, Fetched, IDLE_RETURN,
+    InputTarget, KeyCtx, Overlay, Pending, ScenLoad, Screen, SubViews, digit_jump, edit_key,
+    effective_server_down, handle_key, handle_mouse, idle_drop, idle_expired, is_user_input,
+    move_sel, screen_after_start, sub_keys, toggle_allowed,
 };
+use handicap_tui::edit::{Field, ListKind, Pick};
+use handicap_tui::input::{InputMode, InputOutcome, LineInput};
 use handicap_tui::inspect::{Reason, RecordLoad, StepLine, cursor_index};
 use handicap_tui::session::{Stage, StartError};
 use handicap_tui::terminal::{PanicAction, panic_action, panic_line};
@@ -836,4 +839,466 @@ fn settings_scroll_is_capped_to_last_page() {
     // 다 보이면 0에 머문다.
     v.scroll_settings(Action::PageDown, 3, 10);
     assert_eq!(v.settings_scroll, 0);
+}
+
+// ---- tui-2a-1 Task 7: 편집 화면 상태·키 ----
+
+fn text_input(initial: &str) -> LineInput {
+    LineInput::new(initial, InputMode::Text { max_chars: 2000 })
+}
+
+fn ui_with(o: Overlay) -> EditUi {
+    EditUi {
+        overlay: Some(o),
+        ..EditUi::default()
+    }
+}
+
+fn input_overlay(initial: &str) -> Overlay {
+    Overlay::Input {
+        target: InputTarget::Field(Field::Title),
+        input: text_input(initial),
+        error: None,
+        share: None,
+    }
+}
+
+fn ek(screen: &Screen, ui: &EditUi, k: KeyEvent) -> EditAction {
+    edit_key(screen, ui, k, Instant::now())
+}
+
+#[test]
+fn input_mode_keys_are_literal() {
+    let ui = ui_with(input_overlay(""));
+    for c in ['q', 'ㅂ', 'j', '?', 'Q'] {
+        assert_eq!(
+            ek(&Screen::Settings, &ui, key(KeyCode::Char(c))),
+            EditAction::Input(InputOutcome::Edited),
+            "{c}"
+        );
+    }
+    assert_eq!(
+        ek(&Screen::Settings, &ui, ctrl('c')),
+        EditAction::Input(InputOutcome::AskQuit)
+    );
+    assert_eq!(
+        ek(&Screen::Settings, &ui, key(KeyCode::Enter)),
+        EditAction::Input(InputOutcome::Submit)
+    );
+    assert_eq!(
+        ek(&Screen::Settings, &ui, key(KeyCode::Esc)),
+        EditAction::Input(InputOutcome::Cancel)
+    );
+    // edit_key는 버퍼를 바꾸지 않는다(호출 쪽이 키를 한 번 적용).
+    let Some(Overlay::Input { input, .. }) = &ui.overlay else {
+        unreachable!()
+    };
+    assert_eq!(input.text(), "");
+    // overlay가 없는 메뉴에서는 화면 규칙.
+    let none = EditUi::default();
+    assert_eq!(
+        ek(&Screen::Settings, &none, key(KeyCode::Char('q'))),
+        EditAction::AskQuit
+    );
+    assert_eq!(
+        ek(&Screen::Settings, &none, key(KeyCode::Char('ㅂ'))),
+        EditAction::AskQuit
+    );
+    assert_eq!(
+        ek(&Screen::Settings, &none, key(KeyCode::Char('j'))),
+        EditAction::MoveCursor(1)
+    );
+    assert_eq!(
+        ek(&Screen::Settings, &none, key(KeyCode::Char('?'))),
+        EditAction::None
+    );
+    assert_eq!(ek(&Screen::Settings, &none, ctrl('c')), EditAction::AskQuit);
+    assert_eq!(ek(&Screen::Settings, &none, ctrl('b')), EditAction::None);
+    assert_eq!(
+        ek(&Screen::Settings, &none, key(KeyCode::Esc)),
+        EditAction::Back
+    );
+    assert_eq!(
+        ek(&Screen::Settings, &none, key(KeyCode::Enter)),
+        EditAction::Activate
+    );
+}
+
+#[test]
+fn menu_digit_jump() {
+    let t0 = Instant::now();
+    assert_eq!(digit_jump(None, 3, t0), (3, None));
+    let (n, pend) = digit_jump(None, 1, t0);
+    assert_eq!(n, 1);
+    assert_eq!(pend, Some((1, t0)));
+    // 0.5초 뒤 2 → 12, 대기 지움
+    assert_eq!(
+        digit_jump(pend, 2, t0 + Duration::from_millis(500)),
+        (12, None)
+    );
+    assert_eq!(
+        digit_jump(pend, 0, t0 + Duration::from_millis(500)),
+        (10, None)
+    );
+    assert_eq!(
+        digit_jump(pend, 4, t0 + Duration::from_millis(500)),
+        (14, None)
+    );
+    // 1.5초 뒤 2 → 2
+    assert_eq!(
+        digit_jump(pend, 2, t0 + Duration::from_millis(1500)),
+        (2, None)
+    );
+    // 경계: 정확히 1초는 지난 것으로 본다(`<` 1초만 대기 안).
+    assert_eq!(digit_jump(pend, 2, t0 + Duration::from_secs(1)), (2, None));
+    assert_eq!(
+        digit_jump(pend, 2, t0 + Duration::from_millis(999)),
+        (12, None)
+    );
+    // 대기 중 7 → 7
+    assert_eq!(
+        digit_jump(pend, 7, t0 + Duration::from_millis(100)),
+        (7, None)
+    );
+    // 대기 중 1 → 11(0–4 규칙), 대기 지움
+    assert_eq!(
+        digit_jump(pend, 1, t0 + Duration::from_millis(100)),
+        (11, None)
+    );
+    // 대기가 지나간 뒤 1 → 1, 새 대기
+    let later = t0 + Duration::from_secs(2);
+    assert_eq!(digit_jump(pend, 1, later), (1, Some((1, later))));
+    // 시계 역전(now < 표시 시각)도 패닉 없이 "대기 안"으로 본다.
+    assert_eq!(
+        digit_jump(Some((1, t0 + Duration::from_secs(5))), 2, t0),
+        (12, None)
+    );
+
+    // edit_key: 0 단독은 무동작, 1 뒤 0은 Digit(0)
+    let mut ui = EditUi::default();
+    assert_eq!(
+        edit_key(&Screen::Settings, &ui, key(KeyCode::Char('0')), t0),
+        EditAction::None
+    );
+    assert_eq!(
+        edit_key(&Screen::Settings, &ui, key(KeyCode::Char('3')), t0),
+        EditAction::Digit(3)
+    );
+    ui.digit = Some((1, t0));
+    assert_eq!(
+        edit_key(
+            &Screen::Settings,
+            &ui,
+            key(KeyCode::Char('0')),
+            t0 + Duration::from_millis(300)
+        ),
+        EditAction::Digit(0)
+    );
+    assert_eq!(
+        edit_key(
+            &Screen::Settings,
+            &ui,
+            key(KeyCode::Char('0')),
+            t0 + Duration::from_secs(2)
+        ),
+        EditAction::None
+    );
+    // 하위 화면에서 숫자는 무동작
+    assert_eq!(
+        ek(
+            &Screen::EditList,
+            &EditUi::default(),
+            key(KeyCode::Char('3'))
+        ),
+        EditAction::None
+    );
+}
+
+#[test]
+fn list_screen_keys_normalize() {
+    let ui = EditUi::default();
+    let l = Screen::EditList;
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('ㅇ'))), EditAction::Remove);
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('d'))), EditAction::Remove);
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('ㄴ'))), EditAction::Swap);
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('ㅁ'))), EditAction::Add);
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('A'))), EditAction::Add);
+    assert_eq!(
+        ek(&l, &ui, key(KeyCode::Char('ㅓ'))),
+        EditAction::MoveCursor(1)
+    );
+    assert_eq!(
+        ek(&l, &ui, key(KeyCode::Char('ㅏ'))),
+        EditAction::MoveCursor(-1)
+    );
+    assert_eq!(ek(&l, &ui, key(KeyCode::Enter)), EditAction::Activate);
+    assert_eq!(ek(&l, &ui, key(KeyCode::Esc)), EditAction::Back);
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('ㅂ'))), EditAction::AskQuit);
+    assert_eq!(
+        ek(&Screen::EnvVars, &ui, key(KeyCode::Char('ㅍ'))),
+        EditAction::ToggleReveal
+    );
+    assert_eq!(
+        ek(&Screen::EnvVars, &ui, key(KeyCode::Char('v'))),
+        EditAction::ToggleReveal
+    );
+    // 변수 화면엔 a/d/s가 없다
+    assert_eq!(
+        ek(&Screen::EnvVars, &ui, key(KeyCode::Char('d'))),
+        EditAction::None
+    );
+    assert_eq!(
+        ek(&Screen::ScenarioVars, &ui, key(KeyCode::Char('a'))),
+        EditAction::None
+    );
+    assert_eq!(
+        ek(&Screen::ScenarioVars, &ui, key(KeyCode::Char('v'))),
+        EditAction::None
+    );
+    // 목록에는 v가 없다
+    assert_eq!(ek(&l, &ui, key(KeyCode::Char('v'))), EditAction::None);
+}
+
+#[test]
+fn cond_form_keys() {
+    let form = |focus| Overlay::CondForm {
+        index: 0,
+        ops: vec![],
+        op: 0,
+        value: text_input("x"),
+        ignore_case: false,
+        trim: false,
+        focus,
+        error: None,
+    };
+    let s = Screen::EditList;
+    let ui = ui_with(form(CondFocus::Trim));
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Tab)),
+        EditAction::CondKey(key(KeyCode::Tab))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Char(' '))),
+        EditAction::CondKey(key(KeyCode::Char(' ')))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::BackTab)),
+        EditAction::CondKey(key(KeyCode::BackTab))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Enter)),
+        EditAction::CondKey(key(KeyCode::Enter))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Esc)),
+        EditAction::CondKey(key(KeyCode::Esc))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Left)),
+        EditAction::CondKey(key(KeyCode::Left))
+    );
+    assert_eq!(ek(&s, &ui, ctrl('c')), EditAction::AskQuit);
+    // 값 칸 = 입력줄 규칙: 글자·Space는 글자, Tab·Enter·Esc는 폼으로.
+    let ui = ui_with(form(CondFocus::Value));
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Char('q'))),
+        EditAction::Input(InputOutcome::Edited)
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Char(' '))),
+        EditAction::Input(InputOutcome::Edited)
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Left)),
+        EditAction::Input(InputOutcome::Edited)
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Tab)),
+        EditAction::CondKey(key(KeyCode::Tab))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Enter)),
+        EditAction::CondKey(key(KeyCode::Enter))
+    );
+    assert_eq!(
+        ek(&s, &ui, key(KeyCode::Esc)),
+        EditAction::CondKey(key(KeyCode::Esc))
+    );
+    assert_eq!(
+        ek(&s, &ui, ctrl('c')),
+        EditAction::Input(InputOutcome::AskQuit)
+    );
+}
+
+#[test]
+fn confirm_y_only() {
+    let confirm = |y_only| {
+        ui_with(Overlay::Confirm {
+            text: "t".into(),
+            then: Pending::Remove(ListKind::Thresholds, 0),
+            y_only,
+        })
+    };
+    let s = Screen::EditList;
+    let del = confirm(true);
+    assert_eq!(
+        ek(&s, &del, key(KeyCode::Char('y'))),
+        EditAction::ConfirmYes
+    );
+    assert_eq!(
+        ek(&s, &del, key(KeyCode::Char('ㅛ'))),
+        EditAction::ConfirmYes
+    );
+    assert_eq!(ek(&s, &del, key(KeyCode::Enter)), EditAction::ConfirmNo);
+    assert_eq!(ek(&s, &del, key(KeyCode::Char('n'))), EditAction::ConfirmNo);
+    assert_eq!(ek(&s, &del, key(KeyCode::Esc)), EditAction::ConfirmNo);
+    let step = confirm(false);
+    assert_eq!(ek(&s, &step, key(KeyCode::Enter)), EditAction::ConfirmYes);
+    assert_eq!(ek(&s, &step, key(KeyCode::Esc)), EditAction::ConfirmNo);
+    assert_eq!(
+        ek(&s, &step, key(KeyCode::Char('x'))),
+        EditAction::ConfirmNo
+    );
+}
+
+#[test]
+fn notice_swallows_next_key() {
+    let ui = ui_with(Overlay::Notice("안내".into()));
+    for k in [
+        key(KeyCode::Down),
+        key(KeyCode::Char('q')),
+        key(KeyCode::Enter),
+        ctrl('b'),
+    ] {
+        assert_eq!(ek(&Screen::Settings, &ui, k), EditAction::CloseNotice);
+    }
+    assert_eq!(ui.cursor, 0);
+}
+
+#[test]
+fn pick_and_saving_keys() {
+    let pick = ui_with(Overlay::Pick {
+        pick: Pick::Env,
+        options: vec![(None, "환경 없음".into())],
+        cursor: 0,
+    });
+    let s = Screen::Settings;
+    assert_eq!(ek(&s, &pick, key(KeyCode::Down)), EditAction::PickMove(1));
+    assert_eq!(
+        ek(&s, &pick, key(KeyCode::Char('ㅏ'))),
+        EditAction::PickMove(-1)
+    );
+    assert_eq!(ek(&s, &pick, key(KeyCode::Enter)), EditAction::PickChoose);
+    assert_eq!(ek(&s, &pick, key(KeyCode::Esc)), EditAction::Back);
+    assert_eq!(ek(&s, &pick, key(KeyCode::Char('q'))), EditAction::AskQuit);
+    assert_eq!(ek(&s, &pick, key(KeyCode::Char('d'))), EditAction::None);
+    let saving = ui_with(Overlay::Saving { restore: None });
+    assert_eq!(ek(&s, &saving, key(KeyCode::Esc)), EditAction::None);
+    assert_eq!(ek(&s, &saving, key(KeyCode::Enter)), EditAction::None);
+    assert_eq!(
+        ek(&s, &saving, key(KeyCode::Char('q'))),
+        EditAction::AskQuit
+    );
+    assert_eq!(ek(&s, &saving, ctrl('c')), EditAction::AskQuit);
+}
+
+#[test]
+fn idle_drops_overlay_keeps_pending_save() {
+    for o in [
+        input_overlay("v"),
+        Overlay::Pick {
+            pick: Pick::Step,
+            options: vec![],
+            cursor: 0,
+        },
+        Overlay::Confirm {
+            text: "t".into(),
+            then: Pending::SetEnv(None),
+            y_only: false,
+        },
+        Overlay::Notice("n".into()),
+    ] {
+        let mut ui = ui_with(o);
+        idle_drop(&mut ui);
+        assert!(ui.overlay.is_none());
+    }
+    let mut ui = ui_with(Overlay::Saving {
+        restore: Some(Box::new(input_overlay("v"))),
+    });
+    idle_drop(&mut ui);
+    assert!(matches!(ui.overlay, Some(Overlay::Saving { .. })));
+}
+
+#[test]
+fn idle_applies_to_edit_screens() {
+    let t0 = Instant::now();
+    for s in [Screen::EnvVars, Screen::EditList, Screen::ScenarioVars] {
+        assert!(
+            !idle_expired(&s, t0, t0 + Duration::from_secs(299)),
+            "{s:?}"
+        );
+        assert!(idle_expired(&s, t0, t0 + IDLE_RETURN), "{s:?}");
+        let wrapped = Screen::QuitConfirm(Box::new(s));
+        assert!(idle_expired(&wrapped, t0, t0 + IDLE_RETURN));
+    }
+}
+
+#[test]
+fn back_from_edit_screens_clears_secret_state() {
+    let mut v = SubViews {
+        edit: Some(EditUi {
+            reveal: true,
+            env: Some(EnvLoad::Loading { id: "e".into() }),
+            scen: Some(ScenLoad::Failed("x".into())),
+            list_cursor: 4,
+            ..EditUi::default()
+        }),
+        ..SubViews::default()
+    };
+    assert_eq!(v.back(&Screen::EnvVars), Some(Screen::Settings));
+    let e = v.edit.as_ref().unwrap();
+    assert!(!e.reveal && e.env.is_none() && e.list_cursor == 0);
+    assert!(
+        e.scen.is_some(),
+        "EnvVars를 나가도 시나리오 쪽은 건드리지 않는다"
+    );
+    assert_eq!(v.back(&Screen::ScenarioVars), Some(Screen::Settings));
+    assert!(v.edit.as_ref().unwrap().scen.is_none());
+    assert_eq!(v.back(&Screen::EditList), Some(Screen::Settings));
+}
+
+#[test]
+fn edit_ui_debug_hides_values() {
+    let ui = EditUi {
+        overlay: Some(Overlay::Input {
+            target: InputTarget::EnvVar("API_KEY_NAME".into()),
+            input: text_input("TYPED-SECRET-77"),
+            error: None,
+            share: None,
+        }),
+        env: Some(EnvLoad::Loaded(
+            serde_json::from_value(serde_json::json!({
+                "id": "e1", "name": "ENVNAME", "vars": {"K": "ENV-SECRET-99"},
+                "created_at": 1, "updated_at": 2
+            }))
+            .unwrap(),
+        )),
+        scen: Some(ScenLoad::Loaded {
+            id: "s1".into(),
+            yaml: "variables:\n  a: YAML-SECRET-55\n".into(),
+            version: 1,
+            vars: vec![],
+        }),
+        ..EditUi::default()
+    };
+    let d = format!("{ui:?}");
+    for leak in [
+        "TYPED-SECRET-77",
+        "ENV-SECRET-99",
+        "YAML-SECRET-55",
+        "API_KEY_NAME",
+    ] {
+        assert!(!d.contains(leak), "{leak} leaked: {d}");
+    }
+    assert!(d.contains("<가림>"));
 }

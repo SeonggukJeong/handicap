@@ -27,6 +27,8 @@ use handicap_controller::monitor::check::CheckResult;
 use handicap_controller::monitor::config::PanelConfig;
 
 use crate::api::Api;
+use crate::edit;
+use crate::input::{InputOutcome, LineInput};
 use crate::inspect::{
     BodyInput, BodyState, ErrorsInput, ErrorsState, Reason, RecordLoad, RecordState, StepLine,
     clip_flags, error_results, errors_view, initial_step_cursor, load_of, move_cursor,
@@ -48,7 +50,9 @@ use crate::view::model::build_panels;
 use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
 use crate::view::settings::{render_settings, settings_height};
-use crate::wire::{BoardResponse, CheckRecord};
+use crate::wire::{BoardResponse, CheckRecord, EnvironmentResponse};
+use crate::yaml_var;
+use handicap_controller::monitor::config::ConditionOp;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
@@ -64,8 +68,14 @@ pub enum Screen {
     Record,
     /// 요청·응답 본문(§5.3-3)
     Body,
-    /// 칸 설정 보기(§5.4)
+    /// 칸 설정 보기(§5.4) — 편집 모드에선 편집 메뉴(§6.1)
     Settings,
+    /// 하위 목록(기준선·성공 조건·화면에 표시, §6.1 8·11·12)
+    EditList,
+    /// 환경 변수 화면(§6.3, 13)
+    EnvVars,
+    /// 시나리오 변수 화면(§6.4, 14)
+    ScenarioVars,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +166,13 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
                 _ => Action::None,
             }
         }
-        Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {
+        Screen::Errors
+        | Screen::Record
+        | Screen::Body
+        | Screen::Settings
+        | Screen::EditList
+        | Screen::EnvVars
+        | Screen::ScenarioVars => {
             if quit_key {
                 return Action::AskQuit;
             }
@@ -198,11 +214,17 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
     }
 }
 
-/// 새 화면 넷(오류 목록·자세히·본문·칸 설정).
+/// 새 화면(오류 목록·자세히·본문·칸 설정 + 편집 하위 목록·환경 변수·시나리오 변수).
 fn is_sub(screen: &Screen) -> bool {
     matches!(
         screen,
-        Screen::Errors | Screen::Record | Screen::Body | Screen::Settings
+        Screen::Errors
+            | Screen::Record
+            | Screen::Body
+            | Screen::Settings
+            | Screen::EditList
+            | Screen::EnvVars
+            | Screen::ScenarioVars
     )
 }
 
@@ -271,8 +293,374 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
             keys.push(text::KEYS_TO_DETAIL);
             keys
         }
-        Screen::Settings => vec![text::KEYS_SCROLL_SHORT, text::KEYS_TO_MONITOR],
+        // 스텁(Task 8·9가 편집 화면 키 줄로 교체): 편집 화면은 칸 설정 보기와 같은 키 줄.
+        Screen::Settings | Screen::EditList | Screen::EnvVars | Screen::ScenarioVars => {
+            vec![text::KEYS_SCROLL_SHORT, text::KEYS_TO_MONITOR]
+        }
         _ => vec![],
+    }
+}
+
+// ---- 편집 모드 상태·키 판정(tui-2a-1 Task 7, spec §6.7) — 순수. App 연결은 Task 10·11 ----
+
+/// 편집 화면 위에 뜨는 입력줄·목록 창·조건 수정·확인·저장 중·안내.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Overlay {
+    Input {
+        target: InputTarget,
+        input: LineInput,
+        error: Option<String>,
+        share: Option<String>,
+    },
+    Pick {
+        pick: edit::Pick,
+        options: Vec<(Option<String>, String)>,
+        cursor: usize,
+    },
+    CondForm {
+        index: usize,
+        ops: Vec<ConditionOp>,
+        op: usize,
+        value: LineInput,
+        ignore_case: bool,
+        trim: bool,
+        focus: CondFocus,
+        error: Option<String>,
+    },
+    Confirm {
+        text: String,
+        then: Pending,
+        y_only: bool,
+    },
+    /// 저장 중. `restore` = 서버가 거절하면 되살릴 overlay(Input·CondForm은 오류 줄을 채워서). Pick·Confirm(삭제·단계·환경 빠짐)·
+    /// 자리 바꾸기에서 온 저장은 `restore = None` — 거절이면 `Notice(서버 문구)`로 보인다.
+    Saving { restore: Option<Box<Overlay>> },
+    /// ReadOnly 안내·서버 거절 — 다음 키 하나로 닫힘(그 키는 메뉴로 넘어가지 않는다).
+    Notice(String),
+}
+
+impl Overlay {
+    /// 로그·`Debug`용 이름 — 내용(입력·서버 문구)은 담지 않는다.
+    fn kind(&self) -> &'static str {
+        match self {
+            Overlay::Input { .. } => "Input",
+            Overlay::Pick { .. } => "Pick",
+            Overlay::CondForm { .. } => "CondForm",
+            Overlay::Confirm { .. } => "Confirm",
+            Overlay::Saving { .. } => "Saving",
+            Overlay::Notice(_) => "Notice",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CondFocus {
+    Op,
+    Value,
+    IgnoreCase,
+    Trim,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputTarget {
+    Field(edit::Field),
+    ThresholdNew,
+    Threshold(usize),
+    EnvVar(String),
+    ScenarioVar(String),
+}
+
+/// 확인 뒤 할 일(저장 요청을 만들 재료).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pending {
+    SetStep(String),
+    SetEnv(Option<String>),
+    Remove(edit::ListKind, usize),
+}
+
+#[derive(Clone)]
+pub enum EnvLoad {
+    Loading { id: String },
+    Loaded(EnvironmentResponse),
+    Failed(String),
+}
+
+#[derive(Clone)]
+pub enum ScenLoad {
+    Loading {
+        id: String,
+    },
+    Loaded {
+        id: String,
+        yaml: String,
+        version: i64,
+        vars: Vec<yaml_var::StaticVar>,
+    },
+    Failed(String),
+}
+
+/// 편집 모드 화면 상태. `PartialEq` 없음(환경 응답을 품는다).
+#[derive(Clone, Default)]
+pub struct EditUi {
+    pub board_id: String,
+    pub panel_id: String,
+    /// 메뉴 항목 0..14
+    pub cursor: usize,
+    /// 하위 목록·변수 화면 줄
+    pub list_cursor: usize,
+    /// `1` 뒤 1초(번호, 누른 시각)
+    pub digit: Option<(u8, Instant)>,
+    pub overlay: Option<Overlay>,
+    /// 환경 값 보기(`EnvVars`를 나가면 false)
+    pub reveal: bool,
+    pub env: Option<EnvLoad>,
+    pub scen: Option<ScenLoad>,
+}
+
+/// 값이 로그로 새지 않게 손으로 쓴 `Debug` — `env`·`scen`은 있는지만, overlay는 종류만(입력줄·서버 문구 가림).
+impl std::fmt::Debug for EditUi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditUi")
+            .field("board_id", &self.board_id)
+            .field("panel_id", &self.panel_id)
+            .field("cursor", &self.cursor)
+            .field("list_cursor", &self.list_cursor)
+            .field("digit", &self.digit.map(|(d, _)| d))
+            .field("overlay", &self.overlay.as_ref().map(Overlay::kind))
+            .field("reveal", &self.reveal)
+            .field("env", &self.env.as_ref().map(|_| "<가림>"))
+            .field("scen", &self.scen.as_ref().map(|_| "<가림>"))
+            .field("overlay_values", &"<가림>")
+            .finish()
+    }
+}
+
+impl EditUi {
+    /// `EnvVars`를 나갈 때: 값 보기를 끄고 받은 환경을 버린다.
+    pub fn leave_env(&mut self) {
+        self.reveal = false;
+        self.env = None;
+        self.list_cursor = 0;
+    }
+
+    /// `ScenarioVars`를 나갈 때: 받은 시나리오를 버린다.
+    pub fn leave_scen(&mut self) {
+        self.scen = None;
+        self.list_cursor = 0;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditAction {
+    None,
+    AskQuit,
+    /// overlay 없음: 한 단계 뒤(`SubViews::back`). `Pick`이 열려 있을 땐 "목록 창 취소"(overlay만 닫는다).
+    Back,
+    MoveCursor(isize),
+    /// 절대 위치(0-기반): Home=0, End=`usize::MAX`(호출 쪽이 마지막 줄로 자른다)
+    Jump(usize),
+    /// 메뉴의 숫자 키 — 호출 쪽이 `digit_jump(ui.digit, d, now)`로 이동·대기 표시를 갱신한다.
+    Digit(u8),
+    /// Enter
+    Activate,
+    Remove,
+    Swap,
+    Add,
+    ToggleReveal,
+    /// 입력줄(Input overlay 또는 CondForm의 값 칸)에 들어간 키의 결과. **`edit_key`는 버퍼를 바꾸지 않는다** —
+    /// 복제본에 키를 적용해 결과만 알려 준다. 호출 쪽(`apply_edit`)은 이 액션을 받으면 같은 `KeyEvent`를
+    /// 진짜 `LineInput::key`에 **정확히 한 번** 적용한다(결과는 같다 — 순수·결정적).
+    Input(InputOutcome),
+    PickMove(isize),
+    PickChoose,
+    /// 조건 수정 칸의 폼 키(Tab·Shift+Tab·←→·Space·Enter·Esc) — 원시 키 그대로.
+    CondKey(KeyEvent),
+    ConfirmYes,
+    ConfirmNo,
+    CloseNotice,
+}
+
+/// 대기 표시가 유효한 시간 — **1초 미만**만 대기 안(정확히 1.0초는 지난 것: `<`).
+const DIGIT_WINDOW: Duration = Duration::from_secs(1);
+
+fn digit_pending(prev: Option<(u8, Instant)>, now: Instant) -> bool {
+    // 시계 역전은 0초(대기 안)로 본다.
+    matches!(prev, Some((1, at)) if now.saturating_duration_since(at) < DIGIT_WINDOW)
+}
+
+/// 숫자는 **언제나 즉시** 이동한다: `1`–`9` → 그 번호(그리고 `1`이면 1초 대기 표시를 남김). 대기 중(1초 안)에
+/// `0`–`4`가 오면 10–14로 **다시** 이동하고 대기를 지운다(`1`→`1`은 11 — 항목 11에 닿는 길이다, spec §6.7 표).
+/// 대기 중 `5`–`9`는 그 번호로(대기는 지운다). 타이머가 필요 없다 — `1`만 누르고 기다리면 이미 1번에 가 있다.
+/// 대기 없이 `0`이면 이동 없음 `(0, None)`(번호 0은 없다 — `edit_key`는 이 경우 `EditAction::None`).
+pub fn digit_jump(
+    prev: Option<(u8, Instant)>,
+    d: u8,
+    now: Instant,
+) -> (usize, Option<(u8, Instant)>) {
+    if digit_pending(prev, now) && d <= 4 {
+        return (10 + d as usize, None);
+    }
+    match d {
+        0 => (0, None),
+        1 => (1, Some((1, now))),
+        d => (d as usize, None),
+    }
+}
+
+/// 입력 중인 overlay(Input·Pick·CondForm·Confirm·Notice)를 버린다. `Saving`은 남긴다(진행 중 저장).
+pub fn idle_drop(ui: &mut EditUi) {
+    if !matches!(ui.overlay, Some(Overlay::Saving { .. })) {
+        ui.overlay = None;
+    }
+}
+
+/// 화면 규칙용 정규화: `normalize_char` + 새로 `ㅇ`→`d`·`ㄴ`→`s`(편집 화면 경로에서만 — 기존 화면 불변).
+fn normalize_edit_char(c: char) -> char {
+    match c {
+        'ㅇ' => 'd',
+        'ㄴ' => 's',
+        c => normalize_char(c),
+    }
+}
+
+/// 편집 모드의 키 → 동작. 순서: overlay 있음 → overlay 규칙(입력줄은 **원시 키** — 정규화 없음, `q`·`j`·`?`·한글이
+/// 글자, Ctrl+C만 종료 확인), 없음 → 화면 규칙(정규화 + `q`/Ctrl+C 종료 확인). `now`는 두 자리 번호 판정용.
+pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> EditAction {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    let norm = match k.code {
+        KeyCode::Char(c) => KeyCode::Char(normalize_edit_char(c)),
+        other => other,
+    };
+    let ctrl_c = ctrl && norm == KeyCode::Char('c');
+    let quit_key = ctrl_c || (!ctrl && norm == KeyCode::Char('q'));
+    if let Some(o) = &ui.overlay {
+        return overlay_key(o, k, norm, ctrl, ctrl_c, quit_key);
+    }
+    if ctrl {
+        // Ctrl+C 밖의 Ctrl+문자는 무동작(Ctrl+B가 `b`로 읽히지 않게).
+        return if ctrl_c {
+            EditAction::AskQuit
+        } else {
+            EditAction::None
+        };
+    }
+    if quit_key {
+        return EditAction::AskQuit;
+    }
+    let menu = matches!(screen, Screen::Settings);
+    let sub = matches!(
+        screen,
+        Screen::EditList | Screen::EnvVars | Screen::ScenarioVars
+    );
+    if !menu && !sub {
+        return EditAction::None;
+    }
+    match norm {
+        KeyCode::Up | KeyCode::Char('k') => EditAction::MoveCursor(-1),
+        KeyCode::Down | KeyCode::Char('j') => EditAction::MoveCursor(1),
+        KeyCode::PageUp => EditAction::MoveCursor(-10),
+        KeyCode::PageDown => EditAction::MoveCursor(10),
+        KeyCode::Home => EditAction::Jump(0),
+        KeyCode::End => EditAction::Jump(usize::MAX),
+        KeyCode::Enter => EditAction::Activate,
+        KeyCode::Esc => EditAction::Back,
+        KeyCode::Char(c @ '0'..='9') if menu && !k.modifiers.contains(KeyModifiers::ALT) => {
+            let d = c as u8 - b'0';
+            if d == 0 && !digit_pending(ui.digit, now) {
+                EditAction::None
+            } else {
+                EditAction::Digit(d)
+            }
+        }
+        KeyCode::Char('a') if matches!(screen, Screen::EditList) => EditAction::Add,
+        KeyCode::Char('d') if matches!(screen, Screen::EditList) => EditAction::Remove,
+        KeyCode::Char('s') if matches!(screen, Screen::EditList) => EditAction::Swap,
+        KeyCode::Char('v') if matches!(screen, Screen::EnvVars) => EditAction::ToggleReveal,
+        _ => EditAction::None,
+    }
+}
+
+/// 입력줄에 **원시 키**를 넣어 본 결과(복제본 — `edit_key`는 상태를 바꾸지 않는다).
+fn probe(li: &LineInput, k: KeyEvent) -> EditAction {
+    EditAction::Input(li.clone().key(k))
+}
+
+fn overlay_key(
+    o: &Overlay,
+    k: KeyEvent,
+    norm: KeyCode,
+    ctrl: bool,
+    ctrl_c: bool,
+    quit_key: bool,
+) -> EditAction {
+    match o {
+        Overlay::Input { input, .. } => probe(input, k),
+        Overlay::CondForm { value, focus, .. } => {
+            if *focus == CondFocus::Value {
+                // 값 칸 = 입력줄 규칙. 폼 이동·저장·취소 키만 폼으로.
+                return if !ctrl
+                    && matches!(
+                        k.code,
+                        KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter | KeyCode::Esc
+                    ) {
+                    EditAction::CondKey(k)
+                } else {
+                    probe(value, k)
+                };
+            }
+            if ctrl_c {
+                return EditAction::AskQuit;
+            }
+            if !ctrl
+                && matches!(
+                    k.code,
+                    KeyCode::Tab
+                        | KeyCode::BackTab
+                        | KeyCode::Left
+                        | KeyCode::Right
+                        | KeyCode::Char(' ')
+                        | KeyCode::Enter
+                        | KeyCode::Esc
+                )
+            {
+                EditAction::CondKey(k)
+            } else {
+                EditAction::None
+            }
+        }
+        Overlay::Pick { .. } => {
+            if quit_key {
+                return EditAction::AskQuit;
+            }
+            if ctrl {
+                return EditAction::None;
+            }
+            match norm {
+                KeyCode::Up | KeyCode::Char('k') => EditAction::PickMove(-1),
+                KeyCode::Down | KeyCode::Char('j') => EditAction::PickMove(1),
+                KeyCode::Enter => EditAction::PickChoose,
+                KeyCode::Esc => EditAction::Back,
+                _ => EditAction::None,
+            }
+        }
+        Overlay::Confirm { y_only, .. } => {
+            let yes =
+                !ctrl && (norm == KeyCode::Char('y') || (!*y_only && k.code == KeyCode::Enter));
+            if yes {
+                EditAction::ConfirmYes
+            } else {
+                EditAction::ConfirmNo
+            }
+        }
+        Overlay::Notice(_) => EditAction::CloseNotice,
+        // 저장 중: 다른 편집 키는 받지 않는다(Esc도 저장을 멈추지 않는다). 종료 확인만 열린다.
+        Overlay::Saving { .. } => {
+            if quit_key {
+                EditAction::AskQuit
+            } else {
+                EditAction::None
+            }
+        }
     }
 }
 
@@ -390,6 +778,9 @@ pub struct SubViews {
     pub record: Option<RecordState>,
     pub body: Option<BodyState>,
     pub settings_scroll: usize,
+    /// 편집 모드 상태(Task 10이 연다). `clear()`는 이것도 비우므로, 진행 중 저장(`Overlay::Saving`)이
+    /// 있을 때의 5분 복귀는 호출 쪽이 `idle_drop` 뒤 `edit`를 남겨야 한다.
+    pub edit: Option<EditUi>,
 }
 
 impl SubViews {
@@ -499,6 +890,24 @@ impl SubViews {
                 Some(Screen::Monitor)
             }
             Screen::Settings | Screen::Help => Some(Screen::Monitor),
+            Screen::EditList => {
+                if let Some(e) = &mut self.edit {
+                    e.list_cursor = 0;
+                }
+                Some(Screen::Settings)
+            }
+            Screen::EnvVars => {
+                if let Some(e) = &mut self.edit {
+                    e.leave_env();
+                }
+                Some(Screen::Settings)
+            }
+            Screen::ScenarioVars => {
+                if let Some(e) = &mut self.edit {
+                    e.leave_scen();
+                }
+                Some(Screen::Settings)
+            }
             _ => None,
         }
     }
@@ -972,7 +1381,14 @@ impl App<'_> {
             }
             Screen::Error(e) => render_error(f, e, &self.file, &self.log),
             Screen::Usage => render_usage(f),
-            Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {
+            // 스텁(Task 8·9가 편집 화면 그리기로 교체): 새 편집 화면은 칸 설정 보기처럼 그린다.
+            Screen::Errors
+            | Screen::Record
+            | Screen::Body
+            | Screen::Settings
+            | Screen::EditList
+            | Screen::EnvVars
+            | Screen::ScenarioVars => {
                 self.panels_drawn.set(false);
                 self.draw_sub(f, screen, bar == KeyBar::QuitConfirm);
             }
