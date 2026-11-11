@@ -4,6 +4,8 @@
 
 > 도메인 함정은 각 디렉토리의 중첩 `CLAUDE.md`(그 디렉토리 작업 시 자동 로드) — [도메인별 함정 인덱스](#도메인별-함정-인덱스). 이 root엔 전역 규칙·상태·크로스커팅 함정만.
 
+> **작업 규칙 정본(cloud 세션 포함 — 자동메모리를 못 읽는 세션도 지켜야 할 것)** → **[`docs/dev/working-rules.md`](docs/dev/working-rules.md)**: cloud↔로컬 머지 절차·§B 번호(`grep -n '^### B'`로 마지막+1)·판단 비용 기록·공용 개념 범위 질문·보안 grep은 하한선·극단값/모든 진입 화면 라이브·소형 수정 경로·UI 접힘 선호·TUI 사용자 결정(칸 1–9 검증 등). 세션 시작 시 한 번 읽을 것.
+
 **상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = tui-2b (2026-11-11, 코드 `ebe98dc`..`d97f708` — 터미널 모니터 `handicap-tui` 요청·응답 화면 `a`: 응답 값 목록에서 골라 성공 조건·화면 표시 값 추가[받은 값이 채워진 조건 칸·GUI와 같은 기본 조건·가린 인증 값은 안 채움], 칸 설정 11·12의 `a`는 지금 점검 뒤 값 목록까지, 컨트롤러·엔진·GUI 0-diff). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
 
 ## 한 줄 아키텍처

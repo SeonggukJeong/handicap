@@ -13,7 +13,7 @@
 - **CI 러너는 UTC, 개발기는 KST — 로컬 시각(`chrono::Local`) 표시를 단언하는 테스트는 기대값도 `Local`로 구할 것** (v0.13.0 릴리즈): `header_degrades_by_whole_parts`가 `"2023-11-15"`(KST)를 하드코딩해 pre-commit은 통과·첫 push의 CI만 실패했다. 재현은 `TZ=UTC cargo test -p handicap-tui`.
 - **워크트리-격리 세션에서 tmux 매트릭스는 python 드라이버(`subprocess.run(["tmux", …])`)로** (tui-readability 라이브): `bash x.sh`·`$VAR`이 든 tmux 인자·`for` 루프는 git 검증 불가로 거부된다. 테스트용 `XDG_CONFIG_HOME`/`XDG_STATE_HOME`은 scratchpad로 격리(실 `~/.config/handicap/tui.json` 보호).
 - **막대↔시각 줄 정렬 렌더 테스트는 막대 높이를 이웃끼리 다르게 하고, 기대 시각은 시각 줄 글자가 아니라 막대 데이터 위치에서 구할 것** (tui-axis-ticks 최종 리뷰): 모든 결과를 100 ms로 두고 `▲` 열의 기대 시각을 오른쪽 눈금과의 거리로 계산하면, 시각 줄 전체가 한 칸 밀려도 두 값이 함께 움직여 통과한다. 지연을 순환(예: 200/700/1200/1800/400)시키고, 맨 오른쪽 막대 글자를 기준으로 열→결과를 대응시켜 `▲` 아래 막대와 ±1열 막대가 다른지까지 단언한다.
-- **꺼진 보드의 `/status`는 칸마다 `results: []`, 기록 API는 404 — "결과 0개"가 "실패 없음"과 구분되지 않는다** (tui-monitor-1b 라이브): 빈 목록 문구를 고를 때 보드·칸의 꺼짐 상태를 먼저 볼 것(roadmap §B48 (2)).
+- **꺼진 보드의 `/status`는 칸마다 `results: []`, 기록 API는 404 — "결과 0개"가 "실패 없음"과 구분되지 않는다** (tui-monitor-1b 라이브): 빈 목록 문구를 고를 때 보드·칸의 꺼짐 상태를 먼저 볼 것(roadmap §B48b (2)).
 - **조건 칸 `CheckResult`의 `reason`은 받은 값, `detail`은 조건식** (tui-monitor-1b 라이브): "판정 상세 = 받은 값"으로 문구를 쓰면 틀린다. 미치환 `${ENV}` URL은 trace를 남긴다(`builder error`) — trace가 null인 설정 오류는 조건 스텝이 없는 칸.
 - **tmux `send-keys question`은 `?`가 아니라 글자** (tui-monitor-1b 라이브): `send-keys -l '?'`로.
 - **원격 문자열은 `inspect::sanitize`를 폭 계산 *전에* — 제어 문자·U+2028/2029·bidi 제어(202A–202E·2066–2069 등)를 `�`로** (tui-monitor-1b 보안 리뷰): ratatui가 ESC grapheme을 이미 걸러 `\x1b` 부재 단언은 공허, 회귀 가드는 `\u{FFFD}`가 *보이는지* 긍정 단언.

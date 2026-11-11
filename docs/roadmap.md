@@ -908,7 +908,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **콘솔 창 X 닫기 → 임시 DB(환경 값) 잔류**: `Signals`의 non-unix 경로가 `ctrl_c()`만 듣는다. 해소: `tokio::signal::windows::ctrl_close`(+`ctrl_shutdown`·`ctrl_logoff`)를 같이 듣기 — 단 close 이벤트는 OS가 약 5초 뒤 강제 종료하므로 삭제를 감시견보다 먼저.
 - **시작 시 남은 임시 디렉터리 정리 없음**: `tempdb::pid_alive`의 non-unix 구현이 항상 `true`. 해소: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`로 생존 판정(`windows-sys` 의존 추가).
 
-### B48. 터미널 모니터 1b 오류 보기·칸 설정 보기 (tui-monitor-1b, 2026-11-11, 코드 `98b2f6c`..`cbc053c`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §5.3·§5.4, plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`) 판단·연기
+### B48b. 터미널 모니터 1b 오류 보기·칸 설정 보기 (구 §B48 — 2026-11-11 cloud가 위 Windows §B48과 겹치게 매겼다, 2026-11-12 `B48b`로 분리; 그 사이 문서·plan의 "§B48 (2)"는 이 블록) (tui-monitor-1b, 2026-11-11, 코드 `98b2f6c`..`cbc053c`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §5.3·§5.4, plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`) 판단·연기
 
 **다음 슬라이스**: ~~TUI 2 설정 수정·파일 저장~~ ✅ 2a-1 완료(§B49) → ~~2a-2 미리 실행~~ ✅ `r` 지금 점검으로 대체·완료(§B51), 또는 ②b 겹침 질문 흐름. ~~**머지 전 사용자 확인**: 맥에서 `connect_timeout_knob`·`error_kind` 1회~~ ✅ 2026-11-11 merge `78abf725`에서 확인 — macOS는 대기열이 차면 간헐 RST(`ConnectionReset`)라 4건 실패 → `StalledListener`가 macOS만 비라우팅 IP로 `cfg!` 분기(`crates/engine/CLAUDE.md`). 실기: Ubuntu 19.04에서 `e`/`Enter` 흐름.
 
@@ -1000,7 +1000,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **알림 시각이 머리 줄 시계보다 1초 앞설 수 있다**(라이브 관찰 `지금 점검 13:49:28  … 13:49:27`): 알림 = TUI가 결과를 받은 로컬 시각, 시계 = 마지막 폴링의 서버 시각. 표시뿐.
 - **`Alt+r`도 지금 점검**(Task 5 리뷰 M2 — 기존 `a`/`d`/`s`/`v`와 같은 수준, 숫자 키만 ALT를 뺀다) · 조회 작업자가 패닉하면 대기 창은 `Esc`까지 남는다(spec §10 "제한 시간 없음"과 같은 뒷문).
 - **spec §10 그대로**: GUI에 지금 점검 버튼 없음(서버 길만) · 자세히·요청·응답 화면에서 다시 점검 키 없음 · 꺼진 보드는 지금 점검 불가 · 대기 창 제한 시간 없음(폴링 끊김·시계 역행 포함) · 기준을 읽은 직후 결과가 들어오면 덤 회차 1회.
-- **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48·§B49와 같은 항목.
+- **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48b·§B49와 같은 항목.
 
 ### B52. 터미널 모니터 응답에서 값을 골라 조건·표시 값 추가 (tui-2b, 2026-11-11, 코드 `ebe98dc`..`d97f708`, spec `docs/superpowers/specs/2026-11-11-tui-2b-add-from-response-design.md`, plan `docs/superpowers/plans/2026-11-11-tui-2b-add-from-response.md`) 판단·연기
 
@@ -1012,7 +1012,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **1. 로컬 master 확인**(각각 단독 명령): `git checkout master` → `git status --porcelain -uno`(비어 있어야 한다) → `git fetch origin` → `git log --oneline origin/master..master`(로컬에만 있는 커밋). 판정: ⓐ 출력이 비었으면 `git merge --ff-only origin/master`로 맞춘 뒤 2번으로 ⓑ 로컬에만 있는 커밋이 check-now 커밋들이면(`git merge-base --is-ancestor a532eab master`가 성공) 2번을 건너뛰고 3번으로 ⓒ 그 밖의 커밋이 있으면 ff가 안 된다 — 선례(`78abf72`)처럼 **병합 커밋**으로 합친다(`--ff-only` 대신 `git merge <대상>`, 단계는 그대로 둘로 나눈다). 무엇이 있었는지 사용자에게 먼저 알린다.
 - **2. check-now까지만**: `git merge --ff-only 8bf7869` → 게이트 `just build` · `just lint` · `cargo nextest run --workspace` · `cargo test --workspace --doc`(pre-commit과 같은 구성 — `just test`는 nextest가 아니다). 깨지면 check-now 쪽 문제다(§B51과 build-log `tui-check-now` 단락을 본다). check-now는 **컨트롤러를 바꿨다**(`POST …/check-now`·점검 루프 깨우기) — 컨트롤러 테스트가 맥에서 시간에 민감하면 `crates/controller/CLAUDE.md`·§B51 (1)을 본다.
 - **3. 2b까지**: `git merge --ff-only origin/ccr-7683ac09-t7d25q` → 같은 게이트 4개. 2b는 `crates/tui`와 문서만 바꿨다(컨트롤러·엔진·proto·`ui/` 0-diff — `git diff --stat 8bf7869..origin/ccr-7683ac09-t7d25q -- crates/controller crates/engine crates/proto ui Cargo.toml Cargo.lock`이 비어야 한다). 깨지면 2b 쪽이다(build-log `tui-2b` 단락·이 블록의 (1)(2)). 맥에서 달라질 수 있는 것: 로컬 시각 표시 테스트(개발기 KST·CI UTC — `TZ=UTC cargo test -p handicap-tui`도 한 번), 통합 테스트 `save_flow_test`의 새 4개(`added_*`·`server_rejects_over_limit` — 지금 점검 뒤 새 결과를 최대 10초 폴링).
-- **4. 맥에서 확인할 것**(cloud에서 못 한 것 — 못 하면 못 했다고 남긴다): ⓐ `cargo build -p handicap-tui` 뒤 `./target/debug/handicap-tui <보드 파일>`로 `a` 흐름 한 번(매뉴얼 `docs/dev/tui-monitor.md` §4-3 — 오류 보기 또는 칸 설정 `r` → 자세히 → 요청·응답 → `a`, 그리고 `11` → `Enter` → `a`) ⓑ **GUI 클릭 경로 대조**(spec `2026-11-11-tui-2b-add-from-response-design.md` §8 표 둘째 행): 같은 응답기·시나리오로 GUI 미리 실행 → 같은 값(문자열·숫자·`null`·40자 넘는 문자열·응답 코드·보통 헤더) `+ 추가` → 저장한 보드와 TUI가 저장한 보드의 조건이 `source`·`path`·`op`·`value`·`ignore_case`·`trim`까지 같은가(cloud에서는 `pnpm build` OOM으로 GUI 함수 실행 대조만 했다 — (1) 셋째 항목) ⓒ Ubuntu 19.04 실기·gnome-terminal은 사용자 몫(§B48·§B49·§B51과 같은 항목).
+- **4. 맥에서 확인할 것**(cloud에서 못 한 것 — 못 하면 못 했다고 남긴다): ⓐ `cargo build -p handicap-tui` 뒤 `./target/debug/handicap-tui <보드 파일>`로 `a` 흐름 한 번(매뉴얼 `docs/dev/tui-monitor.md` §4-3 — 오류 보기 또는 칸 설정 `r` → 자세히 → 요청·응답 → `a`, 그리고 `11` → `Enter` → `a`) ⓑ **GUI 클릭 경로 대조**(spec `2026-11-11-tui-2b-add-from-response-design.md` §8 표 둘째 행): 같은 응답기·시나리오로 GUI 미리 실행 → 같은 값(문자열·숫자·`null`·40자 넘는 문자열·응답 코드·보통 헤더) `+ 추가` → 저장한 보드와 TUI가 저장한 보드의 조건이 `source`·`path`·`op`·`value`·`ignore_case`·`trim`까지 같은가(cloud에서는 `pnpm build` OOM으로 GUI 함수 실행 대조만 했다 — (1) 셋째 항목) ⓒ Ubuntu 19.04 실기·gnome-terminal은 사용자 몫(§B48b·§B49·§B51과 같은 항목).
 - **5. 올리기와 기록**: 게이트가 둘 다 green이면 `git push origin master`(push 뒤 master CI 녹색 확인). 그다음 선례 `a5f8d5e`처럼 문서만 고친 커밋 1개 — §B51·이 블록 머리의 "머지 전 사용자 확인"을 취소선 + ✅(날짜·맥 게이트 통과 수·병합 방식[ff인지 병합 커밋인지])로, `docs/roadmap-status.md` 운영실 모니터 행의 "맥 merge는 사용자"·"맥 merge·GUI 클릭 경로 대조는 사용자" 문구도 같이. **자동메모리**(`MEMORY.md`)는 cloud 세션이 쓸 수 없었다 — tui-check-now·tui-2b 완료를 로컬에서 한 줄씩 남긴다. 원격 브랜치 `ccr-7683ac09-t7d25q`는 지우지 않는다(다음 cloud 세션이 master 최신에서 다시 시작한다).
 - **사용자 결정(2026-11-11, 다시 묻지 않는다)**: 경로 글자 합계 4 MiB 한도·안내 문구와 "40자 이하 비밀이 비교값으로 채워지는 동작(GUI와 같은 규칙)"은 **그대로 둔다** — 쓰다가 불편하면 사용자가 수정을 요청한다(해소 방향은 (1) 첫 항목·(2) 첫 항목).
 
@@ -1034,7 +1034,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **조건 칸의 `대상` 줄은 한 줄 `fit`**(긴 경로의 전체는 선택 창 머리에서만 — `본문 전체`는 선택 창이 없지만 대상이 짧다) · **`fit_head`가 글자 단위 폭 합으로 잘라 `❤️`류에서 1칸 넘칠 수 있다**(줄 전체 `fit`이 흡수) · **값 목록이 열린 채 칸이 보드에서 사라지면 빈 화면**(다른 하위 화면과 같은 동작, `Esc`는 된다) · **터미널 높이 6줄 이하에서는 선택 창 머리(대상 = 받은 값)가 안 보인다**.
 - **라이브로 돌려 보지 않은 것**: 저장 중 `Esc`·`q`(저장이 수 ms라 때를 못 맞춤 — `esc_ignored_while_saving`·`back_from_values_ignored_while_saving` 단위 테스트만) · 11·12 `a` 뒤 종료 확인창이 떠 있는 동안 기록이 오는 순서(`take_auto_values_sequence` 단위만) · 경로 합계 4 MiB 초과 본문(단위 테스트만).
 - **spec §10 그대로**: 꺼진 보드는 추가 길 없음 · 반복 스텝의 앞 실행에서 고르면 판정(마지막 실행)과 다른 값을 본다(안내 줄만) · 판정 미리 보기 없음 · 12번에서 표시 값 2개면 그 길로는 조건도 못 단다(11번이나 요청·응답의 `a`로).
-- **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48·§B49·§B51과 같은 항목.
+- **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48b·§B49·§B51과 같은 항목.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 

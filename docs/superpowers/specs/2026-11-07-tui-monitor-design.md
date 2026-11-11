@@ -2,7 +2,7 @@
 
 - 날짜: 2026-11-07 · 유형: `user-path` + `platform` · 결정: [ADR-0055](../../adr/0055-tui-monitor.md)
 - 범위: 설계는 세 슬라이스 전체(§0), **구현 계획은 슬라이스마다 따로**(1a·1b·2a-1·2a-2·2b 각각 별도 plan).
-- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48), **2a 설계 확정**(2026-11-11, §6 — 목업 `2026-11-11-tui-2a-mockups/`), **2a-1 완료**(2026-11-11, 코드 `94bae76`..`8b2e86a`; plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md` — 칸 설정 수정·환경/시나리오 변수 값 수정·파일 저장, 판단·연기 roadmap §B49; 미리 실행(2a-2)은 [tui-check-now 설계](2026-11-11-tui-check-now-design.md)의 `r` 지금 점검으로 대체), **2b 구현 완료**(2026-11-11, 코드 `ebe98dc`..`75df3a6`; [tui-2b 설계](2026-11-11-tui-2b-add-from-response-design.md) — 응답에서 값을 골라 성공 조건·화면 표시 값 추가, 칸 설정 11·12의 `a`).
+- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48b), **2a 설계 확정**(2026-11-11, §6 — 목업 `2026-11-11-tui-2a-mockups/`), **2a-1 완료**(2026-11-11, 코드 `94bae76`..`8b2e86a`; plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md` — 칸 설정 수정·환경/시나리오 변수 값 수정·파일 저장, 판단·연기 roadmap §B49; 미리 실행(2a-2)은 [tui-check-now 설계](2026-11-11-tui-check-now-design.md)의 `r` 지금 점검으로 대체), **2b 구현 완료**(2026-11-11, 코드 `ebe98dc`..`75df3a6`; [tui-2b 설계](2026-11-11-tui-2b-add-from-response-design.md) — 응답에서 값을 골라 성공 조건·화면 표시 값 추가, 칸 설정 11·12의 `a`).
 
 ## 사용자 스토리 (US)
 
@@ -250,7 +250,7 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
    - ⓔ 기대 지문과 `tui-writes.json` 기록을 새 내용의 지문으로 갱신(기록 쓰기 실패는 로그만 — 다음 세션의 `.orig.bak` 판단이 "밖에서 온 파일"로 기울 뿐).
 5. 성공 → 머리 줄 `저장됨 HH:MM:SS`(5초). 3·4 실패 → 머리 줄 `파일에 저장 못 함 — 재시작하면 사라짐`(ⓐ면 위 문구)을 **다음 파일 쓰기 성공까지 모든 화면에** 유지(점검은 이미 새 값으로 돈다). 로그엔 단계·`io::ErrorKind`만. `r` 재시도(세션 재시작)는 파일을 다시 읽으므로 경고·기대 지문을 새로 시작한다.
 
-저장은 1b 기록 조회 작업자와 **다른** 작업자 태스크 하나가 차례로 처리한다(사유 조회 큐 뒤에서 기다리지 않게 — roadmap §B48 (2) "조회 큐 순서" 교훈). 세션을 내릴 때 abort·await(`crates/tui/CLAUDE.md` mpsc 함정).
+저장은 1b 기록 조회 작업자와 **다른** 작업자 태스크 하나가 차례로 처리한다(사유 조회 큐 뒤에서 기다리지 않게 — roadmap §B48b (2) "조회 큐 순서" 교훈). 세션을 내릴 때 abort·await(`crates/tui/CLAUDE.md` mpsc 함정).
 
 ### 6.3 환경 변수 (13, US7 — 목업 §5 왼쪽)
 
@@ -281,7 +281,7 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 
 - 도움말에 `Enter 칸 설정 보기·수정`, `새 파일로 바꾸면 이 PC에서 고친 값은 사라집니다`(노랑), `보드 파일: <받은 경로>` + `백업: <실제 경로>.bak · 원본: <실제 경로>.orig.bak`.
 - 자리 비움 5분(1b 규칙)은 2a의 새 화면(편집 메뉴·입력줄·목록 창·하위 목록·변수 화면·~~미리 실행~~[tui-check-now로 대체: 대기 창이 같은 규칙])에도 적용 — `is_sub`에 새 화면을 더한다. 입력 중이던 값은 **버린다**(Q3). 이미 저장한 값·진행 중 저장은 그대로(§6.2).
-- **1b 연기 접음**(roadmap §B48 (2)): 꺼진 보드(`/status` `enabled: false`)의 오류 목록 빈 문구 = `점검이 꺼져 있어 결과가 없습니다`.
+- **1b 연기 접음**(roadmap §B48b (2)): 꺼진 보드(`/status` `enabled: false`)의 오류 목록 빈 문구 = `점검이 꺼져 있어 결과가 없습니다`.
 - 문구는 `text.rs` 한 곳, GUI와 같은 뜻이면 `ko.ts` 값 그대로(`mirrored_text_exists_in_ko_ts`).
 - 새 루프백 메서드(`api.rs`): `put_board`·`export`(바이트)·`environment`/`put_environment`·`scenario`/`put_scenario`·~~(2a-2) `preview`~~(tui-check-now로 대체 — `check_now`). 새 거울(`wire.rs`, `deny_unknown_fields` + in-process 실응답 역직렬화 테스트): `EnvironmentResponse{id,name,vars,created_at,updated_at}`·`ScenarioResponse{id,name,yaml,version,created_at,updated_at}`·~~(2a-2) `PreviewResponse{trace,result}`~~(만들지 않는다 — tui-check-now는 `CheckNowResponse{last_at_ms}`).
 
