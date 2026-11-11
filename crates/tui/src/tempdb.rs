@@ -151,9 +151,19 @@ pub fn sweep_stale(dir: &Path) -> usize {
 mod tests {
     use super::*;
 
+    /// `ACTIVE`는 프로세스 전역이고 `remove_active`는 거기 든 디렉터리를 **전부** 지운다 — 같은
+    /// 프로세스에서 나란히 도는 다른 테스트의 살아 있는 TempDb까지 지워 `active.path().exists()`가
+    /// 가끔 실패했다(pre-commit에서 관측). TempDb를 만드는 테스트는 이 잠금으로 차례로 돈다.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[cfg(unix)]
     #[test]
     fn db_is_0600_in_0700_private_dir() {
+        let _serial = serial();
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let db = TempDb::create(tmp.path()).unwrap();
@@ -172,6 +182,7 @@ mod tests {
 
     #[test]
     fn drop_removes_whole_dir_including_sidecars() {
+        let _serial = serial();
         let tmp = tempfile::tempdir().unwrap();
         let db = TempDb::create(tmp.path()).unwrap();
         let dir = db.path().parent().unwrap().to_path_buf();
@@ -185,6 +196,7 @@ mod tests {
 
     #[test]
     fn paths_are_unique_per_create() {
+        let _serial = serial();
         let tmp = tempfile::tempdir().unwrap();
         let a = TempDb::create(tmp.path()).unwrap();
         let b = TempDb::create(tmp.path()).unwrap();
@@ -214,6 +226,7 @@ mod tests {
     /// N1: 시작 시 정리는 같은 pid(pid 재사용) 잔재도 지우되, 이 프로세스가 만든 살아 있는 TempDb는 건드리지 않는다.
     #[test]
     fn sweep_removes_own_pid_leftovers_but_not_active_tempdb() {
+        let _serial = serial();
         let tmp = tempfile::tempdir().unwrap();
         let leftover = tmp
             .path()
@@ -228,6 +241,7 @@ mod tests {
     /// 감시견이 부르는 강제 정리 — 살아 있는 TempDb 디렉터리도 지운다.
     #[test]
     fn remove_active_deletes_live_dirs() {
+        let _serial = serial();
         let tmp = tempfile::tempdir().unwrap();
         let db = TempDb::create(tmp.path()).unwrap();
         let dir = db.path().parent().unwrap().to_path_buf();
