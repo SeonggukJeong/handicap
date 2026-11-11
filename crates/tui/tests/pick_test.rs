@@ -12,7 +12,7 @@ use handicap_tui::names::Names;
 use handicap_tui::pick::{
     AUTH_HEADERS, Blocked, Draft, Hint, ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg,
     ValueList, ValueRow, ValuesState, auto_target, cond_block, default_condition, display_block,
-    display_item, is_auth_header, marks, open_values, segments_to_path, value_list,
+    display_full, display_item, is_auth_header, marks, open_values, segments_to_path, value_list,
 };
 use handicap_tui::text;
 
@@ -666,6 +666,13 @@ fn display_block_order() {
     };
     assert_eq!(cond_block(&conds(9)), None);
     assert_eq!(cond_block(&conds(10)), Some(text::COND_MAX));
+    // 하위 목록 12번 `a`가 쓰는 개수 판정 — `display_block`의 첫 갈래와 같은 함수.
+    let disp = |n: usize| PanelConfig {
+        display_items: vec![DisplayItem::default(); n],
+        ..Default::default()
+    };
+    assert_eq!(display_full(&disp(1)), None);
+    assert_eq!(display_full(&disp(2)), Some(text::DISPLAY_MAX));
 
     assert_eq!(
         display_item(A, &row(RowKind::BodyText, PickValue::BodyText)),

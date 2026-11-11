@@ -2396,9 +2396,7 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
             Some(k @ (edit::ListKind::Conditions | edit::ListKind::Display)) => {
                 let full = match k {
                     edit::ListKind::Conditions => pick::cond_block(p),
-                    _ => (p.display_items.len()
-                        >= handicap_controller::monitor::config::MAX_DISPLAY_ITEMS)
-                        .then_some(text::DISPLAY_MAX),
+                    _ => pick::display_full(p),
                 };
                 match full {
                     Some(m) => ui.overlay = Some(Overlay::Notice(m.to_string())),
@@ -3604,6 +3602,9 @@ impl App<'_> {
             return false;
         };
         self.screen = s;
+        // 결과를 보지 않는다: `take_auto_values`가 기록 `Loaded`·그 줄이 HTTP·`body` 있음을 이미 보장해 여기서는
+        // 값 목록이 열린다. 칸이 보드에서 사라진 드문 경우에만 안 열리고, 그때는 요청·응답 화면에 머무는 것이
+        // 맞다(표지는 어느 쪽이든 내려갔다 — spec §4.3).
         self.open_values_here();
         true
     }

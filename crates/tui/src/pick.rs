@@ -616,10 +616,16 @@ pub fn cond_block(p: &PanelConfig) -> Option<&'static str> {
         .then_some(text::COND_MAX)
 }
 
+/// 표시 값이 이미 가득 찼으면 그 이유(고른 값과 무관 — 하위 목록 12번의 `a`도 이것을 쓴다).
+pub fn display_full(p: &PanelConfig) -> Option<&'static str> {
+    (p.display_items.len() >= handicap_controller::monitor::config::MAX_DISPLAY_ITEMS)
+        .then_some(text::DISPLAY_MAX)
+}
+
 /// 표시 값 추가를 막는 이유 — 2개 → 같은 대상 → 인증 헤더 순(GUI와 같다).
 pub fn display_block(p: &PanelConfig, item: &DisplayItem) -> Option<&'static str> {
-    if p.display_items.len() >= handicap_controller::monitor::config::MAX_DISPLAY_ITEMS {
-        return Some(text::DISPLAY_MAX);
+    if let Some(m) = display_full(p) {
+        return Some(m);
     }
     if p.display_items
         .iter()
