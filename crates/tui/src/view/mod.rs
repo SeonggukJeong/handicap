@@ -1,9 +1,11 @@
-//! 화면 렌더링 — 뷰 모델(`model`)·시각 줄(`axis`)·모니터(`monitor`)·팝업(`overlay`)·오류(`error`).
+//! 화면 렌더링 — 뷰 모델(`model`)·시각 줄(`axis`)·모니터(`monitor`)·팝업(`overlay`)·오류(`error`)·
+//! 오류 보기 등 새 화면 틀(`inspect`).
 
 pub mod axis;
 pub mod bigfont;
 pub mod error;
 pub mod graph;
+pub mod inspect;
 pub mod model;
 pub mod monitor;
 pub mod overlay;

@@ -595,9 +595,34 @@ fn clock(ms: i64, with_date: bool) -> String {
         .unwrap_or_default()
 }
 
+/// 머리 줄에 필요한 값 — 모니터와 새 화면(오류 보기·칸 설정)이 같이 쓴다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeaderView {
+    pub board_name: String,
+    /// (현재 순번 1부터, 전체)
+    pub board_pos: (usize, usize),
+    pub server_time: Option<i64>,
+    pub server_down: bool,
+}
+
+impl MonitorScreen {
+    pub fn header(&self) -> HeaderView {
+        HeaderView {
+            board_name: self.board_name.clone(),
+            board_pos: self.board_pos,
+            server_time: self.server_time,
+            server_down: self.server_down,
+        }
+    }
+}
+
+fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
+    render_header_view(f, area, &s.header());
+}
+
 /// 머리 줄. 점검 상태는 절대 자르지 않고, 좁으면 날짜 → `Handicap 모니터 · ` → 시계 순으로 뺀다.
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
-fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
+pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let w = usize::from(area.width);
     let status = if s.server_down {
         text::SERVER_DOWN

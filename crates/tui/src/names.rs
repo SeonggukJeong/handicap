@@ -55,8 +55,8 @@ pub struct StepInfo {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ScenarioNames {
     name: String,
-    /// `None` = YAML을 못 읽음.
-    steps: Option<Vec<StepInfo>>,
+    /// 평탄화 순서. YAML을 못 읽은 시나리오는 맵에 없다(맵에 없음 = 못 읽음).
+    steps: Vec<StepInfo>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -117,7 +117,7 @@ impl Names {
                     s.id,
                     ScenarioNames {
                         name: sc.name,
-                        steps: Some(steps),
+                        steps,
                     },
                 ))
             })
@@ -139,7 +139,7 @@ impl Names {
 
     /// `None` = 그 시나리오를 못 읽음. `Some(목록)` = 평탄화 순서.
     pub fn step_infos(&self, scenario_id: &str) -> Option<&[StepInfo]> {
-        self.scenarios.get(scenario_id)?.steps.as_deref()
+        self.scenarios.get(scenario_id).map(|s| s.steps.as_slice())
     }
 
     /// (평탄화 순번 1부터, 정보)

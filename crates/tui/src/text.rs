@@ -146,3 +146,44 @@ pub fn stats_for_width(full: &str, w: usize) -> String {
     }
     fit(max_only, w)
 }
+
+// ---------- 오류 보기 (1b) ----------
+
+/// `ko.monitor.loading`
+pub const LOADING: &str = "불러오는 중…";
+
+/// `ko.monitor.recordLoadError`
+pub fn record_load_error(msg: &str) -> String {
+    format!("기록을 불러오지 못했습니다: {msg}")
+}
+
+/// 목록 줄의 404(기록이 이미 지워짐) — TUI 전용 짧은 문구.
+pub const RECORD_GONE_SHORT: &str = "기록 지남";
+pub const ERRORS_TITLE: &str = "오류 보기";
+
+/// 오류 목록 개수(실패만 보기) — `span`은 `span_text`.
+pub fn errors_count(failures: usize, total: usize, span: &str) -> String {
+    format!("실패 {failures}회 · 최근 {total}회({span}) 중")
+}
+
+/// 오류 목록 개수(전체 회차 보기).
+pub fn errors_count_all(total: usize) -> String {
+    format!("전체 {total}회")
+}
+
+/// 막대 구간 길이 — 60초 이상이면 반올림 분, 아니면 초.
+pub fn span_text(secs: u64) -> String {
+    if secs >= 60 {
+        format!("약 {}분", (secs + 30) / 60)
+    } else {
+        format!("약 {secs}초")
+    }
+}
+
+/// 오류 목록 열 이름(시각, 상태, 사유).
+pub const ERRORS_COLS: (&str, &str, &str) = ("시각", "상태", "사유");
+pub const ERRORS_EMPTY: &str = "이 구간에 실패가 없습니다";
+pub const ERRORS_EMPTY_ALL: &str = "아직 점검 결과가 없습니다";
+
+/// 새 화면(오류 보기·칸 설정)의 무입력 자동 복귀 안내 줄.
+pub const IDLE_NOTICE: &str = "5분 동안 입력이 없으면 모니터로 돌아갑니다";

@@ -373,3 +373,38 @@ fn text_labels_match_ko() {
     assert_eq!(text::SERVER_DOWN, "서버 응답 없음");
     assert_eq!(text::NO_VALUE, "—");
 }
+
+/// GUI와 같은 뜻의 TUI 문구가 `ui/src/i18n/ko.ts` 값과 글자까지 같다(이후 task가 행을 더한다).
+#[test]
+fn mirrored_text_exists_in_ko_ts() {
+    let ko = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/src/i18n/ko.ts"
+    ))
+    .unwrap();
+    assert_eq!(text::LOADING, "불러오는 중…");
+    assert!(
+        ko.contains(&format!("loading: \"{}\"", text::LOADING)),
+        "ko.monitor.loading"
+    );
+    assert_eq!(
+        text::record_load_error("m"),
+        "기록을 불러오지 못했습니다: m"
+    );
+    let tmpl = text::record_load_error("${msg}");
+    assert!(
+        ko.contains(&format!("recordLoadError: (msg: string) => `{tmpl}`")),
+        "ko.monitor.recordLoadError"
+    );
+}
+
+#[test]
+fn reason_parts_multibyte_needle() {
+    assert_eq!(
+        reason_parts("\"한글\" 포함 안 됨", Some("본문 전체 글자 포함 x")),
+        ReasonParts::NotContained {
+            needle: "한글".into(),
+            small: "본문 전체 글자 포함 x".into(),
+        }
+    );
+}

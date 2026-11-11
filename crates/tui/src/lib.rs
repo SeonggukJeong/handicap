@@ -5,6 +5,7 @@ pub mod api;
 pub mod app;
 pub mod check_mode;
 pub mod cli;
+pub mod inspect;
 pub mod judge;
 pub mod logging;
 pub mod names;

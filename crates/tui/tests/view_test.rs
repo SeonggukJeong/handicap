@@ -16,7 +16,7 @@ use handicap_tui::view::model::{
     Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows_s, parse_hex,
 };
 use handicap_tui::view::monitor::{
-    KeyBar, MonitorScreen, layout, panel_at, render, render_with_keys,
+    KeyBar, MonitorScreen, layout, panel_at, render, render_header_view, render_with_keys,
 };
 use handicap_tui::view::overlay::{render_help, render_quit_confirm};
 use handicap_tui::wire::{BoardResponse, PanelStatus, StatusResponse};
@@ -2502,4 +2502,26 @@ fn help_zoom_row_first_and_survives_small_height() {
     let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
     assert!(text.contains("Ctrl + + / -"), "{text}");
     assert!(!text.contains("방향키"), "{text}");
+}
+
+#[test]
+fn header_view_matches_monitor_header() {
+    for (w, pos, down) in [
+        (100u16, (1, 2), false),
+        (80, (1, 1), true),
+        (40, (2, 3), false),
+        (24, (1, 2), true),
+    ] {
+        let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], pos, 0);
+        sc.server_down = down;
+        let monitor = draw(w, 8, |f| render(f, &sc));
+        let h = sc.header();
+        assert_eq!(h.board_name, sc.board_name);
+        let alone = draw(w, 1, |f| render_header_view(f, f.area(), &h));
+        assert_eq!(
+            alone.lines().next().unwrap(),
+            monitor.lines().next().unwrap(),
+            "w={w}"
+        );
+    }
 }
