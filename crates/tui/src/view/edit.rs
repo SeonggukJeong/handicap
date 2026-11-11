@@ -216,7 +216,7 @@ pub fn render_list(f: &mut Frame, head: &HeaderView, v: &ListView, keys: &[&str]
 }
 
 /// 조건 수정 칸의 왼쪽 들여쓰기(좁으면 0).
-fn form_x_off(body_w: u16) -> u16 {
+pub(crate) fn form_x_off(body_w: u16) -> u16 {
     if body_w > 12 { 2 } else { 0 }
 }
 
@@ -225,9 +225,38 @@ pub fn cond_form_value_width(body_w: u16) -> usize {
     usize::from(body_w).saturating_sub(usize::from(form_x_off(body_w)) + 1 + FORM_LABEL_W)
 }
 
-/// 조건 수정 칸 줄 수(대상·규칙 + 값·체크·오류 중 있는 것).
-fn cond_form_lines(v: &CondFormView) -> u16 {
+/// 오류까지 센 필수 줄 수(대상·규칙 + 값·체크·오류 중 있는 것) — 받은 값·안내 줄은 뺀 것.
+fn cond_form_base(v: &CondFormView) -> u16 {
     2 + u16::from(v.value.is_some()) + u16::from(v.flags.is_some()) + u16::from(v.error.is_some())
+}
+
+/// 조건 수정 칸 줄 수(필수 줄 + 받은 값·안내 줄 중 있는 것).
+pub(crate) fn cond_form_lines(v: &CondFormView) -> u16 {
+    cond_form_base(v) + u16::from(v.received.is_some()) + u16::from(v.hint.is_some())
+}
+
+/// `h`줄에서 받은 값·안내 줄이 그려지는가 — 모자라면 안내 → 받은 값 순으로 뺀다(필수 줄이 먼저).
+fn extras_shown(v: &CondFormView, h: usize) -> (bool, bool) {
+    let base = usize::from(cond_form_base(v));
+    let received = v.received.is_some() && base < h;
+    let hint = v.hint.is_some() && base + usize::from(received) < h;
+    (received, hint)
+}
+
+/// body 맨 아래 `h`줄 자리에 조건 칸을 지우고 그린다(목록 화면들이 같이 쓴다).
+pub(crate) fn render_form_at_bottom(f: &mut Frame, body: Rect, h: u16, fv: &CondFormView) {
+    if body.height == 0 || body.width == 0 || h == 0 {
+        return;
+    }
+    let x_off = form_x_off(body.width);
+    let area = Rect::new(
+        body.x.saturating_add(x_off),
+        body.y.saturating_add(body.height.saturating_sub(h)),
+        body.width.saturating_sub(x_off),
+        h,
+    );
+    f.render_widget(Clear, area);
+    render_cond_form(f, area, fv);
 }
 
 /// 하위 목록 + (열려 있으면) 조건 수정 칸. 폼이 있으면 목록은 폼 높이만큼 줄어든 영역에 그려
@@ -246,18 +275,7 @@ pub fn render_list_with_form(
     let body = sub_layout(f.area()).body;
     let h = cond_form_lines(fv).min(body.height);
     let body = render_list_reserving(f, head, v, keys, usize::from(h));
-    if body.height == 0 || body.width == 0 || h == 0 {
-        return;
-    }
-    let x_off = form_x_off(body.width);
-    let area = Rect::new(
-        body.x.saturating_add(x_off),
-        body.y.saturating_add(body.height.saturating_sub(h)),
-        body.width.saturating_sub(x_off),
-        h,
-    );
-    f.render_widget(Clear, area);
-    render_cond_form(f, area, fv);
+    render_form_at_bottom(f, body, h, fv);
 }
 
 /// `reserve` = body 맨 아래에 비워 둘 줄 수(조건 수정 칸 자리). 그린 body를 돌려준다.
@@ -336,6 +354,10 @@ pub struct CondFormView<'a> {
     pub flags: Option<(bool, bool)>,
     pub focus: CondFocus,
     pub error: Option<&'a str>,
+    /// 값 목록에서 고른 받은 값(대상 줄 아래 `받은 값` 줄, 원격 글자 — 그릴 때 `sanitize`). 없으면 줄 없음.
+    pub received: Option<&'a str>,
+    /// 맨 아래 안내 줄(흐리게). 없으면 줄 없음.
+    pub hint: Option<&'a str>,
 }
 
 /// 라벨 칸 폭(표시 폭).
@@ -399,6 +421,14 @@ pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
         Span::styled(fit(&sanitize(v.target), fw), text_style),
     ]));
 
+    let (show_received, show_hint) = extras_shown(v, usize::from(area.height));
+    if let (true, Some(r)) = (show_received, v.received) {
+        lines.push(Line::from(vec![
+            form_label(text::PICK_COL_VALUE, label_w),
+            Span::styled(fit(&sanitize(r), fw), text_style),
+        ]));
+    }
+
     let op_label = v
         .ops
         .get(v.op.min(v.ops.len().saturating_sub(1)))
@@ -453,6 +483,13 @@ pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
         lines.push(Line::from(Span::styled(
             format!(" {}", fit(&sanitize(e), w.saturating_sub(1))),
             Style::default().fg(color(C_FAIL)),
+        )));
+    }
+
+    if let (true, Some(h)) = (show_hint, v.hint) {
+        lines.push(Line::from(Span::styled(
+            format!(" {}", fit(&sanitize(h), w.saturating_sub(1))),
+            Style::default().fg(color(C_MUTED)),
         )));
     }
 

@@ -514,6 +514,15 @@ pub const PICK_TOO_MANY_PATHS: &str =
 pub const PICK_LATER_RUN: &str =
     "같은 스텝이 뒤에 다시 실행됐습니다 — 판정은 마지막 실행의 응답을 봅니다";
 
+/// 값 목록 화면 제목 뒤 — `{칸 제목} · {시각} · {순번} {스텝 이름}` + 이 글자.
+pub const PICK_TITLE_SUFFIX: &str = " — 값 고르기";
+pub const PICK_COL_TARGET: &str = COND_FORM_TARGET;
+/// 값 목록 표 머리 / 조건 칸 `받은 값` 줄 라벨.
+pub const PICK_COL_VALUE: &str = "받은 값";
+/// 값 목록 줄 오른쪽 표지.
+pub const MARK_COND: &str = "조건";
+pub const MARK_DISPLAY: &str = "표시";
+
 /// `ko.monitor.condChooseCondition`
 pub const COND_ADD_CHOICE: &str = "조건으로 추가";
 /// `ko.monitor.condChooseDisplay`

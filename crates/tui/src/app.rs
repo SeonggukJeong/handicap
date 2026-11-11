@@ -3560,6 +3560,8 @@ impl App<'_> {
                             flags: *flags,
                             focus: *focus,
                             error: *error,
+                            received: None,
+                            hint: None,
                         },
                     );
                 render_list_with_form(f, head, &view, &keys, form.as_ref());

@@ -803,6 +803,11 @@ fn open_values_rules() {
     grp.group_id = Some("G".into());
     assert!(open_values(&grp, &t, 1, false, 128, &n).blocked.is_some());
 
+    // trace_idx가 범위 밖이면 응답 없음 취급
+    let v = open_values(&flow, &t, 99, false, 128, &n);
+    assert_eq!(v.blocked, Some(Blocked::NoResponse));
+    assert!(v.list.rows.is_empty());
+
     // 응답 없음
     let t2 = trace(vec![http_step(A, None)]);
     let v = open_values(&flow, &t2, 0, false, 128, &n);
@@ -851,6 +856,34 @@ fn values_state_debug_hides_values() {
     };
     let d = format!("{:?}", open_values(&step_panel, &t, 0, false, 128, &n));
     assert!(!d.contains("TOKEN123"));
+    // 스텝 칸(막힘) — 스텝 이름도 새지 않는다.
+    let t2 = trace(vec![http_step(A, Some(200)), http_step(B, Some(200))]);
+    let step_a = PanelConfig {
+        scenario_id: "S1".into(),
+        step_id: Some(A.into()),
+        ..Default::default()
+    };
+    let blocked = open_values(&step_a, &t2, 1, false, 128, &n);
+    match &blocked.blocked {
+        Some(Blocked::OtherStep { name }) => assert_eq!(name, "로그인"),
+        o => panic!("{o:?}"),
+    }
+    let d = format!("{blocked:?}");
+    assert!(!d.contains("로그인"), "step name leaked in {d}");
+}
+
+#[test]
+fn draft_debug_hides_values() {
+    let d = default_condition("A", &hdr("x-id", "TOKEN123"));
+    let s = format!("{d:?}");
+    for leak in ["TOKEN123", "x-id"] {
+        assert!(!s.contains(leak), "{leak} leaked in {s}");
+    }
+    let d = default_condition("A", &body("$.secretpath", st("BODYSECRET")));
+    let s = format!("{d:?}");
+    for leak in ["BODYSECRET", "secretpath"] {
+        assert!(!s.contains(leak), "{leak} leaked in {s}");
+    }
 }
 
 #[test]

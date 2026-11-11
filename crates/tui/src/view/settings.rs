@@ -66,6 +66,13 @@ pub enum OverlayView<'a> {
         options: &'a [String],
         cursor: usize,
     },
+    /// 값 목록에서 고른 뒤의 창(조건으로 추가 / 화면에 추가) — 머리 줄 + 두 줄, 아래 붙는 줄 방식.
+    /// `head`는 `{대상}  =  {받은 값}`(원격 글자), 옵션의 둘째 값은 막힌 이유(있으면 ` — {이유}`, 흐리게).
+    Choice {
+        head: String,
+        options: [(&'a str, Option<&'a str>); 2],
+        cursor: usize,
+    },
     Confirm(&'a str),
     Saving,
     /// 지금 점검 결과 대기(`점검 결과를 기다리는 중…`)
@@ -280,6 +287,48 @@ pub(crate) fn overlay_rows(
             ov_rows.extend(share_line);
             ov_rows.push(input_line(label, t, *cursor_x, hint.as_deref(), w));
             ov_rows.extend(err_line);
+        }
+        Some(OverlayView::Choice {
+            head,
+            options,
+            cursor,
+        }) => {
+            let sel = Style::default().fg(color(C_BG)).bg(color(C_TEXT));
+            let mut opt_rows: Vec<Line<'static>> = options
+                .iter()
+                .enumerate()
+                .map(|(i, (name, why))| {
+                    let selected = i == *cursor;
+                    let mark = if selected { "▶ " } else { "  " };
+                    let reason = why
+                        .map(|r| format!(" — {}", sanitize(r)))
+                        .unwrap_or_default();
+                    let s = fit(&format!("{mark}{}{reason}", sanitize(name)), w);
+                    if selected {
+                        let pad = " ".repeat(w.saturating_sub(text_width(&s)));
+                        Line::from(Span::styled(format!("{s}{pad}"), sel))
+                    } else if why.is_some() {
+                        Line::from(Span::styled(s, muted))
+                    } else {
+                        Line::from(Span::styled(s, text_style))
+                    }
+                })
+                .collect();
+            // 높이가 모자라면 머리 줄 → 안 고른 줄 순으로 뺀다(고른 줄이 마지막까지 남는다).
+            if bh >= 3 {
+                ov_rows.push(Line::from(Span::styled(
+                    fit(&format!("  {}", sanitize(head)), w),
+                    text_style,
+                )));
+                ov_rows.extend(opt_rows);
+            } else if bh == 2 {
+                ov_rows.extend(opt_rows);
+            } else {
+                let i = (*cursor).min(opt_rows.len().saturating_sub(1));
+                if i < opt_rows.len() {
+                    ov_rows.push(opt_rows.swap_remove(i));
+                }
+            }
         }
         Some(OverlayView::Confirm(t)) => {
             ov_rows.push(overlay_text(t, text_style.add_modifier(Modifier::BOLD), w))

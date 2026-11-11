@@ -284,7 +284,63 @@ fn form<'a>(op: usize, ops: &'a [&'static str], focus: CondFocus) -> CondFormVie
         flags: has_value.then_some((true, false)),
         focus,
         error: None,
+        received: None,
+        hint: None,
     }
+}
+
+#[test]
+fn cond_form_received_and_hint() {
+    let ops = ["= 같음", "키 있음"];
+    let mut v = form(0, &ops, CondFocus::Op);
+    v.received = Some("\"OK\"");
+    v.hint = Some("매번 바뀌는 값이면 실패합니다");
+    // 넉넉하면 두 줄 다 — 받은 값은 대상 줄 바로 아래, 안내는 맨 아래.
+    let (_, txt) = draw_form(60, 8, &v);
+    let lines: Vec<&str> = txt.lines().collect();
+    assert!(lines[0].contains("대상    status"), "{txt}");
+    assert!(lines[1].contains("받은 값 \"OK\""), "{txt}");
+    assert!(lines[2].contains("규칙"), "{txt}");
+    assert!(lines[3].contains("값      OK"), "{txt}");
+    assert!(lines[4].contains("[x] 대소문자 무시"), "{txt}");
+    assert!(lines[5].contains("매번 바뀌는 값이면 실패합니다"), "{txt}");
+    // 높이 5(= 기본 4줄 + 한 줄): 안내가 먼저 빠지고 받은 값이 남는다.
+    let (_, txt) = draw_form(60, 5, &v);
+    assert!(txt.contains("받은 값"), "{txt}");
+    assert!(!txt.contains("매번 바뀌는"), "{txt}");
+    assert!(txt.contains("규칙") && txt.contains("값      OK"), "{txt}");
+    assert!(txt.contains("[x] 대소문자 무시"), "{txt}");
+    // 높이 4(= 대상·규칙·값·체크): 받은 값도 빠지고 규칙·값은 남는다.
+    let (_, txt) = draw_form(60, 4, &v);
+    assert!(!txt.contains("받은 값"), "{txt}");
+    assert!(!txt.contains("매번 바뀌는"), "{txt}");
+    assert!(txt.contains("규칙") && txt.contains("값      OK"), "{txt}");
+    assert!(txt.contains("[x] 대소문자 무시"), "{txt}");
+    // 줄 수 계산 — 오류 줄이 있으면 오류가 안내보다 먼저 남는다.
+    v.error = Some("값이 비어 있습니다");
+    let (_, txt) = draw_form(60, 6, &v);
+    assert!(txt.contains("값이 비어 있습니다"), "{txt}");
+    assert!(txt.contains("받은 값"), "{txt}");
+    assert!(!txt.contains("매번 바뀌는"), "{txt}");
+    // exists 규칙(값·체크 줄 없음)이면 같은 높이에 안내까지 들어간다.
+    let mut v = form(1, &ops, CondFocus::Op);
+    v.received = Some("1");
+    v.hint = Some("안내 한 줄");
+    let (_, txt) = draw_form(60, 4, &v);
+    assert!(
+        txt.contains("받은 값") && txt.contains("안내 한 줄"),
+        "{txt}"
+    );
+}
+
+#[test]
+fn cond_form_received_sanitized() {
+    let ops = ["= 같음", "키 있음"];
+    let mut v = form(0, &ops, CondFocus::Op);
+    v.received = Some("a\u{1b}[31mb\u{202e}c");
+    let (_, txt) = draw_form(60, 8, &v);
+    assert!(txt.contains('\u{FFFD}'), "{txt}");
+    assert!(txt.contains("a\u{FFFD}[31mb\u{FFFD}c"), "{txt}");
 }
 
 #[test]

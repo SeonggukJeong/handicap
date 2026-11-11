@@ -12,6 +12,7 @@ pub mod monitor;
 pub mod overlay;
 pub mod settings;
 pub mod tier;
+pub mod values;
 
 use ratatui::layout::Rect;
 use ratatui::text::Span;

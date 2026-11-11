@@ -542,7 +542,7 @@ pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
         hint: None,
         focus_value: false,
     };
-    // 문자열(본문·헤더) — 인증 헤더 → 입력줄 → 길이 순.
+    // 문자열(본문·헤더) — 인증 헤더 → 길이 → 입력줄 순(긴 값을 한 글자씩 입력줄에 넣지 않는다).
     let string = |source, path: &str, v: &str, auth: bool| {
         if auth {
             Draft {
@@ -550,7 +550,7 @@ pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
                 hint: Some(Hint::Masked),
                 focus_value: false,
             }
-        } else if !input_accepts(v) || v.chars().count() > VOLATILE_LEN {
+        } else if v.chars().count() > VOLATILE_LEN || !input_accepts(v) {
             Draft {
                 cond: mk(source, path, ConditionOp::NotEmpty, ""),
                 hint: Some(Hint::Volatile),
