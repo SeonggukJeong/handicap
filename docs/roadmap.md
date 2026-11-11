@@ -910,7 +910,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 ### B48. 터미널 모니터 1b 오류 보기·칸 설정 보기 (tui-monitor-1b, 2026-11-11, 코드 `98b2f6c`..`cbc053c`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §5.3·§5.4, plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`) 판단·연기
 
-**다음 슬라이스**: ~~TUI 2 설정 수정·파일 저장~~ ✅ 2a-1 완료(§B49) → 2a-2 미리 실행, 또는 ②b 겹침 질문 흐름. **머지 전 사용자 확인**: 맥 메인 체크아웃에서 `cargo test -p handicap-engine --test connect_timeout_knob --test error_kind` 1회(`6e5fd7e`의 backlog-포화 픽스처는 Linux에서만 실측 — macOS가 가득 찬 대기열에 SYN-ACK을 주면 채움 루프가 16개 후 패닉). 실기: Ubuntu 19.04에서 `e`/`Enter` 흐름.
+**다음 슬라이스**: ~~TUI 2 설정 수정·파일 저장~~ ✅ 2a-1 완료(§B49) → 2a-2 미리 실행, 또는 ②b 겹침 질문 흐름. ~~**머지 전 사용자 확인**: 맥에서 `connect_timeout_knob`·`error_kind` 1회~~ ✅ 2026-11-11 merge `78abf725`에서 확인 — macOS는 대기열이 차면 간헐 RST(`ConnectionReset`)라 4건 실패 → `StalledListener`가 macOS만 비라우팅 IP로 `cfg!` 분기(`crates/engine/CLAUDE.md`). 실기: Ubuntu 19.04에서 `e`/`Enter` 흐름.
 
 (1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
 - **엔진 테스트 픽스처 교체(`6e5fd7e`)를 이 슬라이스에서 함**(plan 범위 밖, 사용자 승인): 클라우드 샌드박스가 `10.255.255.1:81`을 즉시 거부해 pre-commit이 모든 cargo 커밋을 막았다. cost-if-wrong: macOS에서 채움 루프 패닉 → 맥 pre-commit 차단. 해소: `cfg(target_os = "macos")` 폴백 또는 채움 상한 초과 시 다른 정체 수단.
@@ -936,7 +936,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 ### B49. 터미널 모니터 2a-1 칸 설정 수정·변수 값 수정·파일 저장 (tui-2a-1, 2026-11-11, 코드 `94bae76`..`8b2e86a`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §6, plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md`) 판단·연기
 
-**다음 슬라이스**: TUI 2a-2 미리 실행(메뉴 `p`, 목업 §6, 묶음 칸은 그 칸의 스텝만 — US4 나머지 문장) → 2b 조건·표시 값 추가. **머지 전 사용자 확인**: 이 브랜치(`ccr-7683ac09-t7d25q`)는 cloud 세션이 push만 했다 — 맥 메인 체크아웃에서 ff-merge + `cargo test -p handicap-tui` 1회(유닉스 권한·`mkfifo` 테스트는 Linux에서만 실측). 실기: Ubuntu 19.04 gnome-terminal에서 편집 흐름과 모호 폭 문자 `▶ ■ • ①② [x] ‹ ›`.
+**다음 슬라이스**: TUI 2a-2 미리 실행(메뉴 `p`, 목업 §6, 묶음 칸은 그 칸의 스텝만 — US4 나머지 문장) → 2b 조건·표시 값 추가. ~~**머지 전 사용자 확인**: 맥에서 ff-merge + `cargo test -p handicap-tui`~~ ✅ 2026-11-11 merge 커밋 `78abf725`(ff 불가 — 로컬 axis-ticks 미push, 이 블록과 번호가 겹친 axis-ticks는 §B50으로)·맥 전체 게이트 1846/1846 통과·push 완료. 실기: Ubuntu 19.04 gnome-terminal에서 편집 흐름과 모호 폭 문자 `▶ ■ • ①② [x] ‹ ›`.
 
 (1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
 - ~~**조건 규칙 목록 순서 = `ConditionOp` 정의 순서**(plan 지시), GUI 드롭다운과 다름~~ ✅ **GUI 순서로 맞춤**(사용자 결정 2026-11-11, `8b2e86a` — `edit::ops_for`가 `OPS_BY_SOURCE` 순서, 집합은 서버 허용 표 그대로. `ops_order_matches_gui_dropdown`이 `ui/src/monitor/conditions.ts`를 읽어 대조하므로 GUI가 순서를 바꾸면 TUI 테스트가 알려 준다).
