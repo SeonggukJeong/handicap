@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §0(1b 행)·US3·§5.2(`e`·`Enter`)·§5.3·§5.4(+ 두 절 끝의 **"1b 확정 (사용자 2026-11-10)"** 블록)·§8·§9·§11. 화면 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html`(사용자 승인 — 글자 배치의 기준). 모니터 화면 배치는 `2026-11-08-tui-readability-design.md`가 우선(이 plan이 그 화면에서 바꾸는 것은 맨 아래 키 줄뿐 — 조각 두 개를 더하고 **조각 순서(= 좁을 때 빼는 순서)를 바꾼다**, Task 7).
 
+REVIEW-GATE: APPROVED
+
 ## 선행 결정 (리뷰어·사용자 확인용)
 
 | 질문 | 결정 | 근거 |
@@ -41,7 +43,7 @@
 
 ## Review Focus
 
-1. **터미널로 가는 원격 문자열**: 응답 본문·헤더·URL·`StepTrace.error`·사유에 ESC·탭·CR 같은 제어 문자가 있어도 화면이 깨지거나 폭 계산이 어긋나지 않는다. → Task 3 `sanitize_replaces_control_chars`, Task 5·`body_lines_escape_sequence_is_inert`.
+1. **터미널로 가는 원격 문자열**: 응답 본문·헤더·URL·`StepTrace.error`·사유에 ESC·탭·CR 같은 제어 문자가 있어도 화면이 깨지거나 폭 계산이 어긋나지 않는다. → Task 3 `sanitize_replaces_control_chars`, Task 5 `body_lines_escape_sequence_is_inert`.
 2. **늦게 도착한 조회 결과**: 다른 칸·다른 회차로 옮긴 뒤(또는 `r` 재시도 뒤) 도착한 응답을 현재 화면에 넣지 않는다. 묶음 칸들은 같은 `at_ms`를 쓰므로 보드·칸·회차 **셋 다** 맞춰 본다. → Task 7 `fetched_for_other_panel_is_dropped`.
 3. **목록이 살아 움직인다**(사용자 확정 3 — 열자마자도: 커서를 첫 줄의 `at_ms`에 고정, Task 7 `open_errors_pins_cursor_to_first_row`): 1초마다 새 결과가 앞에 끼고 오래된 것이 밀려나도 커서는 같은 회차(`at_ms`)에 머문다. 밀려났으면 가장 가까운 더 오래된 줄. → Task 3 `cursor_stays_on_same_round_when_new_results_arrive`·`cursor_falls_to_next_older_when_evicted`.
 4. **작은 터미널**: 새 화면 네 개가 1×1부터 패닉 없이 그려진다. 무입력 안내 줄·개수·`보기 전용` 같은 덧붙은 글자는 잘리지 않고 통째로 빠진다. → Task 3–6 `*_size_sweep_no_panic`, Task 3 `render_errors_narrow_drops_whole_parts`.
