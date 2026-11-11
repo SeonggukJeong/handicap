@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
-use handicap_controller::monitor::config::BoardConfig;
+use handicap_controller::monitor::config::{BoardConfig, ConditionOp, ConditionSource};
 use handicap_tui::app::{EditDone, EditReq, FileErr, SavedValue, SavedWhat, spawn_edit_worker};
 use handicap_tui::edit;
 use handicap_tui::filesave::{FileState, WriteError, WriteStage};
@@ -647,12 +647,20 @@ async fn added_condition_judges_next_checks() {
     let s2 = Session::start(&r.file, db2.path()).await.unwrap();
     let b2 = s2.api.board(&s2.boards[0].id).await.unwrap();
     assert_eq!(b2.config.panels[0].conditions.len(), 1);
+    let c2 = &b2.config.panels[0].conditions[0];
+    assert_eq!(
+        (c2.source, c2.path.as_str(), c2.op, c2.value.as_str()),
+        (ConditionSource::Body, "$.status", ConditionOp::Eq, "OK")
+    );
     s2.shutdown().await;
     let res = fresh_result(&r, now_ms()).await;
     assert_eq!(res.verdict, Verdict::Ok, "{res:?}");
     mount_json(&srv, PICK_BODY_DOWN).await;
     let res = fresh_result(&r, now_ms()).await;
     assert_eq!(res.verdict, Verdict::Fail, "{res:?}");
+    // 그 조건 때문에 실패 — 조건 판정 결과만 `detail`(조건식)을 달고, `reason`은 받은 값.
+    assert_eq!(res.detail.as_deref(), Some("status = OK"), "{res:?}");
+    assert_eq!(res.reason.as_deref(), Some("DOWN"), "{res:?}");
     shutdown(r).await;
 }
 
@@ -662,16 +670,8 @@ async fn added_paths_resolve_on_server() {
     mount_json(&srv, PICK_BODY_OK).await;
     let r = rig(&srv).await;
     let vs = open_list(&r, 0).await;
-    let wrapped = find_row(
-        &vs,
-        "wrap.id",
-        |k| matches!(k, RowKind::Body { path } if path.contains("wrap") && path.ends_with("id")),
-    );
-    let quoted = find_row(
-        &vs,
-        "quoted key",
-        |k| matches!(k, RowKind::Body { path } if path.contains("ird key") && path.ends_with('n')),
-    );
+    let wrapped = body_row(&vs, "$.wrap.id");
+    let quoted = body_row(&vs, "$['we\\'ird key'].n");
     let header = find_row(
         &vs,
         "x-id",
@@ -691,7 +691,29 @@ async fn added_paths_resolve_on_server() {
             server: Ok(SavedValue::Board(b)),
             file: Some(Ok(())),
             ..
-        } => assert_eq!(b.config.panels[0].conditions.len(), 4),
+        } => {
+            let got: Vec<_> = b.config.panels[0]
+                .conditions
+                .iter()
+                .map(|c| (c.source, c.path.clone(), c.op, c.value.clone()))
+                .collect();
+            let want = vec![
+                (ConditionSource::Body, "$.wrap.id", ConditionOp::Eq, "7"),
+                (
+                    ConditionSource::Body,
+                    "$['we\\'ird key'].n",
+                    ConditionOp::Eq,
+                    "1",
+                ),
+                (ConditionSource::Header, "x-id", ConditionOp::Eq, "abc"),
+                (ConditionSource::Status, "", ConditionOp::Eq, "200"),
+            ];
+            let want: Vec<_> = want
+                .into_iter()
+                .map(|(s, p, o, v)| (s, p.to_string(), o, v.to_string()))
+                .collect();
+            assert_eq!(got, want);
+        }
         other => panic!("unexpected {other:?}"),
     }
     let res = fresh_result(&r, now_ms()).await;
@@ -762,6 +784,8 @@ async fn server_rejects_over_limit() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(std::fs::read(&r.file).unwrap(), r.start);
+    assert!(!r.s.target.bak().exists());
+    assert!(!r.s.target.orig_bak().exists());
     assert!(board_cfg(&r).await.panels[0].conditions.is_empty());
     shutdown(r).await;
 }

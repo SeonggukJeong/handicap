@@ -325,6 +325,8 @@ pub struct RecordState {
     pub load: RecordLoad,
     pub cursor: usize,
     pub origin: RecordOrigin,
+    /// 기록이 오면 값 목록으로 곧바로 갈 표지(칸 설정 11·12의 `a` — tui-2b §4.3). 한 번 쓰이면 내린다.
+    pub auto_values: bool,
 }
 
 /// GUI `branchText`: "none" → "(미매치)", "then"/"else" 그대로, "elif_3" → "elif 3", 그 외 원문.

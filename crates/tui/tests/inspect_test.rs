@@ -1006,6 +1006,7 @@ fn rstate(load: RecordLoad, cursor: usize) -> RecordState {
         load,
         cursor,
         origin: RecordOrigin::Errors,
+        auto_values: false,
     }
 }
 

@@ -453,8 +453,8 @@ pub const EDIT_SCENARIO_READONLY: &str = "시나리오는 GUI에서 바꿉니다
 pub const EDIT_GROUP_VALUE: &str = "묶음의 값입니다 — 묶음 설정은 GUI에서";
 pub const EDIT_STEP_READONLY: &str = "볼 스텝은 GUI에서 바꿉니다";
 pub const EDIT_STEP_PANEL_LATENCY: &str = "스텝 칸은 그 스텝의 응답 시간을 씁니다";
-pub const EDIT_NO_CONDITIONS: &str = "조건 추가는 GUI에서(다음 버전에서 TUI 지원)";
-pub const EDIT_NO_DISPLAY: &str = "표시 값 추가는 GUI에서(다음 버전에서 TUI 지원)";
+/// 칸 설정 11·12 하위 목록이 비었을 때의 안내 줄(tui-2b §2.7).
+pub const EDIT_ADD_HINT: &str = "없음 — a로 추가(지금 점검 뒤 응답에서 값 고르기)";
 pub const EDIT_NO_ENV: &str = "이 칸은 환경을 쓰지 않습니다";
 pub const EDIT_NO_ENV_VARS: &str = "이 환경에는 변수가 없습니다";
 pub const EDIT_NO_SCENARIO_VARS: &str = "이 시나리오에는 변수가 없습니다";

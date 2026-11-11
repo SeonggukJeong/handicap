@@ -354,6 +354,14 @@ pub enum CheckWait {
     After(Option<i64>),
 }
 
+/// 지금 점검의 새 회차가 오면 여는 것 — `Record` = 자세히(메뉴 `r`, 칸 설정 메뉴에서 연다), `Values` = 자세히 →
+/// (대상 스텝이 하나로 정해지면) 값 목록까지(하위 목록 11·12의 `a`, 하위 목록에서 연다 — tui-2b §2.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckThen {
+    Record,
+    Values,
+}
+
 /// 편집 화면 위에 뜨는 입력줄·목록 창·조건 수정·확인·저장 중·안내.
 /// `Debug`는 손으로 — 종류 이름만(입력값·서버 문구·환경 키 이름이 `{:?}`로 새지 않게).
 #[derive(Clone, PartialEq, Eq)]
@@ -387,8 +395,13 @@ pub enum Overlay {
     /// 저장 중. `restore` = 서버가 거절하면 되살릴 overlay(Input·CondForm은 오류 줄을 채워서). Pick·Confirm(삭제·단계·환경 빠짐)·
     /// 자리 바꾸기에서 온 저장은 `restore = None` — 거절이면 `Notice(서버 문구)`로 보인다.
     Saving { restore: Option<Box<Overlay>> },
-    /// 칸 설정의 `r`(지금 점검) 결과 대기. `seq` = 대기 번호(`App.check_seq`), `wait` = 요청 결과를 받았는가.
-    Checking { seq: u64, wait: CheckWait },
+    /// 칸 설정의 `r`(지금 점검) 결과 대기. `seq` = 대기 번호(`App.check_seq`), `wait` = 요청 결과를 받았는가,
+    /// `then` = 새 회차가 오면 무엇을 여나(자세히 / 값 목록까지 — tui-2b §4.3).
+    Checking {
+        seq: u64,
+        wait: CheckWait,
+        then: CheckThen,
+    },
     /// ReadOnly 안내·서버 거절 — 다음 키 하나로 닫힘(그 키는 메뉴로 넘어가지 않는다).
     Notice(String),
     /// 값 목록에서 고른 뒤의 창(tui-2b §2.3) — 0 = `조건으로 추가`, 1 = `화면에 추가`. 고른 줄은 `EditUi.values`의
@@ -634,13 +647,15 @@ pub fn idle_drop(ui: &mut EditUi) {
     ui.values = None;
 }
 
-/// 칸 설정 메뉴의 `r` — 대기 번호를 하나 올리고(`*seq` = `App.check_seq`: 프로세스 안에서 줄지 않는다) 대기 창을 띄운 뒤,
-/// 조회 작업자에 보낼 요청을 돌려준다. 보드·칸은 `ui`의 것.
-pub fn start_check(ui: &mut EditUi, seq: &mut u64) -> FetchReq {
+/// 칸 설정 메뉴의 `r`(`then` = `Record`)·하위 목록 11·12의 `a`(`Values`) — 대기 번호를 하나 올리고
+/// (`*seq` = `App.check_seq`: 프로세스 안에서 줄지 않는다) 대기 창을 띄운 뒤, 조회 작업자에 보낼 요청을 돌려준다.
+/// 보드·칸은 `ui`의 것. 요청은 두 길이 같다.
+pub fn start_check(ui: &mut EditUi, seq: &mut u64, then: CheckThen) -> FetchReq {
     *seq += 1;
     ui.overlay = Some(Overlay::Checking {
         seq: *seq,
         wait: CheckWait::Sent,
+        then,
     });
     FetchReq::CheckNow {
         board_id: ui.board_id.clone(),
@@ -652,19 +667,19 @@ pub fn start_check(ui: &mut EditUi, seq: &mut u64) -> FetchReq {
 /// 칸 설정에서 보낸 지금 점검의 응답(대기 번호 `seq`)을 반영한다. 창이 `Checking { seq, wait: Sent }`(같은 번호)일 때만 —
 /// 아니면(`Esc`로 닫음·5분 복귀로 버려짐·다시 눌러 번호가 다름·이미 `After`·다른 창) 상태를 건드리지 않고 `false`.
 pub fn check_reply(ui: &mut EditUi, seq: u64, result: CheckReply) -> bool {
-    if !matches!(
-        ui.overlay,
+    let then = match ui.overlay {
         Some(Overlay::Checking {
             seq: s,
-            wait: CheckWait::Sent
-        }) if s == seq
-    ) {
-        return false;
-    }
+            wait: CheckWait::Sent,
+            then,
+        }) if s == seq => then,
+        _ => return false,
+    };
     ui.overlay = Some(match result {
         Ok(last) => Overlay::Checking {
             seq,
             wait: CheckWait::After(last),
+            then,
         },
         Err(Some(409)) => Overlay::Notice(text::CHECK_OFF.to_string()),
         Err(_) => Overlay::Notice(text::CHECK_NOW_FAILED.to_string()),
@@ -689,9 +704,13 @@ pub fn check_ready(ui: &EditUi, results: &[CheckResult]) -> Option<CheckResult> 
     }
 }
 
-/// 대기 창이 자세히를 열어도 되는 화면 — **정확히 칸 설정 메뉴**일 때만(종료 확인창 등이 떠 있으면 미룬다).
-pub fn check_open_allowed(screen: &Screen) -> bool {
-    matches!(screen, Screen::Settings)
+/// 대기 창이 자세히를 열어도 되는 화면 — 창을 띄운 화면 그 자체일 때만: `Record`(메뉴 `r`) = **정확히 칸 설정 메뉴**,
+/// `Values`(하위 목록 `a`) = **정확히 하위 목록**(종료 확인창 등이 떠 있으면 미룬다).
+pub fn check_open_allowed(screen: &Screen, then: CheckThen) -> bool {
+    match then {
+        CheckThen::Record => matches!(screen, Screen::Settings),
+        CheckThen::Values => matches!(screen, Screen::EditList),
+    }
 }
 
 /// 화면 규칙용 정규화: `normalize_char` + 새로 `ㅇ`→`d`·`ㄴ`→`s`(편집 화면 경로에서만 — 기존 화면 불변).
@@ -1063,15 +1082,45 @@ impl SubViews {
     }
 
     /// 칸 설정(지금 점검 대기 창) → 자세히. `edit`의 보드·칸으로 연다 — `errors`는 건드리지 않고, 편집 상태·메뉴 커서는
-    /// 두며 대기 창만 닫는다. `edit`가 없으면 None.
+    /// 두며 대기 창만 닫는다. `auto_values` = 기록이 오면 값 목록으로 갈 표지(`take_auto_values`). `edit`가 없으면 None.
     pub fn open_record_from_settings(
         &mut self,
         clicked: CheckResult,
+        auto_values: bool,
     ) -> Option<(Screen, FetchReq)> {
         let e = self.edit.as_mut()?;
         e.overlay = None;
         let (board_id, panel_id) = (e.board_id.clone(), e.panel_id.clone());
-        Some(self.set_record(board_id, panel_id, clicked, RecordOrigin::Settings))
+        let opened = self.set_record(board_id, panel_id, clicked, RecordOrigin::Settings);
+        if let Some(r) = &mut self.record {
+            r.auto_values = auto_values;
+        }
+        Some(opened)
+    }
+
+    /// 기록이 오면 값 목록으로(tui-2b §4.3) — 매 갱신마다 부른다. 화면이 **정확히** 자세히 · 표지가 섬 · 기록 조회가 끝남
+    /// 일 때만 표지를 내리고, 받은 기록에서 대상 줄(`pick::auto_target`)이 정해지면 그 줄의 요청·응답 상태를 만들어
+    /// `Some(Screen::Body)`를 돌려준다(호출 쪽이 화면을 바꾼 뒤 값 목록을 연다). 기다리는 중(`Loading`)·종료 확인창
+    /// 등 다른 화면이면 표지 그대로 None — 다음 갱신에 다시 본다.
+    pub fn take_auto_values(
+        &mut self,
+        screen: &Screen,
+        lines: &[StepLine],
+        step_panel: bool,
+    ) -> Option<Screen> {
+        if !matches!(screen, Screen::Record) {
+            return None;
+        }
+        let r = self.record.as_mut()?;
+        if !r.auto_values || matches!(r.load, RecordLoad::Loading) {
+            return None;
+        }
+        r.auto_values = false;
+        if !matches!(r.load, RecordLoad::Loaded(_)) {
+            return None;
+        }
+        r.cursor = pick::auto_target(lines, step_panel)?;
+        self.open_body(lines)
     }
 
     /// 자세히 상태를 새로 만들고(본문은 비운다) 여는 요청을 돌려준다 — 두 여는 길이 함께 쓴다.
@@ -1095,6 +1144,7 @@ impl SubViews {
             load: RecordLoad::Loading,
             cursor: 0,
             origin,
+            auto_values: false,
         });
         self.body = None;
         (Screen::Record, req)
@@ -1998,6 +2048,8 @@ pub struct EditOut {
     pub req: Option<EditReq>,
     /// 입력줄의 Ctrl+C — 종료 확인창(입력 유지)
     pub ask_quit: bool,
+    /// 하위 목록 11·12의 `a` — 호출 쪽(`run_edit`)이 `start_check`로 지금 점검을 보낸다(tui-2b §2.7).
+    pub check: Option<CheckThen>,
 }
 
 const MENU_ITEMS: usize = 14;
@@ -2332,17 +2384,30 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
             Screen::Values => activate_value(ui, p),
             _ => {}
         },
-        EditAction::Add => {
-            if matches!(screen, Screen::EditList)
-                && list_kind_at(ui.cursor) == Some(edit::ListKind::Thresholds)
-            {
+        EditAction::Add if matches!(screen, Screen::EditList) => match list_kind_at(ui.cursor) {
+            Some(edit::ListKind::Thresholds) => {
                 ui.overlay = Some(field_input(
                     InputTarget::ThresholdNew,
                     &edit::threshold_default_ms(p).to_string(),
                     InputMode::Digits { max: DIGITS_MAX },
                 ));
             }
-        }
+            // 11·12: 꽉 찼으면 이유만(점검 안 함), 아니면 지금 점검 → 값 목록(§2.7). 12번에서도 같은 값 목록.
+            Some(k @ (edit::ListKind::Conditions | edit::ListKind::Display)) => {
+                let full = match k {
+                    edit::ListKind::Conditions => pick::cond_block(p),
+                    _ => (p.display_items.len()
+                        >= handicap_controller::monitor::config::MAX_DISPLAY_ITEMS)
+                        .then_some(text::DISPLAY_MAX),
+                };
+                match full {
+                    Some(m) => ui.overlay = Some(Overlay::Notice(m.to_string())),
+                    None => out.check = Some(CheckThen::Values),
+                }
+            }
+            None => {}
+        },
+        EditAction::Add => {}
         EditAction::Remove => {
             if matches!(screen, Screen::EditList)
                 && let Some(k) = list_kind_at(ui.cursor)
@@ -3505,6 +3570,7 @@ impl App<'_> {
             }
         }
         changed |= self.pump_check_ready();
+        changed |= self.pump_auto_values();
         let inner = match &self.screen {
             Screen::QuitConfirm(inner) => (**inner).clone(),
             s => s.clone(),
@@ -3518,30 +3584,56 @@ impl App<'_> {
         changed
     }
 
+    /// 하위 목록 11·12의 `a`로 연 자세히에 기록이 왔으면 값 목록까지(판단은 `take_auto_values` — 여기는 잇기만).
+    /// 화면을 **먼저** 요청·응답으로 바꾼다(`value_target`이 화면 `Body`를 요구한다). 열었으면 true.
+    fn pump_auto_values(&mut self) -> bool {
+        if !self.views.record.as_ref().is_some_and(|r| r.auto_values) {
+            return false;
+        }
+        let lines = self.record_lines();
+        let step_panel = self
+            .views
+            .record
+            .as_ref()
+            .and_then(|r| self.panel(&r.board_id, &r.panel_id))
+            .is_some_and(|p| p.step_id.is_some());
+        let Some(s) = self
+            .views
+            .take_auto_values(&self.screen, &lines, step_panel)
+        else {
+            return false;
+        };
+        self.screen = s;
+        self.open_values_here();
+        true
+    }
+
     /// 칸 설정 대기 창이 `After(last)`인데 그 칸에 `last`보다 새 결과가 들어왔으면 그 회차의 자세히를 연다.
     /// **`self.screen` 자체**가 칸 설정 메뉴일 때만 — 종료 확인창이 떠 있으면 열지 않고 기다렸다가 취소해 메뉴로 돌아온
     /// 다음 갱신에서 연다(확인창이 저절로 사라지지 않게). 열었으면 true.
     fn pump_check_ready(&mut self) -> bool {
-        if !check_open_allowed(&self.screen) {
-            return false;
-        }
         let Some(ui) = self.views.edit.as_ref() else {
             return false;
         };
         // 새 결과를 기다리는 대기 창이 있을 때만 결과 목록을 복제한다(이 함수는 매 갱신마다 불린다).
-        if !matches!(
-            ui.overlay,
+        let then = match ui.overlay {
             Some(Overlay::Checking {
                 wait: CheckWait::After(_),
+                then,
                 ..
-            })
-        ) {
+            }) => then,
+            _ => return false,
+        };
+        if !check_open_allowed(&self.screen, then) {
             return false;
         }
         let Some(clicked) = check_ready(ui, &self.panel_results(&ui.board_id, &ui.panel_id)) else {
             return false;
         };
-        let Some((screen, req)) = self.views.open_record_from_settings(clicked) else {
+        let Some((screen, req)) = self
+            .views
+            .open_record_from_settings(clicked, then == CheckThen::Values)
+        else {
             return false;
         };
         self.screen = screen;
@@ -3965,8 +4057,9 @@ impl App<'_> {
                 let rows = list_rows(kind, p, names);
                 let n = rows.len();
                 let rows = match (n, kind) {
-                    (0, edit::ListKind::Conditions) => vec![dim_row(text::EDIT_NO_CONDITIONS)],
-                    (0, edit::ListKind::Display) => vec![dim_row(text::EDIT_NO_DISPLAY)],
+                    (0, edit::ListKind::Conditions | edit::ListKind::Display) => {
+                        vec![dim_row(text::EDIT_ADD_HINT)]
+                    }
                     _ => rows,
                 };
                 let title = format!("{} · {}", list_label(kind), p.title);
@@ -4241,7 +4334,7 @@ impl App<'_> {
                 if self.fetch_req.is_some()
                     && let Some(ui) = self.views.edit.as_mut()
                 {
-                    let req = start_check(ui, &mut self.check_seq);
+                    let req = start_check(ui, &mut self.check_seq, CheckThen::Record);
                     self.send_fetch(req);
                 }
                 false
@@ -4257,6 +4350,10 @@ impl App<'_> {
                     seq: &mut self.save_seq,
                 };
                 let out = edit_apply(&self.screen, ui, &mut cx, a);
+                // 하위 목록 11·12의 `a` — 메뉴 `r`과 같은 가드(조회 작업자가 없으면 대기 창을 띄우지 않는다).
+                if let (Some(then), Some(tx)) = (out.check, &self.fetch_req) {
+                    let _ = tx.send(start_check(ui, &mut self.check_seq, then));
+                }
                 if let Some(req) = out.req {
                     let sent = self
                         .edit_req

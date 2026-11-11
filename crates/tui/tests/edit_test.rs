@@ -91,15 +91,9 @@ fn edit_kind_table() {
     assert_eq!(edit_kind(8, &p, &n), EditKind::List(ListKind::Thresholds));
     assert_eq!(edit_kind(9, &p, &n), EditKind::Input(Field::BarCount));
     assert_eq!(edit_kind(10, &p, &n), EditKind::Input(Field::GraphMax));
-    // 11·12 비었음
-    assert_eq!(
-        ro(edit_kind(11, &p, &n)),
-        "조건 추가는 GUI에서(다음 버전에서 TUI 지원)"
-    );
-    assert_eq!(
-        ro(edit_kind(12, &p, &n)),
-        "표시 값 추가는 GUI에서(다음 버전에서 TUI 지원)"
-    );
+    // 11·12 비었어도 하위 목록(tui-2b §2.7 — 빈 목록에서 `a`로 추가)
+    assert_eq!(edit_kind(11, &p, &n), EditKind::List(ListKind::Conditions));
+    assert_eq!(edit_kind(12, &p, &n), EditKind::List(ListKind::Display));
     p.conditions.push(cond(A));
     p.display_items.push(disp(A));
     assert_eq!(edit_kind(11, &p, &n), EditKind::List(ListKind::Conditions));
@@ -136,10 +130,8 @@ fn edit_kind_table() {
     );
     assert_eq!(edit_kind(1, &g, &n), EditKind::Input(Field::Title));
     assert_eq!(edit_kind(6, &g, &n), EditKind::Input(Field::Timeout));
-    assert_eq!(
-        ro(edit_kind(11, &g, &n)),
-        "조건 추가는 GUI에서(다음 버전에서 TUI 지원)"
-    );
+    assert_eq!(edit_kind(11, &g, &n), EditKind::List(ListKind::Conditions));
+    assert_eq!(edit_kind(12, &g, &n), EditKind::List(ListKind::Display));
     // 단독 스텝 칸(묶음 아님·step_id 있음): 7은 읽기 전용, 4는 묶음 칸만 고른다
     let mut solo = panel();
     solo.step_id = Some(A.into());

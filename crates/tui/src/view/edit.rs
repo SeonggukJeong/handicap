@@ -41,9 +41,8 @@ pub fn list_keys(kind: ListKind, rows: usize) -> Vec<&'static str> {
     if rows > 0 && kind != ListKind::Display {
         k.push(text::KEYS_EDIT);
     }
-    if kind == ListKind::Thresholds {
-        k.push(text::KEYS_ADD);
-    }
+    // 세 종류 모두 — 조건·표시 값은 지금 점검 뒤 값 목록에서 고른다(tui-2b §2.7).
+    k.push(text::KEYS_ADD);
     if kind == ListKind::Display && rows >= 2 {
         k.push(text::KEYS_SWAP);
     }
@@ -405,6 +404,16 @@ fn form_label(label: &str, w: usize) -> Span<'static> {
     )
 }
 
+/// 조건 칸 `받은 값` 줄의 앞부분 — 값 칸 폭 `fw`의 4배(글자 수, 최소 4) 이하로 자르고 잘렸는지 함께 돌려준다
+/// (선택 창 머리의 예산과 같은 생각: 한 줄에 보이는 폭의 넉넉한 배수라 잘라도 화면 결과는 같다).
+pub fn received_head(r: &str, fw: usize) -> (&str, bool) {
+    let max = fw.max(1).saturating_mul(4);
+    match r.char_indices().nth(max) {
+        Some((i, _)) => (&r[..i], true),
+        None => (r, false),
+    }
+}
+
 /// 조건 수정 칸(목업 §4 오른쪽): `area`의 줄 위에서부터 대상 · 규칙 · 값 · 체크 · 오류. 모자란 줄은 아래부터 생략.
 pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
     let w = usize::from(area.width);
@@ -423,9 +432,16 @@ pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
 
     let (show_received, show_hint) = extras_shown(v, usize::from(area.height));
     if let (true, Some(r)) = (show_received, v.received) {
+        // 받은 값은 최대 64KB — 매 프레임 통째 `sanitize`하지 않게 앞부분만(어차피 한 줄로 `fit`).
+        let (head, cut) = received_head(r, fw);
+        let shown = if cut {
+            format!("{}…", sanitize(head))
+        } else {
+            sanitize(head)
+        };
         lines.push(Line::from(vec![
             form_label(text::PICK_COL_VALUE, label_w),
-            Span::styled(fit(&sanitize(r), fw), text_style),
+            Span::styled(fit(&shown, fw), text_style),
         ]));
     }
 

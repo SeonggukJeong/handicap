@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
 
 use crate::input::{InputMode, LineInput};
-use crate::inspect::{PRETTY_MAX_BYTES, PRETTY_MAX_DEPTH, sanitize};
+use crate::inspect::{PRETTY_MAX_BYTES, PRETTY_MAX_DEPTH, StepLine, sanitize};
 use crate::names::Names;
 use crate::panel_settings::condition_target;
 use crate::text;
@@ -782,4 +782,23 @@ pub fn open_values(
         list.notes.insert(0, ListNote::LaterRun);
     }
     ValuesState::new(step.step_id.clone(), list, None)
+}
+
+/// 칸 설정 11·12의 `a`(tui-2b §2.7) — 자세히의 스텝 줄 중 값 목록을 곧바로 열 줄의 위치. 스텝 칸(`step_panel`) =
+/// `◀ 이 칸` 줄(`focus`), 흐름 전체 칸 = HTTP 줄이 정확히 1개일 때 그 줄(반복으로 줄이 여럿이면 None). 그 밖 None.
+pub fn auto_target(lines: &[StepLine], step_panel: bool) -> Option<usize> {
+    if step_panel {
+        return lines
+            .iter()
+            .position(|l| matches!(l, StepLine::Http { focus: true, .. }));
+    }
+    let mut http = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| matches!(l, StepLine::Http { .. }))
+        .map(|(i, _)| i);
+    match (http.next(), http.next()) {
+        (Some(i), None) => Some(i),
+        _ => None,
+    }
 }

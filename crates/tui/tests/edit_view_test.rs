@@ -4,7 +4,7 @@ use handicap_tui::app::CondFocus;
 use handicap_tui::text;
 use handicap_tui::view::edit::{
     CondFormView, ListKind, ListRow, ListView, VarRow, VarsView, cond_form_keys, env_display,
-    list_keys, render_cond_form, render_list, render_vars, vars_keys,
+    list_keys, received_head, render_cond_form, render_list, render_vars, vars_keys,
 };
 use handicap_tui::view::monitor::HeaderView;
 use handicap_tui::view::settings::OverlayView;
@@ -248,7 +248,7 @@ fn list_thresholds_colored() {
 #[test]
 fn list_empty_shows_guidance() {
     let guide = ListRow {
-        text: text::EDIT_NO_CONDITIONS.into(),
+        text: text::EDIT_ADD_HINT.into(),
         color: None,
         dim: true,
     };
@@ -259,10 +259,14 @@ fn list_empty_shows_guidance() {
         overlay: None,
     };
     let (buf, txt) = draw_list(100, 20, &v, &[]);
-    assert!(txt.contains(text::EDIT_NO_CONDITIONS), "{txt}");
+    assert!(txt.contains(text::EDIT_ADD_HINT), "{txt}");
+    assert_eq!(
+        text::EDIT_ADD_HINT,
+        "없음 — a로 추가(지금 점검 뒤 응답에서 값 고르기)"
+    );
     assert!(!txt.contains('▶'), "안내 줄은 고르지 않는다: {txt}");
-    let gy = row_with(&buf, text::EDIT_NO_CONDITIONS);
-    assert_ne!(buf[(col_of(&buf, gy, "조"), gy)].bg, SEL_BG);
+    let gy = row_with(&buf, text::EDIT_ADD_HINT);
+    assert_ne!(buf[(col_of(&buf, gy, "없"), gy)].bg, SEL_BG);
     // 줄이 하나도 없으면 `없음`.
     let v = ListView {
         title: "응답속도 기준선 · 주문 조회",
@@ -469,21 +473,28 @@ fn key_fragments() {
     );
     assert_eq!(
         list_keys(ListKind::Conditions, 2),
-        vec!["↑↓ 고르기", "Enter 수정", "d 삭제", "Esc 뒤로"]
+        vec!["↑↓ 고르기", "Enter 수정", "a 추가", "d 삭제", "Esc 뒤로"]
     );
     assert_eq!(
         list_keys(ListKind::Display, 2),
-        vec!["↑↓ 고르기", "s 자리 바꾸기", "d 삭제", "Esc 뒤로"]
+        vec!["↑↓ 고르기", "a 추가", "s 자리 바꾸기", "d 삭제", "Esc 뒤로"]
     );
     assert_eq!(
         list_keys(ListKind::Display, 1),
-        vec!["↑↓ 고르기", "d 삭제", "Esc 뒤로"]
+        vec!["↑↓ 고르기", "a 추가", "d 삭제", "Esc 뒤로"]
     );
-    // 빈 목록 = 삭제·수정 없음.
-    assert_eq!(
-        list_keys(ListKind::Thresholds, 0),
-        vec!["↑↓ 고르기", "a 추가", "Esc 뒤로"]
-    );
+    // 빈 목록 = 삭제·수정 없음, `a 추가`는 세 종류 모두(tui-2b §2.7).
+    for k in [
+        ListKind::Thresholds,
+        ListKind::Conditions,
+        ListKind::Display,
+    ] {
+        assert_eq!(
+            list_keys(k, 0),
+            vec!["↑↓ 고르기", "a 추가", "Esc 뒤로"],
+            "{k:?}"
+        );
+    }
     // 조건 수정 칸에는 `d 삭제`가 없다(spec §6.7 — 그 칸의 키가 아니다).
     assert_eq!(
         cond_form_keys(),
@@ -678,4 +689,45 @@ fn cond_form_does_not_hide_selected_row() {
                 .unwrap();
         }
     }
+}
+
+// ---------- tui-2b Task 7 (리뷰 접음 a): 조건 칸의 `받은 값`은 sanitize 전에 앞부분만 ----------
+
+#[test]
+fn cond_form_long_received_is_clipped_before_sanitize() {
+    // 순수 함수: 폭의 4배(글자 수) 이하로 자르고, 잘렸는지 알려 준다.
+    let long: String = "가".repeat(50_000) + &"x".repeat(50_000);
+    for fw in [0usize, 1, 10, 47, 200] {
+        let (head, cut) = received_head(&long, fw);
+        assert!(head.chars().count() <= fw.max(1) * 4, "{fw}");
+        assert!(long.starts_with(head));
+        assert!(cut, "{fw}");
+    }
+    assert_eq!(received_head("\"OK\"", 47), ("\"OK\"", false));
+    assert_eq!(
+        received_head("abcd", 1),
+        ("abcd", false),
+        "딱 상한이면 안 자른다"
+    );
+    assert_eq!(received_head("abcde", 1), ("abcd", true));
+    // 그리기: 10만 자 받은 값 — 앞부분이 보이고 끝이 `…`, 패닉 없음.
+    let ops = ["= 같음", "키 있음"];
+    let mut v = form(0, &ops, CondFocus::Op);
+    let r = "AB".to_string() + &"z".repeat(100_000);
+    v.received = Some(&r);
+    let (_, txt) = draw_form(60, 8, &v);
+    let line = txt.lines().nth(1).unwrap().trim_end();
+    assert!(line.starts_with(" 받은 값 ABzzz"), "{txt}");
+    assert!(line.ends_with('…'), "{line}");
+    // 폭이 아주 좁아도(값 칸 0~몇 칸) 패닉 없음.
+    for w in 1..16 {
+        draw_form(w, 8, &v);
+    }
+    // 잘린 앞부분이 폭보다 좁아도(폭 0 글자) 잘렸다는 `…`가 남는다.
+    let zw = "\u{0301}".repeat(5_000) + "끝";
+    v.received = Some(&zw);
+    let (_, txt) = draw_form(60, 8, &v);
+    let line = txt.lines().nth(1).unwrap().trim_end();
+    assert!(line.ends_with('…'), "{line}");
+    assert!(!line.contains('끝'), "{line}");
 }

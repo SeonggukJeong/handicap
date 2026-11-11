@@ -66,9 +66,8 @@ pub fn edit_kind(no: usize, p: &PanelConfig, names: &Names) -> EditKind {
         8 => EditKind::List(ListKind::Thresholds),
         9 => EditKind::Input(Field::BarCount),
         10 => EditKind::Input(Field::GraphMax),
-        11 if p.conditions.is_empty() => EditKind::ReadOnly(text::EDIT_NO_CONDITIONS),
+        // 비어 있어도 하위 목록 — 빈 목록에서 `a`로 추가(tui-2b §2.7).
         11 => EditKind::List(ListKind::Conditions),
-        12 if p.display_items.is_empty() => EditKind::ReadOnly(text::EDIT_NO_DISPLAY),
         12 => EditKind::List(ListKind::Display),
         13 => match p.environment_id.as_deref() {
             None => EditKind::ReadOnly(text::EDIT_NO_ENV),

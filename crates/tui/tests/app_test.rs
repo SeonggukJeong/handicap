@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_tui::app::{
-    Action, CheckWait, CondFocus, CondTarget, Dir, EditAction, EditUi, EnvLoad, FetchReq, Fetched,
-    IDLE_RETURN, InputTarget, KeyCtx, Overlay, Pending, ScenLoad, Screen, SubViews, digit_jump,
-    edit_key, effective_server_down, handle_key, handle_mouse, idle_drop, idle_expired,
-    is_edit_screen, is_user_input, move_sel, screen_after_start, start_check, sub_keys,
-    toggle_allowed,
+    Action, CheckThen, CheckWait, CondFocus, CondTarget, Dir, EditAction, EditUi, EnvLoad,
+    FetchReq, Fetched, IDLE_RETURN, InputTarget, KeyCtx, Overlay, Pending, ScenLoad, Screen,
+    SubViews, digit_jump, edit_key, effective_server_down, handle_key, handle_mouse, idle_drop,
+    idle_expired, is_edit_screen, is_user_input, move_sel, screen_after_start, start_check,
+    sub_keys, toggle_allowed,
 };
 use handicap_tui::app::{check_open_allowed, check_ready, check_reply};
 use handicap_tui::edit::{Field, ListKind, Pick};
@@ -3537,7 +3537,7 @@ mod save {
             let mut e = ui("B1", "P1", None);
             e.cursor = 6;
             v.edit = Some(e);
-            v.open_record_from_settings(result(11)).unwrap();
+            v.open_record_from_settings(result(11), false).unwrap();
             assert_eq!(v.open_body(&lines), Some(Screen::Body));
             v.edit.as_mut().unwrap().values = Some(state(eight_rows()));
             assert_eq!(v.back(&Screen::Values), Some(Screen::Body));
@@ -3740,7 +3740,7 @@ mod save {
             e.cursor = 10;
             e.list_cursor = 2;
             v.edit = Some(e);
-            v.open_record_from_settings(result(11)).unwrap();
+            v.open_record_from_settings(result(11), false).unwrap();
             assert_eq!(v.open_body(&[http_line(0)]), Some(Screen::Body));
             v
         }
@@ -3884,6 +3884,121 @@ mod save {
                 assert!(v.body.is_some());
             }
         }
+
+        // ---------- tui-2b Task 7: 하위 목록 11·12의 `a` ----------
+
+        /// 메뉴 커서 `cursor`(0부터 — 7 = 8번 기준선, 10 = 11번 조건, 11 = 12번 표시)에서 연 하위 목록의 `EditUi`.
+        fn list_ui(cursor: usize) -> EditUi {
+            let mut u = ui("B1", "P1", None);
+            u.cursor = cursor;
+            u
+        }
+
+        #[test]
+        fn list_a_blocked() {
+            let mut t = None;
+            // 11번·조건 10개 → 이유 안내만, 점검 없음.
+            let mut bs = boards();
+            ten_conds(&mut bs);
+            let mut u = list_ui(10);
+            let out = run(&Screen::EditList, &mut u, &bs, &mut t, EditAction::Add);
+            assert_eq!(u.overlay, Some(Overlay::Notice(text::COND_MAX.to_string())));
+            assert_eq!(out.check, None);
+            assert!(out.req.is_none());
+            // 12번·표시 값 2개 → 이유 안내만.
+            let mut bs = boards();
+            two_displays(&mut bs);
+            let mut u = list_ui(11);
+            let out = run(&Screen::EditList, &mut u, &bs, &mut t, EditAction::Add);
+            assert_eq!(
+                u.overlay,
+                Some(Overlay::Notice(text::DISPLAY_MAX.to_string()))
+            );
+            assert_eq!(out.check, None);
+            // 11번·9개 / 12번·1개 / 빈 목록 → 점검 의도(창은 `run_edit`의 `start_check`가 띄운다).
+            let mut nine = boards();
+            nine[0].config.panels[0].conditions = (0..9).map(cond).collect();
+            let mut one = boards();
+            two_displays(&mut one);
+            one[0].config.panels[0].display_items.pop();
+            for (cursor, bs) in [
+                (10, &nine),
+                (11, &one),
+                (10, &boards()),
+                (11, &boards()),
+                // 표시 값 2개여도 11번(조건)은 막히지 않는다 — 막힘은 그 목록의 것.
+                (10, &{
+                    let mut b = boards();
+                    two_displays(&mut b);
+                    b
+                }),
+            ] {
+                let mut u = list_ui(cursor);
+                let out = run(&Screen::EditList, &mut u, bs, &mut t, EditAction::Add);
+                assert_eq!(out.check, Some(CheckThen::Values), "{cursor}");
+                assert_eq!(u.overlay, None, "{cursor}");
+                assert!(out.req.is_none() && out.screen.is_none(), "{cursor}");
+            }
+            // 8번(기준선) → 지금처럼 새 기준선 입력줄, 점검 없음.
+            let bs = boards();
+            let mut u = list_ui(7);
+            let out = run(&Screen::EditList, &mut u, &bs, &mut t, EditAction::Add);
+            assert!(
+                matches!(
+                    u.overlay,
+                    Some(Overlay::Input {
+                        target: InputTarget::ThresholdNew,
+                        ..
+                    })
+                ),
+                "{:?}",
+                u.overlay
+            );
+            assert_eq!(out.check, None);
+            // 하위 목록이 아닌 화면의 `Add`는 무동작.
+            let mut u = list_ui(10);
+            let out = run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Add);
+            assert_eq!(out.check, None);
+            assert_eq!(u.overlay, None);
+        }
+
+        #[test]
+        fn idle_and_cancel() {
+            let values = Overlay::Checking {
+                seq: 1,
+                wait: CheckWait::Sent,
+                then: CheckThen::Values,
+            };
+            // 하위 목록의 대기 창: Esc = 닫기.
+            let u = ui("B1", "P1", Some(values.clone()));
+            assert_eq!(
+                ek(&Screen::EditList, &u, key(KeyCode::Esc)),
+                EditAction::CheckCancel
+            );
+            assert_eq!(ek(&Screen::EditList, &u, ch('a')), EditAction::None);
+            let bs = boards();
+            let mut t = None;
+            let mut u = list_ui(10);
+            u.overlay = Some(values.clone());
+            run(
+                &Screen::EditList,
+                &mut u,
+                &bs,
+                &mut t,
+                EditAction::CheckCancel,
+            );
+            assert_eq!(u.overlay, None);
+            // 5분 복귀가 값 목록 의도의 대기 창도 버린다.
+            for w in [CheckWait::Sent, CheckWait::After(Some(3))] {
+                let mut u = ui_with(Overlay::Checking {
+                    seq: 2,
+                    wait: w,
+                    then: CheckThen::Values,
+                });
+                idle_drop(&mut u);
+                assert!(u.overlay.is_none());
+            }
+        }
     }
 }
 
@@ -3938,7 +4053,11 @@ fn shown_notice_prefers_check_over_file() {
 // ---------- tui-check-now Task 5: 칸 설정의 r → 대기 창 → 자세히 ----------
 
 fn checking(seq: u64, wait: CheckWait) -> Overlay {
-    Overlay::Checking { seq, wait }
+    Overlay::Checking {
+        seq,
+        wait,
+        then: CheckThen::Record,
+    }
 }
 
 fn board_ui(o: Option<Overlay>) -> EditUi {
@@ -3990,7 +4109,7 @@ fn check_keys_menu_and_waiting_window() {
 fn start_check_numbers_and_request() {
     let mut ui = board_ui(None);
     let mut seq = 0u64;
-    let req = start_check(&mut ui, &mut seq);
+    let req = start_check(&mut ui, &mut seq, CheckThen::Record);
     assert_eq!(seq, 1);
     assert_eq!(ui.overlay, Some(checking(1, CheckWait::Sent)));
     assert_eq!(
@@ -4001,7 +4120,7 @@ fn start_check_numbers_and_request() {
             wait: Some(1)
         }
     );
-    let req = start_check(&mut ui, &mut seq);
+    let req = start_check(&mut ui, &mut seq, CheckThen::Record);
     assert_eq!(seq, 2);
     assert_eq!(ui.overlay, Some(checking(2, CheckWait::Sent)));
     assert_eq!(
@@ -4074,26 +4193,28 @@ fn check_ready_needs_a_newer_result() {
 
 #[test]
 fn check_open_allowed_only_on_plain_settings() {
-    assert!(check_open_allowed(&Screen::Settings));
-    assert!(!check_open_allowed(&Screen::QuitConfirm(Box::new(
-        Screen::Settings
-    ))));
-    assert!(!check_open_allowed(&Screen::EditList));
-    assert!(!check_open_allowed(&Screen::Monitor));
+    let r = CheckThen::Record;
+    assert!(check_open_allowed(&Screen::Settings, r));
+    assert!(!check_open_allowed(
+        &Screen::QuitConfirm(Box::new(Screen::Settings)),
+        r
+    ));
+    assert!(!check_open_allowed(&Screen::EditList, r));
+    assert!(!check_open_allowed(&Screen::Monitor, r));
 }
 
 #[test]
 fn record_from_settings_opens_and_goes_back_to_settings() {
     let mut v = SubViews::default();
     assert!(
-        v.open_record_from_settings(result(11)).is_none(),
+        v.open_record_from_settings(result(11), false).is_none(),
         "edit 없이"
     );
     let mut ui = board_ui(Some(checking(2, CheckWait::After(Some(5)))));
     ui.cursor = 6;
     v.edit = Some(ui);
     assert_eq!(
-        v.open_record_from_settings(result(11)),
+        v.open_record_from_settings(result(11), false),
         Some((
             Screen::Record,
             FetchReq::Record {
@@ -4292,4 +4413,226 @@ fn edit_screens_include_values() {
     ] {
         assert!(!is_edit_screen(&s), "{s:?}");
     }
+}
+
+// ---------- tui-2b Task 7: 칸 설정 11·12의 `a` → 지금 점검 → 값 목록 ----------
+
+#[test]
+fn list_a_key() {
+    let u = EditUi::default();
+    for c in ['a', 'A', 'ㅁ'] {
+        assert_eq!(ek(&Screen::EditList, &u, ch(c)), EditAction::Add, "{c}");
+    }
+    assert_eq!(ek(&Screen::EditList, &u, ctrl('a')), EditAction::None);
+}
+
+#[test]
+fn start_check_carries_then() {
+    let mut ui = board_ui(None);
+    let mut seq = 4u64;
+    let req = start_check(&mut ui, &mut seq, CheckThen::Values);
+    assert_eq!(
+        ui.overlay,
+        Some(Overlay::Checking {
+            seq: 5,
+            wait: CheckWait::Sent,
+            then: CheckThen::Values
+        })
+    );
+    // 요청은 메뉴 `r`과 같다.
+    assert_eq!(
+        req,
+        FetchReq::CheckNow {
+            board_id: "B1".into(),
+            panel_id: "P1".into(),
+            wait: Some(5)
+        }
+    );
+    start_check(&mut ui, &mut seq, CheckThen::Record);
+    assert_eq!(ui.overlay, Some(checking(6, CheckWait::Sent)));
+    // 응답이 와도 의도는 그대로 남는다.
+    let mut ui = board_ui(None);
+    start_check(&mut ui, &mut seq, CheckThen::Values);
+    assert!(check_reply(&mut ui, 7, Ok(Some(1))));
+    assert_eq!(
+        ui.overlay,
+        Some(Overlay::Checking {
+            seq: 7,
+            wait: CheckWait::After(Some(1)),
+            then: CheckThen::Values
+        })
+    );
+}
+
+#[test]
+fn check_open_allowed_by_intent() {
+    use CheckThen::{Record, Values};
+    assert!(check_open_allowed(&Screen::Settings, Record));
+    assert!(!check_open_allowed(&Screen::EditList, Record));
+    assert!(check_open_allowed(&Screen::EditList, Values));
+    assert!(!check_open_allowed(&Screen::Settings, Values));
+    assert!(!check_open_allowed(
+        &Screen::QuitConfirm(Box::new(Screen::EditList)),
+        Values
+    ));
+    assert!(!check_open_allowed(&Screen::Record, Values));
+}
+
+#[test]
+fn open_record_from_settings_sets_flag() {
+    for flag in [true, false] {
+        let mut v = SubViews {
+            edit: Some(board_ui(Some(checking(1, CheckWait::After(None))))),
+            ..SubViews::default()
+        };
+        let (s, _) = v.open_record_from_settings(result(11), flag).unwrap();
+        assert_eq!(s, Screen::Record);
+        let r = v.record.as_ref().unwrap();
+        assert_eq!(r.auto_values, flag);
+        assert_eq!(r.origin, RecordOrigin::Settings);
+        assert_eq!(v.back(&Screen::Record), Some(Screen::Settings), "{flag}");
+    }
+    // 오류 보기에서 연 자세히에는 표지가 없다.
+    let mut v = SubViews::default();
+    v.open_errors("B1", "P1", &[7]);
+    v.open_record(result(7)).unwrap();
+    assert!(!v.record.as_ref().unwrap().auto_values);
+}
+
+fn focus_line(trace_idx: usize) -> StepLine {
+    let StepLine::Http {
+        no,
+        loop_index,
+        name,
+        method,
+        url,
+        status,
+        latency_ms,
+        error,
+        timed_out,
+        ..
+    } = http_line(trace_idx)
+    else {
+        unreachable!()
+    };
+    StepLine::Http {
+        trace_idx,
+        no,
+        loop_index,
+        name,
+        method,
+        url,
+        status,
+        latency_ms,
+        error,
+        timed_out,
+        focus: true,
+    }
+}
+
+/// 칸 설정(B1·P1, 대기 창 `Values`) → 기록이 오면 값 목록으로 갈 자세히.
+fn auto_views(flag: bool) -> SubViews {
+    let mut e = board_ui(Some(Overlay::Checking {
+        seq: 1,
+        wait: CheckWait::After(None),
+        then: CheckThen::Values,
+    }));
+    e.cursor = 10;
+    let mut v = SubViews {
+        edit: Some(e),
+        ..SubViews::default()
+    };
+    v.open_record_from_settings(result(11), flag).unwrap();
+    v
+}
+
+#[test]
+fn take_auto_values_sequence() {
+    // 스텝 칸: 둘째 줄이 `◀ 이 칸`(trace 3).
+    let lines = vec![http_line(0), focus_line(3)];
+    let mut v = auto_views(true);
+    v.record.as_mut().unwrap().load = loaded(11);
+    // ① 종료 확인창 — 열지 않고 표지 그대로(창을 닫지 않는다).
+    let qc = Screen::QuitConfirm(Box::new(Screen::Record));
+    assert_eq!(v.take_auto_values(&qc, &lines, true), None);
+    assert!(v.record.as_ref().unwrap().auto_values, "표지 그대로");
+    assert!(v.body.is_none());
+    // ② 정확히 자세히 — 그 줄의 요청·응답, 표지 내려감.
+    assert_eq!(
+        v.take_auto_values(&Screen::Record, &lines, true),
+        Some(Screen::Body)
+    );
+    let r = v.record.as_ref().unwrap();
+    assert!(!r.auto_values, "표지 내려감");
+    assert_eq!(r.cursor, 1);
+    assert_eq!(v.body.as_ref().unwrap().line_idx, 1);
+    // ③ 한 번만.
+    assert_eq!(v.take_auto_values(&Screen::Record, &lines, true), None);
+    // 이어서 값 목록을 열 수 있다(`open_values_here`의 판단).
+    assert_eq!(v.value_target(&Screen::Body, &lines), Some(3));
+    // 칸 설정 경로 그대로 — `Esc` 사슬의 끝은 칸 설정 메뉴.
+    assert_eq!(v.back(&Screen::Body), Some(Screen::Record));
+    assert_eq!(v.back(&Screen::Record), Some(Screen::Settings));
+    assert_eq!(v.edit.as_ref().unwrap().cursor, 10);
+}
+
+#[test]
+fn take_auto_values_rules() {
+    let step = vec![http_line(0), focus_line(1)];
+    // 기록을 기다리는 중 → None, 표지 그대로.
+    let mut v = auto_views(true);
+    assert_eq!(v.take_auto_values(&Screen::Record, &step, true), None);
+    assert!(v.record.as_ref().unwrap().auto_values);
+    // 없음·실패로 끝남 → None, 표지만 내린다.
+    for load in [RecordLoad::Gone, RecordLoad::Failed("x".into())] {
+        let mut v = auto_views(true);
+        v.record.as_mut().unwrap().load = load;
+        assert_eq!(v.take_auto_values(&Screen::Record, &step, true), None);
+        assert!(!v.record.as_ref().unwrap().auto_values);
+        assert!(v.body.is_none());
+    }
+    // 받았지만 대상 없음(흐름 전체 칸·HTTP 2줄) → 자세히에 머문다, 표지 내려감.
+    let flow = vec![http_line(0), http_line(1)];
+    let mut v = auto_views(true);
+    v.record.as_mut().unwrap().load = loaded(11);
+    assert_eq!(v.take_auto_values(&Screen::Record, &flow, false), None);
+    assert!(!v.record.as_ref().unwrap().auto_values);
+    assert!(v.body.is_none());
+    // 흐름 전체 칸·HTTP 1줄(+If) → 그 줄.
+    let one = vec![
+        StepLine::If {
+            branch: "then".into(),
+        },
+        http_line(4),
+    ];
+    let mut v = auto_views(true);
+    v.record.as_mut().unwrap().load = loaded(11);
+    assert_eq!(
+        v.take_auto_values(&Screen::Record, &one, false),
+        Some(Screen::Body)
+    );
+    assert_eq!(v.record.as_ref().unwrap().cursor, 1);
+    // 표지 없음 → 상태 불변.
+    let mut v = auto_views(false);
+    v.record.as_mut().unwrap().load = loaded(11);
+    v.record.as_mut().unwrap().cursor = 0;
+    assert_eq!(v.take_auto_values(&Screen::Record, &step, true), None);
+    assert_eq!(v.record.as_ref().unwrap().cursor, 0);
+    assert!(v.body.is_none());
+    // 기록 없음 → None.
+    let mut v = SubViews::default();
+    assert_eq!(v.take_auto_values(&Screen::Record, &step, true), None);
+    // 화면이 자세히가 아님(요청·응답) → None, 표지 그대로.
+    let mut v = auto_views(true);
+    v.record.as_mut().unwrap().load = loaded(11);
+    for s in [Screen::Body, Screen::Settings, Screen::EditList] {
+        assert_eq!(v.take_auto_values(&s, &step, true), None, "{s:?}");
+        assert!(v.record.as_ref().unwrap().auto_values, "{s:?}");
+    }
+    // 기다리다 `Esc`로 자세히를 떠나면 `record`째 사라져 열지 않는다.
+    let mut v = auto_views(true);
+    assert_eq!(v.back(&Screen::Record), Some(Screen::Settings));
+    assert!(v.record.is_none());
+    assert_eq!(v.take_auto_values(&Screen::Record, &step, true), None);
+    assert!(v.body.is_none());
 }

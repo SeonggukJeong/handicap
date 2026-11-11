@@ -7,12 +7,12 @@ use handicap_controller::monitor::config::{
 };
 use handicap_engine::extract::{jsonpath_first, jsonpath_is_simple, jsonpath_is_valid, stringify};
 use handicap_engine::{ScenarioTrace, StepKind, StepTrace, TracedResponse};
-use handicap_tui::inspect::sanitize;
+use handicap_tui::inspect::{StepLine, sanitize};
 use handicap_tui::names::Names;
 use handicap_tui::pick::{
     AUTH_HEADERS, Blocked, Draft, Hint, ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg,
-    ValueList, ValueRow, ValuesState, cond_block, default_condition, display_block, display_item,
-    is_auth_header, marks, open_values, segments_to_path, value_list,
+    ValueList, ValueRow, ValuesState, auto_target, cond_block, default_condition, display_block,
+    display_item, is_auth_header, marks, open_values, segments_to_path, value_list,
 };
 use handicap_tui::text;
 
@@ -950,4 +950,57 @@ fn values_state_texts() {
     assert_eq!(blocked.target_width, 0);
     let ro = ValuesState::new("S".into(), list_of(rows), Some(Blocked::NoResponse));
     assert!(ro.texts.is_empty() && ro.target_width == 0);
+}
+
+// ---------- tui-2b Task 7: 칸 설정 11·12의 `a` — 값 목록을 곧바로 열 줄(spec §2.7) ----------
+
+fn hl(trace_idx: usize, loop_index: Option<u32>, focus: bool) -> StepLine {
+    StepLine::Http {
+        trace_idx,
+        no: trace_idx + 1,
+        loop_index,
+        name: format!("s{trace_idx}"),
+        method: None,
+        url: None,
+        status: Some(200),
+        latency_ms: Some(1),
+        error: None,
+        timed_out: false,
+        focus,
+    }
+}
+
+fn if_line() -> StepLine {
+    StepLine::If {
+        branch: "then".into(),
+    }
+}
+
+#[test]
+fn auto_target_table() {
+    // 스텝 칸: `◀ 이 칸` 줄(focus) 위치 — 다른 HTTP 줄이 있어도.
+    let lines = vec![hl(0, None, false), if_line(), hl(2, None, true)];
+    assert_eq!(auto_target(&lines, true), Some(2));
+    // 스텝 칸인데 그 스텝이 이번 실행에 없음(focus 없음) → None.
+    let lines = vec![hl(0, None, false), hl(1, None, false)];
+    assert_eq!(auto_target(&lines, true), None);
+    let lines = vec![hl(0, None, false)];
+    assert_eq!(auto_target(&lines, true), None, "HTTP 1개여도 focus 없으면");
+    // 흐름 전체 칸: HTTP 줄이 정확히 1개(+If 줄) → 그 줄.
+    let lines = vec![if_line(), hl(1, None, false)];
+    assert_eq!(auto_target(&lines, false), Some(1));
+    // HTTP 2개 → None.
+    let lines = vec![hl(0, None, false), if_line(), hl(2, None, false)];
+    assert_eq!(auto_target(&lines, false), None);
+    // 한 스텝 반복 2줄 → None(스텝이 하나여도 줄이 여럿).
+    let lines = vec![hl(0, Some(0), false), hl(1, Some(1), false)];
+    assert_eq!(auto_target(&lines, false), None);
+    // 흐름 전체 칸은 focus를 보지 않는다(HTTP 2개면 focus가 있어도 None).
+    let lines = vec![hl(0, None, true), hl(1, None, false)];
+    assert_eq!(auto_target(&lines, false), None);
+    // 빈 목록 → None.
+    assert_eq!(auto_target(&[], true), None);
+    assert_eq!(auto_target(&[], false), None);
+    // If 줄만 → None.
+    assert_eq!(auto_target(&[if_line()], false), None);
 }
