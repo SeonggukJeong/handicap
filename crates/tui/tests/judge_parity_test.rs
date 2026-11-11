@@ -412,6 +412,14 @@ fn mirrored_text_exists_in_ko_ts() {
         ("recordTreeTooLarge", text::RECORD_TREE_TOO_LARGE),
         ("recordTreeTooDeep", text::RECORD_TREE_TOO_DEEP),
         ("recordMaskedHint", text::RECORD_MASKED_HINT),
+        ("condChooseCondition", text::COND_ADD_CHOICE),
+        ("condChooseDisplay", text::DISPLAY_ADD_CHOICE),
+        ("condMax", text::COND_MAX),
+        ("displayMax", text::DISPLAY_MAX),
+        ("displayDup", text::DISPLAY_DUP),
+        ("displayAuthHeader", text::DISPLAY_AUTH_HEADER),
+        ("previewUnwrapped", text::PICK_UNWRAPPED),
+        ("condVolatileHint", text::COND_VOLATILE_HINT),
     ] {
         assert!(
             ko.contains(&format!("{key}: \"{val}\"")),

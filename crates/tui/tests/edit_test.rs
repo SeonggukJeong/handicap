@@ -522,3 +522,46 @@ fn texts() {
         "이 시나리오를 쓰는 칸 3개(보드 1개)"
     );
 }
+
+#[test]
+fn add_condition_appends() {
+    // 흐름 전체 칸 — step_id 그대로, 끝에 붙음, 다른 칸 불변
+    let mut p0 = panel();
+    p0.conditions.push(cond(A));
+    let mut p1 = panel();
+    p1.id = "P2".into();
+    let cfg = board(vec![p0.clone(), p1.clone()]);
+    let out = add_condition(&cfg, 0, cond(C));
+    assert_eq!(out.panels[0].conditions.len(), 2);
+    assert_eq!(out.panels[0].conditions[0], p0.conditions[0]);
+    assert_eq!(out.panels[0].conditions[1].step_id, C);
+    assert_eq!(out.panels[1], p1);
+    // 스텝 칸 — 칸의 스텝으로 덮어씀
+    let mut sp = panel();
+    sp.step_id = Some(A.into());
+    let out = add_condition(&board(vec![sp]), 0, cond(C));
+    assert_eq!(out.panels[0].conditions[0].step_id, A);
+    // 범위 밖이면 그대로
+    let cfg = board(vec![panel()]);
+    assert_eq!(add_condition(&cfg, 5, cond(A)), cfg);
+}
+
+#[test]
+fn add_display_appends() {
+    let mut p0 = panel();
+    p0.display_items.push(disp(A));
+    let mut p1 = panel();
+    p1.id = "P2".into();
+    let cfg = board(vec![p0.clone(), p1.clone()]);
+    let out = add_display(&cfg, 0, disp(C));
+    assert_eq!(out.panels[0].display_items.len(), 2);
+    assert_eq!(out.panels[0].display_items[0], p0.display_items[0]);
+    assert_eq!(out.panels[0].display_items[1].step_id, C);
+    assert_eq!(out.panels[1], p1);
+    let mut sp = panel();
+    sp.step_id = Some(A.into());
+    let out = add_display(&board(vec![sp]), 0, disp(C));
+    assert_eq!(out.panels[0].display_items[0].step_id, A);
+    let cfg = board(vec![panel()]);
+    assert_eq!(add_display(&cfg, 5, disp(A)), cfg);
+}

@@ -513,3 +513,24 @@ pub const PICK_TOO_MANY_PATHS: &str =
     "키가 너무 길거나 값이 너무 많은 본문은 값을 고를 수 없습니다";
 pub const PICK_LATER_RUN: &str =
     "같은 스텝이 뒤에 다시 실행됐습니다 — 판정은 마지막 실행의 응답을 봅니다";
+
+/// `ko.monitor.condChooseCondition`
+pub const COND_ADD_CHOICE: &str = "조건으로 추가";
+/// `ko.monitor.condChooseDisplay`
+pub const DISPLAY_ADD_CHOICE: &str = "화면에 추가";
+/// `ko.monitor.condMax`
+pub const COND_MAX: &str = "조건은 최대 10개까지 추가할 수 있습니다";
+/// `ko.monitor.displayMax`
+pub const DISPLAY_MAX: &str = "화면 표시는 최대 2개까지";
+/// `ko.monitor.displayDup`
+pub const DISPLAY_DUP: &str = "이미 화면에 표시 중";
+/// `ko.monitor.displayAuthHeader`
+pub const DISPLAY_AUTH_HEADER: &str = "인증 헤더는 화면에 표시할 수 없음";
+/// `ko.monitor.condVolatileHint`
+pub const COND_VOLATILE_HINT: &str =
+    "매번 바뀌는 값이면 '='은 매 점검 실패하고 그 값이 화면에 표시됩니다";
+pub const PICK_MASKED_HINT: &str = "가려진 값이라 비교값을 채우지 않았습니다";
+pub fn pick_other_step(name: &str) -> String {
+    format!("이 칸은 \"{name}\" 스텝만 봅니다 — 그 스텝의 요청·응답에서 추가하세요")
+}
+pub const PICK_NO_RESPONSE: &str = "응답이 없어 고를 값이 없습니다";

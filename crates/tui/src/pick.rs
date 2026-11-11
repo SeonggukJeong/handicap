@@ -7,12 +7,16 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use handicap_controller::monitor::config::{Condition, ConditionSource};
-use handicap_engine::TracedResponse;
+use handicap_controller::monitor::config::{
+    Condition, ConditionOp, ConditionSource, DisplayItem, DisplaySource, PanelConfig,
+};
+use handicap_engine::{ScenarioTrace, StepKind, TracedResponse};
 use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
 
+use crate::input::{InputMode, LineInput};
 use crate::inspect::{PRETTY_MAX_BYTES, PRETTY_MAX_DEPTH};
+use crate::names::Names;
 use crate::panel_settings::condition_target;
 use crate::text;
 
@@ -212,7 +216,7 @@ fn path_len(segs: &[Seg]) -> usize {
     let mut n = 1;
     for seg in segs {
         n += match seg {
-            Seg::Index(i) => 2 + i.to_string().len(),
+            Seg::Index(i) => 2 + i.checked_ilog10().map_or(1, |d| d as usize + 1),
             Seg::Key(k) if is_ident(k) => 1 + k.len(),
             Seg::Key(k) => {
                 4 + k
@@ -457,4 +461,289 @@ pub fn value_list(resp: &TracedResponse, clipped_resp: bool, limit_kb: u32) -> V
         }
     }
     ValueList { rows, notes }
+}
+
+// ---------- 기본 조건·막힘·표지·값 목록 상태 (tui-2b Task 2, spec §2.2–§2.6) ----------
+
+/// 서버 `monitor/config.rs`의 `AUTH_HEADERS`와 같은 4종(컨트롤러 쪽은 `pub(crate)` — 어긋남은
+/// `auth_headers_match_controller` 테스트가 막는다).
+pub const AUTH_HEADERS: [&str; 4] = [
+    "set-cookie",
+    "cookie",
+    "authorization",
+    "proxy-authorization",
+];
+
+/// 인증 헤더인가 — 앞뒤 공백·대소문자 무시.
+pub fn is_auth_header(name: &str) -> bool {
+    let n = name.trim();
+    AUTH_HEADERS.iter().any(|h| n.eq_ignore_ascii_case(h))
+}
+
+/// 조건 칸 위에 붙는 안내.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hint {
+    Volatile,
+    Masked,
+}
+
+impl Hint {
+    pub fn text(&self) -> &'static str {
+        match self {
+            Hint::Volatile => text::COND_VOLATILE_HINT,
+            Hint::Masked => text::PICK_MASKED_HINT,
+        }
+    }
+}
+
+/// 조건 칸에 미리 채울 것.
+#[derive(Clone)]
+pub struct Draft {
+    pub cond: Condition,
+    pub hint: Option<Hint>,
+    /// `본문 전체` — 커서가 값 칸에서 시작.
+    pub focus_value: bool,
+}
+
+impl fmt::Debug for Draft {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Draft {{ op: {:?}, value_len: {}, hint: {:?}, focus_value: {} }}",
+            self.cond.op,
+            self.cond.value.chars().count(),
+            self.hint,
+            self.focus_value
+        )
+    }
+}
+
+/// GUI `VOLATILE_LEN`(`ui/src/monitor/conditions.ts`)과 같다.
+const VOLATILE_LEN: usize = 40;
+
+/// 입력줄이 받는 글자만으로 된 값인가.
+fn input_accepts(v: &str) -> bool {
+    LineInput::new(v, InputMode::Text { max_chars: 2000 }).text() == v
+}
+
+/// spec §2.4 표 — GUI `defaultCondition` + ★ 인증 헤더·입력줄 두 행(앞선 순서대로).
+pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
+    let mk = |source, path: &str, op, value: &str| Condition {
+        step_id: step_id.to_string(),
+        source,
+        path: path.to_string(),
+        op,
+        value: value.to_string(),
+        ignore_case: false,
+        trim: false,
+    };
+    let plain = |cond| Draft {
+        cond,
+        hint: None,
+        focus_value: false,
+    };
+    // 문자열(본문·헤더) — 인증 헤더 → 입력줄 → 길이 순.
+    let string = |source, path: &str, v: &str, auth: bool| {
+        if auth {
+            Draft {
+                cond: mk(source, path, ConditionOp::NotEmpty, ""),
+                hint: Some(Hint::Masked),
+                focus_value: false,
+            }
+        } else if !input_accepts(v) || v.chars().count() > VOLATILE_LEN {
+            Draft {
+                cond: mk(source, path, ConditionOp::NotEmpty, ""),
+                hint: Some(Hint::Volatile),
+                focus_value: false,
+            }
+        } else {
+            plain(mk(source, path, ConditionOp::Eq, v))
+        }
+    };
+    match (&row.kind, &row.value) {
+        (RowKind::Status, PickValue::Status(c)) => plain(mk(
+            ConditionSource::Status,
+            "",
+            ConditionOp::Eq,
+            &c.to_string(),
+        )),
+        (RowKind::Header { name }, PickValue::Header(v)) => {
+            string(ConditionSource::Header, name, v, is_auth_header(name))
+        }
+        (RowKind::Body { path }, PickValue::Null) => {
+            plain(mk(ConditionSource::Body, path, ConditionOp::Exists, ""))
+        }
+        (RowKind::Body { path }, PickValue::Str(v)) => {
+            string(ConditionSource::Body, path, v, false)
+        }
+        (RowKind::Body { path }, PickValue::Bool(b)) => plain(mk(
+            ConditionSource::Body,
+            path,
+            ConditionOp::Eq,
+            &b.to_string(),
+        )),
+        (RowKind::Body { path }, PickValue::Number(n)) => {
+            plain(mk(ConditionSource::Body, path, ConditionOp::Eq, n))
+        }
+        // 종류와 값이 어긋난 줄은 만들어지지 않는다 — 안전하게 `본문 전체` 꼴.
+        _ => Draft {
+            cond: mk(ConditionSource::BodyText, "", ConditionOp::Contains, ""),
+            hint: None,
+            focus_value: true,
+        },
+    }
+}
+
+/// 표시 값 후보 — `본문 전체` 줄은 `None`.
+pub fn display_item(step_id: &str, row: &ValueRow) -> Option<DisplayItem> {
+    let (source, path) = match &row.kind {
+        RowKind::Status => (DisplaySource::Status, String::new()),
+        RowKind::Header { name } => (DisplaySource::Header, name.clone()),
+        RowKind::Body { path } => (DisplaySource::Body, path.clone()),
+        RowKind::BodyText => return None,
+    };
+    Some(DisplayItem {
+        step_id: step_id.to_string(),
+        source,
+        path,
+    })
+}
+
+/// 조건이 이미 10개면 막는 이유.
+pub fn cond_block(p: &PanelConfig) -> Option<&'static str> {
+    (p.conditions.len() >= handicap_controller::monitor::config::MAX_CONDITIONS)
+        .then_some(text::COND_MAX)
+}
+
+/// 표시 값 추가를 막는 이유 — 2개 → 같은 대상 → 인증 헤더 순(GUI와 같다).
+pub fn display_block(p: &PanelConfig, item: &DisplayItem) -> Option<&'static str> {
+    if p.display_items.len() >= handicap_controller::monitor::config::MAX_DISPLAY_ITEMS {
+        return Some(text::DISPLAY_MAX);
+    }
+    if p.display_items
+        .iter()
+        .any(|d| d.step_id == item.step_id && d.source == item.source && d.path == item.path)
+    {
+        return Some(text::DISPLAY_DUP);
+    }
+    if item.source == DisplaySource::Header && is_auth_header(&item.path) {
+        return Some(text::DISPLAY_AUTH_HEADER);
+    }
+    None
+}
+
+/// 줄 오른쪽 표지 — (그 스텝·그 대상의 조건 수, 표시 값 있음). `source`·`path` 글자 그대로.
+pub fn marks(p: &PanelConfig, step_id: &str, row: &ValueRow) -> (usize, bool) {
+    let (csrc, path) = match &row.kind {
+        RowKind::Status => (ConditionSource::Status, ""),
+        RowKind::Header { name } => (ConditionSource::Header, name.as_str()),
+        RowKind::Body { path } => (ConditionSource::Body, path.as_str()),
+        RowKind::BodyText => (ConditionSource::BodyText, ""),
+    };
+    let conds = p
+        .conditions
+        .iter()
+        .filter(|c| c.step_id == step_id && c.source == csrc && c.path == path)
+        .count();
+    let shown = display_item(step_id, row).is_some_and(|d| {
+        p.display_items
+            .iter()
+            .any(|x| x.step_id == d.step_id && x.source == d.source && x.path == d.path)
+    });
+    (conds, shown)
+}
+
+/// 값 목록을 열 수 없는 이유.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Blocked {
+    OtherStep { name: String },
+    NoResponse,
+}
+
+impl Blocked {
+    pub fn text(&self) -> String {
+        match self {
+            Blocked::OtherStep { name } => text::pick_other_step(name),
+            Blocked::NoResponse => text::PICK_NO_RESPONSE.to_string(),
+        }
+    }
+}
+
+/// 값 목록 화면 상태 — 열 때 한 번 만든다.
+#[derive(Clone)]
+pub struct ValuesState {
+    pub step_id: String,
+    pub list: ValueList,
+    pub blocked: Option<Blocked>,
+    pub cursor: usize,
+}
+
+impl fmt::Debug for ValuesState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ValuesState {{ list: {:?}, blocked: {}, cursor: {} }}",
+            self.list,
+            self.blocked.is_some(),
+            self.cursor
+        )
+    }
+}
+
+/// spec §2.2 — 스텝 칸 제한·응답 없음이면 이유만, 아니면 값 목록(+ 반복 안내).
+pub fn open_values(
+    panel: &PanelConfig,
+    trace: &ScenarioTrace,
+    trace_idx: usize,
+    clipped_resp: bool,
+    limit_kb: u32,
+    names: &Names,
+) -> ValuesState {
+    let empty = ValueList {
+        rows: Vec::new(),
+        notes: Vec::new(),
+    };
+    let Some(step) = trace.steps.get(trace_idx) else {
+        return ValuesState {
+            step_id: String::new(),
+            list: empty,
+            blocked: Some(Blocked::NoResponse),
+            cursor: 0,
+        };
+    };
+    if let Some(own) = &panel.step_id
+        && own != &step.step_id
+    {
+        let name = names
+            .step_name(&panel.scenario_id, own)
+            .unwrap_or(own)
+            .to_string();
+        return ValuesState {
+            step_id: own.clone(),
+            list: empty,
+            blocked: Some(Blocked::OtherStep { name }),
+            cursor: 0,
+        };
+    }
+    let Some(resp) = &step.response else {
+        return ValuesState {
+            step_id: step.step_id.clone(),
+            list: empty,
+            blocked: Some(Blocked::NoResponse),
+            cursor: 0,
+        };
+    };
+    let mut list = value_list(resp, clipped_resp, limit_kb);
+    let later = trace.steps[trace_idx + 1..]
+        .iter()
+        .any(|s| matches!(s.kind, StepKind::Http) && s.step_id == step.step_id);
+    if later {
+        list.notes.insert(0, ListNote::LaterRun);
+    }
+    ValuesState {
+        step_id: step.step_id.clone(),
+        list,
+        blocked: None,
+        cursor: 0,
+    }
 }

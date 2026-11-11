@@ -2,10 +2,16 @@
 
 use std::collections::BTreeMap;
 
-use handicap_engine::TracedResponse;
+use handicap_controller::monitor::config::{
+    Condition, ConditionOp, ConditionSource, DisplayItem, DisplaySource, PanelConfig,
+};
 use handicap_engine::extract::{jsonpath_first, jsonpath_is_simple, jsonpath_is_valid, stringify};
+use handicap_engine::{ScenarioTrace, StepKind, StepTrace, TracedResponse};
+use handicap_tui::names::Names;
 use handicap_tui::pick::{
-    ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg, ValueList, segments_to_path, value_list,
+    AUTH_HEADERS, Blocked, Draft, Hint, ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg,
+    ValueList, ValueRow, cond_block, default_condition, display_block, display_item,
+    is_auth_header, marks, open_values, segments_to_path, value_list,
 };
 use handicap_tui::text;
 
@@ -173,23 +179,7 @@ fn body_table() {
     assert_eq!(body_rows(&l), ["본문 전체"]);
     assert_eq!(l.notes, [ListNote::TooDeep]);
 
-    // 7: 경로 글자 합계 초과 — 3만 자 키 아래 숫자 배열(본문은 64KB 이하)
-    let long_key = "k".repeat(30_000);
-    let nums = vec!["0"; 16_000].join(",");
-    let b = format!(r#"{{"{long_key}":[{nums}]}}"#);
-    assert!(b.len() <= 64 * 1024);
-    let l = value_list(&resp(200, &[], &b), false, 128);
-    assert_eq!(body_rows(&l), ["본문 전체"]);
-    assert_eq!(l.notes, [ListNote::TooManyPaths]);
-    assert_eq!(l.rows.len(), 2); // 코드 + 본문 전체
-    assert_eq!(l.notes[0].text(), text::PICK_TOO_MANY_PATHS);
-    // 같은 꼴, 합계가 한도 아래 — 값 줄들·안내 없음
-    let key100 = "k".repeat(100);
-    let nums = vec!["0"; 1000].join(",");
-    let b = format!(r#"{{"{key100}":[{nums}]}}"#);
-    let l = value_list(&resp(200, &[], &b), false, 128);
-    assert_eq!(body_rows(&l).len(), 1000);
-    assert!(l.notes.is_empty());
+    // 7: 경로 글자 합계 — 경계 케이스를 먼저(상한 판정이 사라지면 아래 3만 자 케이스에서 멈추기 전에 여기서 RED)
     // 경계: 원소 1000개, 키 길이 L → 경로 합계 = 1000L + 6890
     let nums = vec!["0"; 1000].join(",");
     let sum = |len: usize| 1000 * len + 6890;
@@ -203,6 +193,23 @@ fn body_table() {
     let l = value_list(&resp(200, &[], &b), false, 128);
     assert_eq!(body_rows(&l), ["본문 전체"]);
     assert_eq!(l.notes, [ListNote::TooManyPaths]);
+    // 같은 꼴, 합계가 한도 아래 — 값 줄들·안내 없음
+    let key100 = "k".repeat(100);
+    let nums = vec!["0"; 1000].join(",");
+    let b = format!(r#"{{"{key100}":[{nums}]}}"#);
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l).len(), 1000);
+    assert!(l.notes.is_empty());
+    // 3만 자 키 아래 숫자 배열(본문은 64KB 이하)
+    let long_key = "k".repeat(30_000);
+    let nums = vec!["0"; 16_000].join(",");
+    let b = format!(r#"{{"{long_key}":[{nums}]}}"#);
+    assert!(b.len() <= 64 * 1024);
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l), ["본문 전체"]);
+    assert_eq!(l.notes, [ListNote::TooManyPaths]);
+    assert_eq!(l.rows.len(), 2); // 코드 + 본문 전체
+    assert_eq!(l.notes[0].text(), text::PICK_TOO_MANY_PATHS);
 }
 
 fn wrap(s: &str, layers: usize) -> String {
@@ -449,4 +456,424 @@ fn debug_hides_values() {
             assert!(!d.contains(s), "{s} leaked in {d}");
         }
     }
+}
+
+// ---------- Task 2: 기본 조건·막힘·표지·값 목록 상태 ----------
+
+const SC: &str = r#"
+version: 1
+name: 흐름
+steps:
+  - { id: "01J00000000000000000000A01", name: 로그인, type: http, request: { method: GET, url: "/a" }, assert: [] }
+  - { id: "01J00000000000000000000A02", name: 조회, type: http, request: { method: GET, url: "/b" }, assert: [] }
+"#;
+const A: &str = "01J00000000000000000000A01";
+const B: &str = "01J00000000000000000000A02";
+
+fn names() -> Names {
+    let b = serde_json::json!({
+        "format": "handicap-bundle", "format_version": 1, "boards": [],
+        "scenarios": [{ "id": "S1", "yaml": SC }],
+        "environments": []
+    });
+    Names::from_bundle(&serde_json::to_vec(&b).unwrap())
+}
+
+fn row(kind: RowKind, value: PickValue) -> ValueRow {
+    ValueRow { kind, value }
+}
+fn hdr(name: &str, v: &str) -> ValueRow {
+    row(
+        RowKind::Header { name: name.into() },
+        PickValue::Header(v.into()),
+    )
+}
+fn body(path: &str, v: PickValue) -> ValueRow {
+    row(RowKind::Body { path: path.into() }, v)
+}
+fn st(s: &str) -> PickValue {
+    PickValue::Str(s.into())
+}
+
+/// `ui/src/monitor/conditions.ts` `defaultCondition`(190행~)과 같은 표.
+#[test]
+fn default_condition_table() {
+    let d = default_condition(A, &row(RowKind::Status, PickValue::Status(200)));
+    assert_eq!(d.cond.source, ConditionSource::Status);
+    assert_eq!(d.cond.path, "");
+    assert_eq!(d.cond.op, ConditionOp::Eq);
+    assert_eq!(d.cond.value, "200");
+    assert_eq!(d.hint, None);
+    assert!(!d.focus_value);
+
+    let x40 = "x".repeat(40);
+    type Case<'a> = (
+        ValueRow,
+        ConditionSource,
+        &'a str,
+        ConditionOp,
+        &'a str,
+        Option<Hint>,
+    );
+    let all: Vec<Case> = vec![
+        (
+            body("$.a", PickValue::Null),
+            ConditionSource::Body,
+            "$.a",
+            ConditionOp::Exists,
+            "",
+            None,
+        ),
+        (
+            body("$.a", PickValue::Number("7".into())),
+            ConditionSource::Body,
+            "$.a",
+            ConditionOp::Eq,
+            "7",
+            None,
+        ),
+        (
+            body("$.a", PickValue::Bool(true)),
+            ConditionSource::Body,
+            "$.a",
+            ConditionOp::Eq,
+            "true",
+            None,
+        ),
+        (
+            body("$.a", st(&"x".repeat(40))),
+            ConditionSource::Body,
+            "$.a",
+            ConditionOp::Eq,
+            &x40,
+            None,
+        ),
+        (
+            body("$.a", st(&"x".repeat(41))),
+            ConditionSource::Body,
+            "$.a",
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::Volatile),
+        ),
+        (
+            body("$.a", st("")),
+            ConditionSource::Body,
+            "$.a",
+            ConditionOp::Eq,
+            "",
+            None,
+        ),
+        (
+            hdr("x-id", "abc"),
+            ConditionSource::Header,
+            "x-id",
+            ConditionOp::Eq,
+            "abc",
+            None,
+        ),
+        (
+            hdr("x-id", &"h".repeat(41)),
+            ConditionSource::Header,
+            "x-id",
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::Volatile),
+        ),
+    ];
+    for (r, src, path, op, val, hint) in all {
+        let d = default_condition(B, &r);
+        assert_eq!(d.cond.step_id, B);
+        assert_eq!(d.cond.source, src, "{r:?}");
+        assert_eq!(d.cond.path, path, "{r:?}");
+        assert_eq!(d.cond.op, op, "{r:?}");
+        assert_eq!(d.cond.value, val, "{r:?}");
+        assert_eq!(d.hint, hint, "{r:?}");
+        assert!(!d.cond.ignore_case && !d.cond.trim);
+        assert!(!d.focus_value);
+    }
+
+    let d: Draft = default_condition(A, &row(RowKind::BodyText, PickValue::BodyText));
+    assert_eq!(d.cond.source, ConditionSource::BodyText);
+    assert_eq!(d.cond.path, "");
+    assert_eq!(d.cond.op, ConditionOp::Contains);
+    assert_eq!(d.cond.value, "");
+    assert_eq!(d.hint, None);
+    assert!(d.focus_value);
+}
+
+/// spec §2.4 ★ 두 행 — GUI와 일부러 다르다.
+#[test]
+fn default_condition_deviations() {
+    for name in [
+        "set-cookie",
+        " Authorization ",
+        "COOKIE",
+        "proxy-authorization",
+    ] {
+        let d = default_condition(A, &hdr(name, "sid=••••"));
+        assert_eq!(d.cond.op, ConditionOp::NotEmpty, "{name}");
+        assert_eq!(d.cond.value, "", "{name}");
+        assert_eq!(d.hint, Some(Hint::Masked), "{name}");
+    }
+    let d = default_condition(A, &hdr("authorization", &"•".repeat(60)));
+    assert_eq!(d.hint, Some(Hint::Masked));
+    for v in ["a\nb", "a\u{202e}b", "a\u{85}b"] {
+        let d = default_condition(A, &body("$.a", st(v)));
+        assert_eq!(d.cond.op, ConditionOp::NotEmpty, "{v:?}");
+        assert_eq!(d.cond.value, "");
+        assert_eq!(d.hint, Some(Hint::Volatile));
+    }
+}
+
+#[test]
+fn display_block_order() {
+    let item = |src, path: &str, step: &str| DisplayItem {
+        step_id: step.into(),
+        source: src,
+        path: path.into(),
+    };
+    let panel = |items: Vec<DisplayItem>| PanelConfig {
+        scenario_id: "S1".into(),
+        display_items: items,
+        ..Default::default()
+    };
+    let target = item(DisplaySource::Body, "$.a", A);
+    // 2개가 가장 먼저 — 같은 대상·인증 헤더보다도
+    let full = panel(vec![target.clone(), item(DisplaySource::Body, "$.b", A)]);
+    assert_eq!(display_block(&full, &target), Some(text::DISPLAY_MAX));
+    let auth = item(DisplaySource::Header, "Authorization", A);
+    assert_eq!(display_block(&full, &auth), Some(text::DISPLAY_MAX));
+    // 1개(같은 대상) → 중복
+    let one = panel(vec![target.clone()]);
+    assert_eq!(display_block(&one, &target), Some(text::DISPLAY_DUP));
+    // 인증 헤더
+    assert_eq!(display_block(&one, &auth), Some(text::DISPLAY_AUTH_HEADER));
+    // 같은 경로·다른 스텝은 중복 아님, 0개·보통 값은 None
+    assert_eq!(
+        display_block(&one, &item(DisplaySource::Body, "$.a", B)),
+        None
+    );
+    assert_eq!(display_block(&panel(vec![]), &target), None);
+    // 같은 대상이면서 인증 헤더 → 중복이 먼저
+    let dup_auth = panel(vec![auth.clone()]);
+    assert_eq!(display_block(&dup_auth, &auth), Some(text::DISPLAY_DUP));
+
+    let conds = |n: usize| PanelConfig {
+        conditions: vec![Condition::default(); n],
+        ..Default::default()
+    };
+    assert_eq!(cond_block(&conds(9)), None);
+    assert_eq!(cond_block(&conds(10)), Some(text::COND_MAX));
+
+    assert_eq!(
+        display_item(A, &row(RowKind::BodyText, PickValue::BodyText)),
+        None
+    );
+    let di = display_item(A, &hdr("x-id", "v")).unwrap();
+    assert_eq!(di.source, DisplaySource::Header);
+    assert_eq!(di.path, "x-id");
+    assert_eq!(di.step_id, A);
+    let di = display_item(A, &row(RowKind::Status, PickValue::Status(200))).unwrap();
+    assert_eq!(di.source, DisplaySource::Status);
+    assert_eq!(di.path, "");
+    let di = display_item(A, &body("$.q", PickValue::Null)).unwrap();
+    assert_eq!(di.source, DisplaySource::Body);
+    assert_eq!(di.path, "$.q");
+}
+
+#[test]
+fn marks_counts() {
+    let c = |step: &str, src, path: &str| Condition {
+        step_id: step.into(),
+        source: src,
+        path: path.into(),
+        ..Default::default()
+    };
+    let mut p = PanelConfig::default();
+    let r = body("$.a", PickValue::Number("1".into()));
+    assert_eq!(marks(&p, A, &r), (0, false));
+    p.conditions.push(c(A, ConditionSource::Body, "$.a"));
+    assert_eq!(marks(&p, A, &r), (1, false));
+    p.conditions.push(c(A, ConditionSource::Body, "$.a"));
+    assert_eq!(marks(&p, A, &r), (2, false));
+    // 다른 스텝·다른 대상·다른 source는 세지 않는다
+    p.conditions.push(c(B, ConditionSource::Body, "$.a"));
+    p.conditions.push(c(A, ConditionSource::Body, "$.b"));
+    p.conditions.push(c(A, ConditionSource::Header, "$.a"));
+    assert_eq!(marks(&p, A, &r), (2, false));
+    p.display_items.push(DisplayItem {
+        step_id: A.into(),
+        source: DisplaySource::Body,
+        path: "$.a".into(),
+    });
+    assert_eq!(marks(&p, A, &r), (2, true));
+    assert_eq!(marks(&p, B, &r), (1, false));
+    // 헤더는 이름 글자 그대로
+    let h = hdr("X-Id", "v");
+    p.conditions.push(c(A, ConditionSource::Header, "X-Id"));
+    assert_eq!(marks(&p, A, &h), (1, false));
+    assert_eq!(marks(&p, A, &hdr("x-id", "v")), (0, false));
+    // 응답 코드·본문 전체
+    p.conditions.push(c(A, ConditionSource::Status, ""));
+    p.conditions.push(c(A, ConditionSource::BodyText, ""));
+    assert_eq!(
+        marks(&p, A, &row(RowKind::Status, PickValue::Status(200))),
+        (1, false)
+    );
+    assert_eq!(
+        marks(&p, A, &row(RowKind::BodyText, PickValue::BodyText)),
+        (1, false)
+    );
+}
+
+fn http_step(id: &str, status: Option<u16>) -> StepTrace {
+    StepTrace {
+        step_id: id.into(),
+        kind: StepKind::Http,
+        loop_index: None,
+        branch: None,
+        request: None,
+        response: status.map(|s| resp(s, &[], r#"{"k":1}"#)),
+        extracted: BTreeMap::new(),
+        unbound_vars: vec![],
+        error: None,
+        branch_eval: vec![],
+        timed_out: false,
+    }
+}
+fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {
+    ScenarioTrace {
+        ok: true,
+        total_ms: 1,
+        steps,
+        final_vars: BTreeMap::new(),
+        truncated: false,
+        error: None,
+    }
+}
+
+#[test]
+fn open_values_rules() {
+    let n = names();
+    let flow = PanelConfig {
+        scenario_id: "S1".into(),
+        ..Default::default()
+    };
+    let t = trace(vec![http_step(A, Some(200)), http_step(B, Some(200))]);
+    // 흐름 전체 칸 — 아무 스텝이나
+    let v = open_values(&flow, &t, 1, false, 128, &n);
+    assert_eq!(v.step_id, B);
+    assert!(v.blocked.is_none());
+    assert!(!v.list.rows.is_empty());
+    assert_eq!(v.cursor, 0);
+
+    // 스텝 칸(묶음 아님) + 다른 스텝 → 막힘, 줄 0개, 이름 해석
+    let step_panel = PanelConfig {
+        scenario_id: "S1".into(),
+        step_id: Some(A.into()),
+        ..Default::default()
+    };
+    let v = open_values(&step_panel, &t, 1, false, 128, &n);
+    match &v.blocked {
+        Some(Blocked::OtherStep { name }) => assert_eq!(name, "로그인"),
+        o => panic!("{o:?}"),
+    }
+    assert!(v.list.rows.is_empty());
+    assert_eq!(
+        v.blocked.as_ref().unwrap().text(),
+        text::pick_other_step("로그인")
+    );
+    // 이름을 못 찾으면 id
+    let unknown = PanelConfig {
+        scenario_id: "S1".into(),
+        step_id: Some("ZZZ".into()),
+        ..Default::default()
+    };
+    match open_values(&unknown, &t, 0, false, 128, &n).blocked {
+        Some(Blocked::OtherStep { name }) => assert_eq!(name, "ZZZ"),
+        o => panic!("{o:?}"),
+    }
+    // 같은 스텝이면 열림
+    let v = open_values(&step_panel, &t, 0, false, 128, &n);
+    assert!(v.blocked.is_none());
+    assert_eq!(v.step_id, A);
+    // 묶음 칸도 같다
+    let mut grp = step_panel.clone();
+    grp.group_id = Some("G".into());
+    assert!(open_values(&grp, &t, 1, false, 128, &n).blocked.is_some());
+
+    // 응답 없음
+    let t2 = trace(vec![http_step(A, None)]);
+    let v = open_values(&flow, &t2, 0, false, 128, &n);
+    assert_eq!(v.blocked, Some(Blocked::NoResponse));
+    assert!(v.list.rows.is_empty());
+    assert_eq!(v.blocked.as_ref().unwrap().text(), text::PICK_NO_RESPONSE);
+
+    // 뒤에 같은 스텝이 또 실행됨 → 앞 실행에만 LaterRun
+    let mut ift = http_step("IF1", None);
+    ift.kind = StepKind::If;
+    let t3 = trace(vec![http_step(A, Some(200)), ift, http_step(A, Some(500))]);
+    let v = open_values(&flow, &t3, 0, false, 128, &n);
+    assert_eq!(v.list.notes.first(), Some(&ListNote::LaterRun));
+    let v = open_values(&flow, &t3, 2, false, 128, &n);
+    assert!(!v.list.notes.contains(&ListNote::LaterRun));
+    // If 줄은 세지 않는다 — 뒤에 같은 id의 If 줄만 있으면 LaterRun 아님
+    let mut if_same = http_step(A, None);
+    if_same.kind = StepKind::If;
+    let t4 = trace(vec![http_step(A, Some(200)), if_same]);
+    let v = open_values(&flow, &t4, 0, false, 128, &n);
+    assert!(!v.list.notes.contains(&ListNote::LaterRun));
+}
+
+#[test]
+fn values_state_debug_hides_values() {
+    let n = names();
+    let mut t = trace(vec![http_step(A, Some(200))]);
+    t.steps[0].response = Some(resp(
+        200,
+        &[("x-secret", "TOKEN123")],
+        r#"{"k":"BODYSECRET"}"#,
+    ));
+    let flow = PanelConfig {
+        scenario_id: "S1".into(),
+        ..Default::default()
+    };
+    let v = open_values(&flow, &t, 0, false, 128, &n);
+    let d = format!("{v:?}");
+    for s in ["TOKEN123", "BODYSECRET", "x-secret", "$.k"] {
+        assert!(!d.contains(s), "{s} leaked in {d}");
+    }
+    let step_panel = PanelConfig {
+        scenario_id: "S1".into(),
+        step_id: Some(B.into()),
+        ..Default::default()
+    };
+    let d = format!("{:?}", open_values(&step_panel, &t, 0, false, 128, &n));
+    assert!(!d.contains("TOKEN123"));
+}
+
+#[test]
+fn auth_headers_match_controller() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../controller/src/monitor/config.rs"
+    ))
+    .unwrap();
+    let start = src.find("const AUTH_HEADERS").expect("AUTH_HEADERS");
+    let end = start + src[start..].find("];").unwrap();
+    let block = &src[start..end];
+    let mut found: Vec<String> = Vec::new();
+    let mut parts = block.split('"');
+    parts.next();
+    while let Some(lit) = parts.next() {
+        found.push(lit.to_string());
+        parts.next();
+    }
+    found.sort();
+    let mut mine: Vec<String> = AUTH_HEADERS.iter().map(|s| s.to_string()).collect();
+    mine.sort();
+    assert_eq!(found, mine);
+    assert!(is_auth_header("  Set-Cookie "));
+    assert!(!is_auth_header("x-id"));
 }

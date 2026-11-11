@@ -5,7 +5,8 @@
 //! (`validate_panel`)다 — 숫자 파싱 실패는 0으로 보내 서버가 거절하게 한다.
 
 use handicap_controller::monitor::config::{
-    BoardConfig, ConditionOp, ConditionSource, LatencySource, PanelConfig, Threshold,
+    BoardConfig, Condition, ConditionOp, ConditionSource, DisplayItem, LatencySource, PanelConfig,
+    Threshold,
 };
 
 use crate::names::Names;
@@ -119,6 +120,26 @@ fn with_panel(
         f(p);
     }
     out
+}
+
+/// 조건 하나를 끝에 붙인다. 스텝 칸이면 `step_id`를 칸의 스텝으로 덮어쓴다(GUI `addCondition`의 `ownStep`).
+pub fn add_condition(cfg: &BoardConfig, panel_idx: usize, mut c: Condition) -> BoardConfig {
+    with_panel(cfg, panel_idx, |p| {
+        if let Some(own) = &p.step_id {
+            c.step_id = own.clone();
+        }
+        p.conditions.push(c);
+    })
+}
+
+/// 표시 값 하나를 끝에 붙인다. 스텝 칸이면 `step_id`를 칸의 스텝으로 덮어쓴다(GUI `addDisplay`).
+pub fn add_display(cfg: &BoardConfig, panel_idx: usize, mut d: DisplayItem) -> BoardConfig {
+    with_panel(cfg, panel_idx, |p| {
+        if let Some(own) = &p.step_id {
+            d.step_id = own.clone();
+        }
+        p.display_items.push(d);
+    })
 }
 
 fn parse_num(v: &str) -> u32 {
