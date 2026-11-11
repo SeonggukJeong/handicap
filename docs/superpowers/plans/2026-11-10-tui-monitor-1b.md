@@ -4,11 +4,11 @@
 
 **Goal:** `handicap-tui`에서 지나간 실패를 확인한다(US3) — 칸을 고르고 `e` → 실패 목록(시각·상태·사유) → `Enter` 자세히(사유·판정 상세·스텝 표) → `Enter` 요청·응답 본문(JSON은 들여써서, `←`/`→`로 옆 스텝). `Enter`(모니터 화면)는 칸 설정을 번호 목록으로 보여 준다(읽기 전용). 시나리오·스텝·환경 이름은 번들 파일에서 푼다.
 
-**Architecture:** 컨트롤러의 기존 기록 엔드포인트 `GET /api/monitor-boards/{id}/panels/{panel_id}/records/{at_ms}`를 루프백으로 부른다(거울 타입 `wire::CheckRecord`). 화면 상태·줄 모델은 순수 함수 모듈 `inspect.rs`(오류 보기 3단계)·`panel_settings.rs`(설정 항목)에 두고, 그리기는 `view/inspect.rs`·`view/settings.rs`가 뷰 모델만 받아 그린다(1a `MonitorScreen` 방식). 새 화면 넷은 화면 전체를 쓰고 맨 윗줄은 모니터와 같은 머리 줄, 입력 없이 5분이면 모니터로 돌아간다. 이름 해석은 새 `names.rs`가 번들 파일 바이트에서 `scenarios[].yaml`(엔진 `Scenario::from_yaml`)과 `environments[].{id,name}`만 읽는다. 기록 조회는 UI 루프를 막지 않게 tokio 태스크 + `std::sync::mpsc`로 받는다. 컨트롤러·엔진·GUI는 0-diff(Cargo 의존 한 줄 추가뿐).
+**Architecture:** 컨트롤러의 기존 기록 엔드포인트 `GET /api/monitor-boards/{id}/panels/{panel_id}/records/{at_ms}`를 루프백으로 부른다(거울 타입 `wire::CheckRecord`). 화면 상태·줄 모델은 순수 함수 모듈 `inspect.rs`(오류 보기 3단계)·`panel_settings.rs`(설정 항목)에 두고, 그리기는 `view/inspect.rs`·`view/settings.rs`가 뷰 모델만 받아 그린다(1a `MonitorScreen` 방식). 새 화면 넷은 화면 전체를 쓰고 맨 윗줄은 모니터와 같은 머리 줄, 입력 없이 5분이면 모니터로 돌아간다. 이름 해석은 새 `names.rs`가 번들 파일 바이트에서 `scenarios[].yaml`(엔진 `Scenario::from_yaml`)과 `environments[].{id,name}`만 읽는다. 기록 조회는 UI 루프를 막지 않게 작업자 tokio 태스크 하나(요청 큐를 차례로 처리) + `std::sync::mpsc`로 받는다. 컨트롤러·엔진·GUI는 0-diff(Cargo 의존 한 줄 추가뿐).
 
 **Tech Stack:** Rust(edition 2024, tui crate `rust-version = "1.88"`), ratatui 0.30(crossterm 재수출), reqwest, serde/serde_json, tokio, wiremock(테스트). 새 의존: `handicap-engine`(path — `ScenarioTrace`·`Scenario`·`Step`).
 
-**Spec:** `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §0(1b 행)·US3·§5.2(`e`·`Enter`)·§5.3·§5.4(+ 두 절 끝의 **"1b 확정 (사용자 2026-11-10)"** 블록)·§8·§9·§11. 화면 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html`(사용자 승인 — 글자 배치의 기준). 모니터 화면 배치는 `2026-11-08-tui-readability-design.md`가 우선(이 plan은 그 화면에 키 조각 두 개만 더한다).
+**Spec:** `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §0(1b 행)·US3·§5.2(`e`·`Enter`)·§5.3·§5.4(+ 두 절 끝의 **"1b 확정 (사용자 2026-11-10)"** 블록)·§8·§9·§11. 화면 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html`(사용자 승인 — 글자 배치의 기준). 모니터 화면 배치는 `2026-11-08-tui-readability-design.md`가 우선(이 plan이 그 화면에서 바꾸는 것은 맨 아래 키 줄뿐 — 조각 두 개를 더하고 **조각 순서(= 좁을 때 빼는 순서)를 바꾼다**, Task 7).
 
 ## 선행 결정 (리뷰어·사용자 확인용)
 
@@ -20,8 +20,8 @@
 | 번들 파일 파싱 | 컨트롤러 `board_file::parse_bundle_bytes`(전체 검증)를 다시 돌리지 않고 **필요한 키만 읽는 느슨한 serde 구조체**(`scenarios[].{id,yaml}`, `environments[].{id,name}`). 서버 가져오기가 이미 형식을 검증했고, 실패해도 이름이 id로 보일 뿐(fail-soft). 환경 `vars`는 **역직렬화하지 않는다**(값을 메모리에 들지 않음) | C6 |
 | 목록의 404 문구 | 목록 줄은 `기록 지남`(사용자 확정 7, TUI 전용), 상세 화면은 `ko.monitor.recordMissing` 그대로 | C7 |
 | `a` 전체 회차 | "현재 막대 구간(`/status`의 `results`)의 모든 회차". 기록도 칸의 `bar_count`개만 보관되므로 그 밖은 볼 것이 없다 | C8 |
-| 사유 지연 조회의 메모리 | 목록용 조회는 응답에서 `reason`·`detail`만 남기고 trace를 즉시 버린다. 상세는 한 번에 기록 1개만 든다 | spec §9 "저사양 PC" |
-| 본문 표시 | JSON으로 읽히면 **들여쓴 모양**, 아니면 원문(사용자 확정 5). 64KB 초과·파싱 실패(너무 깊은 중첩 포함)·잘린 본문은 원문. 들여쓰기는 `serde_json::Value`로 다시 찍지 않고 **글자 흐름을 그대로 다시 줄바꿈**한다 — 워크스페이스 serde_json에 `preserve_order`가 없어 `Value`를 거치면 키 순서가 바뀐다(C18). 검증만 `serde::de::IgnoredAny`로(재귀 상한 초과 = 파싱 실패 → 원문). 제어 문자는 치환 | Review Focus 1·8 |
+| 사유 지연 조회의 메모리 | 조회는 **작업자 태스크 하나가 요청을 하나씩 차례로** 처리한다(Task 8 `spawn_fetch_worker` — 동시에 기록 둘을 받지 않는다). 목록용 조회는 응답에서 `reason`·`detail`만 남기고 trace를 즉시 버린다. 자세히는 한 번에 기록 1개만 든다 | spec §9 "저사양 PC" |
+| 본문 표시 | JSON으로 읽히면 **들여쓴 모양**, 아니면 원문(사용자 확정 5). GUI와 같은 한도로 원문: 64KB 초과(`TREE_MAX_BYTES`)·중첩 64단 초과(`TREE_MAX_DEPTH`)·파싱 실패·잘린 본문. 들여쓰기는 `serde_json::Value`로 다시 찍지 않고 **글자 흐름을 그대로 다시 줄바꿈**한다 — 워크스페이스 serde_json에 `preserve_order`가 없어 `Value`를 거치면 키 순서가 바뀐다(C18). 문법 검증만 `serde::de::IgnoredAny`로 하는데 **이 경로엔 깊이 제한이 없다**(`ignore_value`가 반복문 — C25) → 깊이는 `pretty_json`의 자체 훑기가 세고 64단을 넘는 순간 원문으로 돌아선다(깊은 본문에서 들여쓰기 출력이 깊이² 로 불어나는 것도 막는다). 제어 문자는 치환 | Review Focus 1·8 |
 | 화면 전환 방식 | 새 화면 넷은 **화면 전체 전환**, 맨 윗줄은 모니터와 같은 머리 줄(사용자 확정 1) — `monitor.rs`의 머리 줄 그리기를 `HeaderView`로 뽑아 같이 쓴다 | 목업 |
 | 자리 비움 | 새 화면 넷(과 그 위의 종료 확인창)에서 키·마우스 입력 없이 **5분**이면 모니터 화면으로(사용자 확정 2). 도움말·모니터 위 종료 확인창은 1a 그대로(적용 안 함 — 도움말은 모니터 위 팝업이라 뒤 칸이 보이고, 범위를 넓히지 않는다) | Task 7 |
 | 목록·상세의 상태 문구 | GUI 기록 창의 `확인 못 함`/`분기 제외`가 아니라 **벽과 같은 기호 붙은 문구**(`― 확인 못 함`·`○ 분기 제외`·`▲ 느림` — 목업). 이미 있는 `text::state_label`을 쓴다 | 목업, C19 |
@@ -42,10 +42,10 @@
 ## Review Focus
 
 1. **터미널로 가는 원격 문자열**: 응답 본문·헤더·URL·`StepTrace.error`·사유에 ESC·탭·CR 같은 제어 문자가 있어도 화면이 깨지거나 폭 계산이 어긋나지 않는다. → Task 5 `sanitize_replaces_control_chars`·`body_lines_escape_sequence_is_inert`.
-2. **늦게 도착한 조회 결과**: 다른 칸·다른 회차로 옮긴 뒤(또는 `r` 재시도 뒤) 도착한 응답을 현재 화면에 넣지 않는다. → Task 7 `fetched_for_other_panel_is_dropped`.
-3. **목록이 살아 움직인다**(사용자 확정 3): 1초마다 새 결과가 앞에 끼고 오래된 것이 밀려나도 커서는 같은 회차(`at_ms`)에 머문다. 밀려났으면 가장 가까운 더 오래된 줄. → Task 3 `cursor_stays_on_same_round_when_new_results_arrive`·`cursor_falls_to_next_older_when_evicted`.
+2. **늦게 도착한 조회 결과**: 다른 칸·다른 회차로 옮긴 뒤(또는 `r` 재시도 뒤) 도착한 응답을 현재 화면에 넣지 않는다. 묶음 칸들은 같은 `at_ms`를 쓰므로 보드·칸·회차 **셋 다** 맞춰 본다. → Task 7 `fetched_for_other_panel_is_dropped`.
+3. **목록이 살아 움직인다**(사용자 확정 3 — 열자마자도: 커서를 첫 줄의 `at_ms`에 고정, Task 7 `open_errors_pins_cursor_to_first_row`): 1초마다 새 결과가 앞에 끼고 오래된 것이 밀려나도 커서는 같은 회차(`at_ms`)에 머문다. 밀려났으면 가장 가까운 더 오래된 줄. → Task 3 `cursor_stays_on_same_round_when_new_results_arrive`·`cursor_falls_to_next_older_when_evicted`.
 4. **작은 터미널**: 새 화면 네 개가 1×1부터 패닉 없이 그려진다. 무입력 안내 줄·개수·`보기 전용` 같은 덧붙은 글자는 잘리지 않고 통째로 빠진다. → Task 3–6 `*_size_sweep_no_panic`, Task 3 `render_errors_narrow_drops_whole_parts`.
-5. **요청 본문은 기본 가림**: `v` 전에는 본문 글자가 버퍼 어디에도 없다. 본문 화면을 나가거나 `←`/`→`로 옆 스텝에 가거나 5분 자동 복귀하면 다시 가려진다. → Task 5 `request_body_hidden_until_reveal`, Task 7 `leaving_body_resets_reveal`·`idle_return_clears_views`.
+5. **요청 본문은 기본 가림**: `v` 전에는 본문 글자가 버퍼 어디에도 없다. 본문 화면을 나가거나 `←`/`→`로 옆 스텝에 가거나 5분 자동 복귀하면 다시 가려진다. → Task 5 `request_body_hidden_until_reveal`, Task 7 `sub_views_transitions`·`idle_return_clears_views`.
 6. **거울 1:1**: 실제 in-process 컨트롤러 응답을 `deny_unknown_fields` 거울로 역직렬화한다. → Task 1 `record_round_trips_real_controller_response`.
 7. **스텝 칸 강조 규칙이 GUI와 같다**: 같은 스텝이 loop로 여러 번 돌면 **마지막** http 행, `if` 행은 대상 아님. → Task 4 `focus_is_last_http_row_of_step`.
 8. **JSON 들여쓰기가 내용을 바꾸지 않는다**: 키 순서·숫자 표기(`1.0`, `1e3`, 큰 정수)·문자열 안의 `{`·`,`·`\"`가 그대로다. 공백을 뺀 글자열이 원문과 같다. → Task 5 `pretty_json_preserves_tokens`.
@@ -66,14 +66,14 @@
 | `crates/tui/src/view/inspect.rs` (새) | 새 화면 공용 틀(머리 줄·무입력 안내 줄·키 줄) + 목록·상세·본문 그리기 | 3, 4, 5 |
 | `crates/tui/src/panel_settings.rs` (새) | 설정 항목 12개, 조건·표시 값 한 줄 문구 | 6 |
 | `crates/tui/src/view/settings.rs` (새) | 설정 번호 목록 그리기 | 6 |
-| `crates/tui/src/view/mod.rs` (수정) | `pub mod inspect; pub mod settings;`, `wrap_width`를 `overlay.rs`에서 옮겨 `pub(crate)` | 3, 5 |
+| `crates/tui/src/view/mod.rs` (수정) | `pub mod inspect;`(3) · `wrap_width`를 `overlay.rs`에서 옮겨 `pub(crate)`(5) · `pub mod settings;`(6) | 3, 5, 6 |
 | `crates/tui/src/judge.rs` (수정) | `format_date_hms` | 4 |
 | `crates/tui/src/text.rs` (수정) | 새 문구 | 3–7 |
-| `crates/tui/src/app.rs` (수정) | 화면 4개·키·조회 태스크·5분 자동 복귀·키 줄 | 7 |
+| `crates/tui/src/app.rs` (수정) | 화면 4개·키·화면 전환(`SubViews`)·5분 자동 복귀 판정·키 줄(7), 조회 작업자·이벤트 루프·그리기 연결(8) | 7, 8 |
 | `crates/tui/src/view/monitor.rs`, `view/overlay.rs` (수정) | 머리 줄 공용화(`HeaderView`), 모니터 키 줄 조각 2개·순서, 도움말 2줄 + 무입력 안내 | 3, 7 |
 | `crates/tui/src/lib.rs` (수정) | `pub mod names; pub mod inspect; pub mod panel_settings;` | 2, 3, 6 |
-| `crates/tui/tests/record_test.rs`·`names_test.rs`·`inspect_test.rs`·`settings_test.rs` (새), `session_test.rs`·`app_test.rs`·`view_test.rs`·`judge_parity_test.rs` (수정) | 테스트 | 1–7 |
-| `docs/dev/tui-monitor.md`, `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` | 매뉴얼·spec 확정 표시 | 8 |
+| `crates/tui/tests/record_test.rs`·`names_test.rs`·`inspect_test.rs`·`settings_test.rs` (새), `session_test.rs`·`app_test.rs`·`view_test.rs`·`judge_parity_test.rs` (수정) | 테스트 | 1–8 |
+| `docs/dev/tui-monitor.md`, `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` | 매뉴얼·spec 확정 표시 | 9 |
 
 공통 테스트 도우미: 새 테스트 파일은 `view_test.rs`의 `buffer_text`·`draw`(31–55행 근처 — 넓은 문자 채움 셀 건너뛰기)를 **그대로 복사**해 쓴다(테스트 파일끼리 공유 모듈 없음 — 1a 관례).
 
@@ -255,7 +255,7 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
 
 **Files:**
 - Create: `crates/tui/src/inspect.rs`, `crates/tui/src/view/inspect.rs`, `crates/tui/tests/inspect_test.rs`
-- Modify: `crates/tui/src/lib.rs`, `crates/tui/src/view/mod.rs`, `crates/tui/src/view/monitor.rs`(머리 줄 뽑기), `crates/tui/src/text.rs`, `crates/tui/tests/judge_parity_test.rs`
+- Modify: `crates/tui/src/lib.rs`, `crates/tui/src/view/mod.rs`, `crates/tui/src/view/monitor.rs`(머리 줄 뽑기), `crates/tui/src/text.rs`, `crates/tui/tests/judge_parity_test.rs`, `crates/tui/tests/view_test.rs`
 
 **Interfaces:**
 - Consumes: Task 1 `CheckRecord`, `ApiError`.
@@ -274,7 +274,7 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
   /// 머리 줄·무입력 안내 줄(`text::IDLE_NOTICE`, C_MUTED)·키 줄(`view::key_bar`, C_MUTED)을 그리고 body를 돌려준다.
   pub fn render_frame(f: &mut Frame, head: &HeaderView, keys: &[&str]) -> Rect;
   ```
-  **무입력 안내 줄 자리 결정**: 키 줄 조각으로 넣으면 80열에서 늘 빠지므로(문구 42칸) **키 줄 바로 위 전용 한 줄**로 둔다. 높이 10줄 미만이거나 폭이 문구보다 좁으면 **통째로 생략**(줄이거나 `…`로 자르지 않는다 — `crates/tui/CLAUDE.md` 첫 함정). 생략돼도 도움말(`?`)과 매뉴얼에 같은 문장이 있다(Task 7·8).
+  **무입력 안내 줄 자리 결정**: 키 줄 조각으로 넣으면 80열에서 늘 빠지므로(문구 42칸) **키 줄 바로 위 전용 한 줄**로 둔다. 높이 10줄 미만이거나 폭이 문구보다 좁으면 **통째로 생략**(줄이거나 `…`로 자르지 않는다 — `crates/tui/CLAUDE.md` 첫 함정). 생략돼도 도움말(`?`)과 매뉴얼에 같은 문장이 있다(Task 7·9).
 - Produces (`inspect.rs`):
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,6 +284,9 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
       Gone,            // 404
       Failed(String),  // ApiError.message
   }
+  /// 화면에 그리는 **모든 원격 문자열**(사유·판정 상세·이름·URL·오류·본문)이 거친다. 탭 → 공백 4칸, CR 제거,
+  /// 그 밖의 `char::is_control`(ESC 포함)·U+2028/2029 → `�`. 줄바꿈(`\n`)은 호출 쪽이 먼저 나눈다.
+  pub fn sanitize(s: &str) -> String;
   pub fn is_failure(v: Verdict) -> bool;                     // Fail | ConfigError | UpstreamFailed
   /// 한 회차의 상태 — 벽과 같은 규칙(`judge::panel_state`의 verdict·기준선 부분): Fail→Fail, ConfigError→ConfigError,
   /// UpstreamFailed→Blocked, BranchSkipped→Skipped, Ok ∧ 지연 ≥ 어느 기준선→Slow, 그 외 Ok.
@@ -294,7 +297,7 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
   pub fn cursor_index(rows_at: &[i64], cursor_at: Option<i64>) -> usize;
   /// 커서를 `delta`줄 옮긴 뒤의 at_ms(양 끝에서 멈춤). 빈 목록 → None.
   pub fn move_cursor(rows_at: &[i64], cursor_at: Option<i64>, delta: isize) -> Option<i64>;
-  /// 커서가 보이는 창의 첫 줄(상태 없이 계산): `cursor.saturating_sub(height / 2).min(len.saturating_sub(height))`.
+  /// 커서가 보이는 창의 첫 줄(상태 없이 계산): `height == 0`이면 0, 아니면 `cursor.saturating_sub(height / 2).min(len.saturating_sub(height))`.
   pub fn window_start(cursor: usize, len: usize, height: usize) -> usize;
   pub fn reason_of(r: Result<CheckRecord, ApiError>) -> Reason;  // Ok → Known{result.reason, result.detail}, 404 → Gone, 그 외 → Failed(message)
 
@@ -336,7 +339,7 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
   pub fn errors_list_height(area: Rect) -> usize;
   pub fn render_errors(f: &mut Frame, head: &HeaderView, v: &ErrorsView, keys: &[&str]);
   ```
-  배치(목업 §1): `render_frame` 뒤 body 1행 = 제목 `오류 보기 · {칸 제목}`(왼쪽) + 개수(오른쪽 — 실패만: `실패 {failures}회 · 최근 {total}회({구간}) 중`, 전체: `전체 {total}회`; 폭이 모자라면 개수를 **통째로** 뺀다). 구간 글자 = `span_secs ≥ 60`이면 `약 {반올림 분}분`, 아니면 `약 {초}초`. 열 이름 줄 `시각 · 상태 · 사유`(C_MUTED, 열 위치는 목록과 같게). 목록 줄 = `▶ `(커서 줄만, 아니면 2칸 공백) + `HH:MM:SS`(`judge::format_hms`) + 3칸 + `text::state_label(state)`(가장 넓은 문구 `– 확인 불가 · 점검 꺼짐`이 아니라 **이 화면에 나올 수 있는 여섯 문구 중 가장 넓은 폭**으로 채움) + 3칸 + 사유 칸. 사유 칸: 상태가 Ok·Slow면 `judge::format_ms(latency)`(지연 없으면 `text::NO_VALUE`), 그 외 `Known{reason: Some(s)}` → `s`, `Known{None}` → `text::NO_VALUE`, `Loading` → `text::LOADING`, `Gone` → `text::RECORD_GONE_SHORT`, `Failed(m)` → `text::record_load_error(m)`. 폭이 모자라면 사유를 `fit`으로 줄이고(가변 칸), 그래도 모자라면 상태 문구 → 시각 순으로 **통째** 뺀다. 빈 목록이면 `text::ERRORS_EMPTY`(실패만 보기) 또는 `text::ERRORS_EMPTY_ALL` 한 줄. 색: Fail `C_FAIL`, ConfigError·Slow `C_SLOW`, Blocked·Skipped `C_GRAY`, Ok `C_OK`(`monitor.rs`의 `pub(crate)` 상수 재사용), 커서 줄 굵게.
+  배치(목업 §1): `render_frame` 뒤 body 1행 = 제목 `오류 보기 · {칸 제목}`(왼쪽) + 개수(오른쪽 — 실패만: `실패 {failures}회 · 최근 {total}회({구간}) 중`, 전체: `전체 {total}회`; 폭이 모자라면 개수를 **통째로** 뺀다). 구간 글자 = `span_secs ≥ 60`이면 `약 {반올림 분}분`, 아니면 `약 {초}초`. 열 이름 줄 `시각 · 상태 · 사유`(C_MUTED, 열 위치는 목록과 같게). 목록 줄 = `▶ `(커서 줄만, 아니면 2칸 공백) + `HH:MM:SS`(`judge::format_hms`) + 3칸 + `text::state_label(state)`(가장 넓은 문구 `– 확인 불가 · 점검 꺼짐`이 아니라 **이 화면에 나올 수 있는 여섯 문구 중 가장 넓은 폭**으로 채움) + 3칸 + 사유 칸. 사유 칸: 상태가 Ok·Slow면 `judge::format_ms(latency)`(지연 없으면 `text::NO_VALUE`), 그 외 `Known{reason: Some(s)}` → `s`, `Known{None}` → `text::NO_VALUE`, `Loading` → `text::LOADING`, `Gone` → `text::RECORD_GONE_SHORT`, `Failed(m)` → `text::record_load_error(m)`. 폭이 모자라면 사유를 `fit`으로 줄이고(가변 칸), 그래도 모자라면 상태 문구 → 시각 순으로 **통째** 뺀다. 빈 목록이면 `text::ERRORS_EMPTY`(실패만 보기) 또는 `text::ERRORS_EMPTY_ALL` 한 줄. 색: Fail `C_FAIL`, ConfigError·Slow `C_SLOW`, Blocked·Skipped `C_GRAY`, Ok `C_OK`(`monitor.rs`의 `pub(crate)` 상수 재사용), 커서 줄 굵게. 사유·칸 제목은 `sanitize`를 거쳐 그린다.
 
 - 문구(`text.rs`):
 
@@ -357,6 +360,10 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
 
 ```rust
 // tests/inspect_test.rs — res(at, verdict, latency) 도우미: reason/detail None, display 빈 배열. head() 도우미: HeaderView{"운영 API 보드",(1,1),Some(now),false}
+#[test] fn sanitize_replaces_control_chars() {
+    // Review Focus 1. "a\tb" → "a    b"; "a\rb" → "ab"; "x\x1b[31my" → "x�[31my"; "\u{7}" → "�"; "한글 OK" 불변
+}
+#[test] fn render_errors_sanitizes_reason() { /* 사유 "a\x1bb\tc" → 버퍼에 '\x1b' 없음, "a�b    c" 보임 */ }
 #[test] fn error_results_filters_and_orders() {
     // [ok@1, fail@2, config_error@3, branch_skipped@4, upstream_failed@5] → 실패만: at [5,3,2]; 전체: [5,4,3,2,1]
 }
@@ -371,7 +378,7 @@ spec §5.3-1 + "1b 확정" 블록. Review Focus 3·4. **화면 배치는 목업 
     // rows [40,30,10], cursor_at Some(20)(목록에서 사라짐) → 2(10). rows [40,30], cursor_at Some(20) → 1(마지막). 빈 목록 → 0.
 }
 #[test] fn move_cursor_clamps() { /* [30,20,10]: (None,+1)→Some(20); (Some(10),+1)→Some(10); (Some(30),-5)→Some(30); 빈 목록 → None */ }
-#[test] fn window_start_cases() { /* (0,10,4)→0; (5,10,4)→3; (9,10,4)→6; (2,3,10)→0; (0,0,0)→0; (3,10,0)→0 패닉 없음 */ }
+#[test] fn window_start_cases() { /* (0,10,4)→0; (5,10,4)→3; (9,10,4)→6; (2,3,10)→0; (0,0,0)→0; (3,10,0)→0(높이 0은 항상 0), 패닉 없음 */ }
 #[test] fn reason_for_latest_and_ok_need_no_fetch() {
     // 최신 fail(reason Some("HTTP 503")) → Known 그대로; 예전 ok → Known{None,None}; 예전 fail 캐시 없음 → Loading
     // wanted([최신 fail, 예전 fail@2, 예전 ok@1], latest_at) == [2]; mark_loading([2]) 뒤 wanted == []
@@ -430,14 +437,14 @@ spec §5.3-2·§5.3-3 + "1b 확정" 블록. Review Focus 7. **화면 배치는 �
 - Test: `crates/tui/tests/inspect_test.rs`, `crates/tui/tests/judge_parity_test.rs`
 
 **Interfaces:**
-- Consumes: Task 2 `Names`, Task 3 `window_start`·`row_state`·`render_frame`·`HeaderView`.
+- Consumes: Task 2 `Names`, Task 3 `window_start`·`row_state`·`render_frame`·`HeaderView`·`sanitize`.
 - Produces (`inspect.rs`):
   ```rust
   #[derive(Debug, Clone)]
   pub enum RecordLoad { Loading, Loaded(Box<CheckRecord>), Gone, Failed(String) }
   pub fn load_of(r: Result<CheckRecord, ApiError>) -> RecordLoad;
   #[derive(Debug, Clone)]
-  pub struct RecordState { pub at_ms: i64, pub clicked: CheckResult, pub load: RecordLoad, pub cursor: usize }
+  pub struct RecordState { pub board_id: String, pub panel_id: String, pub at_ms: i64, pub clicked: CheckResult, pub load: RecordLoad, pub cursor: usize }
 
   /// GUI `branchText`: "none" → "(미매치)", "then"/"else" 그대로, "elif_3" → "elif 3", 그 외 원문.
   pub fn branch_text(branch: &str) -> String;
@@ -455,6 +462,8 @@ spec §5.3-2·§5.3-3 + "1b 확정" 블록. Review Focus 7. **화면 배치는 �
           focus: bool,                          // 스텝 칸의 그 스텝(마지막 http 행 하나만)
       },
   }
+  /// `method`·`url`·`status`·`latency_ms`·`error`는 **trace에서**(`step.request`/`step.response` — 실제로 보낸 값, URL은 서버가 가린 그대로).
+  /// `Names`는 이름만 준다(시나리오에 적힌 템플릿 URL은 여기서 쓰지 않는다 — 그것은 Task 6 칸 설정 보기).
   pub fn step_lines(trace: &ScenarioTrace, names: &Names, scenario_id: &str, focus_step_id: Option<&str>) -> Vec<StepLine>;
   /// 처음 커서: focus 줄(스텝 칸 — 사용자 확정 9) → 없으면 error가 있는 첫 Http → 첫 Http → 0.
   pub fn initial_step_cursor(lines: &[StepLine]) -> usize;
@@ -483,8 +492,8 @@ spec §5.3-2·§5.3-3 + "1b 확정" 블록. Review Focus 7. **화면 배치는 �
   ```
 - Produces (`judge.rs`): `pub fn format_date_hms(ms: i64) -> String` — 로컬 `YYYY-MM-DD HH:MM:SS`(GUI `formatDateHms`). `local_fmt`의 변환 실패 대체에 `%Y`→`0000`, `%m`·`%d`→`00`을 더한다.
 - Produces (`view/inspect.rs`): `pub fn render_record(f: &mut Frame, head: &HeaderView, v: &RecordView, keys: &[&str]);`
-  배치(목업 §2, `render_frame`의 body 안 위에서부터): 제목 줄 · `{state_label}    {format_ms(latency)}`(지연 없으면 문구만) · `사유  {reason}`(있으면) · `판정 상세  {detail}`(있으면) · `시나리오  {scenario}   환경 {environment}`(환경 없으면 `text::SET_ENV_NONE` 대신 환경 조각 생략) · 안내 줄들(Note·Loading·Gone·Failed) · 표 머리 `#  스텝  요청  응답  지연`(C_MUTED, 스텝 줄이 있을 때만) · 스텝 줄들(남는 높이에 `window_start(cursor, len, 높이)`부터). 높이가 모자라면 위에서부터 순서대로 그리되 **스텝 줄이 최소 1줄은 보이게** `시나리오` 줄 → `판정 상세` 줄 → 표 머리 순으로 통째 뺀다(상태·사유·안내 줄은 남긴다).
-  스텝 줄: `If` → 들여쓴 `text::record_if_row(branch)`(C_MUTED). `Http` → `▶ `(커서) + 순번 `no`(오른쪽 정렬 2칸) + 2칸 + 이름(+ ` #{loop_index}` — GUI처럼 엔진 값 그대로 0부터) + 2칸 + `METHOD URL` + 2칸 + 상태 코드(응답 없으면 `text::NO_VALUE`) + 2칸 + `format_ms(지연)`(시간 초과면 그 자리에 `text::TIMED_OUT`) + (`focus`면 3칸 + `text::THIS_PANEL`). `error`가 있으면 **다음 줄**에 들여 `C_FAIL` 색으로(한 줄, `fit`, 엔진 오류 문장 그대로). 폭이 모자라면 URL을 `fit`으로 줄이고(가변 칸, 8칸 미만이면 `METHOD URL` 통째 생략), 이름은 20칸까지만, `◀ 이 칸`은 통째로 남긴다. 줄 글자는 모두 `inspect::sanitize`를 거쳐야 하는데 그 함수는 Task 5에서 생긴다 — **Task 5 Step 3이 여기에 적용한다**(Task 5에 명시됨).
+  배치(목업 §2, `render_frame`의 body 안 위에서부터): 제목 줄 · `{state_label}    {format_ms(latency)}`(지연 없으면 문구만) · `사유  {reason}`(있으면) · `판정 상세  {detail}`(있으면) · `시나리오  {scenario}   환경 {environment}`(환경이 없으면 `환경 …` 조각을 통째로 생략) · 안내 줄들(Note·Loading·Gone·Failed) · 표 머리 `#  스텝  요청  응답  지연`(C_MUTED, 스텝 줄이 있을 때만) · 스텝 줄들(남는 높이에 `window_start(cursor, len, 높이)`부터). 높이가 모자라면 위에서부터 순서대로 그리되 **스텝 줄이 최소 1줄은 보이게** `시나리오` 줄 → `판정 상세` 줄 → 표 머리 순으로 통째 뺀다(상태·사유·안내 줄은 남긴다).
+  스텝 줄: `If` → 들여쓴 `text::record_if_row(branch)`(C_MUTED). `Http` → `▶ `(커서) + 순번 `no`(오른쪽 정렬 2칸) + 2칸 + 이름(+ ` #{loop_index}` — GUI처럼 엔진 값 그대로 0부터) + 2칸 + `METHOD URL` + 2칸 + 상태 코드(응답 없으면 `text::NO_VALUE`) + 2칸 + `format_ms(지연)`(시간 초과면 그 자리에 `text::TIMED_OUT`) + (`focus`면 3칸 + `text::THIS_PANEL`). `error`가 있으면 **다음 줄**에 들여 `C_FAIL` 색으로(한 줄, `fit`, 엔진 오류 문장 그대로). 폭이 모자라면 URL을 `fit`으로 줄이고(가변 칸, 8칸 미만이면 `METHOD URL` 통째 생략), 이름은 20칸까지만, `◀ 이 칸`은 통째로 남긴다. 원격 문자열(사유·판정 상세·이름·URL·오류)은 모두 `inspect::sanitize`(Task 3)를 거쳐 그린다.
 
 - 문구(`text.rs`):
 
@@ -510,7 +519,9 @@ spec §5.3-2·§5.3-3 + "1b 확정" 블록. Review Focus 7. **화면 배치는 �
 // tests/inspect_test.rs — trace 조립 도우미: http(step_id, loop_index, status, error) / if_row(step_id, branch)
 #[test] fn branch_text_cases() { /* none→"(미매치)", then→"then", else→"else", elif_2→"elif 2", "x"→"x" */ }
 #[test] fn step_lines_names_and_fields() {
-    // Names(Task 2 NESTED 번들) + trace [http A01 200 12ms, if I01 "elif_0", http A04 503 error "boom" timed_out]
+    // Names: **`crates/tui/tests/names_test.rs`의 `NESTED` 상수와 `names_from_bundle_resolves`의 번들 조립(S1·E1)을 이 파일에 그대로 복사**해 만든다
+    //   (테스트 파일끼리 공유 모듈 없음). trace [http A01 200 12ms, if I01 "elif_0", http A04 503 error "boom" timed_out]
+    // method·url은 trace.request 값 그대로(시나리오의 "/d"가 아니라 trace에 넣은 "http://h/d")
     // → [Http{no:1, name:"a", status:Some(200), ..}, If{branch:"elif 0"}, Http{no:2, name:"d", error:Some("boom"), timed_out:true, trace_idx:2, ..}]
     // Names에 없는 step_id → name == step_id
 }
@@ -536,6 +547,7 @@ spec §5.3-2·§5.3-3 + "1b 확정" 블록. Review Focus 7. **화면 배치는 �
     // focus 줄에 "◀ 이 칸" + 그 줄이 "▶ "로 시작(처음 커서), 응답 없는 줄 "—"·"시간 초과", 다음 줄 "boom", "조건 분기 → elif 0",
     // 무입력 안내 줄 있음
 }
+#[test] fn render_record_sanitizes_remote_text() { /* 사유·스텝 오류·URL에 '\x1b' → 버퍼에 없음 */ }
 #[test] fn render_record_states() {
     // Loading → "불러오는 중…"; Gone → RECORD_MISSING(폭에 맞게 줄어도 앞부분 "이 점검의 기록이 없습니다"); Failed("m") → "기록을 불러오지 못했습니다: m"
     // NoTraceConfig / NoTraceTimeout / TraceError / TraceCut 문구(목업 §2 특수 기록 4가지 + "점검 준비 중 오류: …")
@@ -564,19 +576,19 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
 - Test: `crates/tui/tests/inspect_test.rs`, `crates/tui/tests/judge_parity_test.rs`
 
 **Interfaces:**
-- Consumes: Task 1 `Clipped`·`ClipSide`, Task 3 `render_frame`·`HeaderView`, Task 4 `StepLine`.
+- Consumes: Task 1 `Clipped`·`ClipSide`, Task 3 `render_frame`·`HeaderView`·`sanitize`, Task 4 `StepLine`. 가림 판정 문자열은 `handicap_controller::monitor::record::MASK`(`pub const`, 복사하지 않는다).
 - Produces (`view/mod.rs`): `overlay.rs`의 비공개 `wrap_width(s, w) -> Vec<String>`를 `view/mod.rs`로 옮겨 `pub(crate)`(동작 불변, `overlay.rs`는 `super::wrap_width` 사용).
 - Produces (`inspect.rs`):
   ```rust
-  /// 탭 → 공백 4칸, CR 제거, 그 밖의 `char::is_control`(ESC 포함)·U+2028/2029 → `�`. 줄바꿈(`\n`)은 호출 쪽이 먼저 나눈다.
-  pub fn sanitize(s: &str) -> String;
-  /// GUI `TREE_MAX_BYTES`와 같은 상한.
+  /// GUI `TREE_MAX_BYTES`·`TREE_MAX_DEPTH`와 같은 한도.
   pub const PRETTY_MAX_BYTES: usize = 64 * 1024;
+  pub const PRETTY_MAX_DEPTH: usize = 64;
   #[derive(Debug, Clone, PartialEq, Eq)]
-  pub enum Pretty { Json(String), TooLarge, Raw }
-  /// 본문을 JSON으로 들여쓸 수 있는지. `s.len() > PRETTY_MAX_BYTES` ∧ 첫 비공백 글자가 `{`/`[` → TooLarge.
-  /// `serde_json::from_str::<serde::de::IgnoredAny>(s)`가 성공 ∧ 첫 비공백 글자가 `{`/`[` → Json(들여쓴 글).
-  /// 그 외(파싱 실패 — serde_json 재귀 상한 초과의 깊은 중첩 포함, 스칼라, 빈 글) → Raw.
+  pub enum Pretty { Json(String), TooLarge, TooDeep, Raw }
+  /// 판정 순서: ① `s.len() > PRETTY_MAX_BYTES` → TooLarge(내용과 무관 — GUI와 같다)
+  /// ② 첫 비공백 글자가 `{`/`[`가 아니거나 `serde_json::from_str::<serde::de::IgnoredAny>(s)`가 실패 → Raw(평문·스칼라·잘린 JSON·빈 글)
+  /// ③ 들여쓰며 훑는 중 `{`/`[` 중첩이 PRETTY_MAX_DEPTH를 넘으면 **그 자리에서 멈추고** TooDeep ④ 그 외 Json(들여쓴 글).
+  /// 주의: IgnoredAny 경로는 serde_json의 재귀 상한(128)을 타지 않는다(반복문) — 깊이는 ③이 직접 센다.
   pub fn pretty_json(s: &str) -> Pretty;
   pub fn clip_flags(clipped: &[Clipped], trace_idx: usize) -> (bool, bool); // (요청 잘림, 응답 잘림)
   #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -602,7 +614,7 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
       pub fn scroll_to_end(&mut self, height: usize);
   }
   ```
-  `pretty_json` 들여쓰기 규칙(값을 다시 만들지 않는 글자 재배치 — Review Focus 8): 문자열 밖 공백은 버린다. `{`/`[` 뒤 줄바꿈 + 들여쓰기 2칸 증가(바로 닫히는 `{}`·`[]`는 한 줄), `,` 뒤 줄바꿈, `:` 뒤 공백 1칸, `}`/`]` 앞 줄바꿈 + 들여쓰기 감소. 문자열(`"` … `"`, `\` 다음 글자는 건너뜀) 안은 한 글자도 바꾸지 않는다. 숫자·`true`/`false`/`null`은 원문 글자 그대로.
+  `pretty_json` 들여쓰기 규칙(값을 다시 만들지 않는 글자 재배치 — Review Focus 8): 문자열 밖 공백은 버린다. `{`/`[` 뒤 줄바꿈 + 들여쓰기 2칸 증가(바로 닫히는 `{}`·`[]`는 한 줄), `,` 뒤 줄바꿈, `:` 뒤 공백 1칸, `}`/`]` 앞 줄바꿈 + 들여쓰기 감소. 깊이는 여는 괄호에서 +1 — `PRETTY_MAX_DEPTH`를 넘는 순간 출력을 버리고 `TooDeep`(들여쓰기 글자가 깊이² 로 불어나기 전에 끝낸다). 문자열(`"` … `"`, `\` 다음 글자는 건너뜀) 안은 한 글자도 바꾸지 않는다. 숫자·`true`/`false`/`null`은 원문 글자 그대로.
   `body_lines` 순서(목업 §3, GUI `StepRow` 펼친 내용과 같은 구분):
   1. `Title`: `{칸 제목} · {HH:MM:SS} · {no} {스텝 이름}`(`judge::format_hms`).
   2. `Summary`: `{METHOD} {URL}   →   {status}   {N ms}`(응답 없으면 ` → ` 뒤 생략)를 폭에 맞게 줄바꿈(URL 전체가 보이게).
@@ -611,7 +623,7 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
   5. 요청 본문이 비어 있지 않을 때만: `Heading` `요청 본문` → `reveal == false`면 `Note` `요청 본문은 가려져 있습니다`, `true`면 본문 `Text` 줄들(아래 본문 규칙). 어느 쪽이든 `clipped_req`면 `Note` `text::record_clipped(limit_kb)`.
   6. 응답이 있으면: `Heading` `응답 헤더` + 줄들, 응답 본문이 비어 있지 않으면 `Heading` `응답 본문` → (`clipped_resp`면 `Note` 잘림) → (`body_truncated`면 `Note` `text::RECORD_ENGINE_TRUNCATED`) → 본문 `Text` 줄들.
   7. URL·헤더 값 어디든 `••••`(U+2022×4)가 있으면 끝에 `Note` `인증 값은 ••••로 가렸습니다`(GUI `masked`).
-  **본문 규칙**(사용자 확정 5): 잘렸거나(`clipped_*`·`body_truncated`) `pretty_json`이 `Raw`면 원문, `Json(p)`면 `p`, `TooLarge`면 원문 + 본문 앞에 `Note` `text::RECORD_TREE_TOO_LARGE`(GUI 안내문 그대로). 너무 깊은 중첩은 따로 알리지 않고 원문(파싱 실패와 구별하지 않는다). 본문 `Text`는 2칸 들여쓴다. 모든 `Text`·`Title`·`Summary`·`Error` 글자는 `\n`으로 나눈 뒤 `sanitize` → `wrap_width`.
+  **본문 규칙**(사용자 확정 5, GUI `RecordBody.tsx`와 같은 갈래): 잘렸으면(`clipped_*`·`body_truncated`) `pretty_json`을 부르지 않고 원문. 아니면 `Json(p)` → `p`, `Raw` → 원문, `TooLarge` → 본문 앞에 `Note` `text::RECORD_TREE_TOO_LARGE` + 원문, `TooDeep` → `Note` `text::RECORD_TREE_TOO_DEEP` + 원문(두 안내문은 GUI 글자 그대로). 본문 `Text`는 2칸 들여쓴다. 모든 `Text`·`Title`·`Summary`·`Error` 글자는 `\n`으로 나눈 뒤 `sanitize` → `wrap_width`.
 - Produces (`view/inspect.rs`):
   ```rust
   pub fn body_height(area: Rect) -> usize;             // sub_layout(area).body.height
@@ -619,7 +631,6 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
   pub fn render_body(f: &mut Frame, head: &HeaderView, lines: &[BodyLine], scroll: usize, keys: &[&str]);
   ```
   `Title`·`Heading` 굵게 + `C_TEXT`, `Note` `C_SLOW`, `Error` `C_FAIL`, `Text`·`Summary` 기본. 줄 위치 `{끝}/{전체}줄`은 body 첫 화면 줄의 오른쪽 끝(전체 줄 수 ≤ 높이면 생략).
-  **Task 4에서 넘어온 일**: `render_record`·`render_errors`가 그리는 원격 문자열(사유·판정 상세·이름·URL·오류)에도 `sanitize`를 적용한다.
 
 - 문구(`text.rs`):
 
@@ -630,16 +641,13 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
   | `record_clipped(kb)` | `기록 상한 {kb}KB에서 잘림` | `recordClipped` (spec §5.3-4의 "(N KB)" 표기보다 ko.ts가 우선) |
   | `RECORD_ENGINE_TRUNCATED` | `1 MiB에서 잘림 — 실제 응답은 더 큼` | `recordEngineTruncated` |
   | `RECORD_TREE_TOO_LARGE` | `64KB를 넘는 본문은 원문으로 표시합니다` | `recordTreeTooLarge` |
+  | `RECORD_TREE_TOO_DEEP` | `너무 깊게 중첩된 본문은 원문으로 표시합니다` | `recordTreeTooDeep` |
   | `RECORD_MASKED_HINT` | `인증 값은 ••••로 가렸습니다` | `recordMaskedHint` |
-  | `MASK` | `••••` | 컨트롤러 `monitor/record.rs` `MASK`(값 복사 — 판정에만 쓴다) |
   | `line_pos(end, total)` | `{end}/{total}줄` | TUI 전용(목업) |
 
 - [ ] **Step 1: 실패 테스트 작성**
 
 ```rust
-#[test] fn sanitize_replaces_control_chars() {
-    // Review Focus 1. "a\tb" → "a    b"; "a\rb" → "ab"; "x\x1b[31my" → "x�[31my"; "\u{7}" → "�"; "한글 OK" 불변
-}
 #[test] fn pretty_json_indents_objects_and_arrays() {
     // r#"{"error":"x","n":[1,2],"e":{},"a":[]}"# → Json("{\n  \"error\": \"x\",\n  \"n\": [\n    1,\n    2\n  ],\n  \"e\": {},\n  \"a\": []\n}")
 }
@@ -651,8 +659,13 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
 }
 #[test] fn pretty_json_falls_back_to_raw() {
     // "plain text" → Raw; r#"{"a":"# (잘린 JSON) → Raw; "42"·r#""s""# (스칼라) → Raw; "" → Raw
-    // "[".repeat(200) + &"]".repeat(200) (serde_json 재귀 상한 초과) → Raw, 패닉 없음
-    // 65_537바이트짜리 r#"{"a":"xxxx…"}"# → TooLarge; 65_537바이트 평문 → Raw
+    // 65_537바이트짜리 r#"{"a":"xxxx…"}"# → TooLarge; 65_537바이트 평문 → TooLarge(GUI처럼 내용과 무관)
+}
+#[test] fn pretty_json_depth_limit() {
+    // "[".repeat(64) + &"]".repeat(64) → Json(64단은 허용); 65단 → TooDeep
+    // "[".repeat(32_000) + &"]".repeat(32_000) (64,000바이트 — 크기 한도 안, GUI 주석의 최악 경우) → TooDeep,
+    //   패닉·스택 넘침 없이 즉시(이 테스트 전체가 1초 안 — 출력이 깊이² 로 불어나지 않는다는 뜻)
+    // 문자열 안의 괄호 r#"{"s":"[[[[…(100개)"}"# 는 깊이로 세지 않는다 → Json
 }
 #[test] fn clip_flags_by_trace_index() { /* [{0,Request},{2,Response}]: idx0 → (true,false); idx2 → (false,true); idx1 → (false,false) */ }
 #[test] fn request_body_hidden_until_reveal() {
@@ -669,7 +682,8 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
 }
 #[test] fn body_lines_json_body_is_indented() {
     // 응답 본문 r#"{"error":"service_unavailable","trace_id":"9f"}"# → Text 줄들 == ["  {", "    \"error\": \"service_unavailable\",", "    \"trace_id\": \"9f\"", "  }"]
-    // 같은 본문 + clipped_resp → 원문 한 줄(들여쓰기 안 함); 66KB JSON → Note "64KB를 넘는 본문은 원문으로 표시합니다" + 원문
+    // 같은 본문 + clipped_resp → 원문 한 줄(들여쓰기 안 함, 64KB 안내도 없음); 66KB 본문(JSON이든 평문이든) → Note "64KB를 넘는 본문은 원문으로 표시합니다" + 원문
+    // 65단 중첩 → Note "너무 깊게 중첩된 본문은 원문으로 표시합니다" + 원문
     // 요청 본문 JSON + reveal true → 들여쓴 줄들
 }
 #[test] fn body_lines_wrap_wide_text() { /* 폭 10, 본문 한글 12자(24칸) → 여러 줄, 각 줄 표시 폭 ≤ 10; 폭 0 → 패닉 없음 */ }
@@ -688,11 +702,11 @@ spec §5.3-4 + "1b 확정" 블록, §9. Review Focus 1·5·8. **화면 배치는
 }
 #[test] fn body_size_sweep_no_panic() { /* w 1..=50 × h 1..=12, scroll 0·중간·끝 */ }
 // mirrored_text_exists_in_ko_ts 행 추가: recordReqHeaders·recordReqBody·recordRespHeaders·recordRespBody·recordReqBodyHidden·
-//   recordEngineTruncated·recordTreeTooLarge·recordMaskedHint 값, "`기록 상한 ${kb}KB에서 잘림`"
+//   recordEngineTruncated·recordTreeTooLarge·recordTreeTooDeep·recordMaskedHint 값, "`기록 상한 ${kb}KB에서 잘림`"
 ```
 
 - [ ] **Step 2: 실패 확인** — 컴파일 오류.
-- [ ] **Step 3: 구현** — Interfaces·문구 표 그대로 + Task 3·4 그리기 함수에 `sanitize` 적용(그 두 화면에 제어 문자 단언 한 줄씩 추가: 사유 `"a\x1bb"` → 버퍼에 `\x1b` 없음). `pretty_json`은 `serde_json::Value`·`to_string_pretty`를 쓰지 않는다(키 순서 — 선행 결정 표).
+- [ ] **Step 3: 구현** — Interfaces·문구 표 그대로. `pretty_json`은 `serde_json::Value`·`to_string_pretty`를 쓰지 않는다(키 순서 — 선행 결정 표).
 - [ ] **Step 4: 통과 확인** — 공통 3명령. `overlay.rs`의 기존 `help_*` 테스트가 그대로 통과하는지(옮기기만 했는지) 확인. `pretty_json_preserves_tokens`가 공허하지 않은지 실증: 구현을 잠깐 `serde_json::to_string_pretty(&Value)`로 바꿔 RED(키 순서·`1.0`) 확인 → 되돌려 GREEN.
 - [ ] **Step 5: 커밋** — `feat(tui): 요청·응답 본문 화면 — JSON 들여쓰기·요청 본문 기본 가림·잘림 표시`.
 
@@ -704,7 +718,7 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
 
 **Files:**
 - Create: `crates/tui/src/panel_settings.rs`, `crates/tui/src/view/settings.rs`, `crates/tui/tests/settings_test.rs`
-- Modify: `crates/tui/src/lib.rs`, `crates/tui/src/view/mod.rs`, `crates/tui/src/text.rs`, `crates/tui/tests/judge_parity_test.rs`
+- Modify: `crates/tui/src/lib.rs`(`pub mod panel_settings;`), `crates/tui/src/view/mod.rs`(`pub mod settings;`), `crates/tui/src/text.rs`, `crates/tui/tests/judge_parity_test.rs`
 
 **Interfaces:**
 - Consumes: Task 2 `Names`, Task 3 `render_frame`·`HeaderView`, Task 5 `sanitize`·`wrap_width`.
@@ -712,15 +726,19 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
 - Produces (`panel_settings.rs`):
   ```rust
   /// GUI `targetLabel`: body "$" → "본문", "$.a.b" → "a.b", "$['a b']" → "['a b']", 그 외 원문 / header → "헤더 {path}" / status → "상태코드" / body_text → "본문 전체".
-  pub fn condition_target(c: &Condition) -> String;
+  // 아래 `Condition`·`DisplayItem`·`PanelConfig`·`BoardConfig`는 모두 `handicap_controller::monitor::config::*`(엔진의 `handicap_engine::Condition`이 아니다).
+  pub fn condition_target(c: &handicap_controller::monitor::config::Condition) -> String;
   pub fn display_target(d: &DisplayItem) -> String;          // body/header/status 같은 규칙
   /// GUI `conditionSummary`: `{target} {기호}` + (one_of → ` {a, b}` / 값 필요 연산 → ` {value}`, 빈 값이면 ` ""`) + ` · {스텝 이름 또는 step_id}` + (ignore_case → ` · 대소문자 무시`) + (trim → ` · 앞뒤 공백 무시`).
-  pub fn condition_summary(c: &Condition, step_name: Option<&str>) -> String;
+  pub fn condition_summary(c: &handicap_controller::monitor::config::Condition, step_name: Option<&str>) -> String;
   #[derive(Debug, Clone, PartialEq, Eq)]
   pub struct SettingItem { pub label: &'static str, pub values: Vec<String> /* 1줄 이상 */, pub from_group: bool }
   /// 항상 12개, 아래 표 순서. 번호는 인덱스 + 1. `from_group` = 묶음 칸(`group_id` 있음)의 2·3·5번.
   pub fn settings_items(p: &PanelConfig, names: &Names) -> Vec<SettingItem>;
-  /// 묶음 칸이면 `text::group_note(n)` — n = `board.groups`에서 그 묶음의 순번(1부터, GUI `groupTitle(n)`과 같은 번호). 묶음을 못 찾으면 번호 없이 `text::GROUP_NOTE_PLAIN`.
+  /// GUI `groupNumber`(`ui/src/monitor/groups.ts`) 이식: `board.panels`를 앞에서부터 보며 **처음 나온 순서**로 `group_id`를 센 1부터의 번호, 없으면 0.
+  /// (`board.groups` 배열 순서가 아니다.)
+  pub fn group_number(board: &BoardConfig, group_id: &str) -> usize;
+  /// 묶음 칸이면 `text::group_note(group_number(..))`, 번호가 0이면 번호 없이 `text::GROUP_NOTE_PLAIN`. 단독 칸이면 None.
   pub fn group_note(board: &BoardConfig, p: &PanelConfig) -> Option<String>;
   /// `{번호 2칸 오른쪽 정렬}  {라벨, 가장 넓은 라벨 폭으로 채움}   {값}` 줄들(값이 여럿이면 둘째부터 값 칸에 맞춰 들여쓰기, 폭 넘으면 줄바꿈).
   /// `from_group` 항목은 첫 값 줄 끝에 `  (묶음)`. 값은 `sanitize`를 거친다.
@@ -773,7 +791,7 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
     // 전부 from_group == false
 }
 #[test] fn settings_items_resolve_names() {
-    // Task 2 번들 Names: scenario_id "S1" → "중첩"; environment_id "E1" → "운영"; step_id A04 → 값이 "4 d  GET /d"로 시작
+    // Names: **`crates/tui/tests/names_test.rs`의 `NESTED` 상수와 번들 조립(S1·E1)을 이 파일에 그대로 복사**. scenario_id "S1" → "중첩"; environment_id "E1" → "운영"; step_id A04 → 값이 "4 d  GET /d"로 시작
     // 없는 스텝 "01J00000000000000000000ZZZ" → "01J00000000000000000000ZZZ ⚠ 스텝 없음"; 시나리오 자체를 못 읽으면 경고 없이 id만
     // latency_source Step(A04) + step_id A04 → [6] == ["이 스텝"]; latency Step(A01)·step_id None → ["a"]
     // thresholds [(800,_),(1500,_)] → ["800 ms 이상 · 1,500 ms 이상"]
@@ -785,7 +803,9 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
 }
 #[test] fn group_panel_marks_and_note() {
     // group_id Some("G2") 칸: [1]·[2]·[4].from_group == true, 나머지 false. settings_lines에서 그 세 항목 첫 줄이 "(묶음)"으로 끝난다
-    // board.groups [G1, G2] → group_note == Some("(묶음) = 점검 묶음 2의 값 — 칸마다 따로 못 바꿉니다"); 묶음 목록에 없는 id → GROUP_NOTE_PLAIN
+    // group_number(GUI `groupNumber` 그대로): board.groups 순서 [G1, G2]인데 panels가 [G2 칸, G1 칸, G2 칸] → G2 = 1, G1 = 2, 모르는 id = 0
+    //   (배열 순서로 세면 G2가 2가 되어 이 단언이 RED) → 그 G2 칸의 group_note == Some("(묶음) = 점검 묶음 1의 값 — 칸마다 따로 못 바꿉니다")
+    // 어느 칸도 안 쓰는 묶음 id / 묶음 목록에 없는 id → GROUP_NOTE_PLAIN
     // group_id None → group_note None, "(묶음)" 글자 없음
 }
 #[test] fn settings_lines_numbering_and_wrap() {
@@ -809,42 +829,60 @@ spec §5.4 + "1b 확정" 블록. 이 번호 목록을 슬라이스 2가 편집 �
 
 ---
 
-### Task 7: 앱 연결 — 화면 4개·키·기록 조회 태스크·5분 자동 복귀·키 줄·도움말 (US3)
+### Task 7: 화면 전환·키·5분 자동 복귀·조회 결과 판정·키 줄·도움말 — 순수 함수 (US3)
 
-spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·`a`·`v`·`←→`·무입력 5분 복귀), §5.1 "키 안내 줄". Review Focus 2·5·9. **화면 배치·키 줄은 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html` §0(모니터 키 줄)과 §1–§4의 맨 아래 키 줄을 따른다(글자 배치 재량 범위 내 — 조각 순서는 아래 표가 우선).**
+spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(`a`·`v`·`←→`·무입력 5분 복귀), §5.1 "키 안내 줄". Review Focus 2·5·9. **키 줄은 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html` §0(모니터 키 줄)과 §1–§4의 맨 아래 키 줄을 따른다(글자 배치 재량 범위 내 — 조각 순서는 아래 표가 우선).** 이 task는 App 구조체를 건드리지 않는다(연결은 Task 8).
 
 **Files:**
-- Modify: `crates/tui/src/app.rs`, `crates/tui/src/text.rs`, `crates/tui/src/view/monitor.rs`, `crates/tui/src/view/overlay.rs`
+- Modify: `crates/tui/src/app.rs`(순수 함수·타입만), `crates/tui/src/text.rs`, `crates/tui/src/view/monitor.rs`(모니터 키 줄), `crates/tui/src/view/overlay.rs`(도움말)
 - Test: `crates/tui/tests/app_test.rs`, `crates/tui/tests/view_test.rs`
 
 **Interfaces:**
-- Consumes: Task 1–6 전부.
+- Consumes: Task 3 `ErrorsState`·`Reason`·`cursor_index`, Task 4 `RecordState`·`RecordLoad`·`StepLine`·`neighbor_http`, Task 5 `BodyState`.
 - Produces (`app.rs`):
   ```rust
-  pub enum Screen { /* 기존 */ Errors, Record, Body, Settings }      // 데이터 없는 변형 — 상태는 App 필드에(Screen은 Clone·Eq로 QuitConfirm에 담긴다)
+  pub enum Screen { /* 기존 */ Errors, Record, Body, Settings }      // 데이터 없는 변형 — 상태는 SubViews에(Screen은 Clone·Eq로 QuitConfirm에 담긴다)
   pub enum Action { /* 기존 */ OpenErrors, OpenSettings, Activate, ToggleAll, ToggleReveal, PrevStep, NextStep, Up, Down, PageUp, PageDown, Home, End }
-  /// `Esc` 한 단계 뒤: Body → Record → Errors → Monitor, Settings → Monitor, Help → Monitor. 그 외 None.
-  pub fn back_target(screen: &Screen) -> Option<Screen>;
   /// 새 화면 네 개의 키 줄 조각(앞 조각부터 통째로 빠진다 — 덜 중요한 것을 앞에). `has_req_body` = 본문 화면의 스텝에 요청 본문이 있는가.
   pub struct KeyCtx { pub quit_confirm: bool, pub show_all: bool, pub reveal: bool, pub has_req_body: bool }
   pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str>;
   /// 입력 없이 이만큼 지나면 모니터 화면으로.
   pub const IDLE_RETURN: std::time::Duration = std::time::Duration::from_secs(300);
-  /// 새 화면 넷, 또는 그 넷을 감싼 종료 확인창일 때만 대상. `now - last_input >= IDLE_RETURN`이면 true.
+  /// 새 화면 넷, 또는 그 넷을 감싼 종료 확인창일 때만 대상. `now.saturating_duration_since(last_input) >= IDLE_RETURN`이면 true.
   /// 도움말·모니터·모니터 위 종료 확인창·오류/사용법/시작 화면은 항상 false.
   pub fn idle_expired(screen: &Screen, last_input: std::time::Instant, now: std::time::Instant) -> bool;
-  /// 태스크가 보내는 조회 결과.
+  /// 조회 요청·결과(작업자는 Task 8).
+  #[derive(Debug, Clone, PartialEq, Eq)]
+  pub enum FetchReq { Reason { board_id: String, panel_id: String, at_ms: i64 }, Record { board_id: String, panel_id: String, at_ms: i64 } }
   pub enum Fetched {
       Reason { board_id: String, panel_id: String, at_ms: i64, reason: Reason },
       Record { board_id: String, panel_id: String, at_ms: i64, load: RecordLoad },
   }
-  /// 현재 보고 있는 칸·회차의 것만 받아들인다. 받아들였으면 true.
-  pub fn accept_fetched(errors: Option<&mut ErrorsState>, record: Option<&mut RecordState>, msg: Fetched) -> bool;
-  /// 새 화면 상태 묶음 — 자동 복귀·재시도·보드 전환이 한 번에 비운다(테스트 가능하게 App 밖 구조체로).
+  /// 새 화면 상태 묶음 + 화면 전환(순수). App은 이 메서드만 부른다.
   #[derive(Debug, Default)]
   pub struct SubViews { pub errors: Option<ErrorsState>, pub record: Option<RecordState>, pub body: Option<BodyState>, pub settings_scroll: usize }
-  impl SubViews { pub fn clear(&mut self); }
+  impl SubViews {
+      /// 전부 비운다(재시도·보드 전환·5분 자동 복귀).
+      pub fn clear(&mut self);
+      /// 오류 보기를 연다. `rows_at` = 지금 목록(최신 순 at_ms) — 커서를 첫 줄의 at_ms에 **고정**한다(`pin_cursor`).
+      pub fn open_errors(&mut self, board_id: &str, panel_id: &str, rows_at: &[i64]) -> Screen;        // Screen::Errors
+      pub fn open_settings(&mut self) -> Screen;                                                       // settings_scroll = 0, Screen::Settings
+      /// 목록 → 자세히. errors가 없으면 None. RecordState{board_id, panel_id(= errors의 것), at_ms, clicked, load: Loading, cursor: 0}와 보낼 요청을 돌려준다.
+      pub fn open_record(&mut self, clicked: CheckResult) -> Option<(Screen, FetchReq)>;
+      /// 자세히 → 본문. `lines[cursor]`가 Http가 아니면 None.
+      pub fn open_body(&mut self, lines: &[StepLine]) -> Option<Screen>;                               // body = BodyState::new(record.cursor)
+      /// 본문에서 옆 HTTP 스텝으로(사용자 확정 6). 옮겼으면 true — body = BodyState::new(n)(가림·스크롤 초기화), record.cursor = n.
+      pub fn step_body(&mut self, lines: &[StepLine], dir: isize) -> bool;
+      /// `Esc` 한 단계 뒤: Body → Record(body = None) → Errors(record = None) → Monitor(errors = None), Settings → Monitor, Help → Monitor. 그 외 None(상태 불변).
+      pub fn back(&mut self, screen: &Screen) -> Option<Screen>;
+      /// 현재 보고 있는 보드·칸·회차의 것만 받아들인다. 받아들였으면 true.
+      /// Reason: errors의 board_id·panel_id가 같을 때만 캐시에. Record: record의 board_id·panel_id·at_ms가 **셋 다** 같을 때만 load 교체
+      /// (묶음 칸들은 같은 at_ms를 나눠 쓴다 — at_ms만 보면 다른 칸의 기록이 들어온다).
+      pub fn accept(&mut self, msg: Fetched) -> bool;
+  }
   ```
+  `ErrorsState`에 메서드 추가(`inspect.rs`): `pub fn pin_cursor(&mut self, rows_at: &[i64])` — 빈 목록이면 `cursor_at = None`, 아니면 `cursor_at = Some(rows_at[cursor_index(rows_at, self.cursor_at)])`. 열 때·`a` 뒤·(목록이 비어 있다가 처음 찼을 때를 위해) 매 펌프에 부른다 — `cursor_at`이 `None`인 채로 두면 줄 번호 0에 붙어 새 결과가 올 때마다 커서가 맨 위 새 줄로 옮겨 간다(사용자 확정 3 위반).
+  `RecordState`의 `board_id`·`panel_id`(Task 4에서 정의)는 `open_record`가 `errors`의 값으로 채운다.
 - 키(`handle_key`):
 
   | 화면 | 키 → Action |
@@ -855,20 +893,8 @@ spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·
   | Body | `↑`/`k` · `↓`/`j` · `PgUp` · `PgDn` · `Home` · `End` · `←`/`h` → `PrevStep` · `→`/`l` → `NextStep` · `v` → `ToggleReveal` · `Esc` · `q` |
   | Settings | `↑`/`k` · `↓`/`j` · `PgUp` · `PgDn` · `Home` · `End` · `Esc` · `q` (숫자 키는 1b에서 무동작) |
 
-  `normalize_char`에 `'ㄷ' => 'e'`, `'ㅁ' => 'a'`, `'ㅍ' => 'v'` 추가. **접어 넣는 연기 항목(§B46 (2) "`Ctrl`+`B`도 테두리 전환")**: `Ctrl`이 눌린 문자 키는 `Ctrl+C`만 빼고 전부 `Action::None`(`handle_key` 앞머리에서 한 번에 — 기존 `b`·새 `e`/`a`/`v` 모두).
-- App 동작:
-  - 새 필드: `views: SubViews`, `fetch_tx: std::sync::mpsc::Sender<Fetched>`, `fetch_rx: Receiver<Fetched>`, `size: Rect`(이벤트 루프가 매 반복 `term.size()`로 갱신), `last_input: Instant`.
-  - `OpenErrors`·`OpenSettings`는 `toggle_allowed(&screen, panels_drawn)`일 때만(칸이 안 그려진 작은 화면에서 어느 칸인지 모르는 채 열리지 않게 — 그 함수 문서 주석을 "칸 대상 동작(테두리·오류 보기·칸 설정)"으로 고친다). `OpenErrors` → `ErrorsState{board_id, panel_id, ..Default}` 새로 만들고 `Screen::Errors`. `OpenSettings` → `settings_scroll = 0`, `Screen::Settings`.
-  - Errors `Activate`: 커서 줄의 `CheckResult`를 `clicked`로 `RecordState{load: Loading, cursor: 0}` 만들고 기록 조회 태스크를 띄운 뒤 `Screen::Record`(정상 회차도 열 수 있다 — 목업 §1). 빈 목록이면 무동작. Record `Activate`: `Loaded`이고 커서 줄이 `StepLine::Http`면 `BodyState::new(커서 줄 번호)`, `Screen::Body`. `If` 줄·미로딩이면 무동작.
-  - Body `PrevStep`/`NextStep`(사용자 확정 6): `neighbor_http(lines, body.line_idx, ∓1)`이 `Some(n)`이면 `body = BodyState::new(n)`(가림·스크롤 초기화) + `record.cursor = n`(상세로 돌아가면 그 줄), `None`이면 무동작.
-  - `Back`: `QuitConfirm`은 기존대로, 그 외 `back_target`. Body를 나가면 `body = None`(가림 초기화 — Review Focus 5), Record를 나가면 `record = None`, Errors·Settings를 나가면 `errors = None`.
-  - `start_session`(재시도)·보드 전환은 `views.clear()`.
-  - **무입력 5분 복귀**(사용자 확정 2): 이벤트 루프가 키·마우스 이벤트를 받을 때마다 `last_input = Instant::now()`(크기 변경 이벤트는 입력으로 치지 않는다). 매 반복 `idle_expired(&screen, last_input, Instant::now())`면 `screen = Screen::Monitor` + `views.clear()` + 다시 그리기. 종료 확인창이 새 화면을 감싸고 있어도 같은 길로 모니터로 간다(확인창도 닫힘 = 취소). 도움말과 모니터 위 확인창은 1a 그대로 둔다.
-  - 조회 태스크: `rt.spawn(async move { for at in list { let r = api.record(&board, &panel, at).await; if tx.send(Fetched::Reason{.., reason: reason_of(r)}).is_err() { return; } } })` — 순서대로 하나씩(동시에 여러 기록을 메모리에 들지 않는다). 상세용은 `load_of`.
-  - `pump(&mut self) -> bool`(이벤트 루프가 그리기 전에 부른다, 바뀐 것이 있으면 true → 다시 그리기): ① `fetch_rx.try_recv()`를 빌 때까지 `accept_fetched` ② `Screen::Errors`(또는 그것을 감싼 `QuitConfirm`)면 현재 스냅샷의 그 칸 결과로 `cache.retain(살아 있는 at_ms)` → `visible_results(.., errors_list_height(size))` → `cache.wanted` → 비어 있지 않으면 `mark_loading` + 태스크 ③ `Record`가 `Loaded`로 막 바뀌었으면 `cursor = initial_step_cursor(..)` ④ `Screen::Body`면 `body.ensure(.., sub_layout(size).body.width)`.
-  - 그 칸의 결과 = `snap_rx.borrow()`의 `last`에서 `board_id`가 맞을 때 `panels[panel_id].results`, 아니면 빈 목록. 머리 줄 = `monitor_screen()`의 `header()`(끊김 표시 포함 — 새 화면에서도 보드 상태가 보인다).
-  - 그리기: `Screen::Errors` → `render_errors(f, &head, &errors_view(&ErrorsInput{칸 제목, 결과, &panel.thresholds, panel.interval_seconds}, st, errors_list_height(area)), &keys)`; `Record` → `render_record(f, &head, &record_view(panel, st, &session.names), &keys)`; `Body` → `render_body(f, &head, body.lines(), body.scroll, &keys)`; `Settings` → `render_settings(f, &head, 칸 제목, &settings_lines(&settings_items(panel, &session.names), 폭), group_note(&board.config, panel).as_deref(), settings_scroll, &keys)`. `QuitConfirm(inner)`가 새 화면을 감싸면 `KeyCtx.quit_confirm = true`(= `[KEYS_CONFIRM_YES, KEYS_CONFIRM_CANCEL]`).
-  - 이동량: Errors `Up`/`Down` = `move_cursor(±1)`, `PageUp`/`PageDown` = `±errors_list_height`, `Home`/`End` = 처음/끝. Record는 `cursor`를 `0..len`에 가둔 ±1/±10. Body는 `scroll_by(±1 / ±body_height)`·`Home` → 0·`End` → `scroll_to_end`. Settings는 `settings_scroll`을 `0..=줄 수 − settings_height`에 가둔다.
+  `normalize_char`에 `'ㄷ' => 'e'`, `'ㅁ' => 'a'`, `'ㅍ' => 'v'` 추가.
+  **접어 넣는 연기 항목(§B46 (2) "`Ctrl`+`B`도 테두리 전환")** — 범위를 좁게: **Monitor와 새 화면 넷에서만**, `Ctrl`이 눌린 문자 키 중 `c`·`q`가 아닌 것은 `Action::None`. `Ctrl+C`·`Ctrl+Q`는 1a 그대로 `AskQuit`(지금 코드가 `q`를 수식 키와 무관하게 종료 키로 본다 — 바꾸지 않는다). **Help·QuitConfirm·Error·Usage 화면의 수식 키 동작은 건드리지 않는다** — 특히 종료 확인창은 "`y`만 종료, 그 밖의 모든 키(`Ctrl+Y`·`Ctrl+C` 포함)는 취소"가 그대로다.
 - 문구(`text.rs`, TUI 전용 — 목업 키 줄 글자):
 
   | 상수 | 값 |
@@ -884,9 +910,9 @@ spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·
   | `HELP_KEYS` 추가 2줄(`b` 줄 앞, 배열 길이 8 → 10) | `("e", "선택 칸 오류 보기(실패 목록 → 자세히 → 요청·응답)")`, `("Enter", "선택 칸 설정 보기")` |
   | `HELP_IDLE` | `오류 보기·칸 설정 화면은 5분 동안 입력이 없으면 모니터로 돌아갑니다` |
 
-  **모니터 키 줄**(`render_with_keys` `KeyBar::Monitor`): 조각 순서 `b 테두리 · [Tab 다음 보드] · ←↑↓→ 칸 이동 · e 오류 보기 · Enter 칸 설정 · ? 도움말 · q 종료`. 1a `key_bar`는 **앞 조각부터** 통째로 빼므로, 목업 §0의 "좁으면 덜 중요한 키(b·Tab)부터 뺀다"를 지키려면 `b`·`Tab`이 앞에 와야 한다(목업 그림의 글자 순서와 다르다 — plan 끝 "목업과 다른 점").
-  **`sub_keys`**(뒤로 갈수록 오래 남는다): Errors `[↑↓ 고르기, a 전체 회차|a 실패만, Enter 자세히, Esc 모니터로]` · Record `[↑↓ 스텝 고르기, Enter 요청·응답 보기, Esc 목록으로]` · Body `[↑↓ PgUp PgDn 스크롤, ←→ 이전·다음 스텝, (요청 본문이 있을 때만) v 요청 본문 보기|v 가리기, Esc 자세히로]` · Settings `[↑↓ 스크롤, Esc 모니터로]`. 목업처럼 새 화면 키 줄에는 `q 종료`를 쓰지 않는다(`q`는 동작하고 도움말에 있다).
-  **도움말**(`overlay.rs` `render_help`): 고정 줄(`fixed`)에 `text::HELP_IDLE`을 `HELP_COPY` 앞에 더한다(높이가 모자라면 기존 규칙대로 키 줄 → 뒤쪽 고정 줄 순으로 빠진다).
+  **모니터 키 줄**(`render_with_keys` `KeyBar::Monitor`): 조각 순서 `b 테두리 · [Tab 다음 보드] · ←↑↓→ 칸 이동 · e 오류 보기 · Enter 칸 설정 · ? 도움말 · q 종료`. 1a `key_bar`는 **앞 조각부터** 통째로 빼므로, 목업 §0의 "좁으면 덜 중요한 키(b·Tab)부터 뺀다"를 지키려면 `b`·`Tab`이 앞에 와야 한다. **이것은 1a·tui-readability의 빼는 순서(`칸 이동` → `Tab` → `b`)를 바꾼다** — 기존 단언 갱신 대상: `view_test.rs`의 키 줄 문자열 5곳(`grep -n "b 테두리" crates/tui/tests/view_test.rs` — 저작 시 425·443·1227·2453·2461행)과 "앞 조각부터 빠진다"를 단언하는 테스트의 기대 조각(plan 끝 "목업과 다른 점").
+  **`sub_keys`**(뒤로 갈수록 오래 남는다): Errors `[↑↓ 고르기, a 전체 회차|a 실패만, Enter 자세히, Esc 모니터로]` · Record `[↑↓ 스텝 고르기, Enter 요청·응답 보기, Esc 목록으로]` · Body `[↑↓ PgUp PgDn 스크롤, ←→ 이전·다음 스텝, (요청 본문이 있을 때만) v 요청 본문 보기|v 가리기, Esc 자세히로]` · Settings `[↑↓ 스크롤, Esc 모니터로]`. `quit_confirm`이면 네 화면 모두 `[KEYS_CONFIRM_YES, KEYS_CONFIRM_CANCEL]`. 목업처럼 새 화면 키 줄에는 `q 종료`를 쓰지 않는다(`q`는 동작하고 도움말에 있다).
+  **도움말**(`overlay.rs` `render_help`): 고정 줄(`fixed`)에 `wrap_width(text::HELP_IDLE, inner_w)`를 `HELP_COPY` 앞에 더한다(파일·로그 줄처럼 **줄바꿈한 행 수로** 센다 — 78열 미만 상자에서 넘치지 않게). 높이가 모자라면 기존 규칙대로 키 줄 → 뒤쪽 고정 줄 순으로 빠진다.
 
 - [ ] **Step 1: 실패 테스트 작성**
 
@@ -902,10 +928,11 @@ spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·
     // Body: 'v'/'ㅍ' → ToggleReveal, Left/'h' → PrevStep, Right/'l' → NextStep, Enter → None
     // Settings: Enter·'1' → None, Esc → Back. 새 화면 넷 모두 Tab·'b'·'?' → None
 }
-#[test] fn ctrl_modified_letters_are_ignored() {
-    // §B46 (2) 접어 넣기: Monitor에서 Ctrl+B·Ctrl+E → None, Errors에서 Ctrl+A → None, Body에서 Ctrl+V → None; Ctrl+C는 여전히 AskQuit
+#[test] fn ctrl_letters_ignored_on_monitor_and_sub_screens_only() {
+    // §B46 (2) 접어 넣기: Monitor에서 Ctrl+B·Ctrl+E → None, Errors에서 Ctrl+A → None, Body에서 Ctrl+V → None
+    // 불변(1a 그대로): Monitor·Errors에서 Ctrl+C → AskQuit, Ctrl+Q → AskQuit
+    // 불변: QuitConfirm에서 Ctrl+Y → Back(취소), Ctrl+C → Back, 'y' → Quit; Error 화면 Ctrl+C → Quit; Help에서 Ctrl+C → AskQuit
 }
-#[test] fn back_target_chain() { /* Body→Record→Errors→Monitor; Settings→Monitor; Help→Monitor; Monitor·Starting·Usage → None */ }
 #[test] fn sub_keys_per_screen() {
     // §B45 (2) "화면→키 줄 매핑 테스트 없음" 보강(목업 키 줄).
     // Errors == ["↑↓ 고르기","a 전체 회차","Enter 자세히","Esc 모니터로"]; show_all → "a 실패만"
@@ -919,19 +946,34 @@ spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·
     // QuitConfirm(Box(Errors)): 300 s → true. QuitConfirm(Box(Monitor))·Help·Monitor·Starting·Usage·Error(_): 1시간 뒤에도 false
     // last_input이 now보다 뒤(시계 역전)여도 패닉 없이 false
 }
+#[test] fn open_errors_pins_cursor_to_first_row() {
+    // 사용자 확정 3. open_errors("B","P",&[30,20,10]) → errors.cursor_at == Some(30)
+    // 그 뒤 새 결과 40: cursor_index(&[40,30,20,10], cursor_at) == 1 (커서가 새 맨 윗줄로 옮겨 가지 않는다)
+    // 빈 목록으로 열면 None → pin_cursor(&[10]) 뒤 Some(10) → 새 결과 20이 와도 줄 번호 1
+    // show_all을 끄며 커서 줄(정상 회차)이 목록에서 빠지면 pin_cursor가 그보다 오래된 첫 실패 줄의 at_ms로 다시 고정
+}
+#[test] fn sub_views_transitions() {
+    // Review Focus 5 — 실제 전환으로 확인(구조체 리터럴 금지: BodyState 캐시 필드는 비공개 → new + 필드 대입).
+    // open_errors → open_record(clicked@7) == Some((Screen::Record, FetchReq::Record{"B","P",7})); record.board_id/panel_id == errors의 것
+    // lines [Http, If, Http]: record.cursor = 1(If) → open_body == None; cursor = 0 → Some(Screen::Body), body.line_idx == 0
+    // body.reveal = true; body.scroll = 9; step_body(lines, +1) == true → body.line_idx == 2, reveal false, scroll 0, record.cursor == 2
+    // step_body(lines, +1) == false(끝) — body 불변
+    // body.reveal = true; back(&Body) == Some(Record), body None → open_body 다시 → reveal false
+    // back(&Record) == Some(Errors), record None; back(&Errors) == Some(Monitor), errors None
+    // back(&Settings) == Some(Monitor); back(&Help) == Some(Monitor); back(&Monitor)·back(&Starting) == None
+    // errors 없이 open_record → None
+}
 #[test] fn idle_return_clears_views() {
-    // SubViews{errors: Some, record: Some, body: Some(BodyState{reveal: true, ..}), settings_scroll: 7}.clear()
-    // → 전부 None·0 — 다시 열면 BodyState::new라 요청 본문이 다시 가려진다(Review Focus 5)
+    // open_errors → open_record → open_body, body.reveal = true, settings_scroll = 7 → clear() → errors·record·body None, settings_scroll 0
 }
 #[test] fn fetched_for_other_panel_is_dropped() {
-    // Review Focus 2. ErrorsState{board "B", panel "P1"}: Reason{board "B", panel "P2", ..} → false, 캐시 불변
-    // Reason{"B","P1", at 5, Gone} → true, cache에 Gone. RecordState{at_ms: 7}: Record{.., at_ms: 8, ..} → false; at_ms 7 → true, load 교체
-    // errors None(화면을 이미 나감) → false
+    // Review Focus 2. errors{board "B", panel "P1"}: Reason{board "B", panel "P2", ..} → false, 캐시 불변; Reason{board "X", panel "P1"} → false
+    // Reason{"B","P1", at 5, Gone} → true, cache에 Gone.
+    // record{board "B", panel "P1", at_ms 7}: Record{"B","P1", at 8} → false;
+    //   **Record{"B","P2", at 7}(묶음의 다른 칸 — 같은 at_ms) → false, load는 Loading 그대로**; Record{"B","P1", at 7} → true, load 교체
+    // errors None(화면을 이미 나감) → Reason false
 }
-#[test] fn leaving_body_resets_reveal() {
-    // Review Focus 5. BodyState::new(n)은 항상 reveal false·scroll 0 — Esc로 나갔다 다시 들어올 때, ←/→로 옆 스텝에 갈 때 모두 new를 쓴다.
-}
-// tests/view_test.rs — 기존 키 줄 단언 5곳(grep -n "b 테두리" 결과 425·443·1227·2453·2461행)을 새 조각 순서로 갱신
+// tests/view_test.rs — 기존 키 줄 단언 5곳을 새 조각 순서로 갱신
 #[test] fn key_bar_has_errors_and_settings_keys() {
     // 100열·보드 1개: "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     // 80열·보드 2개(전체 84칸이라 안 들어감): 맨 앞 "b 테두리"만 통째로 빠지고 "Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기 …"
@@ -939,19 +981,74 @@ spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·
 }
 #[test] fn help_lists_new_keys_and_idle_rule() {
     // 도움말(80×30)에 "선택 칸 오류 보기", "선택 칸 설정 보기", "5분 동안 입력이 없으면 모니터로 돌아갑니다"; HELP_KEYS.len() == 10
+    // 50×30: 무입력 문장이 상자 안에서 두 줄로 나뉘고(오른쪽 테두리 '│' 밖으로 글자가 없다) 잘린 `…`가 없다
 }
 ```
 
-**접어 넣는 연기 항목(§B45 (2)·§B46 (2) 신호 테스트 flake)**: `app_test.rs`의 `termination_signals_set_quit_flag`·`watchdog_fires_when_main_does_not_exit`가 전역 신호 처리기를 같은 프로세스에서 나눠 쓴다 — 파일 맨 위에 `static SIGNAL_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());`를 두고 두 테스트 첫 줄에서 `let _serial = SIGNAL_TESTS.lock().unwrap_or_else(|e| e.into_inner());`. **이 완화는 효과를 실증할 수 없다**(이 plan 저작 시 `cargo test -p handicap-tui --test app_test` 25회 중 0회 실패 — 사실 근거 C12). 따라서 roadmap의 그 항목을 "해소"로 표시하지 **않는다**(Task 8이 "직렬화 넣음, CI 재발 여부 관찰"로만 적는다).
+**접어 넣는 연기 항목(§B45 (2)·§B46 (2) 신호 테스트 flake)**: `app_test.rs`의 `termination_signals_set_quit_flag`·`watchdog_fires_when_main_does_not_exit`가 전역 신호 처리기를 같은 프로세스에서 나눠 쓴다 — 파일 맨 위에 `static SIGNAL_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());`를 두고 두 테스트 첫 줄에서 `let _serial = SIGNAL_TESTS.lock().unwrap_or_else(|e| e.into_inner());`. **이 완화는 효과를 실증할 수 없다**(이 plan 저작 시 `cargo test -p handicap-tui --test app_test` 25회 중 0회 실패 — 사실 근거 C12). 따라서 roadmap의 그 항목을 "해소"로 표시하지 **않는다**(Task 9가 "직렬화 넣음, CI 재발 여부 관찰"로만 적는다).
 
-- [ ] **Step 2: 실패 확인** — 컴파일 오류(새 `Action`·`back_target`·`idle_expired` 없음).
-- [ ] **Step 3: 구현** — Interfaces·표 그대로. `event_loop`: 매 반복 `app.size = term.size()` → 무입력 판정 → `if app.pump() { dirty = true; }` → 기존 그리기 조건. `help_*`·`render_help_has_paths` 등 도움말 높이 테스트가 줄 수 증가로 깨지면 **줄 빼기 규칙 단언은 유지**하고 기대 줄만 갱신.
+- [ ] **Step 2: 실패 확인** — 컴파일 오류(새 `Action`·`SubViews`·`idle_expired` 없음).
+- [ ] **Step 3: 구현** — Interfaces·표 그대로. 새 `Screen` 변형 때문에 `App::draw_with`·`apply`의 `match`가 컴파일되지 않으면 이 task에서는 **빈 갈래**(`Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {}`)만 더한다(Task 8이 채운다 — 새 `Action`도 `apply`에서 무동작). `help_*`·`render_help_has_paths` 등 도움말 높이 테스트가 줄 수 증가로 깨지면 **줄 빼기 규칙 단언은 유지**하고 기대 줄만 갱신.
 - [ ] **Step 4: 통과 확인** — 공통 3명령 + `TZ=UTC cargo test -p handicap-tui`.
-- [ ] **Step 5: 커밋** — `feat(tui): e 오류 보기·Enter 칸 설정 — 화면 연결·기록 지연 조회·5분 자동 복귀`.
+- [ ] **Step 5: 커밋** — `feat(tui): 오류 보기·칸 설정 화면 전환·키·5분 복귀 판정(순수 함수)`.
 
 ---
 
-### Task 8: 문서 — 매뉴얼·spec 확정 표시
+### Task 8: 앱 연결 — 조회 작업자·이벤트 루프·그리기 (US3)
+
+spec §5.3 "화면에 보이는 줄만 지연 조회" + "1b 확정" 블록. Review Focus 2. **화면은 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html` §1–§4 그대로 — 이 task는 Task 3–6의 그리기 함수와 Task 7의 전환을 App에 잇기만 한다(새 배치 없음).**
+
+**Files:**
+- Modify: `crates/tui/src/app.rs`
+- Test: `crates/tui/tests/record_test.rs`
+
+**Interfaces:**
+- Consumes: Task 1 `Api::record`, Task 3–6 그리기 함수·뷰 모델, Task 7 `SubViews`·`FetchReq`·`Fetched`·`sub_keys`·`idle_expired`.
+- Produces (`app.rs`):
+  ```rust
+  /// 기록 조회 작업자 — 요청을 **하나씩 차례로** 처리한다(동시에 기록 둘을 메모리에 들지 않는다 — 한 기록이 최대 1 MiB 본문 × 스텝 수).
+  /// 돌려받은 Sender를 버리면 작업자가 끝난다. 결과 수신자가 사라져도 끝난다.
+  pub fn spawn_fetch_worker(
+      handle: &tokio::runtime::Handle,
+      api: Api,
+      out: std::sync::mpsc::Sender<Fetched>,
+  ) -> tokio::sync::mpsc::UnboundedSender<FetchReq>;
+  ```
+  작업자 본체: `while let Some(req) = rx.recv().await { let r = api.record(..).await; let msg = match req { Reason{..} => Fetched::Reason{.., reason: reason_of(r)}, Record{..} => Fetched::Record{.., load: load_of(r)} }; if out.send(msg).is_err() { return; } }` — `Reason` 요청은 `reason_of`가 `reason`·`detail`만 남기고 기록을 버린다.
+- App 동작:
+  - 새 필드: `views: SubViews`, `fetch_out: (std::sync::mpsc::Sender<Fetched>, Receiver<Fetched>)`, `fetch_req: Option<UnboundedSender<FetchReq>>`(세션마다 새 작업자 — `start_session`이 `spawn_fetch_worker(rt.handle(), session.api.clone(), tx.clone())`, `stop_session`이 `None`으로), `size: Rect`, `last_input: Instant`.
+  - `size`: 이벤트 루프가 매 반복 `let s = term.size()?; app.size = Rect::new(0, 0, s.width, s.height);`(`term.size()`는 `Size`를 돌려준다 — 기존 마우스 갈래와 같은 변환).
+  - `OpenErrors`·`OpenSettings`는 `toggle_allowed(&screen, panels_drawn)`일 때만(칸이 안 그려진 작은 화면에서 어느 칸인지 모르는 채 열리지 않게 — 그 함수 문서 주석을 "칸 대상 동작(테두리·오류 보기·칸 설정)"으로 고친다). `OpenErrors` → `views.open_errors(board_id, panel_id, 지금 목록의 at_ms)`.
+  - Errors `Activate`: 커서 줄의 `CheckResult`로 `views.open_record(..)` → 요청을 `fetch_req`에 보냄(정상 회차도 열 수 있다 — 목업 §1). 빈 목록이면 무동작. `ToggleAll`: `show_all` 뒤집고 `pin_cursor`. Record `Activate`: `Loaded`면 `views.open_body(&lines)`. Body `PrevStep`/`NextStep`: `views.step_body(&lines, ∓1)`. `Back`: `QuitConfirm`은 기존대로, 그 외 `views.back(&screen)`.
+  - `start_session`(재시도)·보드 전환은 `views.clear()`.
+  - **무입력 5분 복귀**: 키·마우스 이벤트를 받을 때마다 `last_input = Instant::now()`(크기 변경 이벤트는 입력으로 치지 않는다). 매 반복 `idle_expired(&screen, last_input, Instant::now())`면 `screen = Screen::Monitor` + `views.clear()` + 다시 그리기(종료 확인창이 새 화면을 감싸고 있어도 같은 길).
+  - `pump(&mut self) -> bool`(이벤트 루프가 그리기 전에 부른다, 바뀐 것이 있으면 true → 다시 그리기): ① `fetch_out.1.try_recv()`를 빌 때까지 `views.accept` ② `Screen::Errors`(또는 그것을 감싼 `QuitConfirm`)면 현재 스냅샷의 그 칸 결과로 `pin_cursor` → `cache.retain(살아 있는 at_ms)` → `visible_results(.., errors_list_height(size))` → `cache.wanted` → 비어 있지 않으면 `mark_loading` + 요청들을 `fetch_req`에 ③ `Record`가 `Loaded`로 막 바뀌었으면 `cursor = initial_step_cursor(..)` ④ `Screen::Body`면 `body.ensure(.., sub_layout(size).body.width)`.
+  - 그 칸의 결과 = `snap_rx.borrow()`의 `last`에서 `board_id`가 맞을 때 `panels[panel_id].results`, 아니면 빈 목록. 머리 줄 = `monitor_screen()`의 `header()`(끊김 표시 포함 — 새 화면에서도 보드 상태가 보인다).
+  - 그리기: `Screen::Errors` → `render_errors(f, &head, &errors_view(&ErrorsInput{칸 제목, 결과, &panel.thresholds, panel.interval_seconds}, st, errors_list_height(area)), &keys)`; `Record` → `render_record(f, &head, &record_view(panel, st, &session.names), &keys)`; `Body` → `render_body(f, &head, body.lines(), body.scroll, &keys)`; `Settings` → `render_settings(f, &head, 칸 제목, &settings_lines(&settings_items(panel, &session.names), 폭), group_note(&board.config, panel).as_deref(), settings_scroll, &keys)`. `keys = sub_keys(&screen, KeyCtx{..})`, `QuitConfirm(inner)`가 새 화면을 감싸면 `quit_confirm = true`.
+  - 이동량: Errors `Up`/`Down` = `move_cursor(±1)`, `PageUp`/`PageDown` = `±errors_list_height`, `Home`/`End` = 처음/끝. Record는 `cursor`를 `0..len`에 가둔 ±1/±10. Body는 `scroll_by(±1 / ±body_height)`·`Home` → 0·`End` → `scroll_to_end`. Settings는 `settings_scroll`을 `0..=줄 수 − settings_height`에 가둔다.
+
+- [ ] **Step 1: 실패 테스트 작성**
+
+```rust
+// tests/record_test.rs — Task 1의 세션·503 응답기 도우미 재사용
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_worker_answers_in_order_and_stops() {
+    // 결과가 2개 이상 생길 때까지 대기 → at1(예전)·at2(최신).
+    // (tx, rx) = std::sync::mpsc::channel(); req = spawn_fetch_worker(&Handle::current(), s.api.clone(), tx)
+    // req.send(Reason{board, panel, at1}); req.send(Record{board, panel, at2}); req.send(Reason{board, panel, 1 /* 없는 회차 */})
+    // rx.recv_timeout(5 s) 세 번 → **보낸 순서대로**: Fetched::Reason{at1, Known{reason: Some(_), ..}}, Fetched::Record{at2, Loaded(_)}, Fetched::Reason{1, Gone}
+    // drop(req) 뒤 rx.recv_timeout(2 s) == Err(Disconnected) (작업자가 끝나 Sender를 놓았다)
+}
+```
+
+- [ ] **Step 2: 실패 확인** — 컴파일 오류(`spawn_fetch_worker` 없음).
+- [ ] **Step 3: 구현** — Interfaces 그대로. Task 7이 남긴 `draw_with`·`apply`의 빈 갈래를 채운다. `event_loop` 순서: `app.size` 갱신 → 무입력 판정 → `if app.pump() { dirty = true; }` → 기존 그리기 조건.
+- [ ] **Step 4: 통과 확인** — 공통 3명령 + `TZ=UTC cargo test -p handicap-tui`. App 조립(이벤트 루프·그리기 연결)은 단위 테스트가 닿지 않는다 — **라이브 검증 표가 유일한 그물**(특히 "5분 자동 복귀"·"US3-목록" 행).
+- [ ] **Step 5: 커밋** — `feat(tui): e 오류 보기·Enter 칸 설정 — 앱 연결과 기록 지연 조회`.
+
+---
+
+### Task 9: 문서 — 매뉴얼·spec 확정 표시
 
 **Files:**
 - Modify: `docs/dev/tui-monitor.md`, `docs/superpowers/specs/2026-11-07-tui-monitor-design.md`
@@ -961,7 +1058,7 @@ spec §5.2(`e`·`Enter`·`Esc`), §5.3·§5.4 "1b 확정" 블록(지연 조회·
 - [ ] **Step 3: spec** — 5행 상태 줄을 "1a 완료 … **1b 구현**(plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`), 2 미착수"로(코드 범위·날짜는 `/finish-slice`가 채운다). §5.3 "이름 해석" 끝 문장 뒤에 "→ 1b 계획 확정: 공개된 엔진 대응 함수 없음(`reqgen::collect_http` 비공개·컨트롤러 `collect_http_steps` `pub(crate)`), TUI `names.rs`에 같은 순서로 이식." §5.3-4의 `"기록 상한(N KB)에서 잘림"` 옆에 "(화면 문구는 `ko.monitor.recordClipped` 그대로 `기록 상한 NKB에서 잘림`)". (§5.3·§5.4의 "1b 확정" 블록은 plan 저작 때 이미 넣었다 — 구현이 그 블록과 달라졌으면 여기서 고친다.)
 - [ ] **Step 4: 커밋** — docs-only. `docs(tui): 1b 오류 보기·칸 설정 보기 매뉴얼·spec 확정 표시`.
 
-roadmap·build-log·root 상태 줄·`crates/tui/CLAUDE.md` 새 함정은 `/finish-slice`가 한다(이 plan의 task 아님). 그때 §B45 (2)·§B46 (2)에 아래 "연기 항목 처리" 표를 반영한다.
+roadmap·build-log·root 상태 줄·`crates/tui/CLAUDE.md` 새 함정은 `/finish-slice`가 한다(이 plan의 task 아님). 그때 roadmap의 "사용자 실기 확인(머지 후)" 목록에 **1b가 새로 쓰는 모호 폭 문자**를 더한다: `→`·`←`(요약 줄·키 줄)·`◀`(`◀ 이 칸`)·`•`(가림 `••••`)·`―`(`― 확인 못 함`, 목록에서 처음 줄 맞춤에 쓰임)·`①`·`②`(표시 항목)·`∈`·`≠`·`≥`·`≤`(조건 기호)·`�`(제어 문자 치환) — Ubuntu 19.04 gnome-terminal ko_KR **과 Windows Terminal**(매뉴얼 §1-1이 Windows 배포를 안내한다)에서 목록 열·표 열이 어긋나지 않는지. 그때 §B45 (2)·§B46 (2)에 아래 "연기 항목 처리" 표를 반영한다.
 
 ---
 
@@ -984,7 +1081,7 @@ spec §8 라이브 항 + `crates/tui/CLAUDE.md` tmux 함정. 워크트리 자체
 | 5분 자동 복귀 | 새 화면 넷 각각에서 키를 누르지 않고 5분 5초 대기(요청 본문은 `v`로 보이게 해 둔 채) | 화면에 `5분 동안 입력이 없으면 모니터로 돌아갑니다` 줄이 보였고, 5분 뒤 모니터 화면. 다시 `e` → `Enter` → `Enter`하면 요청 본문이 가려져 있다. 4분 50초에 `↓` 한 번 누르면 그때부터 다시 5분. 도움말(`?`)·모니터 위 종료 확인창은 5분이 지나도 그대로 |
 | 키 줄·도움말 | 모니터 80×24 / 120×30, `?` | 키 줄에 `e 오류 보기`·`Enter 칸 설정`, 도움말 2줄 |
 
-**극단값(전부 캡처)**: 응답기 `/deep`(1,000겹 중첩 배열)·`/big`의 66KB JSON → 패닉 없이 원문(+`64KB를 넘는 본문은 원문으로 표시합니다`) · 숫자 `1.0`·`1e3`·20자리 정수와 키 순서 `z,a,m`인 JSON이 들여쓴 뒤에도 그대로 · 종료 확인창을 오류 보기 위에 띄운 채 5분 → 모니터 화면 · 100×9(높이 10 미만)와 40×24(폭 부족)에서 무입력 안내 줄이 통째로 없고 잘린 글자가 없다 · ⑥ `/esc` 칸 본문 화면에서 터미널이 지워지거나 색이 번지지 않는다(`capture-pane -e`에 응답 유래 제어열 없음) · 본문 300KB에서 `PgDn` 연타·`End`가 즉시 반응 · 새 화면 넷을 `resize-window`로 80×24 → 40×10 → 20×5 → 120×40(패닉·겹침 없음, 키 줄 통째 줄임) · 오류 보기 중 컨트롤러 정지 불가이므로 대신 in-process REST로 보드 `stop`(`tui.log`의 `rest=` 포트 → `POST /api/monitor-boards/{id}/stop`) 후 `e` → 줄은 남고 사유 칸은 `기록 지남`(꺼진 보드는 404) · 오류 보기에서 `q` → 확인창 → 다른 키 → 같은 화면 복귀 · 한글 2벌식 `ㄷ`·`ㅁ`·`ㅍ` · 종료 후 `tui.log`에 URL·헤더·본문 글자 없음(`grep -c "SECRET\|Bearer" tui.log` = 0) · 9칸 보드·보드 2개에서 `Tab` 뒤 `e`가 새 보드의 칸을 연다.
+**극단값(전부 캡처)**: 응답기 `/deep`(32,000겹 중첩 배열 64KB — 즉시 `너무 깊게 중첩된 본문은 원문으로 표시합니다` + 원문, 멈춤 없음)·`/big`의 66KB JSON → 패닉 없이 원문(+`64KB를 넘는 본문은 원문으로 표시합니다`) · 묶음의 두 칸(같은 회차)에서 한 칸 자세히를 열자마자 `Esc`·옆 칸 자세히 → 다른 칸 기록이 섞이지 않는다 · 숫자 `1.0`·`1e3`·20자리 정수와 키 순서 `z,a,m`인 JSON이 들여쓴 뒤에도 그대로 · 종료 확인창을 오류 보기 위에 띄운 채 5분 → 모니터 화면 · 100×9(높이 10 미만)와 40×24(폭 부족)에서 무입력 안내 줄이 통째로 없고 잘린 글자가 없다 · ⑥ `/esc` 칸 본문 화면에서 터미널이 지워지거나 색이 번지지 않는다(`capture-pane -e`에 응답 유래 제어열 없음) · 본문 300KB에서 `PgDn` 연타·`End`가 즉시 반응 · 새 화면 넷을 `resize-window`로 80×24 → 40×10 → 20×5 → 120×40(패닉·겹침 없음, 키 줄 통째 줄임) · 오류 보기 중 컨트롤러 정지 불가이므로 대신 in-process REST로 보드 `stop`(`tui.log`의 `rest=` 포트 → `POST /api/monitor-boards/{id}/stop`) 후 `e` → 줄은 남고 사유 칸은 `기록 지남`(꺼진 보드는 404) · 오류 보기에서 `q` → 확인창 → 다른 키 → 같은 화면 복귀 · 한글 2벌식 `ㄷ`·`ㅁ`·`ㅍ` · 종료 후 `tui.log`에 URL·헤더·본문 글자 없음(`grep -c "SECRET\|Bearer" tui.log` = 0) · 9칸 보드·보드 2개에서 `Tab` 뒤 `e`가 새 보드의 칸을 연다.
 
 **보안 게이트**: 기록 뷰어(trace/body)를 더하므로 `finish-slice` §0 grep이 매치할 것으로 예상 — `security-reviewer` APPROVE 필수(예상이 아니라 grep 결과가 지배).
 
@@ -994,7 +1091,7 @@ spec §8 라이브 항 + `crates/tui/CLAUDE.md` tmux 함정. 워크트리 자체
 
 | 목업 | 이 plan | 이유 |
 |---|---|---|
-| §0 모니터 키 줄 글자 순서 `칸 이동 · e · Enter · Tab · ? · q`, `b 테두리` 없음 | `b 테두리 · Tab · 칸 이동 · e · Enter · ? · q` | `b` 키는 그대로 있어야 하고(tui-readability), 1a `key_bar`는 **앞 조각부터** 뺀다 — 목업의 "좁으면 b·Tab부터 뺀다"를 지키려면 그 둘이 앞에 와야 한다. 빼는 규칙을 우선순위 방식으로 바꾸는 것은 범위 밖 |
+| §0 모니터 키 줄 글자 순서 `칸 이동 · e · Enter · Tab · ? · q`, `b 테두리` 없음 | `b 테두리 · Tab · 칸 이동 · e · Enter · ? · q` | `b` 키는 그대로 있어야 하고(tui-readability), 1a `key_bar`는 **앞 조각부터** 뺀다 — 목업의 "좁으면 b·Tab부터 뺀다"를 지키려면 그 둘이 앞에 와야 한다. 빼는 규칙을 우선순위 방식으로 바꾸는 것은 범위 밖 **1a·tui-readability의 빼는 순서(`칸 이동` → `Tab` → `b`)가 `b` → `Tab` → `칸 이동`으로 바뀐다** — 갱신할 기존 단언: `view_test.rs` 키 줄 문자열 5곳 + 앞 조각 탈락 단언(Task 7). 사용자에게 알림(반대 없으면 유지) |
 | §4 항목 이름 `점검 주기`·`제한 시간`·`그래프 최대 높이`·`화면 표시 값`, 값 `5초`·`2,000 ms` | ko.ts 값 그대로 `점검 주기(초)`·`제한 시간(초)`·`그래프 최대 높이(ms)`·`화면에 표시`, 값은 숫자만 | 목업 설명도 "항목 이름은 GUI 칸 편집기와 같은 말" — 실제 ko.ts 값은 단위가 이름에 들어 있다(C11). 단위를 값에도 쓰면 `점검 주기(초) 5초`로 겹친다 |
 | §4 각주 `점검 묶음 "주문 흐름 묶음"의 값` | `점검 묶음 {n}의 값` | 묶음에는 이름 필드가 없다(`CheckGroup{id, scenario_id, environment_id, interval_seconds}`). GUI도 `점검 묶음 N`으로 부른다(C20) |
 | §4 조건 줄 `status = "OK"`, 표시 값 `재고  stock.count` | GUI `conditionSummary`·표시 항목 줄 그대로(`… · {스텝 이름}`, `① 큰 글자 …`) | GUI와 같은 문구(반목표 "GUI와 다른 문구"), 표시 항목에는 이름 필드가 없다 |
@@ -1002,7 +1099,7 @@ spec §8 라이브 항 + `crates/tui/CLAUDE.md` tmux 함정. 워크트리 자체
 | §3 `기록 상한 …에서 잘림`이 제목 줄 오른쪽, `12/40줄`이 가림 안내와 같은 줄 | 잘림 안내는 제목 바로 아래 한 줄, 줄 위치는 화면 첫 줄 오른쪽 끝 | 본문은 스크롤되는 한 덩어리 줄 목록이라 "제목 줄 오른쪽"을 넣으면 줄바꿈 계산이 갈린다. 내용은 같다(글자 배치 재량) |
 | §3 작은 그림의 키 줄 `v 요청 본문 보기`가 맨 앞 | `v …`는 `Esc` 바로 앞 | 앞 조각부터 빠지므로 `v`(가림 풀기)가 스크롤 안내보다 오래 남게 |
 | §1 `a` 뒤 키 줄만 `↑↓ PgUp PgDn 고르기` | 두 경우 모두 `↑↓ 고르기` | 같은 화면의 같은 키를 두 가지로 쓰지 않는다(PgUp/PgDn은 둘 다 동작) |
-| 목업에 없음 | 키 줄 위 `5분 동안 입력이 없으면 모니터로 돌아갑니다` 한 줄, 자세히 화면 높이가 모자랄 때 줄 빼는 순서, 너무 깊은 JSON은 안내 없이 원문 | 사용자 추가 요구(B) / 목업이 정하지 않은 부분 |
+| 목업에 없음 | 키 줄 위 `5분 동안 입력이 없으면 모니터로 돌아갑니다` 한 줄, 자세히 화면 높이가 모자랄 때 줄 빼는 순서, 64KB 초과·64단 초과 본문의 GUI 안내문 | 사용자 추가 요구(B) / 목업이 정하지 않은 부분 |
 
 ---
 
@@ -1014,7 +1111,7 @@ spec §8 라이브 항 + `crates/tui/CLAUDE.md` tmux 함정. 워크트리 자체
 | `reason_parts` 멀티바이트 needle 테스트 | **접음**(Task 3) | `judge_parity_test.rs` 편집, 테스트 1개 |
 | `text_labels_match_ko`가 ko.ts 아닌 리터럴 대조 | **부분 접음**(Task 3–6 `mirrored_text_exists_in_ko_ts` — 1b 새 문구만 ko.ts 파일 대조) | 기존 1a 문구까지 옮기는 것은 범위 밖 |
 | `App::draw_with` 화면→키 줄 매핑 테스트 없음 | **부분 접음**(Task 7 `sub_keys_per_screen` — 새 화면 넷) | 모니터·도움말 매핑은 그대로 `render_with_keys` 안 |
-| `Ctrl`+`B`도 테두리 전환 | **접음**(Task 7) | 같은 `handle_key`에 새 문자 키 3개를 더하므로 같이 막는다 |
+| `Ctrl`+`B`도 테두리 전환 | **접음**(Task 7 — Monitor·새 화면 넷 한정, `Ctrl+C`·`Ctrl+Q`와 다른 화면은 1a 그대로) | 같은 `handle_key`에 새 문자 키 3개를 더하므로 같이 막는다 |
 | 신호 테스트 2개 전역 처리기 공유 flake(`app_test.rs`) | **완화만**(Task 7 Mutex 직렬화, "해소" 표시 안 함) | 로컬 25회 0회 재현 — 효과 실증 불가 |
 | `tempdb::tests::sweep_removes_own_pid_leftovers…` flake | 안 접음 | `tempdb.rs`를 건드리지 않는다 |
 | `poll_once` 404·폴러 주기·보드 전환 테스트, 404 후 폴링 계속, 보드 전환 1 s 지연 | 안 접음 | `poll.rs` 무수정 |
@@ -1056,3 +1153,9 @@ spec §8 라이브 항 + `crates/tui/CLAUDE.md` tmux 함정. 워크트리 자체
 | C22 | GUI 원문 전환 상한 64KB(`TREE_MAX_BYTES`)·안내문 `recordTreeTooLarge`(1850행) | `grep -n "TREE_MAX_BYTES\|TREE_MAX_DEPTH" ui/src/components/monitor/RecordBody.tsx` · `grep -n "recordTreeTooLarge" ui/src/i18n/ko.ts` |
 | C23 | 목업 절 번호·키 줄·문구(§0–§4, "정할 것" Q1–Q4) | `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html`을 태그 제거 후 전문 읽음 |
 | C24 | 무입력 안내 문구 폭 42칸(한글 2칸) — 80열 키 줄 조각으로는 늘 빠진다 | 손계산 — **구현 중 실측 확정**(`sub_layout_rows`·`render_errors_shows_rows`) |
+| C25 | `serde_json`의 `IgnoredAny` 경로(`ignore_value`, de.rs 1102행)는 반복문이라 재귀 상한(`remaining_depth` 128)을 타지 않는다 — 깊은 중첩도 통과 | `grep -n "fn ignore_value" -A12 ~/.cargo/registry/src/*/serde_json-1.0.150/src/de.rs(Cargo.lock 고정 버전)` · `grep -n "remaining_depth\|check_recursion" …/de.rs`(1102–1370 구간에 `check_recursion!` 없음). 리뷰어 실측(200단·30,000단 통과)과 일치 — **구현 중 `pretty_json_depth_limit`이 확정** |
+| C26 | GUI 깊이 한도 `TREE_MAX_DEPTH = 64`(RecordBody.tsx 9행), 64KB 판정은 내용과 무관(40행 — 크기 먼저), 안내문 `recordTreeTooDeep`(1851행) | `grep -n "TREE_MAX\|too_large\|too_deep" ui/src/components/monitor/RecordBody.tsx` · `grep -n "recordTreeTooDeep" ui/src/i18n/ko.ts` |
+| C27 | GUI `groupNumber`(groups.ts 120행)는 `cfg.panels` 첫 등장 순 1부터, 없으면 0 | `sed -n 112,130p ui/src/monitor/groups.ts` |
+| C28 | 컨트롤러 `MASK`는 `pub const`(record.rs 17행), `monitor::record` 모듈은 `pub` | `grep -n "pub const MASK" crates/controller/src/monitor/record.rs` · `grep -n "pub mod" crates/controller/src/monitor/mod.rs` |
+| C29 | `q`는 수식 키와 무관하게 종료 키(`quit_key = ctrl_c \|\| code == Char('q')`), 종료 확인창은 `!ctrl && 'y'`만 종료 | `grep -n "quit_key\|!ctrl" crates/tui/src/app.rs` |
+| C30 | 매뉴얼이 Windows 배포를 안내한다(§1-1) | `grep -n "Windows" docs/dev/tui-monitor.md` |
