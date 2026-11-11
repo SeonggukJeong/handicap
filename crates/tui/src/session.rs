@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use handicap_controller::in_process::{InProcessConfig, RunningController, run_in_process};
 
 use crate::api::Api;
+use crate::names::Names;
 use crate::tempdb::TempDb;
 
 /// 보드 파일 크기 상한 — 이보다 크면 읽지 않고 거절한다.
@@ -51,6 +52,8 @@ pub struct Session {
     pub api: Api,
     pub boards: Vec<BoardRef>,
     pub file: PathBuf,
+    /// 번들 파일에서 푼 시나리오·스텝·환경 이름(파일을 다시 읽지 않는다).
+    pub names: Names,
     // 선언 순서 = drop 순서: 컨트롤러(풀)가 먼저 닫힌 뒤 DB 파일을 지운다.
     controller: RunningController,
     db: TempDb,
@@ -117,6 +120,7 @@ impl Session {
                 api,
                 boards,
                 file: file.to_path_buf(),
+                names: Names::from_bundle(&bytes),
                 controller,
                 db,
             }),

@@ -7,6 +7,7 @@ pub mod check_mode;
 pub mod cli;
 pub mod judge;
 pub mod logging;
+pub mod names;
 pub mod poll;
 pub mod prefs;
 pub mod session;
