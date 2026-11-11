@@ -3,6 +3,7 @@
 
 pub mod axis;
 pub mod bigfont;
+pub mod edit;
 pub mod error;
 pub mod graph;
 pub mod inspect;

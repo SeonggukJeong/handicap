@@ -454,3 +454,18 @@ pub fn usage_note(panels: usize, boards: usize) -> String {
 pub fn usage_note_scenario(panels: usize, boards: usize) -> String {
     format!("이 시나리오를 쓰는 칸 {panels}개(보드 {boards}개)")
 }
+
+// ---------- 하위 목록·조건 수정 칸·변수 화면 (tui-2a-1 Task 9, 목업 §4·§5) ----------
+
+/// 조건 수정 칸 라벨(TUI 전용, 목업 §4).
+pub const COND_FORM_TARGET: &str = "대상";
+pub const COND_FORM_OP: &str = "규칙";
+pub const COND_FORM_VALUE: &str = "값";
+/// 하위 목록·변수 화면 키 줄 조각(TUI 전용).
+pub const KEYS_BACK: &str = "Esc 뒤로";
+pub const KEYS_ADD: &str = "a 추가";
+pub const KEYS_DELETE: &str = "d 삭제";
+pub const KEYS_SWAP: &str = "s 자리 바꾸기";
+pub const KEYS_SHOW_VALUE: &str = "v 값 보기";
+pub const KEYS_NEXT_FIELD: &str = "Tab 다음 칸";
+pub const KEYS_TOGGLE: &str = "Space 켜기·끄기";

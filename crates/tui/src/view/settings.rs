@@ -14,11 +14,11 @@ use super::{fit, text_width};
 use crate::inspect::sanitize;
 use crate::text;
 
-fn color(hex: &str) -> Color {
+pub(crate) fn color(hex: &str) -> Color {
     parse_hex(hex).unwrap_or(Color::Reset)
 }
 
-fn put(f: &mut Frame, area: Rect, line: Line) {
+pub(crate) fn put(f: &mut Frame, area: Rect, line: Line) {
     f.render_widget(Paragraph::new(line), area);
 }
 
@@ -71,12 +71,12 @@ pub enum OverlayView<'a> {
     Notice(&'a str),
 }
 
-fn col_w(c: char) -> usize {
+pub(crate) fn col_w(c: char) -> usize {
     text_width(c.encode_utf8(&mut [0; 4]))
 }
 
 /// `t`의 `cursor_x`열이 `w`칸 창 안에 들어오게 앞을 잘라 낸 (창 글자, 창 안 커서 열).
-fn window(t: &str, cursor_x: usize, w: usize) -> (String, usize) {
+pub(crate) fn window(t: &str, cursor_x: usize, w: usize) -> (String, usize) {
     if w == 0 {
         return (String::new(), 0);
     }
@@ -174,7 +174,7 @@ fn pick_line(opt: &str, selected: bool, w: usize) -> Line<'static> {
 }
 
 /// 고른 항목 아래(없으면 위, 그래도 없으면 body 전체)에 테두리 목록 창을 그린다. 그린 사각형을 돌려준다.
-fn render_pick(
+pub(crate) fn render_pick(
     f: &mut Frame,
     body: Rect,
     sel_rows: Option<(u16, u16)>,
@@ -240,36 +240,24 @@ fn render_pick(
 }
 
 /// 한 줄을 `w`칸으로 — 앞에 공백 1칸, 원격 문자열은 `sanitize`.
-fn overlay_text(t: &str, style: Style, w: usize) -> Line<'static> {
+pub(crate) fn overlay_text(t: &str, style: Style, w: usize) -> Line<'static> {
     Line::from(Span::styled(
         format!(" {}", fit(&sanitize(t), w.saturating_sub(1))),
         style,
     ))
 }
 
-/// 편집 메뉴: body 1행 = `칸 설정 · {제목}` + 오른쪽 안내(폭이 모자라면 통째 생략), 그 아래 `lines[scroll..]`,
-/// 맨 아래 = 각주(overlay가 있으면 생략) 또는 overlay. 고른 항목은 줄 전부 흰 바탕 + 첫 줄 `▶`.
-/// 그린 줄 → 항목 번호 표 (화면 y, 항목 번호)를 돌려준다(목록 창이 덮은 줄은 뺀다).
-pub fn render_edit_menu(
-    f: &mut Frame,
-    head: &HeaderView,
-    v: &EditMenuView,
-    keys: &[&str],
-) -> Vec<(u16, usize)> {
-    let body = render_frame(f, head, keys);
-    let mut table = Vec::new();
-    if body.height == 0 || body.width == 0 {
-        return table;
-    }
-    let w = usize::from(body.width);
-    let bh = usize::from(body.height);
-    let row = |i: usize| Rect::new(body.x, body.y.saturating_add(i as u16), body.width, 1);
+/// 키 줄 위 overlay 줄들(Input = 공유·입력·오류, 나머지 1줄, Pick은 없음). 모자라면 공유 → 오류 순으로 뺀다.
+/// 편집 메뉴·하위 목록·변수 화면이 같이 쓴다.
+pub(crate) fn overlay_rows(
+    overlay: Option<&OverlayView>,
+    w: usize,
+    bh: usize,
+) -> Vec<Line<'static>> {
     let muted = Style::default().fg(color(C_MUTED));
     let text_style = Style::default().fg(color(C_TEXT));
-
-    // 키 줄 위 overlay 줄들(Input = 공유·입력·오류, 나머지 1줄). 모자라면 공유 → 오류 순으로 뺀다.
     let mut ov_rows: Vec<Line<'static>> = Vec::new();
-    match &v.overlay {
+    match overlay {
         Some(OverlayView::Input {
             label,
             text: t,
@@ -300,6 +288,30 @@ pub fn render_edit_menu(
         }
         _ => {}
     }
+    ov_rows
+}
+
+/// 편집 메뉴: body 1행 = `칸 설정 · {제목}` + 오른쪽 안내(폭이 모자라면 통째 생략), 그 아래 `lines[scroll..]`,
+/// 맨 아래 = 각주(overlay가 있으면 생략) 또는 overlay. 고른 항목은 줄 전부 흰 바탕 + 첫 줄 `▶`.
+/// 그린 줄 → 항목 번호 표 (화면 y, 항목 번호)를 돌려준다(목록 창이 덮은 줄은 뺀다).
+pub fn render_edit_menu(
+    f: &mut Frame,
+    head: &HeaderView,
+    v: &EditMenuView,
+    keys: &[&str],
+) -> Vec<(u16, usize)> {
+    let body = render_frame(f, head, keys);
+    let mut table = Vec::new();
+    if body.height == 0 || body.width == 0 {
+        return table;
+    }
+    let w = usize::from(body.width);
+    let bh = usize::from(body.height);
+    let row = |i: usize| Rect::new(body.x, body.y.saturating_add(i as u16), body.width, 1);
+    let muted = Style::default().fg(color(C_MUTED));
+    let text_style = Style::default().fg(color(C_TEXT));
+
+    let ov_rows = overlay_rows(v.overlay.as_ref(), w, bh);
     let oh = ov_rows.len().min(bh);
     let has_pick = matches!(v.overlay, Some(OverlayView::Pick { .. }));
     let note = v.note.filter(|_| oh == 0 && note_shown(body.height, true));
