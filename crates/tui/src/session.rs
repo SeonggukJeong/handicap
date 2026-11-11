@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use handicap_controller::in_process::{InProcessConfig, RunningController, run_in_process};
 
 use crate::api::Api;
+use crate::filesave::{FileTarget, Fingerprint, fingerprint};
 use crate::names::Names;
 use crate::tempdb::TempDb;
 
@@ -52,6 +53,12 @@ pub struct Session {
     pub api: Api,
     pub boards: Vec<BoardRef>,
     pub file: PathBuf,
+    /// 저장 대상(시작 때 canonicalize — 실패하면 받은 경로 그대로).
+    pub target: FileTarget,
+    /// 시작 때 읽은 내용의 지문.
+    pub start_fp: Fingerprint,
+    /// 시작 때 읽은 번들 바이트(`.orig.bak`용 — 작업자에게 `take()`로 넘긴다).
+    pub start_bytes: Option<Vec<u8>>,
     /// 번들 파일에서 푼 시나리오·스텝·환경 이름(파일을 다시 읽지 않는다).
     pub names: Names,
     // 선언 순서 = drop 순서: 컨트롤러(풀)가 먼저 닫힌 뒤 DB 파일을 지운다.
@@ -116,14 +123,23 @@ impl Session {
         let api = Api::new(rest_addr);
 
         match Self::bootstrap(&api, &bytes).await {
-            Ok(boards) => Ok(Session {
-                api,
-                boards,
-                file: file.to_path_buf(),
-                names: Names::from_bundle(&bytes),
-                controller,
-                db,
-            }),
+            Ok(boards) => {
+                let names = Names::from_bundle(&bytes);
+                Ok(Session {
+                    api,
+                    boards,
+                    file: file.to_path_buf(),
+                    target: FileTarget {
+                        given: file.to_path_buf(),
+                        real: std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf()),
+                    },
+                    start_fp: fingerprint(&bytes),
+                    start_bytes: Some(bytes),
+                    names,
+                    controller,
+                    db,
+                })
+            }
             Err((stage, message)) => {
                 // 이미 start된 감독자·serve 태스크가 남지 않게 정리한 뒤 돌려준다.
                 controller.shutdown().await;

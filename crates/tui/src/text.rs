@@ -389,3 +389,9 @@ pub fn cond_op_label(op: handicap_controller::monitor::config::ConditionOp) -> &
 pub const VAR_GENERATED: &str = "생성 변수 — GUI에서";
 /// 시나리오 변수 화면 — 한 줄 교체가 안전하지 않은 값 모양.
 pub const VAR_SHAPE: &str = "이 값의 모양은 TUI에서 못 고칩니다 — GUI에서";
+
+/// 파일 저장 결과 머리 줄(성공 뒤에 ` HH:MM:SS`가 붙는다).
+pub const FILE_SAVED: &str = "저장됨";
+pub const FILE_SAVE_FAILED: &str = "파일에 저장 못 함 — 재시작하면 사라짐";
+pub const FILE_CHANGED_OUTSIDE: &str =
+    "보드 파일이 밖에서 바뀌었습니다 — 저장 안 됨, TUI를 다시 시작하세요";
