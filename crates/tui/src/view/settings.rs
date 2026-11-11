@@ -68,6 +68,8 @@ pub enum OverlayView<'a> {
     },
     Confirm(&'a str),
     Saving,
+    /// 지금 점검 결과 대기(`점검 결과를 기다리는 중…`)
+    Checking,
     Notice(&'a str),
 }
 
@@ -283,6 +285,7 @@ pub(crate) fn overlay_rows(
             ov_rows.push(overlay_text(t, text_style.add_modifier(Modifier::BOLD), w))
         }
         Some(OverlayView::Saving) => ov_rows.push(overlay_text(text::SAVING, muted, w)),
+        Some(OverlayView::Checking) => ov_rows.push(overlay_text(text::CHECK_WAITING, muted, w)),
         Some(OverlayView::Notice(t)) => {
             ov_rows.push(overlay_text(t, Style::default().fg(color(C_SLOW)), w));
         }

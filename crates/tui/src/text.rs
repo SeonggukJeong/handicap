@@ -62,6 +62,7 @@ pub const KEYS_REVEAL: &str = "v 요청 본문 보기";
 pub const KEYS_HIDE: &str = "v 가리기";
 pub const KEYS_TO_MONITOR: &str = "Esc 모니터로";
 pub const KEYS_TO_LIST: &str = "Esc 목록으로";
+pub const KEYS_TO_SETTINGS: &str = "Esc 칸 설정으로";
 pub const KEYS_TO_DETAIL: &str = "Esc 자세히로";
 
 pub const HELP_TITLE: &str = "도움말";
@@ -73,7 +74,7 @@ pub const HELP_KEYS: [(&str, &str); 11] = [
     ),
     ("방향키 / h j k l", "칸 선택 이동"),
     ("Tab / Shift+Tab", "다음 / 이전 보드"),
-    // 50칸 터미널 도움말 상자(설명 칸 30열)에서도 통째로 보이게 짧게.
+    // `r`·`e` 두 줄 모두 50칸 터미널 도움말 상자(설명 칸 30열)에서도 통째로 보이게 짧게.
     ("r", "선택 칸 지금 점검(주기 전에)"),
     ("e", "선택 칸 오류 보기(실패 목록)"),
     ("Enter", "선택 칸 설정 보기·수정"),
@@ -436,6 +437,7 @@ pub const FILE_SAVED: &str = "저장됨";
 pub const CHECK_NOW_SENT: &str = "지금 점검";
 pub const CHECK_OFF: &str = "점검이 꺼져 있습니다";
 pub const CHECK_NOW_FAILED: &str = "지금 점검을 요청하지 못했습니다";
+pub const CHECK_WAITING: &str = "점검 결과를 기다리는 중…";
 pub const FILE_SAVE_FAILED: &str = "파일에 저장 못 함 — 재시작하면 사라짐";
 pub const FILE_CHANGED_OUTSIDE: &str =
     "보드 파일이 밖에서 바뀌었습니다 — 저장 안 됨, TUI를 다시 시작하세요";

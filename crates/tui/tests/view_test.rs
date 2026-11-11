@@ -2875,19 +2875,22 @@ fn help_lists_new_keys_and_idle_rule() {
 
 #[test]
 fn help_errors_row_whole_at_50_columns() {
-    // e 줄 설명이 50칸 도움말 상자 안에서 잘리지 않는다(말줄임 없이 통째로).
+    // r·e 줄 설명이 50칸 도움말 상자 안에서 잘리지 않는다(말줄임 없이 통째로).
     let log = LogLoc::Path("/tmp/tui.log".into());
-    let (_, d) = handicap_tui::text::HELP_KEYS
-        .iter()
-        .find(|(k, _)| *k == "e")
-        .unwrap();
-    for w in 50..=80u16 {
-        let text = draw(w, 30, |f| {
-            render_help(f, Path::new("/tmp/b.json"), None, &log)
-        });
-        let line = text.lines().find(|l| l.contains("│e ")).unwrap();
-        assert!(line.contains(d), "w{w}\n{text}");
-        assert!(line.trim_end().ends_with('│'), "w{w}\n{text}");
+    for key in ["r", "e"] {
+        let (_, d) = handicap_tui::text::HELP_KEYS
+            .iter()
+            .find(|(k, _)| *k == key)
+            .unwrap();
+        for w in 50..=80u16 {
+            let text = draw(w, 30, |f| {
+                render_help(f, Path::new("/tmp/b.json"), None, &log)
+            });
+            let pat = format!("│{key} ");
+            let line = text.lines().find(|l| l.contains(&pat)).unwrap();
+            assert!(line.contains(d), "{key} w{w}\n{text}");
+            assert!(line.trim_end().ends_with('│'), "{key} w{w}\n{text}");
+        }
     }
 }
 

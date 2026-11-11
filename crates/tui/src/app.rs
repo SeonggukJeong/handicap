@@ -31,8 +31,8 @@ use crate::edit;
 use crate::filesave::{FileState, WriteError, WriteStage};
 use crate::input::{InputMode, InputOutcome, LineInput};
 use crate::inspect::{
-    BodyInput, BodyState, ErrorsInput, ErrorsState, Reason, RecordLoad, RecordState, StepLine,
-    clip_flags, error_results, errors_view, initial_step_cursor, load_of, move_cursor,
+    BodyInput, BodyState, ErrorsInput, ErrorsState, Reason, RecordLoad, RecordOrigin, RecordState,
+    StepLine, clip_flags, error_results, errors_view, initial_step_cursor, load_of, move_cursor,
     neighbor_http, reason_of, record_view, step_lines, visible_results,
 };
 use crate::judge::grid_for;
@@ -277,6 +277,8 @@ pub struct KeyCtx {
     pub reveal: bool,
     /// 본문 화면의 스텝에 요청 본문이 있는가
     pub has_req_body: bool,
+    /// 자세히 화면을 칸 설정에서 열었는가(`Esc`가 칸 설정으로 — 아니면 목록으로)
+    pub record_from_settings: bool,
 }
 
 /// 새 화면 네 개의 키 줄 조각(앞 조각부터 통째로 빠진다 — 덜 중요한 것을 앞에). 목업처럼
@@ -296,7 +298,15 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
             text::KEYS_DETAIL,
             text::KEYS_TO_MONITOR,
         ],
-        Screen::Record => vec![text::KEYS_PICK_STEP, text::KEYS_BODY, text::KEYS_TO_LIST],
+        Screen::Record => vec![
+            text::KEYS_PICK_STEP,
+            text::KEYS_BODY,
+            if c.record_from_settings {
+                text::KEYS_TO_SETTINGS
+            } else {
+                text::KEYS_TO_LIST
+            },
+        ],
         Screen::Body => {
             let mut keys = vec![text::KEYS_SCROLL, text::KEYS_STEP_NAV];
             if c.has_req_body {
@@ -322,6 +332,14 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
 }
 
 // ---- 편집 모드 상태·키 판정(tui-2a-1, spec §6.7) — 순수. App 연결은 `App::edit_key_event`·`run_edit` ----
+
+/// 지금 점검 대기의 단계 — `Sent` = 요청 결과를 기다리는 중, `After(last)` = 요청이 받아들여져 `last`(요청 시점 마지막 결과 시각)
+/// **보다 새** 결과를 기다리는 중.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckWait {
+    Sent,
+    After(Option<i64>),
+}
 
 /// 편집 화면 위에 뜨는 입력줄·목록 창·조건 수정·확인·저장 중·안내.
 /// `Debug`는 손으로 — 종류 이름만(입력값·서버 문구·환경 키 이름이 `{:?}`로 새지 않게).
@@ -356,6 +374,8 @@ pub enum Overlay {
     /// 저장 중. `restore` = 서버가 거절하면 되살릴 overlay(Input·CondForm은 오류 줄을 채워서). Pick·Confirm(삭제·단계·환경 빠짐)·
     /// 자리 바꾸기에서 온 저장은 `restore = None` — 거절이면 `Notice(서버 문구)`로 보인다.
     Saving { restore: Option<Box<Overlay>> },
+    /// 칸 설정의 `r`(지금 점검) 결과 대기. `seq` = 대기 번호(`App.check_seq`), `wait` = 요청 결과를 받았는가.
+    Checking { seq: u64, wait: CheckWait },
     /// ReadOnly 안내·서버 거절 — 다음 키 하나로 닫힘(그 키는 메뉴로 넘어가지 않는다).
     Notice(String),
 }
@@ -375,6 +395,7 @@ impl Overlay {
             Overlay::CondForm { .. } => "CondForm",
             Overlay::Confirm { .. } => "Confirm",
             Overlay::Saving { .. } => "Saving",
+            Overlay::Checking { .. } => "Checking",
             Overlay::Notice(_) => "Notice",
         }
     }
@@ -518,6 +539,10 @@ pub enum EditAction {
     ConfirmYes,
     ConfirmNo,
     CloseNotice,
+    /// 메뉴의 `r` — 지금 점검 요청 + 대기 창(호출 쪽 `run_edit`이 `start_check`로 처리).
+    CheckNow,
+    /// 대기 창의 `Esc` — 창만 닫는다(점검 취소가 아니다).
+    CheckCancel,
 }
 
 /// 대기 표시가 유효한 시간 — **1초 미만**만 대기 안(정확히 1.0초는 지난 것: `<`).
@@ -558,6 +583,66 @@ pub fn idle_drop(ui: &mut EditUi) {
     ui.leave_env();
     ui.leave_scen();
     ui.digit = None;
+}
+
+/// 칸 설정 메뉴의 `r` — 대기 번호를 하나 올리고(`*seq` = `App.check_seq`: 프로세스 안에서 줄지 않는다) 대기 창을 띄운 뒤,
+/// 조회 작업자에 보낼 요청을 돌려준다. 보드·칸은 `ui`의 것.
+pub fn start_check(ui: &mut EditUi, seq: &mut u64) -> FetchReq {
+    *seq += 1;
+    ui.overlay = Some(Overlay::Checking {
+        seq: *seq,
+        wait: CheckWait::Sent,
+    });
+    FetchReq::CheckNow {
+        board_id: ui.board_id.clone(),
+        panel_id: ui.panel_id.clone(),
+        wait: Some(*seq),
+    }
+}
+
+/// 칸 설정에서 보낸 지금 점검의 응답(대기 번호 `seq`)을 반영한다. 창이 `Checking { seq, wait: Sent }`(같은 번호)일 때만 —
+/// 아니면(`Esc`로 닫음·5분 복귀로 버려짐·다시 눌러 번호가 다름·이미 `After`·다른 창) 상태를 건드리지 않고 `false`.
+pub fn check_reply(ui: &mut EditUi, seq: u64, result: CheckReply) -> bool {
+    if !matches!(
+        ui.overlay,
+        Some(Overlay::Checking {
+            seq: s,
+            wait: CheckWait::Sent
+        }) if s == seq
+    ) {
+        return false;
+    }
+    ui.overlay = Some(match result {
+        Ok(last) => Overlay::Checking {
+            seq,
+            wait: CheckWait::After(last),
+        },
+        Err(Some(409)) => Overlay::Notice(text::CHECK_OFF.to_string()),
+        Err(_) => Overlay::Notice(text::CHECK_NOW_FAILED.to_string()),
+    });
+    true
+}
+
+/// 대기 창이 `After(last)`일 때 그 칸 결과 목록(오래된 → 최신)의 가장 새 결과가 `last`보다 새것이면 그 결과
+/// (`last`가 없으면 결과가 하나라도 있으면). 그 밖(창 없음·`Sent`·아직 새 결과 없음) → None.
+pub fn check_ready(ui: &EditUi, results: &[CheckResult]) -> Option<CheckResult> {
+    let Some(Overlay::Checking {
+        wait: CheckWait::After(last),
+        ..
+    }) = &ui.overlay
+    else {
+        return None;
+    };
+    let newest = results.last()?;
+    match last {
+        Some(l) if newest.at_ms <= *l => None,
+        _ => Some(newest.clone()),
+    }
+}
+
+/// 대기 창이 자세히를 열어도 되는 화면 — **정확히 칸 설정 메뉴**일 때만(종료 확인창 등이 떠 있으면 미룬다).
+pub fn check_open_allowed(screen: &Screen) -> bool {
+    matches!(screen, Screen::Settings)
 }
 
 /// 화면 규칙용 정규화: `normalize_char` + 새로 `ㅇ`→`d`·`ㄴ`→`s`(편집 화면 경로에서만 — 기존 화면 불변).
@@ -615,6 +700,7 @@ pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> Edit
                 EditAction::DigitJump { no, pending }
             }
         }
+        KeyCode::Char('r') if menu => EditAction::CheckNow,
         KeyCode::Char('a') if matches!(screen, Screen::EditList) => EditAction::Add,
         KeyCode::Char('d') if matches!(screen, Screen::EditList) => EditAction::Remove,
         KeyCode::Char('s') if matches!(screen, Screen::EditList) => EditAction::Swap,
@@ -702,6 +788,16 @@ fn overlay_key(
             }
         }
         Overlay::Notice(_) => EditAction::CloseNotice,
+        // 지금 점검 대기: Esc는 창만 닫는다(점검은 서버에서 그대로 돈다). 종료 확인만 더 열린다.
+        Overlay::Checking { .. } => {
+            if quit_key {
+                EditAction::AskQuit
+            } else if !ctrl && norm == KeyCode::Esc {
+                EditAction::CheckCancel
+            } else {
+                EditAction::None
+            }
+        }
         // 저장 중: 다른 편집 키는 받지 않는다(Esc도 저장을 멈추지 않는다). 종료 확인만 열린다.
         Overlay::Saving { .. } => {
             if quit_key {
@@ -912,21 +1008,46 @@ impl SubViews {
     /// 목록 → 자세히. errors가 없으면 None.
     pub fn open_record(&mut self, clicked: CheckResult) -> Option<(Screen, FetchReq)> {
         let e = self.errors.as_ref()?;
+        let (board_id, panel_id) = (e.board_id.clone(), e.panel_id.clone());
+        Some(self.set_record(board_id, panel_id, clicked, RecordOrigin::Errors))
+    }
+
+    /// 칸 설정(지금 점검 대기 창) → 자세히. `edit`의 보드·칸으로 연다 — `errors`는 건드리지 않고, 편집 상태·메뉴 커서는
+    /// 두며 대기 창만 닫는다. `edit`가 없으면 None.
+    pub fn open_record_from_settings(
+        &mut self,
+        clicked: CheckResult,
+    ) -> Option<(Screen, FetchReq)> {
+        let e = self.edit.as_mut()?;
+        e.overlay = None;
+        let (board_id, panel_id) = (e.board_id.clone(), e.panel_id.clone());
+        Some(self.set_record(board_id, panel_id, clicked, RecordOrigin::Settings))
+    }
+
+    /// 자세히 상태를 새로 만들고(본문은 비운다) 여는 요청을 돌려준다 — 두 여는 길이 함께 쓴다.
+    fn set_record(
+        &mut self,
+        board_id: String,
+        panel_id: String,
+        clicked: CheckResult,
+        origin: RecordOrigin,
+    ) -> (Screen, FetchReq) {
         let req = FetchReq::Record {
-            board_id: e.board_id.clone(),
-            panel_id: e.panel_id.clone(),
+            board_id: board_id.clone(),
+            panel_id: panel_id.clone(),
             at_ms: clicked.at_ms,
         };
         self.record = Some(RecordState {
-            board_id: e.board_id.clone(),
-            panel_id: e.panel_id.clone(),
+            board_id,
+            panel_id,
             at_ms: clicked.at_ms,
             clicked,
             load: RecordLoad::Loading,
             cursor: 0,
+            origin,
         });
         self.body = None;
-        Some((Screen::Record, req))
+        (Screen::Record, req)
     }
 
     /// 자세히 → 본문. `lines[cursor]`가 Http가 아니면 None. 본문은 언제나 새로(가림·스크롤·캐시 초기화).
@@ -963,9 +1084,18 @@ impl SubViews {
                 Some(Screen::Record)
             }
             Screen::Record => {
+                // 온 곳으로: 칸 설정에서 열었으면 `errors`가 없으니 목록이 아니라 칸 설정(편집 상태 그대로).
+                let from_settings = self
+                    .record
+                    .as_ref()
+                    .is_some_and(|r| r.origin == RecordOrigin::Settings);
                 self.record = None;
                 self.body = None;
-                Some(Screen::Errors)
+                Some(if from_settings {
+                    Screen::Settings
+                } else {
+                    Screen::Errors
+                })
             }
             Screen::Errors => {
                 self.clear_inspect();
@@ -1033,7 +1163,7 @@ impl SubViews {
                 }
                 _ => false,
             },
-            // 모니터에서 보낸 결과는 `App::pump`가 머리 줄 알림으로 가로채고, 칸 설정에서 보낸 결과는 아직 버려진다 — 여기까지 오면 받아들이지 않는다.
+            // 지금 점검 결과는 `App::pump`가 가로챈다(모니터발 = 머리 줄 알림, 칸 설정발 = 대기 창) — 여기까지 오면 받아들이지 않는다.
             Fetched::CheckNow { .. } => false,
         }
     }
@@ -2010,8 +2140,12 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
     };
     let p = &cx.boards[bi].config.panels[pi];
     match a {
-        EditAction::None | EditAction::Back | EditAction::AskQuit => {}
-        EditAction::PickCancel | EditAction::ConfirmNo | EditAction::CloseNotice => {
+        // `CheckNow`는 호출 쪽 `run_edit`이 `start_check`로 처리한다(요청이 `App`의 대기 번호를 쓴다).
+        EditAction::None | EditAction::Back | EditAction::AskQuit | EditAction::CheckNow => {}
+        EditAction::PickCancel
+        | EditAction::ConfirmNo
+        | EditAction::CloseNotice
+        | EditAction::CheckCancel => {
             ui.overlay = None;
         }
         EditAction::MoveCursor(d) => {
@@ -2354,10 +2488,12 @@ pub fn edit_keys(
         Some(Overlay::Pick { .. }) => vec![text::KEYS_PICK, text::KEYS_SAVE, text::KEYS_CANCEL],
         Some(Overlay::CondForm { .. }) => crate::view::edit::cond_form_keys(),
         Some(Overlay::Confirm { .. } | Overlay::Saving { .. } | Overlay::Notice(_)) => vec![],
+        Some(Overlay::Checking { .. }) => vec![text::KEYS_BACK],
         None => match screen {
             Screen::Settings => vec![
                 text::KEYS_PICK,
                 text::KEYS_NUMBER,
+                text::KEYS_CHECK_NOW,
                 text::KEYS_EDIT,
                 text::KEYS_TO_MONITOR,
             ],
@@ -2448,6 +2584,7 @@ fn overlay_view<'a>(o: &'a Overlay, picks: &'a [String], w: usize) -> Option<Ove
         Overlay::CondForm { .. } => return None,
         Overlay::Confirm { text, .. } => OverlayView::Confirm(text),
         Overlay::Saving { .. } => OverlayView::Saving,
+        Overlay::Checking { .. } => OverlayView::Checking,
         Overlay::Notice(m) => OverlayView::Notice(m),
     })
 }
@@ -2660,6 +2797,8 @@ struct App<'a> {
     save_in_flight: Option<SaveTicket>,
     /// 마지막 저장 번호
     save_seq: u64,
+    /// 마지막 지금 점검 대기 번호(칸 설정 `r`) — 세션을 다시 시작해도 비우지 않는다(줄지 않아야 늦게 온 옛 결과가 새 대기와 겹치지 않는다)
+    check_seq: u64,
     /// 머리 줄 알림(모든 화면) — `Saved`는 `saved_at` 5초 뒤 지운다
     file_notice: Option<HeaderNotice>,
     saved_at: Option<Instant>,
@@ -2764,12 +2903,14 @@ impl App<'_> {
     fn start_session(&mut self) {
         self.stop_session();
         self.views.clear();
-        // 옛 세션의 저장 결과·알림이 새 세션에 들지 않게(보드 id는 가져오기 사이에 보존된다).
+        // 옛 세션의 저장 결과·조회 결과(지금 점검 포함 — `pump`가 `views.clear()` 없이 가로챈다)·알림이 새 세션에 들지 않게
+        // (보드 id는 가져오기 사이에 보존된다).
         self.file_notice = None;
         self.saved_at = None;
         self.check_alert = None;
         self.save_in_flight = None;
         while self.edit_out.1.try_recv().is_ok() {}
+        while self.fetch_out.1.try_recv().is_ok() {}
         self.poller_dead_logged.set(false);
         self.idx = 0;
         self.selected = 0;
@@ -2940,12 +3081,19 @@ impl App<'_> {
         let mut changed = self.pump_edit();
         let mut record_arrived = false;
         while let Ok(msg) = self.fetch_out.1.try_recv() {
-            if let Fetched::CheckNow { wait, result, .. } = &msg {
-                // 모니터에서 보낸 것(`wait: None`)만 머리 줄 알림이 된다. 칸 설정에서 보낸 것(`Some`)은 칸 설정의
-                // 대기 창이 받도록 이어지기 전까지 여기서 버린다.
-                if wait.is_none() {
-                    self.check_alert = Some((check_notice(result, now_ms()), Instant::now()));
-                    changed = true;
+            if let Fetched::CheckNow { wait, result, .. } = msg {
+                match wait {
+                    // 모니터에서 보낸 것은 머리 줄 알림.
+                    None => {
+                        self.check_alert = Some((check_notice(&result, now_ms()), Instant::now()));
+                        changed = true;
+                    }
+                    // 칸 설정에서 보낸 것은 대기 창이 번호로 가려 받는다(맞지 않으면 조용히 버린다 — 알림 없음).
+                    Some(n) => {
+                        if let Some(ui) = self.views.edit.as_mut() {
+                            changed |= check_reply(ui, n, result);
+                        }
+                    }
                 }
                 continue;
             }
@@ -2971,6 +3119,7 @@ impl App<'_> {
                 r.cursor = initial_step_cursor(&lines);
             }
         }
+        changed |= self.pump_check_ready();
         let inner = match &self.screen {
             Screen::QuitConfirm(inner) => (**inner).clone(),
             s => s.clone(),
@@ -2982,6 +3131,27 @@ impl App<'_> {
             _ => {}
         }
         changed
+    }
+
+    /// 칸 설정 대기 창이 `After(last)`인데 그 칸에 `last`보다 새 결과가 들어왔으면 그 회차의 자세히를 연다.
+    /// **`self.screen` 자체**가 칸 설정 메뉴일 때만 — 종료 확인창이 떠 있으면 열지 않고 기다렸다가 취소해 메뉴로 돌아온
+    /// 다음 갱신에서 연다(확인창이 저절로 사라지지 않게). 열었으면 true.
+    fn pump_check_ready(&mut self) -> bool {
+        if !check_open_allowed(&self.screen) {
+            return false;
+        }
+        let Some(ui) = self.views.edit.as_ref() else {
+            return false;
+        };
+        let Some(clicked) = check_ready(ui, &self.panel_results(&ui.board_id, &ui.panel_id)) else {
+            return false;
+        };
+        let Some((screen, req)) = self.views.open_record_from_settings(clicked) else {
+            return false;
+        };
+        self.screen = screen;
+        self.send_fetch(req);
+        true
     }
 
     /// 편집 결과를 받아들이고 `저장됨`을 5초 뒤 지운다. 바뀌었으면 true. 작업자가 끝나 있으면(패닉) 남은 결과를
@@ -3195,6 +3365,11 @@ impl App<'_> {
             show_all: self.views.errors.as_ref().is_some_and(|e| e.show_all),
             reveal: self.views.body.as_ref().is_some_and(|b| b.reveal),
             has_req_body: false,
+            record_from_settings: self
+                .views
+                .record
+                .as_ref()
+                .is_some_and(|r| r.origin == RecordOrigin::Settings),
         };
         match screen {
             Screen::Errors => {
@@ -3290,6 +3465,7 @@ impl App<'_> {
                         show_all: false,
                         reveal: false,
                         has_req_body: false,
+                        record_from_settings: false,
                     },
                 );
                 let _ = render_edit_menu(f, head, &view, &keys);
@@ -3628,6 +3804,16 @@ impl App<'_> {
         match a {
             EditAction::Back => self.apply(Action::Back),
             EditAction::AskQuit => self.apply(Action::AskQuit),
+            // 조회 작업자가 있을 때만 대기 창을 띄운다(없으면 결과가 영영 안 와 창에 갇힌다).
+            EditAction::CheckNow => {
+                if self.fetch_req.is_some()
+                    && let Some(ui) = self.views.edit.as_mut()
+                {
+                    let req = start_check(ui, &mut self.check_seq);
+                    self.send_fetch(req);
+                }
+                false
+            }
             a => {
                 let (Some(r), Some(ui)) = (self.running.as_ref(), self.views.edit.as_mut()) else {
                     return false;
@@ -3936,6 +4122,7 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         edit_req: None,
         save_in_flight: None,
         save_seq: 0,
+        check_seq: 0,
         file_notice: None,
         saved_at: None,
         check_alert: None,

@@ -634,7 +634,7 @@ use std::collections::BTreeMap;
 use handicap_controller::monitor::config::PanelConfig;
 use handicap_engine::{ScenarioTrace, StepKind, StepTrace, TracedRequest, TracedResponse};
 use handicap_tui::inspect::{
-    Note, RecordBody, RecordLoad, RecordState, RecordView, StepLine, branch_text,
+    Note, RecordBody, RecordLoad, RecordOrigin, RecordState, RecordView, StepLine, branch_text,
     initial_step_cursor, load_of, neighbor_http, record_notes, record_view, step_lines,
 };
 use handicap_tui::judge::format_date_hms;
@@ -1005,6 +1005,7 @@ fn rstate(load: RecordLoad, cursor: usize) -> RecordState {
         clicked: res(NOW, Verdict::Fail, Some(1204)),
         load,
         cursor,
+        origin: RecordOrigin::Errors,
     }
 }
 

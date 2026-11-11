@@ -307,6 +307,14 @@ pub fn load_of(r: Result<CheckRecord, ApiError>) -> RecordLoad {
     }
 }
 
+/// 자세히 화면을 연 곳 — `Esc`가 돌아갈 화면을 가른다(오류 목록 / 칸 설정).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RecordOrigin {
+    #[default]
+    Errors,
+    Settings,
+}
+
 /// 자세히 화면 상태 — 보드·칸·회차(셋 다로 늦게 온 응답을 거른다)·누른 회차·조회 상태·스텝 커서.
 #[derive(Debug, Clone)]
 pub struct RecordState {
@@ -316,6 +324,7 @@ pub struct RecordState {
     pub clicked: CheckResult,
     pub load: RecordLoad,
     pub cursor: usize,
+    pub origin: RecordOrigin,
 }
 
 /// GUI `branchText`: "none" → "(미매치)", "then"/"else" 그대로, "elif_3" → "elif 3", 그 외 원문.

@@ -6,14 +6,15 @@ use std::time::{Duration, Instant};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_tui::app::{
-    Action, CondFocus, Dir, EditAction, EditUi, EnvLoad, FetchReq, Fetched, IDLE_RETURN,
+    Action, CheckWait, CondFocus, Dir, EditAction, EditUi, EnvLoad, FetchReq, Fetched, IDLE_RETURN,
     InputTarget, KeyCtx, Overlay, Pending, ScenLoad, Screen, SubViews, digit_jump, edit_key,
     effective_server_down, handle_key, handle_mouse, idle_drop, idle_expired, is_user_input,
-    move_sel, screen_after_start, sub_keys, toggle_allowed,
+    move_sel, screen_after_start, start_check, sub_keys, toggle_allowed,
 };
+use handicap_tui::app::{check_open_allowed, check_ready, check_reply};
 use handicap_tui::edit::{Field, ListKind, Pick};
 use handicap_tui::input::{InputMode, InputOutcome, LineInput};
-use handicap_tui::inspect::{Reason, RecordLoad, StepLine, cursor_index};
+use handicap_tui::inspect::{Reason, RecordLoad, RecordOrigin, StepLine, cursor_index};
 use handicap_tui::session::{Stage, StartError};
 use handicap_tui::terminal::{PanicAction, panic_action, panic_line};
 use handicap_tui::view::monitor::Layout;
@@ -506,6 +507,7 @@ fn ctx() -> KeyCtx {
         show_all: false,
         reveal: false,
         has_req_body: false,
+        record_from_settings: false,
     }
 }
 
@@ -2080,7 +2082,13 @@ mod save {
         let menu = ui("B1", "P1", None);
         assert_eq!(
             edit_keys(&Screen::Settings, &menu, None, false),
-            ["↑↓ 고르기", "1–14 번호", "Enter 수정", "Esc 모니터로"]
+            [
+                "↑↓ 고르기",
+                "1–14 번호",
+                "r 지금 점검",
+                "Enter 수정",
+                "Esc 모니터로"
+            ]
         );
         assert_eq!(
             edit_keys(&Screen::Settings, &menu, None, true),
@@ -2967,4 +2975,260 @@ fn shown_notice_prefers_check_over_file() {
     assert_eq!(shown_notice(Some(&check), Some(&file)), Some(check.clone()));
     assert_eq!(shown_notice(None, Some(&file)), Some(file));
     assert_eq!(shown_notice(None, None), None);
+}
+
+// ---------- tui-check-now Task 5: 칸 설정의 r → 대기 창 → 자세히 ----------
+
+fn checking(seq: u64, wait: CheckWait) -> Overlay {
+    Overlay::Checking { seq, wait }
+}
+
+fn board_ui(o: Option<Overlay>) -> EditUi {
+    EditUi {
+        board_id: "B1".into(),
+        panel_id: "P1".into(),
+        overlay: o,
+        ..EditUi::default()
+    }
+}
+
+#[test]
+fn check_keys_menu_and_waiting_window() {
+    let menu = EditUi::default();
+    for c in ['r', 'R', 'ㄱ'] {
+        assert_eq!(
+            ek(&Screen::Settings, &menu, ch(c)),
+            EditAction::CheckNow,
+            "{c}"
+        );
+    }
+    // Ctrl+R은 무동작(Ctrl+문자 규칙).
+    assert_eq!(ek(&Screen::Settings, &menu, ctrl('r')), EditAction::None);
+    // 하위 목록·변수 화면의 r은 무동작.
+    for s in [Screen::EditList, Screen::EnvVars, Screen::ScenarioVars] {
+        assert_eq!(ek(&s, &menu, ch('r')), EditAction::None, "{s:?}");
+    }
+    // 입력줄의 r은 글자.
+    let input = ui_with(input_overlay(""));
+    let EditAction::Input(_, li) = ek(&Screen::Settings, &input, ch('r')) else {
+        panic!("입력줄 r이 글자가 아님");
+    };
+    assert_eq!(li.text(), "r");
+    // 대기 창: Esc = 닫기, q·Ctrl+C = 종료 확인, 그 밖 = 무동작.
+    let wait = ui_with(checking(1, CheckWait::Sent));
+    let s = Screen::Settings;
+    assert_eq!(ek(&s, &wait, key(KeyCode::Esc)), EditAction::CheckCancel);
+    assert_eq!(ek(&s, &wait, ch('q')), EditAction::AskQuit);
+    assert_eq!(ek(&s, &wait, ctrl('c')), EditAction::AskQuit);
+    for k in [ch('r'), key(KeyCode::Enter), ch('1'), ctrl('r')] {
+        assert_eq!(ek(&s, &wait, k), EditAction::None, "{k:?}");
+    }
+    let after = ui_with(checking(1, CheckWait::After(Some(3))));
+    assert_eq!(ek(&s, &after, key(KeyCode::Esc)), EditAction::CheckCancel);
+    assert_eq!(ek(&s, &after, ch('r')), EditAction::None);
+}
+
+#[test]
+fn start_check_numbers_and_request() {
+    let mut ui = board_ui(None);
+    let mut seq = 0u64;
+    let req = start_check(&mut ui, &mut seq);
+    assert_eq!(seq, 1);
+    assert_eq!(ui.overlay, Some(checking(1, CheckWait::Sent)));
+    assert_eq!(
+        req,
+        FetchReq::CheckNow {
+            board_id: "B1".into(),
+            panel_id: "P1".into(),
+            wait: Some(1)
+        }
+    );
+    let req = start_check(&mut ui, &mut seq);
+    assert_eq!(seq, 2);
+    assert_eq!(ui.overlay, Some(checking(2, CheckWait::Sent)));
+    assert_eq!(
+        req,
+        FetchReq::CheckNow {
+            board_id: "B1".into(),
+            panel_id: "P1".into(),
+            wait: Some(2)
+        }
+    );
+}
+
+#[test]
+fn check_reply_applies_only_to_matching_wait() {
+    // 맞는 번호 + 성공 → After.
+    let mut ui = board_ui(Some(checking(3, CheckWait::Sent)));
+    assert!(check_reply(&mut ui, 3, Ok(Some(5))));
+    assert_eq!(ui.overlay, Some(checking(3, CheckWait::After(Some(5)))));
+    let mut ui = board_ui(Some(checking(3, CheckWait::Sent)));
+    assert!(check_reply(&mut ui, 3, Ok(None)));
+    assert_eq!(ui.overlay, Some(checking(3, CheckWait::After(None))));
+    // 409 → 꺼짐 안내, 그 밖 → 실패 안내.
+    let mut ui = board_ui(Some(checking(3, CheckWait::Sent)));
+    assert!(check_reply(&mut ui, 3, Err(Some(409))));
+    assert_eq!(
+        ui.overlay,
+        Some(Overlay::Notice(handicap_tui::text::CHECK_OFF.to_string()))
+    );
+    for e in [None, Some(404), Some(500)] {
+        let mut ui = board_ui(Some(checking(3, CheckWait::Sent)));
+        assert!(check_reply(&mut ui, 3, Err(e)));
+        assert_eq!(
+            ui.overlay,
+            Some(Overlay::Notice(
+                handicap_tui::text::CHECK_NOW_FAILED.to_string()
+            )),
+            "{e:?}"
+        );
+    }
+    // 받지 않는 경우: 번호가 다름·창 없음·이미 After·Saving → false, 창 불변.
+    for o in [
+        Some(checking(4, CheckWait::Sent)),
+        None,
+        Some(checking(3, CheckWait::After(Some(1)))),
+        Some(Overlay::Saving { restore: None }),
+        Some(Overlay::Notice("n".into())),
+    ] {
+        let mut ui = board_ui(o.clone());
+        assert!(!check_reply(&mut ui, 3, Ok(Some(9))), "{o:?}");
+        assert_eq!(ui.overlay, o);
+        assert!(!check_reply(&mut ui, 3, Err(Some(409))), "{o:?}");
+        assert_eq!(ui.overlay, o);
+    }
+}
+
+#[test]
+fn check_ready_needs_a_newer_result() {
+    let ui = board_ui(Some(checking(1, CheckWait::After(Some(10)))));
+    assert_eq!(check_ready(&ui, &[result(5), result(10)]), None);
+    let got = check_ready(&ui, &[result(5), result(10), result(11)]).unwrap();
+    assert_eq!(got.at_ms, 11);
+    assert_eq!(check_ready(&ui, &[]), None);
+    let none = board_ui(Some(checking(1, CheckWait::After(None))));
+    assert_eq!(check_ready(&none, &[]), None);
+    assert_eq!(check_ready(&none, &[result(3)]).unwrap().at_ms, 3);
+    let sent = board_ui(Some(checking(1, CheckWait::Sent)));
+    assert_eq!(check_ready(&sent, &[result(3)]), None);
+    assert_eq!(check_ready(&board_ui(None), &[result(3)]), None);
+}
+
+#[test]
+fn check_open_allowed_only_on_plain_settings() {
+    assert!(check_open_allowed(&Screen::Settings));
+    assert!(!check_open_allowed(&Screen::QuitConfirm(Box::new(
+        Screen::Settings
+    ))));
+    assert!(!check_open_allowed(&Screen::EditList));
+    assert!(!check_open_allowed(&Screen::Monitor));
+}
+
+#[test]
+fn record_from_settings_opens_and_goes_back_to_settings() {
+    let mut v = SubViews::default();
+    assert!(
+        v.open_record_from_settings(result(11)).is_none(),
+        "edit 없이"
+    );
+    let mut ui = board_ui(Some(checking(2, CheckWait::After(Some(5)))));
+    ui.cursor = 6;
+    v.edit = Some(ui);
+    assert_eq!(
+        v.open_record_from_settings(result(11)),
+        Some((
+            Screen::Record,
+            FetchReq::Record {
+                board_id: "B1".into(),
+                panel_id: "P1".into(),
+                at_ms: 11
+            }
+        ))
+    );
+    assert!(v.errors.is_none(), "errors를 만들지 않는다");
+    {
+        let e = v.edit.as_ref().unwrap();
+        assert!(e.overlay.is_none());
+        assert_eq!(e.cursor, 6);
+        let r = v.record.as_ref().unwrap();
+        assert_eq!(
+            (r.board_id.as_str(), r.panel_id.as_str(), r.at_ms),
+            ("B1", "P1", 11)
+        );
+        assert_eq!(r.origin, RecordOrigin::Settings);
+        assert!(matches!(r.load, RecordLoad::Loading));
+        assert_eq!(r.cursor, 0);
+        assert!(v.body.is_none());
+    }
+    // 요청·응답 왕복: Record → Body → Record → Settings.
+    let lines = vec![http_line(0)];
+    assert_eq!(v.open_body(&lines), Some(Screen::Body));
+    assert_eq!(v.back(&Screen::Body), Some(Screen::Record));
+    assert_eq!(v.back(&Screen::Record), Some(Screen::Settings));
+    assert!(v.record.is_none() && v.body.is_none());
+    assert!(v.errors.is_none(), "errors가 없는 채 목록으로 가지 않는다");
+    assert_eq!(v.edit.as_ref().unwrap().cursor, 6, "메뉴 커서 유지");
+    // 그 뒤 메뉴 → 모니터.
+    assert_eq!(v.back(&Screen::Settings), Some(Screen::Monitor));
+    assert!(v.edit.is_none());
+}
+
+#[test]
+fn record_from_errors_still_goes_back_to_errors() {
+    let mut v = SubViews::default();
+    v.open_errors("B", "P", &[7]);
+    v.open_record(result(7)).unwrap();
+    assert_eq!(v.record.as_ref().unwrap().origin, RecordOrigin::Errors);
+    assert_eq!(v.back(&Screen::Record), Some(Screen::Errors));
+    assert!(v.errors.is_some());
+}
+
+#[test]
+fn sub_keys_record_follows_origin() {
+    let from = KeyCtx {
+        record_from_settings: true,
+        ..ctx()
+    };
+    assert_eq!(
+        sub_keys(&Screen::Record, from).last(),
+        Some(&"Esc 칸 설정으로")
+    );
+    assert_eq!(
+        sub_keys(&Screen::Record, ctx()).last(),
+        Some(&"Esc 목록으로")
+    );
+    // 편집 상태 없는 방어 경로에는 r 안내가 없다.
+    assert!(!sub_keys(&Screen::Settings, ctx()).contains(&"r 지금 점검"));
+}
+
+#[test]
+fn edit_keys_check_now_and_waiting() {
+    use handicap_tui::app::edit_keys;
+    let menu = EditUi::default();
+    assert_eq!(
+        edit_keys(&Screen::Settings, &menu, None, false),
+        [
+            "↑↓ 고르기",
+            "1–14 번호",
+            "r 지금 점검",
+            "Enter 수정",
+            "Esc 모니터로"
+        ]
+    );
+    for w in [CheckWait::Sent, CheckWait::After(Some(1))] {
+        assert_eq!(
+            edit_keys(&Screen::Settings, &ui_with(checking(1, w)), None, false),
+            ["Esc 뒤로"]
+        );
+    }
+}
+
+#[test]
+fn idle_drop_discards_waiting_window() {
+    let mut ui = ui_with(checking(1, CheckWait::Sent));
+    idle_drop(&mut ui);
+    assert!(ui.overlay.is_none());
+    let mut ui = ui_with(checking(1, CheckWait::After(None)));
+    idle_drop(&mut ui);
+    assert!(ui.overlay.is_none());
 }

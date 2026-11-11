@@ -930,6 +930,7 @@ fn render_other_overlays() {
             vec![],
         ),
         (OverlayView::Saving, text::SAVING, vec![]),
+        (OverlayView::Checking, text::CHECK_WAITING, vec![]),
         (
             OverlayView::Notice("시나리오는 GUI에서 바꿉니다"),
             "시나리오는 GUI에서 바꿉니다",
