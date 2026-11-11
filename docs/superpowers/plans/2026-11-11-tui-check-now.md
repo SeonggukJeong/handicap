@@ -194,7 +194,7 @@ async fn cancel_while_waiting_for_min_gap_stops_at_once() {
 - [ ] **Step 5: 이빨 실증(각각 고의 회귀 → RED 확인 → 원복 → GREEN, 결과를 리포트에)**
   1. 깨우기 갈래를 select에서 지움 → `kick_while_waiting_runs_early_and_resets_schedule` RED(`[0, 60]`).
   2. 바닥 대기(`sleep_until(floor)`)를 지움 → `kick_respects_min_gap` RED(`[0, 0.3]`).
-  3. 테스트의 `notify_waiters()`는 그대로 두고 **`kicked` 생성을 `check()` 앞(루프 머리)으로 옮김** → `kick_during_check_is_dropped` RED(점검 중 요청이 살아남아 5초에 추가 회차). 이것이 "점검 중 요청은 버린다"를 지키는 테스트가 공허하지 않다는 증거다.
+  3. 테스트의 `notify_waiters()`는 그대로 두고 **`kicked` 생성을 `check()` 앞(루프 머리)으로 옮김** → `kick_during_check_is_dropped` RED(점검 중 요청이 살아남아 5초에 추가 회차 — `[0, 5, 65]`). 이것이 "점검 중 요청은 버린다"를 지키는 테스트가 공허하지 않다는 증거다. (실제 깨우는 호출이 `notify_one`으로 바뀌는 회귀는 Task 2 Step 4가 잡는다.)
 - [ ] **Step 6: 커밋** — `feat(controller): 점검 루프에 지금 점검 깨우기 — 바닥 1초·점검 중 요청은 버림`.
 
 ---
@@ -298,6 +298,34 @@ async fn check_now_group_runs_all_members_once() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+#[tokio::test]
+async fn check_now_during_running_check_adds_no_round() {
+    // 규칙 3의 **실제 호출 경로** 가드: `check_now`가 `notify_one`(허가 저장)을 쓰면 점검이 끝난 뒤 한 번 더 돈다.
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::any())
+        .respond_with(wiremock::ResponseTemplate::new(200).set_delay(Duration::from_millis(1500)))
+        .mount(&server)
+        .await;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let sup = MonitorSupervisor::default();
+    let sid = insert_scenario(&db, &server.uri()).await;
+    let mut cfg = board(&[P1]);
+    cfg.panels[0].scenario_id = sid;
+    cfg.panels[0].interval_seconds = 3600;
+    let id = enabled_cfg(&db, &cfg).await;
+    sup.reconcile(&db, &id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await; // 첫 점검(1.5초)이 도는 중
+    assert!(sup.snapshot(&id).await.unwrap().panels[P1].running);
+    assert_eq!(sup.check_now(&id, P1), CheckNow::Requested { last_at_ms: None });
+    wait_results(&sup, &id, &[P1]).await;
+    tokio::time::sleep(Duration::from_millis(2500)).await; // 바닥 1초가 지나고도 남는 시간
+    assert_eq!(
+        sup.snapshot(&id).await.unwrap().panels[P1].results.len(),
+        1,
+        "점검 중 요청은 회차를 예약하지 않는다"
+    );
+}
 ```
 
 묶음 실행 단위의 주기는 **묶음의** `interval_seconds`다(`grep -n "interval_seconds: g.interval_seconds" crates/controller/src/monitor/unit.rs`) — 그래서 위 픽스처는 묶음 값만 3600으로 둔다(칸 값 1은 쓰이지 않는다).
@@ -371,8 +399,9 @@ pub async fn check_now(
 ```
 
 `const CHECK_OFF: &str = "점검이 꺼져 있습니다";`. 라우트: `.route("/monitor-boards/{id}/panels/{panel_id}/check-now", post(monitor_boards_api::check_now))`.
-- [ ] **Step 4: 검증** — `cargo test -p handicap-controller --lib monitor::supervisor` + `cargo test -p handicap-controller --test monitor_boards_api_test` + `cargo clippy -p handicap-controller --all-targets -- -D warnings`. `crates/tui`가 컨트롤러를 in-process로 쓰므로 `cargo build --workspace --tests`도.
-- [ ] **Step 5: 커밋** — `feat(controller): 지금 점검 REST — POST …/panels/{panel_id}/check-now`.
+- [ ] **Step 4: 이빨 실증** — `check_now`의 `notify_waiters()`를 `notify_one()`으로 바꾸면 `check_now_during_running_check_adds_no_round`가 RED(결과 2개) → 원복 GREEN. 결과를 리포트에(spec §7의 `notify_one` 이빨은 이 테스트가 맡는다 — Task 1의 루프 테스트는 테스트가 직접 깨우므로 이 호출을 못 지킨다).
+- [ ] **Step 5: 검증** — `cargo test -p handicap-controller --lib monitor::supervisor` + `cargo test -p handicap-controller --test monitor_boards_api_test` + `cargo clippy -p handicap-controller --all-targets -- -D warnings`. `crates/tui`가 컨트롤러를 in-process로 쓰므로 `cargo build --workspace --tests`도.
+- [ ] **Step 6: 커밋** — `feat(controller): 지금 점검 REST — POST …/panels/{panel_id}/check-now`.
 
 ---
 
@@ -394,7 +423,7 @@ spec §4.2-1, §4.5.
   - `SubViews::accept`는 `Fetched::CheckNow { .. } => false`(이 결과는 `App`이 `accept` 전에 가로챈다 — Task 4·5).
 
 - [ ] **Step 1: 실패하는 테스트 작성**
-  - `edit_api_test.rs` `check_now_round_trip_real_controller`(`#[tokio::test(flavor = "multi_thread")]`, 기존 `target`·`start` 재사용): 세션 시작 → 첫 결과가 올 때까지 `s.api.status(board)` 폴링(최대 5초, 100ms 간격) → `s.api.check_now(board, panel)`이 `Ok`이고 `last_at_ms`가 `Some`(그 시점 `/status`의 마지막 결과 `at_ms` 이상) → 없는 칸 id로 부르면 `Err`이고 `status == Some(404)`. (꺼진 보드의 409는 여기서 만들 수 없다 — `Session`은 REST 주소를 밖에 주지 않고 `Api`에 정지 메서드가 없다. 409 응답 자체는 Task 2 REST 테스트가, 409 → 화면 문구는 Task 4·5의 순수 함수 테스트가, 실제 경로는 라이브 §8 US4(c)가 덮는다.)
+  - `edit_api_test.rs` `check_now_round_trip_real_controller`(`#[tokio::test(flavor = "multi_thread")]`, 기존 `target`·`start` 재사용): 세션 시작 → 첫 결과가 올 때까지 `s.api.status(board)` 폴링(최대 5초, 100ms 간격) → `s.api.check_now(board, panel)`이 `Ok`이고 `last_at_ms`가 `Some`(그 시점 `/status`의 마지막 결과 `at_ms` 이상) → 없는 칸 id로 부르면 `Err`이고 `status == Some(404)` → 끝에 `s.shutdown().await`(그 파일의 기존 테스트처럼). (꺼진 보드의 409는 여기서 만들 수 없다 — `Session`은 REST 주소를 밖에 주지 않고 `Api`에 정지 메서드가 없다. 409 응답 자체는 Task 2 REST 테스트가, 409 → 화면 문구는 Task 4·5의 순수 함수 테스트가, 실제 경로는 라이브 §8 US4(c)가 덮는다.)
   - `record_test.rs` `fetch_worker_check_now_reports_status_only`: 작업자에 `FetchReq::CheckNow { wait: Some(7) }` → `Fetched::CheckNow { wait: Some(7), result: Ok(Some(_)) }`. 없는 칸으로 한 번 더 → `result: Err(Some(404))`. (`Fetched`는 `Debug`만 있으므로 `match`/`matches!`로.)
 - [ ] **Step 2: 구현** — `wire.rs` 거울, `api.rs` 메서드(`start`와 같은 모양 + `parse::<CheckNowResponse>`), `app.rs` 요청·결과 갈래와 작업자 arm(`api.check_now(..).await.map(|r| r.last_at_ms).map_err(|e| e.status)`), `accept`의 새 arm.
 - [ ] **Step 3: 검증** — `cargo test -p handicap-tui --test edit_api_test --test record_test` + `cargo clippy -p handicap-tui --all-targets -- -D warnings`.
@@ -416,16 +445,16 @@ spec §4.1(모니터·도움말 행), §4.2. US1·US3·US4의 TUI 쪽.
   - `text::KEYS_CHECK_NOW`·`CHECK_NOW_SENT`·`CHECK_OFF`·`CHECK_NOW_FAILED`, `HELP_KEYS: [(&str, &str); 11]`(`r` 줄은 `e` 줄 앞).
   - `Action::CheckNow`.
   - `HeaderNotice::{CheckSent(i64), CheckOff, CheckFailed}`.
-  - `pub fn check_notice(result: &CheckReply, now_ms: i64) -> HeaderNotice`(`Ok(_)` → `CheckSent(now_ms)`, `Err(Some(409))` → `CheckOff`, 그 밖 → `CheckFailed`).
-  - `pub fn shown_notice(check: Option<&HeaderNotice>, file: Option<&HeaderNotice>) -> Option<HeaderNotice>`(`check.or(file).cloned()`).
-  - `App.check_notice: Option<(HeaderNotice, Instant)>`.
+  - (`app.rs`) `pub fn check_notice(result: &CheckReply, now_ms: i64) -> HeaderNotice`(`Ok(_)` → `CheckSent(now_ms)`, `Err(Some(409))` → `CheckOff`, 그 밖 → `CheckFailed`).
+  - (`app.rs`) `pub fn shown_notice(check: Option<&HeaderNotice>, file: Option<&HeaderNotice>) -> Option<HeaderNotice>`(`check.or(file).cloned()`).
+  - `App.check_alert: Option<(HeaderNotice, Instant)>`(함수 `check_notice`와 이름이 겹치지 않게).
 
 - [ ] **Step 1: 실패하는 테스트 작성**
   - `app_test.rs`: ① 모니터에서 `r`·`R`·`ㄱ` → `Action::CheckNow`, `Ctrl+R` → `Action::None`(기존 `key`·`ch`·`ctrl` 도우미) ② `Screen::Error(err())`에서 `r` → `Action::Retry` 그대로(기존 `error_screen_r_retries` 유지 확인 + 오류 보기·자세히·요청·응답·도움말에서 `r` → `Action::None`) ③ `check_notice`: `Ok(Some(1))`·`Ok(None)` → `CheckSent(now)`, `Err(Some(409))` → `CheckOff`, `Err(Some(404))`·`Err(None)` → `CheckFailed` ④ `shown_notice`: 둘 다 있으면 지금 점검 알림, 지금 점검 알림이 없으면 파일 알림, 둘 다 없으면 `None`.
-  - `view_test.rs`: ① 모니터 키 줄 — 조각 순서는 `b 테두리`, **`r 지금 점검`**, (`Tab 다음 보드`), `←↑↓→ 칸 이동`, `e 오류 보기`, `Enter 칸 설정`, `? 도움말`, `q 종료`. 기존 리터럴 단언(`grep -n "칸 이동  e 오류 보기" crates/tui/tests/view_test.rs` — 8줄 전부)을 새 조합으로 갱신하고 새 단언을 더한다. 기대값(키 줄 = 폭−1 칸에 앞 조각부터 통째로 뺌, 한글 2칸으로 손계산한 값 — 다르면 STOP): 80칸·보드 1개 = `r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료`(`b 테두리` 없음) / 80칸·보드 2개 = `Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료`(**지금과 같다** — `r`·`b` 조각 없음) / 90칸·보드 2개 = `r 지금 점검  Tab 다음 보드  ←↑↓→ 칸 이동  …` / 100칸 이상·보드 2개 = 8조각 전부 / 90칸 이상·보드 1개 = 7조각 전부. 80칸보다 넓은 폭을 쓰는 기존 단언은 그 폭의 새 조합으로. 어느 폭에서도 잘린 조각(`…`)이 없다 ② 머리 줄(`header_with` 도우미): `CheckSent(ms)` → `지금 점검 HH:MM:SS` 초록, `Saved`와 같은 폭 단계에서 같은 순서로 빠진다(기존 `header_notice_saved_and_failed`의 폭 루프를 두 알림에 대해 돌린다); `CheckOff` → 빨강 `점검이 꺼져 있습니다`, `CheckFailed` → 빨강 `지금 점검을 요청하지 못했습니다`, 둘 다 기존 파일 경고와 같은 축약 ③ 도움말: `HELP_KEYS.len() == 11`(기존 `== 10` 단언 갱신), `r` 줄이 그려진다, **80×24·짧은 경로에서 키 11줄 + 경고 줄 + 백업 줄이 모두 보인다**(기존 도움말 렌더 테스트의 도우미 사용 — `grep -n "render_help" crates/tui/tests/view_test.rs`).
+  - `view_test.rs`: ① 모니터 키 줄 — 조각 순서는 `b 테두리`, **`r 지금 점검`**, (`Tab 다음 보드`), `←↑↓→ 칸 이동`, `e 오류 보기`, `Enter 칸 설정`, `? 도움말`, `q 종료`. 기존 리터럴 단언(`grep -n "칸 이동  e 오류 보기" crates/tui/tests/view_test.rs` — 8줄 전부)을 새 조합으로 갱신하고 새 단언을 더한다. 기대값(키 줄 = 폭−1 칸에 앞 조각부터 통째로 뺌, 한글 2칸으로 손계산한 값 — 다르면 STOP): 80칸·보드 1개 = `r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료`(`b 테두리` 없음) / 80칸·보드 2개 = `Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료`(**지금과 같다** — `r`·`b` 조각 없음) / 90칸·보드 2개 = `r 지금 점검  Tab 다음 보드  ←↑↓→ 칸 이동  …` / 97칸 이상(테스트는 100칸)·보드 2개 = 8조각 전부 / 90칸 이상·보드 1개 = 7조각 전부. 80칸보다 넓은 폭을 쓰는 기존 단언은 그 폭의 새 조합으로. 어느 폭에서도 잘린 조각(`…`)이 없다. **뜻이 뒤집히는 기존 테스트 2개**: `key_bar_has_border_key`(80칸·보드 1개에서 `b 테두리`가 **보인다**를 확인)와 `render_key_bar_single_board_omits_tab`의 `b 테두리` 단언 — 리터럴만 바꾸면 "테두리 안내 없음" 테스트가 된다. 테두리 안내 확인은 **90칸**으로 옮겨 살리고(`b 테두리  r 지금 점검  ←↑↓→ 칸 이동  …`), 80칸은 새 조합 단언으로 따로 둔다 ② 머리 줄(`header_with` 도우미): `CheckSent(ms)` → `지금 점검 HH:MM:SS` 초록, `Saved`와 같은 폭 단계에서 같은 순서로 빠진다(기존 `header_notice_saved_and_failed`의 폭 루프를 두 알림에 대해 돌린다); `CheckOff` → 빨강 `점검이 꺼져 있습니다`, `CheckFailed` → 빨강 `지금 점검을 요청하지 못했습니다`, 둘 다 기존 파일 경고와 같은 축약 ③ 도움말: `HELP_KEYS.len() == 11`(기존 `== 10` 단언 갱신), `r` 줄이 그려진다, **80×24·짧은 경로에서 키 11줄 + 경고 줄 + 백업 줄이 모두 보인다**(기존 도움말 렌더 테스트의 도우미 사용 — `grep -n "render_help" crates/tui/tests/view_test.rs`).
 - [ ] **Step 2: 문구** — `text.rs`에 spec §4.1 표의 4개 상수(`KEYS_CHECK_NOW`·`CHECK_NOW_SENT`·`CHECK_OFF`·`CHECK_NOW_FAILED`)와 `HELP_KEYS` 한 줄(배열 길이 11).
 - [ ] **Step 3: 키·동작** — `Action::CheckNow`; `handle_key` 모니터 갈래 `KeyCode::Char('r') => Action::CheckNow`; `App::apply`의 `Action::CheckNow` arm = `OpenErrors`와 같은 조건(`toggle_allowed` + 보드·선택 칸)에서 `send_fetch(FetchReq::CheckNow { board_id, panel_id, wait: None })`.
-- [ ] **Step 4: 알림** — `HeaderNotice` 3갈래; `render_header_view`의 `warn` match에 `CheckOff`·`CheckFailed`, `saved` match에 `CheckSent(ms)`(문구만 `text::CHECK_NOW_SENT`). `App.check_notice` 필드(+ `run`의 리터럴 초기값 `None`, `start_session`에서 `None`); `pump`: 조회 결과 루프에서 `Fetched::CheckNow { wait: None, result, .. }`이면 `self.check_notice = Some((check_notice(&result, now_ms()), Instant::now()))`, `changed = true`(`accept`에 넘기지 않는다). `wait: Some(_)`은 **이 task에서는 버린다**(Task 5가 받는다 — 주석으로 표시). 5초(`SAVED_NOTICE`) 지나면 비우고 `changed = true`. `monitor_screen`의 `notice`는 `shown_notice(self.check_notice.as_ref().map(|(n, _)| n), self.file_notice.as_ref())`.
+- [ ] **Step 4: 알림** — `HeaderNotice` 3갈래; `render_header_view`의 `warn` match에 `CheckOff`·`CheckFailed`, `saved` match에 `CheckSent(ms)`(문구만 `text::CHECK_NOW_SENT`). `App.check_alert` 필드(+ `run`의 리터럴 초기값 `None`, `start_session`에서 `None`); `pump`: 조회 결과 루프에서 `Fetched::CheckNow { wait: None, result, .. }`이면 `self.check_alert = Some((check_notice(&result, now_ms()), Instant::now()))`, `changed = true`(`accept`에 넘기지 않는다). `wait: Some(_)`은 **이 task에서는 버린다**(Task 5가 받는다 — 주석으로 표시). 5초(`SAVED_NOTICE`) 지나면 비우고 `changed = true`. `monitor_screen`의 `notice`는 `shown_notice(self.check_alert.as_ref().map(|(n, _)| n), self.file_notice.as_ref())`.
 - [ ] **Step 5: 키 줄** — `render_with_keys`의 모니터 조각 목록에서 `text::KEYS_CHECK_NOW`를 **`KEYS_BORDER` 바로 뒤**(`KEYS_NEXT_BOARD` 앞)에. 주석(`앞 조각부터 통째로 빠진다`)에 "새 조각이 `Tab 다음 보드`를 밀어내지 않게 그 앞에" 한마디.
 - [ ] **Step 6: 검증** — `cargo test -p handicap-tui` 전체 + clippy.
 - [ ] **Step 7: 커밋** — `feat(tui): 모니터에서 r 지금 점검 — 머리 줄 알림·키 줄·도움말`.
@@ -508,7 +537,7 @@ spec §6. production diff 0.
 | `spawn_unit` 인자 7개(→ 8) | `grep -n "^fn spawn_unit" -A9 crates/controller/src/monitor/supervisor.rs` |
 | `too_many_arguments` 선례 | `grep -rn "clippy::too_many_arguments" crates/ --include=*.rs` |
 | `Fetched`를 전부 나열하는 곳 = `SubViews::accept` | `grep -n "Fetched::" crates/tui/src/app.rs` |
-| `Overlay`를 전부 나열하는 곳 4개 | `grep -n "Overlay::Saving" crates/tui/src/app.rs` |
+| `Overlay`를 전부 나열하는 곳 = `kind`·`overlay_key`·`edit_keys`·`overlay_view` | `grep -n "Overlay::Saving" crates/tui/src/app.rs` — 나오는 줄들 가운데 이 네 함수 안의 것(나머지는 일부만 보는 `matches!`·생성) |
 | `KeyCtx {` 리터럴 사이트 | `grep -rn "KeyCtx {" crates/tui` |
 | `RecordState {` 리터럴 사이트 | `grep -rn "RecordState {" crates/tui` |
 | `HeaderNotice` match 2곳(warn·saved) | `grep -n "HeaderNotice::" crates/tui/src/view/monitor.rs` |
