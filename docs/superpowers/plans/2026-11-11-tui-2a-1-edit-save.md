@@ -235,7 +235,7 @@ pub fn replace_atomic(real: &Path, bytes: &[u8], perm: std::fs::Permissions) -> 
 pub fn last_written(state_dir: &Path, real: &Path) -> Option<Fingerprint>;
 pub fn record_written(state_dir: &Path, real: &Path, fp: &Fingerprint) -> std::io::Result<()>;
 ```
-- ⓐ 지금 파일을 읽어(`metadata().len()` > 32 MB면 `ReadCurrent` — `read_capped`는 `io::ErrorKind`를 버리므로 쓰지 않고 `std::fs::read`로, 실패 = `ReadCurrent` + 그 kind) 지문 ≠ `expected` → `Err(ChangedOutside)`, 아무것도 안 씀.
+- ⓐ 지금 파일을 읽어(`metadata()`가 일반 파일이 아니면 `ReadCurrent` — FIFO로 바뀐 경로에서 작업자가 영원히 막히지 않게, `read_capped`와 같은 순서 / `len()` > 32 MB면 `ReadCurrent` — `read_capped`는 `io::ErrorKind`를 버리므로 쓰지 않고 `std::fs::read`로, 실패 = `ReadCurrent` + 그 kind) 지문 ≠ `expected` → `Err(ChangedOutside)`, 아무것도 안 씀.
 - ⓑ `!first_done`일 때: `state_dir`가 있고 `last_written(..) == Some(start)` → 건너뜀, 아니면 `start_bytes`를 `orig_bak()`에 원자적으로 씀(같은 임시 파일+persist 경로, 원본 권한).
 - ⓒ 지금 파일 내용을 `bak()`에(원자적으로, 원본 권한).
 - ⓓ `NamedTempFile::new_in(real.parent())` → `write_all` → 권한 = 원본 `metadata().permissions()` → `as_file().sync_all()` → `persist(real)` → 부모 디렉터리 `File::open(dir)?.sync_all()`(unix만, 실패는 무시하고 로그 종류만).
@@ -580,7 +580,7 @@ pub enum SavedValue { Board(BoardResponse), Env(EnvironmentResponse), Scenario(S
 pub fn spawn_edit_worker(handle: &Handle, api: Api, board_ids: Vec<String>, file: FileState, start_bytes: Vec<u8>, out: std::sync::mpsc::Sender<EditDone>) -> (UnboundedSender<EditReq>, JoinHandle<()>);
 ```
 - **저장 표(ticket)**: App에 `save_in_flight: Option<SaveTicket>`(`SaveTicket { seq: u64, board_id, panel_id }`, `EditDone::Saved`에 `seq`를 싣는다). 표가 있는 동안: 새 저장 요청을 만들지 않는다(편집 확정 키 → `Notice(SAVING)`), `OpenSettings`는 열리되 같은 표시. 결과가 오면 캐시·알림은 **항상** 반영, overlay 복원·`Notice`는 지금 `views.edit`가 표의 보드·칸과 같을 때만. 보드 전환(`NextBoard`는 지금처럼 `views.clear()`)·5분 복귀 뒤에도 표는 App에 남는다 — 그래서 늦은 결과가 다른 칸 화면을 건드리지 않고, 저장 전 캐시로 만든 두 번째 저장이 첫 변경을 덮지 않는다.
-- App 필드: `views.edit: Option<EditUi>`, `edit_out: (Sender<EditDone>, Receiver<EditDone>)`, `edit_req: Option<UnboundedSender<EditReq>>`, `file_notice: Option<HeaderNotice>`(+ `Saved`는 5초 뒤 지움 — `saved_at: Option<Instant>`). 세션 시작 때 `spawn_edit_worker`, `stop_session`에서 abort·await(1b `fetcher`와 같이 — `crates/tui/CLAUDE.md` mpsc 함정). `start_session`은 `file_notice = None`.
+- App 필드: `views.edit: Option<EditUi>`, `edit_out: (Sender<EditDone>, Receiver<EditDone>)`, `edit_req: Option<UnboundedSender<EditReq>>`, `file_notice: Option<HeaderNotice>`(+ `Saved`는 5초 뒤 지움 — `saved_at: Option<Instant>`). 세션 시작 때 `spawn_edit_worker`, `stop_session`에서 abort·await(1b `fetcher`와 같이 — `crates/tui/CLAUDE.md` mpsc 함정). `start_session`은 `file_notice = None`·`save_in_flight = None`·`edit_out` 비우기(옛 세션 결과가 새 세션 캐시에 들지 않게 — 보드 id는 가져오기 사이에 보존되므로). `apply_done`은 `seq`가 표와 다른 `Saved`를 버린다.
 - `OpenSettings` → `views.edit = Some(EditUi{board_id, panel_id, ..})`, `Screen::Settings`. 편집 화면이면 이벤트 루프가 `edit_key` 먼저(Task 7), 그 결과를 `apply_edit`.
 - `apply_edit` 핵심 갈래:
   - 숫자 키: `edit_key`가 `EditAction::Digit(d)` → `digit_jump` → `cursor = 번호 − 1`.
@@ -619,6 +619,7 @@ spec §6.3·§6.4(App 쪽)·§6.1 마우스·§6.7 붙여넣기·§6.6.
 - `EditDone::Env{id, result: Ok(e)}`(지금 `env == Loading{id}`일 때만) → `env = Loaded(e)`(키 순 줄), `Err(m)` → `Failed(m)`. EnvVars `Activate` → 값이 `accept_char`·2000자 규칙을 못 지키면 `Notice(VALUE_UNEDITABLE)`. 아니면 공유 줄 `edit::usage(.., environment_id == id)`가 칸 ≥ 2면 `text::share_note` → `Overlay::Input{target: EnvVar(key), LineInput::new(값, Text{2000})}` → Submit → `vars` 복제해 그 키만 바꿔 `SaveEnv` → 성공이면 `env = Loaded(응답)`.
 - `EditDone::Scenario{id, result: Ok(s)}`(지금 `scen == Loading{id}`일 때만) → `scen = Loaded{id, yaml, version, vars: yaml_var::static_vars(&yaml)}`. 머리 오른쪽 = `scenario_usage_note`(`이 시나리오를 쓰는 칸 N개(보드 M개)`). ScenarioVars `Activate`: 그 줄 `editable`이 Err면 `Notice(사유 문구)`, 값이 입력 규칙을 못 지키면 `Notice(VALUE_UNEDITABLE)`, Ok면 공유 줄(`edit::usage(.., scenario_id == id)` 칸 ≥ 2 → `share_note`) + Input → Submit → `yaml_var::splice_static_var` → Err면 overlay 오류 줄에 사유 문구(저장 안 함), Ok면 `SaveScenario{yaml: 교체본, version}` → 성공이면 응답의 `yaml`·`version`으로 `scen` 갱신, 409면 `다른 곳에서 시나리오가 바뀌었습니다 — 다시 열어 주세요`.
 - 화면을 나가면(`Back`) `env`/`scen`/`reveal`을 비운다(값을 메모리에서 놓는다).
+- 409 문구 변환은 **작업자**가 한다(`ApiError.status == Some(409)` → `다른 곳에서 시나리오가 바뀌었습니다 — 다시 열어 주세요`) — `EditDone`엔 상태 코드가 없다.
 - 붙여넣기: `terminal.rs` `enter()`에 `EnableBracketedPaste`, `restore()`·실패 경로에 `DisableBracketedPaste`. 이벤트 루프 `Event::Paste(s)` → 입력줄 overlay(Input·CondForm 값 칸)면 `paste(&s)`, 아니면 버림. `is_user_input`에 Paste 포함.
 - 마우스(spec §6.1): `Screen::Settings`이고 overlay 없음일 때만 — 왼쪽 클릭 y를 `render_edit_menu`가 돌려준 표(App이 `Cell`에 보관)에서 찾아 항목이 지금 커서면 `Activate`, 아니면 커서 이동.
 - 도움말(`overlay.rs`): 시그니처 `render_help(f, file: &Path, backups: Option<&FileTarget>, log: &LogLoc)`(App은 세션이 있으면 `Some(&session.target)`). `Enter` 행 설명 → `선택 칸 설정 보기·수정`, 노란 줄 `새 파일로 바꾸면 이 PC에서 고친 값은 사라집니다`, 파일 줄 아래 `백업: <real>.bak · 원본: <real>.orig.bak`(sanitize, 폭 넘치면 `fit`). 높이가 모자라면 **새 두 줄부터** 뺀다(백업 줄 → 경고 줄 순) — 기존 작은 높이 테스트(`view_test.rs`의 도움말 높이 케이스)가 지금 결과를 유지하는지 확인하고, 바뀌면 그 이유를 테스트 주석에.
