@@ -264,3 +264,101 @@ pub const RECORD_MASKED_HINT: &str = "인증 값은 ••••로 가렸습니
 pub fn line_pos(end: usize, total: usize) -> String {
     format!("{end}/{total}줄")
 }
+
+// ---------- 칸 설정 보기 (1b) ----------
+
+/// 화면 제목(TUI 전용).
+pub const SETTINGS_TITLE: &str = "칸 설정";
+/// 제목 줄 오른쪽(TUI 전용, 목업 §4).
+pub const SETTINGS_READONLY: &str = "보기 전용 — 수정은 다음 버전";
+/// 기준선·조건·표시 항목이 없을 때(TUI 전용).
+pub const NONE: &str = "없음";
+/// 표시할 응답 시간이 칸이 보는 그 스텝일 때(TUI 전용, 목업 §4).
+pub const THIS_STEP: &str = "이 스텝";
+/// 묶음 값 표시(TUI 전용).
+pub const GROUP_MARK: &str = "(묶음)";
+
+/// `ko.monitor.groupTitle`
+pub fn group_title(n: impl std::fmt::Display) -> String {
+    format!("점검 묶음 {n}")
+}
+
+/// 묶음 칸 각주(TUI 전용).
+pub fn group_note(n: usize) -> String {
+    format!(
+        "{GROUP_MARK} = {}의 값 — 칸마다 따로 못 바꿉니다",
+        group_title(n)
+    )
+}
+
+/// 묶음 번호를 모를 때의 각주(TUI 전용).
+pub const GROUP_NOTE_PLAIN: &str = "(묶음) = 점검 묶음의 값 — 칸마다 따로 못 바꿉니다";
+
+/// `ko.monitor.panelTitle`
+pub const SET_TITLE: &str = "제목";
+/// `ko.monitor.stepPick`
+pub const SET_STEP: &str = "볼 스텝";
+/// `ko.monitor.interval`
+pub const SET_INTERVAL: &str = "점검 주기(초)";
+/// `ko.monitor.timeout`
+pub const SET_TIMEOUT: &str = "제한 시간(초)";
+/// `ko.monitor.latencySource`
+pub const SET_LATENCY: &str = "표시할 응답 시간";
+/// `ko.monitor.thresholds`
+pub const SET_THRESHOLDS: &str = "응답속도 기준선";
+/// `ko.monitor.barCount`
+pub const SET_BAR_COUNT: &str = "막대 개수";
+/// `ko.monitor.graphMax`
+pub const SET_GRAPH_MAX: &str = "그래프 최대 높이(ms)";
+/// `ko.monitor.conditions`
+pub const SET_CONDITIONS: &str = "성공 조건";
+/// `ko.monitor.displayTitle`
+pub const SET_DISPLAY: &str = "화면에 표시";
+
+/// `ko.monitor.noTitle`
+pub const NO_TITLE: &str = "(제목 없음)";
+/// `ko.monitor.wholeScenario`
+pub const WHOLE_SCENARIO: &str = "시나리오 전체";
+/// `ko.monitor.environmentNone`
+pub const ENV_NONE: &str = "환경 없음";
+/// `ko.monitor.latencyTotal`
+pub const LATENCY_TOTAL: &str = "시나리오 전체";
+/// `ko.monitor.thresholdMs`
+pub const THRESHOLD_MS: &str = "ms 이상";
+/// `ko.monitor.condStepGone`
+pub const COND_STEP_GONE: &str = "⚠ 스텝 없음";
+/// `ko.monitor.condIgnoreCase`
+pub const COND_IGNORE_CASE: &str = "대소문자 무시";
+/// `ko.monitor.condTrim`
+pub const COND_TRIM: &str = "앞뒤 공백 무시";
+/// `ko.monitor.condTargetBodyRoot`
+pub const COND_TARGET_BODY_ROOT: &str = "본문";
+/// `ko.monitor.condTargetStatus`
+pub const COND_TARGET_STATUS: &str = "상태코드";
+/// `ko.monitor.condTargetBodyText`
+pub const COND_TARGET_BODY_TEXT: &str = "본문 전체";
+
+/// `ko.monitor.condTargetHeader`
+pub fn cond_target_header(n: &str) -> String {
+    format!("헤더 {n}")
+}
+
+/// `ko.monitor.displayRank`
+pub const DISPLAY_RANK: [&str; 2] = ["① 큰 글자", "② 작은 줄"];
+
+/// `ko.monitor.condOpLabel`
+pub fn cond_op_label(op: handicap_controller::monitor::config::ConditionOp) -> &'static str {
+    use handicap_controller::monitor::config::ConditionOp as O;
+    match op {
+        O::Eq => "=",
+        O::Ne => "≠",
+        O::Exists => "키 있음",
+        O::NotEmpty => "값 있음",
+        O::Contains => "글자 포함",
+        O::Gt => ">",
+        O::Lt => "<",
+        O::Gte => "≥",
+        O::Lte => "≤",
+        O::OneOf => "∈",
+    }
+}

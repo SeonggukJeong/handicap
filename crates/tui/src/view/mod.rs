@@ -1,5 +1,5 @@
 //! 화면 렌더링 — 뷰 모델(`model`)·시각 줄(`axis`)·모니터(`monitor`)·팝업(`overlay`)·오류(`error`)·
-//! 오류 보기 등 새 화면 틀(`inspect`).
+//! 오류 보기 등 새 화면 틀(`inspect`)·칸 설정 보기(`settings`).
 
 pub mod axis;
 pub mod bigfont;
@@ -9,6 +9,7 @@ pub mod inspect;
 pub mod model;
 pub mod monitor;
 pub mod overlay;
+pub mod settings;
 pub mod tier;
 
 use ratatui::layout::Rect;

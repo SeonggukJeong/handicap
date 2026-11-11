@@ -678,13 +678,7 @@ impl Lines {
             let k = sanitize(k);
             let pad = " ".repeat(name_w.saturating_sub(text_width(&k)));
             // 값 속 줄바꿈은 줄로 나누지 않고 sanitize가 치환한다(헤더 한 개 = 한 줄 흐름).
-            let line = format!("  {k}{pad}  {}", sanitize(v));
-            for row in wrap_width(&line, self.width) {
-                self.out.push(BodyLine {
-                    kind: BodyLineKind::Text,
-                    text: row,
-                });
-            }
+            self.indented(&format!("{k}{pad}  {}", sanitize(v)));
         }
     }
 
@@ -708,16 +702,29 @@ impl Lines {
             Pretty::Raw => body,
         };
         for part in shown.split('\n') {
-            let line = format!("  {}", sanitize(part));
-            for row in wrap_width(&line, self.width) {
-                self.out.push(BodyLine {
-                    kind: BodyLineKind::Text,
-                    text: row,
-                });
-            }
+            self.indented(&sanitize(part));
+        }
+    }
+
+    /// 2칸 들여쓴 `Text` 줄 — 폭 `width - 2`로 감싼 뒤 각 줄에 들여쓰기를 붙인다(뒷줄도 2칸).
+    /// 폭이 2칸 이하면 들여쓰기 없이 감싼다.
+    fn indented(&mut self, s: &str) {
+        let (pad, room) = if self.width > BODY_INDENT.len() {
+            (BODY_INDENT, self.width - BODY_INDENT.len())
+        } else {
+            ("", self.width)
+        };
+        for row in wrap_width(s, room) {
+            self.out.push(BodyLine {
+                kind: BodyLineKind::Text,
+                text: format!("{pad}{row}"),
+            });
         }
     }
 }
+
+/// 헤더·본문 `Text` 줄의 들여쓰기.
+const BODY_INDENT: &str = "  ";
 
 /// 폭 `width`(0이면 1로)에 맞춰 줄바꿈한 전체 줄(목업 §3, GUI `StepRow` 펼친 내용과 같은 구분).
 pub fn body_lines(i: &BodyInput, width: usize) -> Vec<BodyLine> {

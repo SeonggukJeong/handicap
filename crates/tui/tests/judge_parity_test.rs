@@ -450,6 +450,72 @@ fn mirrored_text_exists_in_ko_ts() {
         chip.contains(&format!("none: \"{}\"", text::BRANCH_NONE)),
         "BRANCH_LABEL.none"
     );
+
+    // 칸 설정 보기(Task 6)
+    for (key, val) in [
+        ("panelTitle", text::SET_TITLE),
+        ("stepPick", text::SET_STEP),
+        ("wholeScenario", text::WHOLE_SCENARIO),
+        ("environmentNone", text::ENV_NONE),
+        ("interval", text::SET_INTERVAL),
+        ("timeout", text::SET_TIMEOUT),
+        ("latencySource", text::SET_LATENCY),
+        ("latencyTotal", text::LATENCY_TOTAL),
+        ("thresholds", text::SET_THRESHOLDS),
+        ("thresholdMs", text::THRESHOLD_MS),
+        ("barCount", text::SET_BAR_COUNT),
+        ("graphMax", text::SET_GRAPH_MAX),
+        ("conditions", text::SET_CONDITIONS),
+        ("displayTitle", text::SET_DISPLAY),
+        ("noTitle", text::NO_TITLE),
+        ("condStepGone", text::COND_STEP_GONE),
+        ("condIgnoreCase", text::COND_IGNORE_CASE),
+        ("condTrim", text::COND_TRIM),
+        ("condTargetBodyRoot", text::COND_TARGET_BODY_ROOT),
+        ("condTargetStatus", text::COND_TARGET_STATUS),
+        ("condTargetBodyText", text::COND_TARGET_BODY_TEXT),
+    ] {
+        assert!(
+            ko.contains(&format!("{key}: \"{val}\"")),
+            "ko.monitor.{key}"
+        );
+    }
+    let h = text::cond_target_header("${n}");
+    assert!(
+        ko.contains(&format!("condTargetHeader: (n: string) => `{h}`")),
+        "ko.monitor.condTargetHeader"
+    );
+    let [r1, r2] = text::DISPLAY_RANK;
+    assert!(
+        ko.contains(&format!("displayRank: [\"{r1}\", \"{r2}\"]")),
+        "ko.monitor.displayRank"
+    );
+    let g = text::group_title("${n}");
+    assert!(
+        ko.contains(&format!("groupTitle: (n: number) => `{g}`")),
+        "ko.monitor.groupTitle"
+    );
+    use handicap_controller::monitor::config::ConditionOp as O;
+    let ops = ko
+        .split_once("condOpLabel: {")
+        .and_then(|(_, rest)| rest.split_once('}'))
+        .map(|(body, _)| body.to_string())
+        .expect("ko.monitor.condOpLabel");
+    for (key, op) in [
+        ("eq", O::Eq),
+        ("ne", O::Ne),
+        ("exists", O::Exists),
+        ("not_empty", O::NotEmpty),
+        ("contains", O::Contains),
+        ("gt", O::Gt),
+        ("lt", O::Lt),
+        ("gte", O::Gte),
+        ("lte", O::Lte),
+        ("one_of", O::OneOf),
+    ] {
+        let want = format!("{key}: \"{}\"", text::cond_op_label(op));
+        assert!(ops.contains(&want), "ko.monitor.condOpLabel.{key}");
+    }
 }
 
 #[test]

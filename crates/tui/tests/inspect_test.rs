@@ -1698,6 +1698,33 @@ fn body_state_caches_and_clamps() {
     );
     assert!(n3 > n2, "{n3} {n2}");
 
+    // 가림 상태의 단일 소스는 `self.reveal` — 입력의 `reveal: true`는 무시한다.
+    let s = body_step(Some("REQ-SECRET"), Some("a"));
+    let mut st = BodyState::new(0);
+    st.ensure(
+        &BodyInput {
+            reveal: true,
+            ..binput(&s)
+        },
+        40,
+    );
+    assert!(
+        !st.lines().iter().any(|b| b.text.contains("REQ-SECRET")),
+        "self.reveal false인데 요청 본문이 보임"
+    );
+    st.reveal = true;
+    st.ensure(&binput(&s), 40);
+    assert!(st.lines().iter().any(|b| b.text.contains("REQ-SECRET")));
+    st.reveal = false;
+    st.ensure(
+        &BodyInput {
+            reveal: true,
+            ..binput(&s)
+        },
+        40,
+    );
+    assert!(!st.lines().iter().any(|b| b.text.contains("REQ-SECRET")));
+
     // 30줄·height 10.
     let long = "x\n".repeat(30);
     let s = body_step(None, Some(&long));
@@ -1759,6 +1786,25 @@ fn body_size_sweep_no_panic() {
             for scroll in [0, l.len() / 2, l.len().saturating_sub(bh)] {
                 let _ = draw(w, h, |f| render_body(f, &head(), &l, scroll, &bkeys()));
             }
+        }
+    }
+}
+
+#[test]
+fn body_lines_wrapped_rows_keep_indent() {
+    // 본문·헤더 줄이 줄바꿈돼도 뒷줄이 0칸에서 시작하지 않는다(2칸 들여쓰기 유지).
+    let long = "abcdefghij".repeat(6);
+    let mut s = body_step(None, Some(&long));
+    s.response.as_mut().unwrap().headers = BTreeMap::from([("x-long".to_string(), "v".repeat(50))]);
+    for w in [10usize, 12, 20] {
+        let l = body_lines(&binput(&s), w);
+        let hh = l.iter().position(|b| b.text == "응답 헤더").unwrap();
+        let hb = l.iter().position(|b| b.text == "응답 본문").unwrap();
+        let rows: Vec<&BodyLine> = l[hh + 1..hb].iter().chain(l[hb + 1..].iter()).collect();
+        assert!(rows.len() > 2, "w={w} {l:?}");
+        for b in rows {
+            assert!(b.text.starts_with("  "), "w={w} {:?}", b.text);
+            assert!(Span::raw(b.text.clone()).width() <= w, "w={w} {:?}", b.text);
         }
     }
 }
