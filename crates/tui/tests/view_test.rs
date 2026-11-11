@@ -9,6 +9,7 @@ use handicap_tui::logging::LogLoc;
 use handicap_tui::poll::PollSnapshot;
 use handicap_tui::prefs::BorderStyle;
 use handicap_tui::session::{Stage, StartError};
+use handicap_tui::text;
 use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
 use handicap_tui::view::graph::{column, label_width, threshold_rows};
@@ -16,7 +17,8 @@ use handicap_tui::view::model::{
     Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows_s, parse_hex,
 };
 use handicap_tui::view::monitor::{
-    KeyBar, MonitorScreen, layout, panel_at, render, render_header_view, render_with_keys,
+    HeaderNotice, KeyBar, MonitorScreen, layout, panel_at, render, render_header_view,
+    render_with_keys,
 };
 use handicap_tui::view::overlay::{render_help, render_quit_confirm};
 use handicap_tui::wire::{BoardResponse, PanelStatus, StatusResponse};
@@ -146,6 +148,7 @@ fn screen(panels: Vec<PanelView>, pos: (usize, usize), selected: usize) -> Monit
         panels,
         selected,
         border: BorderStyle::Heavy,
+        notice: None,
     }
 }
 
@@ -2612,4 +2615,103 @@ fn help_errors_row_whole_at_50_columns() {
         assert!(line.contains(d), "w{w}\n{text}");
         assert!(line.trim_end().ends_with('│'), "w{w}\n{text}");
     }
+}
+
+// ---------- tui-2a-1 Task 8: 머리 줄 알림 ----------
+
+fn local_hms(ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .unwrap()
+        .format("%H:%M:%S")
+        .to_string()
+}
+
+fn header_with(w: u16, notice: Option<HeaderNotice>) -> (String, Buffer) {
+    let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    sc.notice = notice;
+    // 모니터 전체는 좁으면 "창을 키워 주세요"만 그리므로 머리 줄만 그린다(`header_view_matches_monitor_header`가 둘이 같음을 고정).
+    let h = sc.header();
+    let mut t = Terminal::new(TestBackend::new(w, 1)).unwrap();
+    t.draw(|f| render_header_view(f, f.area(), &h)).unwrap();
+    let buf = t.backend().buffer().clone();
+    let row0 = buffer_text(&buf).lines().next().unwrap().to_string();
+    (row0, buf)
+}
+
+#[test]
+fn header_notice_saved_and_failed() {
+    let saved_at = 1_700_000_005_000;
+    let want = format!("저장됨 {}", local_hms(saved_at));
+    let (h120, buf) = header_with(120, Some(HeaderNotice::Saved(saved_at)));
+    assert!(h120.contains(&want), "{h120}");
+    assert!(h120.contains("점검 중"), "{h120}");
+    assert!(h120.contains("Handicap 모니터 · 운영 API 보드"), "{h120}");
+    // 저장됨 글자는 초록, 점검 상태는 그 색이 아니다.
+    let x = h120
+        .find("저장됨")
+        .map(|i| {
+            h120[..i]
+                .chars()
+                .map(|c| Span::raw(c.to_string()).width())
+                .sum::<usize>()
+        })
+        .unwrap();
+    assert_eq!(
+        buf[(x as u16, 0)].style().fg,
+        Some(Color::Rgb(0x22, 0xc5, 0x5e))
+    );
+
+    // 좁으면 저장됨이 접두보다 늦게, 점검 상태보다 먼저 빠진다 — 점검 상태는 늘 남는다.
+    for w in [20u16, 30, 40, 60] {
+        let (h, _) = header_with(w, Some(HeaderNotice::Saved(saved_at)));
+        assert!(h.contains("점검 중"), "{w}: {h}");
+    }
+
+    let (h, buf) = header_with(120, Some(HeaderNotice::FileFailed));
+    assert!(h.contains(text::FILE_SAVE_FAILED), "{h}");
+    assert!(h.contains("운영 API 보드"), "{h}");
+    assert!(!h.contains("Handicap"), "{h}");
+    assert_eq!(buf[(1, 0)].style().fg, Some(Color::Rgb(0xef, 0x44, 0x44)));
+    let (h, _) = header_with(120, Some(HeaderNotice::ChangedOutside));
+    assert!(h.contains(text::FILE_CHANGED_OUTSIDE), "{h}");
+
+    // 40폭: 경고 문구가 보드 이름보다 먼저 남는다. 점검 상태는 절대 안 잘린다.
+    let (h, _) = header_with(40, Some(HeaderNotice::FileFailed));
+    assert!(h.contains("파일에 저장"), "{h}");
+    assert!(!h.contains("운영 API"), "{h}");
+    assert!(h.contains("점검 중"), "{h}");
+    let (h, _) = header_with(70, Some(HeaderNotice::FileFailed));
+    assert!(h.contains(text::FILE_SAVE_FAILED), "{h}");
+    assert!(h.contains("점검 중"), "{h}");
+}
+
+#[test]
+fn header_notice_sweep_no_panic() {
+    for n in [
+        None,
+        Some(HeaderNotice::Saved(1_700_000_005_000)),
+        Some(HeaderNotice::FileFailed),
+        Some(HeaderNotice::ChangedOutside),
+    ] {
+        for w in 1..=130u16 {
+            let (h, _) = header_with(w, n.clone());
+            assert!(
+                Span::raw(h.trim_end().to_string()).width() <= usize::from(w),
+                "{w}: {h}"
+            );
+        }
+    }
+}
+
+#[test]
+fn header_notice_flows_through_monitor_screen() {
+    let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    sc.notice = Some(HeaderNotice::FileFailed);
+    assert_eq!(sc.header().notice, Some(HeaderNotice::FileFailed));
+    let full = draw(100, 8, |f| render(f, &sc));
+    let (alone, _) = header_with(100, Some(HeaderNotice::FileFailed));
+    assert_eq!(full.lines().next().unwrap(), alone);
 }

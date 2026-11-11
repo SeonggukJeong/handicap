@@ -36,7 +36,7 @@ use crate::inspect::{
 };
 use crate::judge::grid_for;
 use crate::logging::LogLoc;
-use crate::panel_settings::{group_note, settings_items, settings_lines};
+use crate::panel_settings::{edit_menu_lines, group_note, settings_items_edit};
 use crate::poll::{PollSnapshot, spawn_poller};
 use crate::prefs::{self, BorderStyle, Loaded, Prefs};
 use crate::session::{Session, Stage, StartError};
@@ -49,7 +49,7 @@ use crate::view::inspect::{
 use crate::view::model::build_panels;
 use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
-use crate::view::settings::{render_settings, settings_height};
+use crate::view::settings::{EditMenuView, render_edit_menu, settings_height};
 use crate::wire::{BoardResponse, CheckRecord, EnvironmentResponse};
 use crate::yaml_var;
 use handicap_controller::monitor::config::ConditionOp;
@@ -1062,6 +1062,9 @@ fn body_input<'a>(
     })
 }
 
+/// 칸 설정 화면의 (제목, 항목 번호가 붙은 줄, 각주).
+type SettingsView = (String, Vec<(String, Option<usize>)>, Option<String>);
+
 impl App<'_> {
     async fn start_inner(
         &mut self,
@@ -1204,12 +1207,13 @@ impl App<'_> {
             .unwrap_or_default()
     }
 
-    /// 칸 설정 보기의 (제목, 줄, 각주) — 선택 칸 기준, 줄은 `width`에 맞춘다.
-    fn settings_view(&self, width: usize) -> Option<(String, Vec<String>, Option<String>)> {
+    /// 칸 설정 화면의 (제목, 줄, 각주) — 선택 칸 기준, 줄은 `width`에 맞춘다.
+    fn settings_view(&self, width: usize) -> Option<SettingsView> {
         let r = self.running.as_ref()?;
         let board = self.board()?;
         let panel = self.selected_panel()?;
-        let lines = settings_lines(&settings_items(panel, &r.session.names), width);
+        let items = settings_items_edit(panel, &r.session.names, width);
+        let lines = edit_menu_lines(&items, width);
         Some((panel.title.clone(), lines, group_note(&board.config, panel)))
     }
 
@@ -1347,6 +1351,7 @@ impl App<'_> {
             panels,
             selected,
             border: self.border,
+            notice: None,
         })
     }
 
@@ -1464,15 +1469,16 @@ impl App<'_> {
                 let Some((title, lines, note)) = self.settings_view(width) else {
                     return;
                 };
-                render_settings(
-                    f,
-                    &head,
-                    &title,
-                    &lines,
-                    note.as_deref(),
-                    self.views.settings_scroll,
-                    &sub_keys(screen, ctx),
-                );
+                // Task 10이 커서·overlay를 연결하기 전까지는 고른 항목 없음(범위 밖 커서)·overlay 없음.
+                let view = EditMenuView {
+                    title: &title,
+                    lines: &lines,
+                    cursor: usize::MAX,
+                    scroll: self.views.settings_scroll,
+                    note: note.as_deref(),
+                    overlay: None,
+                };
+                let _ = render_edit_menu(f, &head, &view, &sub_keys(screen, ctx));
             }
             _ => {}
         }

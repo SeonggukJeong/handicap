@@ -226,20 +226,23 @@ fn pad_to(s: &str, w: usize) -> String {
     format!("{s}{}", " ".repeat(w.saturating_sub(text_width(s))))
 }
 
-/// `{번호 2칸 오른쪽 정렬}  {라벨, 가장 넓은 라벨 폭으로 채움}   {값}` 줄들. 값이 여럿이면 둘째부터
-/// 값 칸에 맞춰 들여쓰고, 폭을 넘으면 값 칸 안에서 줄바꿈한다. 값 칸이 `VALUE_MIN`보다 좁으면
-/// 라벨 줄 아래로 값을 내린다. `from_group` 항목은 첫 값 줄 끝에 `  (묶음)`. 값은 `sanitize`.
-pub fn settings_lines(items: &[SettingItem], width: usize) -> Vec<String> {
-    let label_w = items.iter().map(|i| text_width(i.label)).max().unwrap_or(0);
+/// 항목 라벨들로 정해지는 열 배치 — (값 시작 열, 값 칸 폭, 라벨 아래로 내림 여부 반대 = wide).
+fn layout_for(labels: impl Iterator<Item = usize>, width: usize) -> (usize, bool) {
+    let label_w = labels.max().unwrap_or(0);
     let value_x = NO_W + label_w + LABEL_GAP;
-    let wide = width >= value_x + VALUE_MIN;
+    (value_x, width >= value_x + VALUE_MIN)
+}
+
+/// `settings_lines`와 같은 줄 + 각 줄이 속한 항목 인덱스(0부터).
+fn settings_lines_indexed(items: &[SettingItem], width: usize) -> Vec<(String, usize)> {
+    let (value_x, wide) = layout_for(items.iter().map(|i| text_width(i.label)), width);
     let mut out = Vec::new();
     for (n, it) in items.iter().enumerate() {
         let head = format!("{:>2}  {}", n + 1, it.label);
         let (indent, room) = if wide {
             (value_x, width - value_x)
         } else {
-            out.push(fit(&head, width));
+            out.push((fit(&head, width), n));
             let ind = NARROW_INDENT.min(width.saturating_sub(1));
             (ind, width.saturating_sub(ind).max(1))
         };
@@ -255,9 +258,148 @@ pub fn settings_lines(items: &[SettingItem], width: usize) -> Vec<String> {
                 } else {
                     format!("{}{row}", " ".repeat(indent))
                 };
-                out.push(fit(&line, width));
+                out.push((fit(&line, width), n));
             }
         }
     }
     out
+}
+
+/// `{번호 2칸 오른쪽 정렬}  {라벨, 가장 넓은 라벨 폭으로 채움}   {값}` 줄들. 값이 여럿이면 둘째부터
+/// 값 칸에 맞춰 들여쓰고, 폭을 넘으면 값 칸 안에서 줄바꿈한다. 값 칸이 `VALUE_MIN`보다 좁으면
+/// 라벨 줄 아래로 값을 내린다. `from_group` 항목은 첫 값 줄 끝에 `  (묶음)`. 값은 `sanitize`.
+pub fn settings_lines(items: &[SettingItem], width: usize) -> Vec<String> {
+    settings_lines_indexed(items, width)
+        .into_iter()
+        .map(|(l, _)| l)
+        .collect()
+}
+
+/// 편집 메뉴의 선택 표시 `▶ ` 자리.
+const GUTTER: usize = 2;
+
+/// 13·14 값 칸 폭 — `edit_menu_lines`가 같은 규칙으로 줄을 만들므로 그 폭을 미리 구한다.
+fn edit_value_room(base: &[SettingItem], width: usize) -> usize {
+    let inner = width.saturating_sub(GUTTER);
+    let labels = base.iter().map(|i| text_width(i.label)).chain([
+        text_width(text::SET_ENV_VARS),
+        text_width(text::SET_SCEN_VARS),
+    ]);
+    let (value_x, wide) = layout_for(labels, inner);
+    if wide {
+        inner - value_x
+    } else {
+        inner.saturating_sub(NARROW_INDENT).max(1)
+    }
+}
+
+/// `{prefix}  ({키} · {키})` — 폭에 안 들어가면 키를 뒤에서부터 통째로 빼고 `  (… 외 N개)`를 붙인다.
+/// 키를 글자 단위로 자르지 않는다. 접두만으로도 안 들어가면 접두만 돌려준다(줄바꿈이 처리).
+fn keyed_value(prefix: &str, keys: &[String], room: usize) -> String {
+    if keys.is_empty() {
+        return prefix.to_string();
+    }
+    let keys: Vec<String> = keys.iter().map(|k| sanitize(k)).collect();
+    let full = format!("{prefix}  ({})", keys.join(" · "));
+    if text_width(&full) <= room {
+        return full;
+    }
+    for shown in (0..keys.len()).rev() {
+        let rest = text::more_keys(keys.len() - shown);
+        let v = if shown == 0 {
+            format!("{prefix}  {rest}")
+        } else {
+            format!("{prefix}  ({})  {rest}", keys[..shown].join(" · "))
+        };
+        if text_width(&v) <= room {
+            return v;
+        }
+    }
+    prefix.to_string()
+}
+
+/// 14개(1b 12개 + 13 환경 변수 + 14 시나리오 변수). 13 값 = `{환경 이름} · {N}개  ({키} · …)` / 환경 없음 → `없음`,
+/// 14 = `{시나리오 이름} · {N}개  ({키} · …)` / 변수 없음 → `없음`. 키 목록은 폭(`edit_menu_lines`의 폭)에
+/// 맞춰 통째 조각으로 줄인다.
+pub fn settings_items_edit(p: &PanelConfig, names: &Names, width: usize) -> Vec<SettingItem> {
+    let mut items = settings_items(p, names);
+    let room = edit_value_room(&items, width);
+    let env = match p.environment_id.as_deref() {
+        None => text::NONE.to_string(),
+        Some(id) => {
+            let keys = names.env_keys(id).unwrap_or_default();
+            let prefix = format!(
+                "{} · {}개",
+                sanitize(names.env_name(id).unwrap_or(id)),
+                keys.len()
+            );
+            keyed_value(&prefix, keys, room)
+        }
+    };
+    let sc = p.scenario_id.as_str();
+    let scen = match names.scenario_vars(sc).filter(|v| !v.is_empty()) {
+        None => text::NONE.to_string(),
+        Some(vars) => {
+            let keys: Vec<String> = vars.iter().map(|(k, _)| k.clone()).collect();
+            let prefix = format!(
+                "{} · {}개",
+                sanitize(names.scenario_name(sc).unwrap_or(sc)),
+                keys.len()
+            );
+            keyed_value(&prefix, &keys, room)
+        }
+    };
+    items.push(SettingItem {
+        label: text::SET_ENV_VARS,
+        values: vec![env],
+        from_group: false,
+    });
+    items.push(SettingItem {
+        label: text::SET_SCEN_VARS,
+        values: vec![scen],
+        from_group: false,
+    });
+    items
+}
+
+/// `settings_lines`와 같은 규칙의 줄 + 각 줄이 속한 항목 번호(0부터). 12와 13 사이에 구분 줄(항목 번호 None).
+/// 선택 표시 `▶ ` 2칸을 이 함수가 줄 앞에 예약한다 — 안쪽 폭 = `width.saturating_sub(2)`로 줄을 만든 뒤
+/// 모든 줄 앞에 공백 2칸(고른 항목 첫 줄은 그리기에서 `▶ `).
+pub fn edit_menu_lines(items: &[SettingItem], width: usize) -> Vec<(String, Option<usize>)> {
+    let inner = width.saturating_sub(GUTTER);
+    let pad = " ".repeat(GUTTER.min(width));
+    let mut out = Vec::new();
+    let mut divided = false;
+    for (l, n) in settings_lines_indexed(items, inner) {
+        if n >= 12 && !divided {
+            divided = true;
+            let wide = format!("── {} ──", text::EDIT_DIVIDER);
+            let d = if text_width(&wide) + GUTTER <= width {
+                wide
+            } else {
+                text::EDIT_DIVIDER.to_string()
+            };
+            out.push((fit(&format!("{pad}{d}"), width), None));
+        }
+        out.push((format!("{pad}{l}"), Some(n)));
+    }
+    out
+}
+
+/// 커서 항목의 줄이 `height`줄 창에 다 보이도록 하는 위쪽 줄 번호(0부터) — 맨 위부터 보이면 0, 아니면
+/// 그 항목 마지막 줄이 창 맨 아래에 닿게(항목이 창보다 길면 첫 줄이 맨 위). 항목이 없으면 0.
+pub fn ensure_visible(lines: &[(String, Option<usize>)], cursor: usize, height: usize) -> usize {
+    let mut rows = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, n))| *n == Some(cursor))
+        .map(|(i, _)| i);
+    let Some(first) = rows.next() else {
+        return 0;
+    };
+    let last = rows.next_back().unwrap_or(first);
+    if height == 0 || last < height {
+        return 0;
+    }
+    (last + 1 - height).min(first)
 }

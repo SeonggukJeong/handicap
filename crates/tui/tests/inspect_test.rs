@@ -74,6 +74,7 @@ fn head() -> HeaderView {
         board_pos: (1, 1),
         server_time: Some(NOW),
         server_down: false,
+        notice: None,
     }
 }
 

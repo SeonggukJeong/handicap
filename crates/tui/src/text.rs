@@ -291,8 +291,30 @@ pub fn line_pos(end: usize, total: usize) -> String {
 
 /// 화면 제목(TUI 전용).
 pub const SETTINGS_TITLE: &str = "칸 설정";
-/// 제목 줄 오른쪽(TUI 전용, 목업 §4).
-pub const SETTINGS_READONLY: &str = "보기 전용 — 수정은 다음 버전";
+/// 편집 메뉴 제목 줄 오른쪽(TUI 전용, 목업 §1).
+pub const SETTINGS_EDIT_NOTE: &str = "고친 값은 바로 점검에 반영·파일에 저장";
+/// 13번 항목 이름(TUI 전용).
+pub const SET_ENV_VARS: &str = "환경 변수";
+/// 14번 항목 이름(TUI 전용).
+pub const SET_SCEN_VARS: &str = "시나리오 변수";
+/// 12번과 13번 사이 구분 줄 문구(TUI 전용, 목업 §1 — 그릴 때 `── … ──`로 감싼다).
+pub const EDIT_DIVIDER: &str = "이 칸이 쓰는 값 · 같은 값을 쓰는 다른 칸도 함께 바뀝니다";
+/// 입력줄 오른쪽 범위 힌트(TUI 전용, 목업 §2).
+pub fn range_hint(lo: impl std::fmt::Display, hi: impl std::fmt::Display) -> String {
+    format!("{lo}~{hi}")
+}
+/// 저장 중 줄(TUI 전용).
+pub const SAVING: &str = "저장 중…";
+/// 환경·시나리오 변수 키 목록이 폭에 안 들어갈 때 뒤에 붙는 조각(TUI 전용).
+pub fn more_keys(n: usize) -> String {
+    format!("(… 외 {n}개)")
+}
+/// 편집 메뉴·입력줄·목록 창 키 줄 조각(TUI 전용, 목업 §1–§3).
+pub const KEYS_NUMBER: &str = "1–14 번호";
+pub const KEYS_EDIT: &str = "Enter 수정";
+pub const KEYS_SAVE: &str = "Enter 저장";
+pub const KEYS_CANCEL: &str = "Esc 취소";
+pub const KEYS_CLEAR: &str = "Ctrl+U 지우기";
 /// 기준선·조건·표시 항목이 없을 때(TUI 전용).
 pub const NONE: &str = "없음";
 /// 표시할 응답 시간이 칸이 보는 그 스텝일 때(TUI 전용, 목업 §4).
