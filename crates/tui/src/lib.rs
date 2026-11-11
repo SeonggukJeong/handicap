@@ -19,3 +19,4 @@ pub mod terminal;
 pub mod text;
 pub mod view;
 pub mod wire;
+pub mod yaml_var;

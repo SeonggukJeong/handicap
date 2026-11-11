@@ -384,3 +384,8 @@ pub fn cond_op_label(op: handicap_controller::monitor::config::ConditionOp) -> &
         O::OneOf => "∈",
     }
 }
+
+/// 시나리오 변수 화면 — 생성 변수는 TUI에서 못 고친다(spec §6.4).
+pub const VAR_GENERATED: &str = "생성 변수 — GUI에서";
+/// 시나리오 변수 화면 — 한 줄 교체가 안전하지 않은 값 모양.
+pub const VAR_SHAPE: &str = "이 값의 모양은 TUI에서 못 고칩니다 — GUI에서";
