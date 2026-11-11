@@ -17,3 +17,12 @@
 - **tmux `send-keys question`은 `?`가 아니라 글자** (tui-monitor-1b 라이브): `send-keys -l '?'`로.
 - **원격 문자열은 `inspect::sanitize`를 폭 계산 *전에* — 제어 문자·U+2028/2029·bidi 제어(202A–202E·2066–2069 등)를 `�`로** (tui-monitor-1b 보안 리뷰): ratatui가 ESC grapheme을 이미 걸러 `\x1b` 부재 단언은 공허, 회귀 가드는 `\u{FFFD}`가 *보이는지* 긍정 단언.
 - **tokio mpsc는 Sender를 다 버려도 남은 큐를 다 꺼낸 뒤 `None`** (tui-monitor-1b 최종 리뷰): 세션을 내릴 때 작업자는 통로 닫기만이 아니라 `JoinHandle` abort·await.
+- **입력줄 키 판정은 "적용 뒤 버퍼"를 함께 돌려줄 것 — 결과만 돌려주면 호출 쪽 이중 적용·미적용 함정, 글자 그대로임은 `text()`로 단언** (tui-2a-1 Task 7 리뷰): `edit_key`가 복제본에 키를 넣어 `Input(Edited)`만 돌려주던 때는 정규화된 키(`ㅂ`→`q`)를 넣어도 테스트가 통과했다. `EditAction::Input(결과, 적용 뒤 LineInput)` + 편집 화면의 모든 키 뒤 `track_digit`.
+- **값을 품는 타입은 derive `Debug` 금지 — `LineInput`·`Overlay`·`EditReq`·`EditDone`·`ScenarioResponse`는 손 Debug(종류·길이만)** (tui-2a-1): `Vec<char>` 버퍼는 `'T', 'Y'`로 찍혀 값 부분문자열 단언을 빠져나간다. `Saving{restore}`도 입력값을 품는다 — 5분 복귀(`idle_drop`)에서 비울 것.
+- **YAML 글자 교체의 구조 재검증은 주석을 못 본다 + "정확히 1개" 가드 테스트는 닮은 줄을 진짜 줄 *뒤*에** (tui-2a-1 Task 2 리뷰): `값<탭># 주석`을 값으로 삼켜 주석이 조용히 지워졌다(탭+`#`도 주석). 닮은 줄이 앞이면 다른 경로로 거절돼 가드를 지워도 통과한다 — 변이로 RED를 확인할 것.
+- **목록을 그릴 때 항목마다 전체 파싱 금지 — `static_vars`가 변수마다 YAML을 4번 파싱해 UI 스레드가 분 단위로 멈췄다** (tui-2a-1 보안 F1): 편집 가능 판정은 글자 위치 찾기만, 검증은 저장 때.
+- **TestBackend에서 넓은 글자의 둘째 칸은 공백 — 줄 문자열 검색은 그 칸을 건너뛰고, 고른 줄 바탕 단언은 머리 줄(y=0)이 아닌 본문 줄에서** (tui-2a-1 Task 9 리뷰): `find_cell("A")`가 머리 줄 칸을 집어 머리 줄끼리 비교하는 공허 단언이 됐다. 선택 스타일을 지워 RED 확인.
+- **`key_bar`는 앞 조각부터 뺀다 — 가장 중요한 `Enter 저장`을 끝까지 남기려면 `view::edit::fit_keys`(표시 순서는 그대로, 빠지는 순서만 따로)** (tui-2a-1 Task 10 리뷰).
+- **도움말의 경로 줄은 `fit` 한 줄 금지 — 실제 경로 길이에선 뒤쪽 경로가 통째로 잘린다, `wrap_width`로** (tui-2a-1 라이브).
+- **root 컨테이너에선 `chmod`로 쓰기 실패를 못 만든다 — 실패 주입은 권한이 아니라 모양으로(`<파일>.bak` 자리에 디렉터리, FIFO는 `mkfifo` + 5초 제한 스레드)** (tui-2a-1).
+- **tmux 붙여넣기 검증은 `load-buffer` + `paste-buffer -p`(브래킷), 마우스는 SGR 누름+뗌 둘 다** (tui-2a-1 라이브).
