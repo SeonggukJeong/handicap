@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use handicap_engine::TracedResponse;
 use handicap_engine::extract::{jsonpath_first, jsonpath_is_simple, jsonpath_is_valid, stringify};
 use handicap_tui::pick::{
-    ListNote, PickValue, RowKind, Seg, ValueList, segments_to_path, value_list,
+    ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg, ValueList, segments_to_path, value_list,
 };
 use handicap_tui::text;
 
@@ -172,6 +172,37 @@ fn body_table() {
     let l = value_list(&resp(200, &[], &nested_arrays(200, "1")), false, 128);
     assert_eq!(body_rows(&l), ["본문 전체"]);
     assert_eq!(l.notes, [ListNote::TooDeep]);
+
+    // 7: 경로 글자 합계 초과 — 3만 자 키 아래 숫자 배열(본문은 64KB 이하)
+    let long_key = "k".repeat(30_000);
+    let nums = vec!["0"; 16_000].join(",");
+    let b = format!(r#"{{"{long_key}":[{nums}]}}"#);
+    assert!(b.len() <= 64 * 1024);
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l), ["본문 전체"]);
+    assert_eq!(l.notes, [ListNote::TooManyPaths]);
+    assert_eq!(l.rows.len(), 2); // 코드 + 본문 전체
+    assert_eq!(l.notes[0].text(), text::PICK_TOO_MANY_PATHS);
+    // 같은 꼴, 합계가 한도 아래 — 값 줄들·안내 없음
+    let key100 = "k".repeat(100);
+    let nums = vec!["0"; 1000].join(",");
+    let b = format!(r#"{{"{key100}":[{nums}]}}"#);
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l).len(), 1000);
+    assert!(l.notes.is_empty());
+    // 경계: 원소 1000개, 키 길이 L → 경로 합계 = 1000L + 6890
+    let nums = vec!["0"; 1000].join(",");
+    let sum = |len: usize| 1000 * len + 6890;
+    let fit = (MAX_PATH_BYTES - 6890) / 1000;
+    assert!(sum(fit) <= MAX_PATH_BYTES && sum(fit + 1) > MAX_PATH_BYTES);
+    let b = format!(r#"{{"{}":[{nums}]}}"#, "k".repeat(fit));
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l).len(), 1000);
+    assert!(l.notes.is_empty());
+    let b = format!(r#"{{"{}":[{nums}]}}"#, "k".repeat(fit + 1));
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l), ["본문 전체"]);
+    assert_eq!(l.notes, [ListNote::TooManyPaths]);
 }
 
 fn wrap(s: &str, layers: usize) -> String {
@@ -216,6 +247,11 @@ fn unwrap_rules() {
 
     // 풀기 포함 깊이 상한
     let b = nested_arrays(63, r#""[[[1]]]""#);
+    let l = value_list(&resp(200, &[], &b), false, 128);
+    assert_eq!(body_rows(&l), ["본문 전체"]);
+    assert_eq!(l.notes, [ListNote::TooDeep]);
+    // 정확한 경계: 62단 + 3단 = 65는 초과
+    let b = nested_arrays(62, r#""[[[1]]]""#);
     let l = value_list(&resp(200, &[], &b), false, 128);
     assert_eq!(body_rows(&l), ["본문 전체"]);
     assert_eq!(l.notes, [ListNote::TooDeep]);
@@ -281,6 +317,24 @@ fn unwrap_all(v: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+fn count_leaves(v: &serde_json::Value) -> usize {
+    use serde_json::Value;
+    match v {
+        Value::Array(a) => a.iter().map(count_leaves).sum(),
+        Value::Object(o) => o.values().map(count_leaves).sum(),
+        _ => 1,
+    }
+}
+
+fn server_nested(body: &str) -> serde_json::Value {
+    let first: serde_json::Value = serde_json::from_str(body).unwrap();
+    let shallow = match &first {
+        serde_json::Value::String(s0) => server_unwrap_str(s0).unwrap_or_else(|| first.clone()),
+        _ => first.clone(),
+    };
+    unwrap_all(&shallow)
+}
+
 fn server_find(body: &str, path: &str) -> Option<serde_json::Value> {
     let first: serde_json::Value = serde_json::from_str(body).ok()?;
     let shallow = match &first {
@@ -342,6 +396,11 @@ fn every_path_resolves_like_server() {
             }
         }
         assert!(seen > 0, "no body rows for {b}");
+        assert_eq!(
+            seen,
+            count_leaves(&server_nested(b)),
+            "leaf count differs in {b}"
+        );
     }
 }
 

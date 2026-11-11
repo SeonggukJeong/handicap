@@ -120,6 +120,7 @@ pub enum ListNote {
     Clipped(u32),
     TooLarge,
     TooDeep,
+    TooManyPaths,
     LaterRun,
 }
 
@@ -131,6 +132,7 @@ impl ListNote {
             ListNote::Clipped(kb) => text::record_clipped(*kb),
             ListNote::TooLarge => text::PICK_TOO_LARGE.to_string(),
             ListNote::TooDeep => text::PICK_TOO_DEEP.to_string(),
+            ListNote::TooManyPaths => text::PICK_TOO_MANY_PATHS.to_string(),
             ListNote::LaterRun => text::PICK_LATER_RUN.to_string(),
         }
     }
@@ -200,6 +202,37 @@ pub fn segments_to_path(segs: &[Seg]) -> String {
         }
     }
     out
+}
+
+/// 본문 값 줄들의 경로 글자 바이트 합계 상한(spec §2.1 표 7행).
+pub const MAX_PATH_BYTES: usize = 4 * 1024 * 1024;
+
+/// `segments_to_path(segs).len()`을 문자열을 만들지 않고 센다.
+fn path_len(segs: &[Seg]) -> usize {
+    let mut n = 1;
+    for seg in segs {
+        n += match seg {
+            Seg::Index(i) => 2 + i.to_string().len(),
+            Seg::Key(k) if is_ident(k) => 1 + k.len(),
+            Seg::Key(k) => {
+                4 + k
+                    .chars()
+                    .map(|c| match c {
+                        '\\' | '\'' => 2,
+                        c if (c as u32) < 0x20 => 6,
+                        c => c.len_utf8(),
+                    })
+                    .sum::<usize>()
+            }
+        };
+    }
+    n
+}
+
+/// 걷기를 멈춘 이유.
+enum Stop {
+    Deep,
+    Paths,
 }
 
 // ---------- 순서를 지키는 본문 트리 ----------
@@ -290,34 +323,40 @@ struct Walker {
     rows: Vec<ValueRow>,
     segs: Vec<Seg>,
     unwrapped: bool,
+    path_bytes: usize,
 }
 
-/// 깊이가 `PRETTY_MAX_DEPTH`를 넘으면 `Err(())` — 재귀는 그 깊이에서 멈춘다.
+/// 깊이가 `PRETTY_MAX_DEPTH`를 넘거나 경로 글자 합계가 `MAX_PATH_BYTES`를 넘으면 `Err` — 거기서 멈춘다.
 impl Walker {
-    fn push(&mut self, value: PickValue) {
+    fn push(&mut self, value: PickValue) -> Result<(), Stop> {
+        self.path_bytes += path_len(&self.segs);
+        if self.path_bytes > MAX_PATH_BYTES {
+            return Err(Stop::Paths);
+        }
         self.rows.push(ValueRow {
             kind: RowKind::Body {
                 path: segments_to_path(&self.segs),
             },
             value,
         });
+        Ok(())
     }
 
-    fn walk(&mut self, node: &Node, depth: usize) -> Result<(), ()> {
+    fn walk(&mut self, node: &Node, depth: usize) -> Result<(), Stop> {
         match node {
-            Node::Null => self.push(PickValue::Null),
-            Node::Bool(b) => self.push(PickValue::Bool(*b)),
-            Node::Num(n) => self.push(PickValue::Number(n.clone())),
+            Node::Null => self.push(PickValue::Null)?,
+            Node::Bool(b) => self.push(PickValue::Bool(*b))?,
+            Node::Num(n) => self.push(PickValue::Number(n.clone()))?,
             Node::Str(s) => match unwrap_str(s) {
                 Some(inner) => {
                     self.unwrapped = true;
                     self.walk(&inner, depth)?;
                 }
-                None => self.push(PickValue::Str(s.clone())),
+                None => self.push(PickValue::Str(s.clone()))?,
             },
             Node::Arr(items) => {
                 if depth + 1 > PRETTY_MAX_DEPTH {
-                    return Err(());
+                    return Err(Stop::Deep);
                 }
                 for (i, n) in items.iter().enumerate() {
                     self.segs.push(Seg::Index(i));
@@ -328,7 +367,7 @@ impl Walker {
             }
             Node::Obj(entries) => {
                 if depth + 1 > PRETTY_MAX_DEPTH {
-                    return Err(());
+                    return Err(Stop::Deep);
                 }
                 for (k, n) in entries {
                     self.segs.push(Seg::Key(k.clone()));
@@ -393,19 +432,25 @@ pub fn value_list(resp: &TracedResponse, clipped_resp: bool, limit_kb: u32) -> V
                     rows: Vec::new(),
                     segs: Vec::new(),
                     unwrapped: false,
+                    path_bytes: 0,
                 };
                 match w.walk(&root, 0) {
                     Ok(()) => {
-                        // 7
+                        // 8
                         rows.append(&mut w.rows);
                         if w.unwrapped {
                             notes.push(ListNote::Unwrapped);
                         }
                     }
-                    Err(()) => {
+                    Err(Stop::Deep) => {
                         // 6: 풀기까지 마친 값의 중첩이 64단 초과
                         rows.push(body_text_row());
                         notes.push(ListNote::TooDeep);
+                    }
+                    Err(Stop::Paths) => {
+                        // 7: 경로 글자 합계 초과 — 모은 줄은 버린다
+                        rows.push(body_text_row());
+                        notes.push(ListNote::TooManyPaths);
                     }
                 }
             }

@@ -509,5 +509,7 @@ pub const PICK_UNWRAPPED: &str = "문자열로 감싼 JSON을 풀어서 표시 �
 pub const PICK_ENGINE_TRUNCATED: &str = "1 MiB에서 잘린 응답은 본문 조건을 달 수 없습니다";
 pub const PICK_TOO_LARGE: &str = "64KB를 넘는 본문은 값을 고를 수 없습니다";
 pub const PICK_TOO_DEEP: &str = "너무 깊게 중첩된 본문은 값을 고를 수 없습니다";
+pub const PICK_TOO_MANY_PATHS: &str =
+    "키가 너무 길거나 값이 너무 많은 본문은 값을 고를 수 없습니다";
 pub const PICK_LATER_RUN: &str =
     "같은 스텝이 뒤에 다시 실행됐습니다 — 판정은 마지막 실행의 응답을 봅니다";

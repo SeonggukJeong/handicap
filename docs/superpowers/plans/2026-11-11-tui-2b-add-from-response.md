@@ -69,7 +69,7 @@ spec §2.1, §4.1. US1·US4의 토대.
 - `pub enum PickValue { Status(u16), Header(String), Null, Bool(bool), Number(String), Str(String), BodyText }` — `Number`는 §2.4의 숫자 글자(정수 그대로, 소수는 Rust `f64` `{}` 표기).
 - `pub enum RowKind { Status, Header { name: String }, Body { path: String }, BodyText }`.
 - `pub struct ValueRow { pub kind: RowKind, pub value: PickValue }` + `pub fn target(&self) -> String`(대상 글자 — `panel_settings::condition_target`에 `Condition { source, path, .. }`을 넣어 얻는다) + `pub fn shown(&self) -> String`(받은 값 글자: 문자열은 `"…"`, `Null`은 `null`, `BodyText`는 `text::PICK_BODY_TEXT_VALUE`).
-- `pub enum ListNote { Unwrapped, EngineTruncated, Clipped(u32), TooLarge, TooDeep, LaterRun }` + `pub fn text(&self) -> String`.
+- `pub enum ListNote { Unwrapped, EngineTruncated, Clipped(u32), TooLarge, TooDeep, TooManyPaths, LaterRun }` + `pub fn text(&self) -> String`. (`TooManyPaths` = spec §2.1 표 7행 — Task 1 code-quality 리뷰로 추가, 2026-11-11: `pub const MAX_PATH_BYTES: usize = 4 * 1024 * 1024`, 걷는 도중 값 줄 경로 글자 합계가 넘으면 그 자리에서 멈추고 `본문 전체` + 이 안내. `text::PICK_TOO_MANY_PATHS = "키가 너무 길거나 값이 너무 많은 본문은 값을 고를 수 없습니다"`.)
 - `pub struct ValueList { pub rows: Vec<ValueRow>, pub notes: Vec<ListNote> }`.
 - `pub fn value_list(resp: &handicap_engine::TracedResponse, clipped_resp: bool, limit_kb: u32) -> ValueList`.
 - `pub enum Seg { Key(String), Index(usize) }`, `pub fn segments_to_path(segs: &[Seg]) -> String`.
@@ -82,7 +82,7 @@ spec §2.1, §4.1. US1·US4의 토대.
 - 감싼 JSON 풀기: 서버 `check.rs` `unwrap_json_str`와 같은 규칙(JSON 공백 4종 뒤 첫 글자가 `{`·`[`·`"`인 문자열만 시도, 최대 3겹, 객체·배열이 되면 그 값, 아니면 원래 문자열 그대로). 뿌리 문자열에 한 번, 그 뒤 모든 문자열 값에 한 번씩(푼 값 안쪽도 계속 본다). 한 겹이라도 풀었으면 `ListNote::Unwrapped`.
 - 깊이: 줄을 내며 걷는 동안 객체·배열 중첩을 센다(풀기로 생긴 것 포함). 64를 넘으면 그 자리에서 멈추고 표 6행. `serde_json` 오류 문구가 `recursion limit exceeded`로 시작하면(128단) 5행이 아니라 6행.
 - 64KB 판정은 `resp.body.len() > inspect::PRETTY_MAX_BYTES`(읽기 전에).
-- 뿌리가 스칼라면 경로 `$` 한 줄. 빈 객체·빈 배열은 줄 없음(본문 줄이 0개여도 7행이다 — `본문 전체`로 바꾸지 않는다, GUI 트리와 같다).
+- 뿌리가 스칼라면 경로 `$` 한 줄. 빈 객체·빈 배열은 줄 없음(본문 줄이 0개여도 8행이다 — `본문 전체`로 바꾸지 않는다, GUI 트리와 같다).
 - `segments_to_path`: spec §2.1 "경로 글자"(`\u` 뒤는 소문자 16진 4자리).
 
 - [ ] **Step 1: 실패하는 테스트 작성** (`crates/tui/tests/pick_test.rs`)
@@ -90,7 +90,7 @@ spec §2.1, §4.1. US1·US4의 토대.
   1. `rows_in_order`: 헤더 2개 + `{"b":1,"a":"x","c":{"d":null,"e":[true,2.5]}}` → 대상 `["상태코드", "헤더 …"×2, "b", "a", "c.d", "c.e[0]", "c.e[1]"]`, 받은 값 `["200", …, "1", "\"x\"", "null", "true", "2.5"]`. **`b`가 `a`보다 먼저**(정렬이 아님).
   2. `duplicate_key_last_value_first_position`: `{"a":1,"b":2,"a":3}` → `["a", "b"]`, `a`의 값 `3`.
   3. `root_scalar_and_empty_containers`: `7` → 대상 `본문`·경로 `$`; `"hello"` → `본문`; `{}`·`[]`·`{"a":{},"b":[]}` → 본문 줄 0개이고 `본문 전체`도 없음.
-  4. `body_table`(spec §2.1 표 7행 각각, 헤더 없이 코드 줄 + 본문 줄만 본다):
+  4. `body_table`(spec §2.1 표 8행 각각, 헤더 없이 코드 줄 + 본문 줄만 본다 — 7행 `TooManyPaths`: `{"<3만 자 키>":[0,0,…]}`(64KB 이하) → `본문 전체` + `[TooManyPaths]`, 같은 꼴인데 합계가 한도 아래면 값 줄):
      - 빈 본문·잘림 없음 → 본문 줄 없음·안내 없음.
      - `body_truncated: true`(본문 `{"a":1}`) → `본문 전체` **없음**, 안내 `[EngineTruncated]`.
      - `body_truncated: true` + `clipped_resp: true` → 위와 같다(2행이 이김).
