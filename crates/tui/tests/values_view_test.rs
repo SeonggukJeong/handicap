@@ -93,16 +93,13 @@ struct Fix {
 }
 
 fn rv(target: &str, shown: &str) -> RowText {
-    RowText {
-        target: target.into(),
-        shown: shown.into(),
-    }
+    RowText::new(target, shown)
 }
 
 fn fix(rows: Vec<RowText>) -> Fix {
     let tw = rows
         .iter()
-        .map(|r| Span::raw(r.target.clone()).width())
+        .map(|r| Span::raw(r.target().to_string()).width())
         .max()
         .unwrap_or(0);
     let marks = vec![(0, false); rows.len()];
@@ -574,4 +571,16 @@ fn choice_head_wraps() {
     let last_head = txt.lines().nth(yc - 1).unwrap();
     assert!(last_head.trim_end().ends_with('…'), "{last_head:?}\n{txt}");
     assert!(!txt.contains("END"), "{txt}");
+    // 머리가 한도까지 차도 제목 줄 + 고른 목록 줄은 남는다(spec §3.1 "고른 줄이 늘 보인다").
+    assert!(
+        txt.lines().any(|l| l.contains("▶ status")),
+        "고른 줄이 안 보인다\n{txt}"
+    );
+    for h in 7..=14u16 {
+        let (_, txt) = draw(80, h, &v, &[]);
+        assert!(
+            txt.lines().any(|l| l.contains("▶ status")),
+            "높이 {h}: 고른 줄이 안 보인다\n{txt}"
+        );
+    }
 }

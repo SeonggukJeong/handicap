@@ -95,8 +95,8 @@ fn row_line(
     let text_style = Style::default().fg(color(C_TEXT));
     let muted = Style::default().fg(color(C_MUTED));
     let prefix = if selected { "▶ " } else { "  " };
-    let target = pad_to(&fit_head(&r.target, tw), tw);
-    let shown = &r.shown;
+    let target = pad_to(&fit_head(r.target(), tw), tw);
+    let shown = r.shown();
     let mark = mark_text(marks.0, marks.1);
     let left_w = 2 + tw + 2;
     let mw = text_width(&mark);

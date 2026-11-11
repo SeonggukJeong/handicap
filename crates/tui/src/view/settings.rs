@@ -323,10 +323,15 @@ pub(crate) fn overlay_rows(
                 .collect();
             // 높이가 모자라면 머리 줄 → 안 고른 줄 순으로 뺀다(고른 줄이 마지막까지 남는다).
             if bh >= 3 {
-                // 머리는 줄바꿈 — 두 선택 줄 + 목록 1줄을 남기되 최소 1줄. 넘치면 마지막 머리 줄 끝을 `…`로.
-                let wrapped = wrap_width(&sanitize(head), w.saturating_sub(2));
-                let cap = bh.saturating_sub(3).max(1);
-                let cut = wrapped.len() > cap;
+                // 머리는 줄바꿈 — 제목 줄 + 고른 목록 줄 + 두 선택 줄을 남기되 최소 1줄. 넘치면 마지막 머리 줄 끝을 `…`로.
+                let cap = bh.saturating_sub(4).max(1);
+                // 머리는 최대 64KB 값일 수 있다 — 보일 줄 수를 넉넉히 덮는 만큼만 잘라 줄바꿈한다(매 프레임 전체를 훑지 않게).
+                let budget = (cap + 1).saturating_mul(w.max(1)).saturating_mul(4);
+                let mut it = head.chars();
+                let short: String = it.by_ref().take(budget).collect();
+                let truncated = it.next().is_some();
+                let wrapped = wrap_width(&sanitize(&short), w.saturating_sub(2));
+                let cut = truncated || wrapped.len() > cap;
                 let n = wrapped.len().min(cap);
                 for (i, l) in wrapped.into_iter().take(n).enumerate() {
                     let l = if cut && i + 1 == n {

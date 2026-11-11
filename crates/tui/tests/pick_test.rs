@@ -930,18 +930,18 @@ fn values_state_texts() {
     assert_eq!(state.cursor, 0);
     assert_eq!(state.texts.len(), rows.len());
     for (t, r) in state.texts.iter().zip(&rows) {
-        assert_eq!(t.target, sanitize(&r.target()));
-        assert_eq!(t.shown, sanitize(&r.shown()));
+        assert_eq!(t.target(), sanitize(&r.target()));
+        assert_eq!(t.shown(), sanitize(&r.shown()));
     }
-    assert!(state.texts[1].shown.contains('\u{FFFD}'));
+    assert!(state.texts[1].shown().contains('\u{FFFD}'));
     // 가장 넓은 대상 = `헤더 한글한글한글`(4 + 1 + 12 = 17칸) — 손 계산.
-    assert_eq!(state.texts[1].target, "헤더 한글한글한글");
+    assert_eq!(state.texts[1].target(), "헤더 한글한글한글");
     assert_eq!(state.target_width, 17);
     // 화면 폭 함수와 같은 결과.
     let by_view = state
         .texts
         .iter()
-        .map(|t| ratatui::text::Span::raw(t.target.clone()).width())
+        .map(|t| ratatui::text::Span::raw(t.target().to_string()).width())
         .max();
     assert_eq!(Some(state.target_width), by_view);
     // 막힘 — 줄 없음.

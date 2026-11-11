@@ -686,8 +686,26 @@ pub struct ValuesState {
 /// 화면에 쓸 한 줄의 글자(`inspect::sanitize`를 마친 대상·받은 값). 값이 들어 있어 `Debug`를 달지 않는다.
 #[derive(Clone)]
 pub struct RowText {
-    pub target: String,
-    pub shown: String,
+    target: String,
+    shown: String,
+}
+
+impl RowText {
+    /// 원격 글자를 받아 `sanitize`해 든다 — 이 생성자가 유일한 길이라 뷰는 다시 `sanitize`하지 않아도 된다.
+    pub fn new(target: &str, shown: &str) -> RowText {
+        RowText {
+            target: sanitize(target),
+            shown: sanitize(shown),
+        }
+    }
+
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    pub fn shown(&self) -> &str {
+        &self.shown
+    }
 }
 
 impl ValuesState {
@@ -698,12 +716,9 @@ impl ValuesState {
         if blocked.is_none() {
             texts.reserve(list.rows.len());
             for r in &list.rows {
-                let target = sanitize(&r.target());
-                target_width = target_width.max(text_width(&target));
-                texts.push(RowText {
-                    target,
-                    shown: sanitize(&r.shown()),
-                });
+                let t = RowText::new(&r.target(), &r.shown());
+                target_width = target_width.max(text_width(t.target()));
+                texts.push(t);
             }
         }
         ValuesState {
