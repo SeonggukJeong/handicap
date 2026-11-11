@@ -234,24 +234,34 @@ pub fn set_condition(
     })
 }
 
-/// `ConditionOp` 정의 순서 중 `source`가 허용하는 것.
+/// 그 대상에서 고를 수 있는 규칙 — **GUI 드롭다운과 같은 순서**(`ui/src/monitor/conditions.ts` `OPS_BY_SOURCE`:
+/// 본문 값·헤더는 `=` `≠` `키 있음` `값 있음` `글자 포함` `>` `<` `≥` `≤` `∈`, 본문 전체 글자는 `글자 포함` `값 있음`).
+/// 집합은 서버 허용 표(`ConditionSource::allows`)와 같다 — 테스트가 둘 다 대조한다.
 pub fn ops_for(source: ConditionSource) -> Vec<ConditionOp> {
     use ConditionOp as O;
-    [
-        O::Exists,
-        O::NotEmpty,
+    const TEN: [ConditionOp; 10] = [
         O::Eq,
         O::Ne,
+        O::Exists,
+        O::NotEmpty,
         O::Contains,
         O::Gt,
         O::Lt,
         O::Gte,
         O::Lte,
         O::OneOf,
-    ]
-    .into_iter()
-    .filter(|o| source.allows(*o))
-    .collect()
+    ];
+    let order: &[ConditionOp] = match source {
+        ConditionSource::Body | ConditionSource::Header => &TEN,
+        ConditionSource::Status => &[O::Eq, O::Ne, O::Gt, O::Lt, O::Gte, O::Lte, O::OneOf],
+        ConditionSource::BodyText => &[O::Contains, O::NotEmpty],
+    };
+    // 서버가 안 받는 규칙은 순서 표에 있어도 내놓지 않는다(순서는 GUI, 허용 여부는 서버).
+    order
+        .iter()
+        .copied()
+        .filter(|o| source.allows(*o))
+        .collect()
 }
 
 /// (조건 수, 표시 값 수) — 둘 다 0이면 확인 없음.

@@ -316,18 +316,79 @@ fn remove_and_swap() {
 #[test]
 fn ops_for_matches_server_allows() {
     use ConditionOp::*;
+    // 순서는 GUI 드롭다운(`ui/src/monitor/conditions.ts` `OPS_BY_SOURCE`)과 같다.
+    let ten = vec![Eq, Ne, Exists, NotEmpty, Contains, Gt, Lt, Gte, Lte, OneOf];
+    assert_eq!(ops_for(ConditionSource::Body), ten);
+    assert_eq!(ops_for(ConditionSource::Header), ten);
     assert_eq!(
         ops_for(ConditionSource::Status),
         vec![Eq, Ne, Gt, Lt, Gte, Lte, OneOf]
     );
-    assert_eq!(ops_for(ConditionSource::BodyText), vec![NotEmpty, Contains]);
-    assert_eq!(ops_for(ConditionSource::Body).len(), 10);
-    assert_eq!(ops_for(ConditionSource::Header).len(), 10);
+    assert_eq!(ops_for(ConditionSource::BodyText), vec![Contains, NotEmpty]);
+    // 집합은 서버 허용 표와 같다(순서만 GUI를 따른다) — 서버가 안 받는 규칙을 고르게 두지 않는다.
+    for source in [
+        ConditionSource::Body,
+        ConditionSource::Header,
+        ConditionSource::Status,
+        ConditionSource::BodyText,
+    ] {
+        let listed = ops_for(source);
+        for op in ten.iter().copied() {
+            assert_eq!(listed.contains(&op), source.allows(op), "{source:?} {op:?}");
+        }
+        assert_eq!(
+            listed.len(),
+            ten.iter().filter(|o| source.allows(**o)).count(),
+            "{source:?} 중복 없음"
+        );
+    }
     let flags: Vec<_> = ops_for(ConditionSource::Body)
         .into_iter()
         .filter(|o| o.has_flags())
         .collect();
     assert_eq!(flags, vec![Eq, Ne, Contains, OneOf]);
+}
+
+/// GUI 파일에서 직접 읽어 대조한다 — GUI가 드롭다운 순서를 바꾸면 이 테스트가 알려 준다.
+#[test]
+fn ops_order_matches_gui_dropdown() {
+    let ts = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/src/monitor/conditions.ts"
+    ))
+    .unwrap();
+    // `[ … ]` 안의 따옴표 문자열들.
+    fn list(src: &str, after: &str) -> Vec<String> {
+        let at = src.find(after).unwrap_or_else(|| panic!("{after:?} 없음"));
+        let rest = &src[at + after.len()..];
+        let open = rest.find('[').unwrap();
+        let close = rest.find(']').unwrap();
+        rest[open + 1..close]
+            .split(',')
+            .map(|t| t.trim().trim_matches('"').to_string())
+            .filter(|t| !t.is_empty())
+            .collect()
+    }
+    let names = |source: ConditionSource| -> Vec<String> {
+        ops_for(source)
+            .into_iter()
+            .map(|o| {
+                serde_json::to_value(o)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    };
+    let ten = list(&ts, "const TEN: readonly ConditionOp[] =");
+    assert_eq!(ten.len(), 10, "{ten:?}");
+    // body·header는 TEN을 그대로 쓴다.
+    assert!(ts.contains("body: TEN,") && ts.contains("header: TEN,"));
+    assert_eq!(names(ConditionSource::Body), ten);
+    assert_eq!(names(ConditionSource::Header), ten);
+    assert_eq!(names(ConditionSource::Status), list(&ts, "status:"));
+    assert_eq!(names(ConditionSource::BodyText), list(&ts, "body_text:"));
 }
 
 #[test]
