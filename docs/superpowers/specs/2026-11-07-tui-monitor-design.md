@@ -2,7 +2,7 @@
 
 - 날짜: 2026-11-07 · 유형: `user-path` + `platform` · 결정: [ADR-0055](../../adr/0055-tui-monitor.md)
 - 범위: 설계는 세 슬라이스 전체(§0), **구현 계획은 슬라이스마다 따로**(1a·1b·2a-1·2a-2·2b 각각 별도 plan).
-- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48), **2a 설계 확정**(2026-11-11, §6 — 목업 `2026-11-11-tui-2a-mockups/`), 2b 미착수.
+- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48), **2a 설계 확정**(2026-11-11, §6 — 목업 `2026-11-11-tui-2a-mockups/`), **2a-1 구현**(plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md` — 칸 설정 수정·환경/시나리오 변수 값 수정·파일 저장; 미리 실행은 2a-2), 2b 미착수.
 
 ## 사용자 스토리 (US)
 
