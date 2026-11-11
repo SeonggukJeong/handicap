@@ -121,7 +121,7 @@ pub fn check_now(&self, board_id: &str, panel_id: &str) -> CheckNow
 
 | 상수 | 값 | 쓰는 곳 |
 |---|---|---|
-| `KEYS_CHECK_NOW` | `r 지금 점검` | 모니터 키 줄(`←↑↓→ 칸 이동` 뒤, `e 오류 보기` 앞)·칸 설정 메뉴 키 줄(`1–14 번호` 뒤, `Enter 수정` 앞 — `edit_keys`의 메뉴 갈래만. 편집 상태 없는 방어 경로 `sub_keys(Screen::Settings)`에는 넣지 않는다: 그 경로에서는 `r`이 동작하지 않는다) |
+| `KEYS_CHECK_NOW` | `r 지금 점검` | 모니터 키 줄(**`b 테두리` 바로 뒤** — 키 줄은 좁으면 앞 조각부터 통째로 빠지므로, 새 조각이 기존 `Tab 다음 보드` 안내를 밀어내지 않는 자리. 80칸에서: 보드 하나면 `r 지금 점검  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료`(`b 테두리`가 빠짐), 보드 여럿이면 지금과 같은 `Tab 다음 보드  ←↑↓→ 칸 이동  …`(`r` 조각은 90칸부터))·칸 설정 메뉴 키 줄(`1–14 번호` 뒤, `Enter 수정` 앞 — `edit_keys`의 메뉴 갈래만. 편집 상태 없는 방어 경로 `sub_keys(Screen::Settings)`에는 넣지 않는다: 그 경로에서는 `r`이 동작하지 않는다) |
 | `HELP_KEYS`에 한 줄 | (`r`, `선택 칸 지금 점검(주기 전에)`) — `e` 줄 앞 | 도움말(10줄 → 11줄, 배열 길이 타입도 11로). 높이가 모자라면 기존 순서(백업 줄 → 경고 줄 → 키 줄 뒤쪽 → 복사·무입력 안내)로 덜 보인다 — 키 줄이 하나 늘어 그 문턱이 한 줄 당겨진다. 80×24·짧은 경로에서는 키 11줄·경고·백업이 모두 들어간다(§7) |
 | `CHECK_NOW_SENT` | `지금 점검` | 머리 줄 알림 `지금 점검 HH:MM:SS` |
 | `CHECK_OFF` | `점검이 꺼져 있습니다` | 머리 줄 경고·칸 설정 안내 |
@@ -242,6 +242,7 @@ TUI는 세션을 시작할 때 모든 보드를 켠다(`session.rs`가 보드마
 - **자세히·요청·응답 화면에서 다시 점검 키 없음** — `Esc`로 칸 설정에 돌아가 `r`(재개 신호: 사용자 불편 보고).
 - **꺼진 보드는 지금 점검이 안 된다**(옛 "미리 실행"은 꺼진 보드에서도 돌았다) — TUI는 늘 보드를 켜므로 TUI 안에서는 드러나지 않는다.
 - **지금 점검도 막대를 하나 쓴다** — 막대 시각 줄의 간격이 그 구간에서 고르지 않게 보인다(상위 설계 §5.1의 "점검이 밀리거나 끊긴 구간"과 같은 모양).
+- **80칸 키 줄**: 보드가 여럿이면 `r 지금 점검` 안내가 키 줄에 없고(키는 동작하고 도움말에 있다, 90칸부터 보임), 보드가 하나면 `b 테두리` 안내가 빠진다(도움말에 있다).
 - **대기 창에 제한 시간 없음** — 새 결과가 오지 않는 경우엔 `Esc`나 5분 복귀까지 대기 창이 남는다: 폴링이 끊김(머리 줄이 `서버 응답 없음`을 보인다) · 대기 중 밖에서 그 보드를 끔 · PC 시계가 뒤로 가서 새 결과의 `at_ms`(벽시계)가 기준보다 작아짐.
 - 기준을 읽은 직후 결과가 들어온 드문 순간엔 덤 회차가 1회 돈다(§3.2).
 - **메뉴 `p`·판정 조건 추가**는 사용자가 필요해지면 새 요청으로(US 앵커 원문).
@@ -273,6 +274,7 @@ TUI는 세션을 시작할 때 모든 보드를 켠다(`session.rs`가 보드마
 | 자세히 화면의 뒤로 = 목록 고정 | `grep -n "Some(Screen::Errors)" crates/tui/src/app.rs` |
 | 머리 줄 알림 종류 3개 | `grep -n "pub enum HeaderNotice" -A8 crates/tui/src/view/monitor.rs` |
 | 도움말 줄 수 단언 | `grep -n "HELP_KEYS.len()" crates/tui/tests/view_test.rs` |
+| 키 줄은 폭−1 칸에 앞 조각부터 통째로 뺀다(80칸 조합 계산의 근거) | `grep -n "pub(crate) fn key_bar" -A7 crates/tui/src/view/mod.rs` |
 | 본문 없는 POST 선례(`start`·`stop`) | `grep -n "monitor-boards/{id}/st" crates/controller/src/app.rs` |
 | tokio 버전 | `grep -n -A1 '^name = "tokio"$' Cargo.lock` → 1.52.3 |
 | `Notified`는 만들어진 뒤의 `notify_waiters()`를 폴링 전이어도 받는다 · `notify_waiters`는 허가를 저장하지 않는다 | `grep -n "as soon as it has been created\|no permit is stored" ~/.cargo/registry/src/*/tokio-1.52.3/src/sync/notify.rs` |
