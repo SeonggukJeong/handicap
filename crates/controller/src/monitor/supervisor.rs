@@ -39,6 +39,10 @@ pub const MAX_CONCURRENT_CHECKS: usize = 32;
 /// 정지 시 task가 취소에 응하기를 기다리는 상한 — 넘으면 `abort` 백스톱.
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
+/// 지금 점검으로 깨운 회차와 직전 회차 시작 사이의 최소 간격(주기 최솟값 1초와 같다) — 지금 점검을
+/// 아무리 눌러도 한 실행 단위가 설정으로 허용된 가장 빠른 주기보다 자주 돌지 않게.
+pub(crate) const CHECK_NOW_MIN_GAP: Duration = Duration::from_secs(1);
+
 /// 칸 하나의 점검 결과 버퍼. `std::sync::Mutex`로 감싸 보관하고 `.await` 넘어 잡지 않는다.
 ///
 /// `records`는 `results`와 별도(최대 그 칸의 `bar_count`) — `snapshot()`(매 1초 `/status`)이
@@ -161,11 +165,14 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// 다음). `members`(칸 버퍼, 그 칸 `bar_count`)는 `check` 결과와 **같은 순서**다: 회차마다 모든
 /// 칸의 `running`을 켜고, 결과를 각 칸 버퍼에 push하며 예산(초)을 저장한다. 취소되면 진행 중
 /// 점검도 drop한다(결과·기록 미기록, `running`은 가드가 끈다). 기록은 칸마다 최근 `bar_count`개.
+/// 지금 점검으로 깨우면(`kick.notify_waiters()`) 주기를 기다리지 않는다(바닥 1초, 점검 중 요청은
+/// 버린다 — 허가를 저장하지 않으므로).
 pub(crate) async fn unit_loop<F, Fut>(
     interval: Duration,
     members: Vec<(SharedBuf, usize)>,
     check: F,
     token: CancellationToken,
+    kick: Arc<tokio::sync::Notify>,
 ) where
     F: Fn() -> Fut,
     Fut: Future<Output = (Vec<(CheckResult, Arc<CheckRecord>)>, u32)>,
@@ -181,16 +188,28 @@ pub(crate) async fn unit_loop<F, Fut>(
             _ = token.cancelled() => return,
             r = check() => r,
         };
+        // 결과를 버퍼에 넣기 **전에** 만든다: 이 결과를 본 뒤에 온 지금-점검 요청(요청한 쪽은 새
+        // 결과를 기준으로 읽는다)을 놓치지 않게. push 뒤에 만들면 그 사이에 떨어진 깨우기가 사라져
+        // 요청한 쪽이 다음 정기 회차까지 기다리는 틈이 생긴다. 점검 중(`check()` 동안)에는 만들지
+        // 않으므로 그때 온 요청은 버려진다(규칙 3). 이 순서는 가상 시계 단일 스레드 테스트로 지킬
+        // 수 없다(push와 생성 사이에 다른 태스크가 끼지 않는다) — 이 주석과 리뷰로 지킨다.
+        let kicked = kick.notified();
+        tokio::pin!(kicked);
         // 결과가 모자라면 남은 가드는 drop되며 `running`만 끈다(실제로는 칸 수와 같다).
         for ((guard, (_, bar_count)), (result, record)) in
             guards.into_iter().zip(&members).zip(pairs)
         {
             guard.finish_round(result, record, *bar_count, Some(budget_secs));
         }
+        let floor = started + interval.min(CHECK_NOW_MIN_GAP);
         tokio::select! {
             biased;
             _ = token.cancelled() => return,
             _ = tokio::time::sleep_until(started + interval) => {}
+            _ = async {
+                kicked.as_mut().await;
+                tokio::time::sleep_until(floor).await;
+            } => {}
         }
     }
 }
@@ -207,6 +226,30 @@ pub(crate) async fn panel_loop<F, Fut>(
     F: Fn() -> Fut,
     Fut: Future<Output = (CheckResult, Arc<CheckRecord>)>,
 {
+    panel_loop_kick(
+        interval,
+        bar_count,
+        check,
+        buf,
+        token,
+        Arc::new(tokio::sync::Notify::new()),
+    )
+    .await;
+}
+
+/// [`panel_loop`]에 깨우기 신호를 직접 넘기는 판 — 지금 점검 테스트용.
+#[cfg(test)]
+pub(crate) async fn panel_loop_kick<F, Fut>(
+    interval: Duration,
+    bar_count: usize,
+    check: F,
+    buf: SharedBuf,
+    token: CancellationToken,
+    kick: Arc<tokio::sync::Notify>,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = (CheckResult, Arc<CheckRecord>)>,
+{
     let wrapped = || {
         let fut = check();
         async move {
@@ -214,7 +257,7 @@ pub(crate) async fn panel_loop<F, Fut>(
             (vec![(result, record)], 0)
         }
     };
-    unit_loop(interval, vec![(buf, bar_count)], wrapped, token).await;
+    unit_loop(interval, vec![(buf, bar_count)], wrapped, token, kick).await;
 }
 
 /// 허가(permit)를 얻은 뒤 `fut`를 실행하고 끝나면(또는 drop되면) 반납한다.
@@ -384,6 +427,8 @@ impl MonitorSupervisor {
                     (buf, p.bar_count as usize)
                 })
                 .collect();
+            // 실행 단위마다 깨우기 신호 하나(보관은 다음 task).
+            let kick = Arc::new(tokio::sync::Notify::new());
             handles.push(spawn_unit(
                 db.clone(),
                 plan,
@@ -392,6 +437,7 @@ impl MonitorSupervisor {
                 token.clone(),
                 slot.live.clone(),
                 self.inner.checks.clone(),
+                kick,
             ));
         }
         *lock(&slot.view) = Some(BoardView {
@@ -467,6 +513,7 @@ impl MonitorSupervisor {
 
 /// 실행 단위 하나의 루프 task. 세마포어 허가는 단위당 1개(회차 전체를 감싼다).
 /// `members`는 단위의 칸 순서(= `run_unit_check` 결과 순서).
+#[allow(clippy::too_many_arguments)]
 fn spawn_unit(
     db: Db,
     plan: UnitPlan,
@@ -475,6 +522,7 @@ fn spawn_unit(
     token: CancellationToken,
     live: Arc<AtomicUsize>,
     checks: Arc<tokio::sync::Semaphore>,
+    kick: Arc<tokio::sync::Notify>,
 ) -> JoinHandle<()> {
     match plan {
         UnitPlan::Whole(panel) => {
@@ -488,7 +536,7 @@ fn spawn_unit(
                     (vec![(result, rec)], panel.timeout_seconds)
                 })
             };
-            spawn_loop(interval, members, check, token, live)
+            spawn_loop(interval, members, check, token, live, kick)
         }
         UnitPlan::Steps(unit) => {
             let interval = Duration::from_secs(u64::from(unit.interval_seconds.max(1)));
@@ -514,7 +562,7 @@ fn spawn_unit(
                     (pairs, out.budget_secs)
                 })
             };
-            spawn_loop(interval, members, check, token, live)
+            spawn_loop(interval, members, check, token, live, kick)
         }
     }
 }
@@ -525,6 +573,7 @@ fn spawn_loop<F, Fut>(
     check: F,
     token: CancellationToken,
     live: Arc<AtomicUsize>,
+    kick: Arc<tokio::sync::Notify>,
 ) -> JoinHandle<()>
 where
     F: Fn() -> Fut + Send + 'static,
@@ -532,7 +581,7 @@ where
 {
     tokio::spawn(async move {
         let _live = LiveGuard::enter(&live);
-        unit_loop(interval, members, check, token).await;
+        unit_loop(interval, members, check, token, kick).await;
     })
 }
 
@@ -818,6 +867,135 @@ mod tests {
         assert!(buf_results(&buf).is_empty());
         tokio::time::sleep(Duration::from_secs(20)).await;
         assert_eq!(finished.load(Ordering::SeqCst), 0);
+    }
+
+    // ---- 지금 점검 깨우기 (paused time) ----
+
+    /// 점검이 `dur` 동안 돌고 시작 시각을 남기는 칸 1개 루프.
+    fn spawn_kick_loop(
+        interval: Duration,
+        dur: Duration,
+    ) -> (
+        Starts,
+        Arc<tokio::sync::Notify>,
+        CancellationToken,
+        JoinHandle<()>,
+    ) {
+        let t0 = Instant::now();
+        let starts: Starts = Arc::default();
+        let s2 = starts.clone();
+        let check = move || {
+            let s = s2.clone();
+            async move {
+                s.lock().unwrap().push(t0.elapsed());
+                tokio::time::sleep(dur).await;
+                pair(res(0, Verdict::Ok))
+            }
+        };
+        let kick = Arc::new(tokio::sync::Notify::new());
+        let token = CancellationToken::new();
+        let h = tokio::spawn(panel_loop_kick(
+            interval,
+            BUFFER_CAP,
+            check,
+            new_buf(),
+            token.clone(),
+            kick.clone(),
+        ));
+        (starts, kick, token, h)
+    }
+
+    fn secs(v: &[u64]) -> Vec<Duration> {
+        v.iter().map(|s| Duration::from_secs(*s)).collect()
+    }
+
+    async fn stop_and_starts(
+        starts: &Starts,
+        token: CancellationToken,
+        h: JoinHandle<()>,
+    ) -> Vec<Duration> {
+        token.cancel();
+        h.await.unwrap();
+        starts.lock().unwrap().clone()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kick_while_waiting_runs_early_and_resets_schedule() {
+        // 규칙 1·5: 주기 60초, 점검 1초. 10초에 깨우면 10초에 시작, 다음 정기는 70초.
+        let (starts, kick, token, h) =
+            spawn_kick_loop(Duration::from_secs(60), Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        kick.notify_waiters();
+        tokio::time::sleep(Duration::from_millis(65_500)).await; // t = 75.5초
+        assert_eq!(stop_and_starts(&starts, token, h).await, secs(&[0, 10, 70]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kick_respects_min_gap() {
+        // 규칙 2: 점검 0.1초, 0.3초에 깨우면 다음 시작은 정확히 1초(버리지 않고 미룬다).
+        let (starts, kick, token, h) =
+            spawn_kick_loop(Duration::from_secs(60), Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        kick.notify_waiters();
+        tokio::time::sleep(Duration::from_millis(4_700)).await; // t = 5초
+        assert_eq!(stop_and_starts(&starts, token, h).await, secs(&[0, 1]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kick_during_check_is_dropped() {
+        // 규칙 3: 점검 5초, 2초(점검 중)에 깨움 → 추가 회차 없음, 다음은 정기 60초.
+        let (starts, kick, token, h) =
+            spawn_kick_loop(Duration::from_secs(60), Duration::from_secs(5));
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        kick.notify_waiters();
+        tokio::time::sleep(Duration::from_millis(63_500)).await; // t = 65.5초
+        assert_eq!(stop_and_starts(&starts, token, h).await, secs(&[0, 60]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn repeated_kicks_while_waiting_run_once() {
+        // 규칙 4: 대기 중 연달아 3번 → 1회.
+        let (starts, kick, token, h) =
+            spawn_kick_loop(Duration::from_secs(60), Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        kick.notify_waiters();
+        kick.notify_waiters();
+        kick.notify_waiters();
+        tokio::time::sleep(Duration::from_secs(20)).await; // t = 30초
+        assert_eq!(stop_and_starts(&starts, token, h).await, secs(&[0, 10]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kicks_never_beat_one_second_interval() {
+        // 주기 1초: 0.3초·1.3초·2.3초에 깨워도 시작 간격은 1초 그대로.
+        let (starts, kick, token, h) =
+            spawn_kick_loop(Duration::from_secs(1), Duration::from_millis(100));
+        for _ in 0..3 {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            kick.notify_waiters();
+            tokio::time::sleep(Duration::from_millis(700)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await; // t = 3.5초
+        assert_eq!(
+            stop_and_starts(&starts, token, h).await,
+            secs(&[0, 1, 2, 3])
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancel_while_waiting_for_min_gap_stops_at_once() {
+        // 깨운 뒤 바닥(1초)을 기다리는 중 취소 → 다음 회차 없이 끝난다.
+        let (starts, kick, token, h) =
+            spawn_kick_loop(Duration::from_secs(60), Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        kick.notify_waiters();
+        tokio::time::sleep(Duration::from_millis(200)).await; // t = 0.5초 — 바닥 대기 중
+        token.cancel();
+        tokio::time::timeout(Duration::from_millis(1), h)
+            .await
+            .expect("루프가 즉시 끝나야 한다")
+            .unwrap();
+        assert_eq!(starts.lock().unwrap().clone(), secs(&[0]));
     }
 
     // ---- 동시 점검 상한 (paused time, fake check, no SQLite) ----
@@ -1217,6 +1395,7 @@ mod tests {
             vec![(b1.clone(), 5), (b2.clone(), 5)],
             check,
             token.clone(),
+            Arc::new(tokio::sync::Notify::new()),
         ));
         tokio::time::sleep(Duration::from_millis(500)).await;
         token.cancel();
