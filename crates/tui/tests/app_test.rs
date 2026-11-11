@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_tui::app::{
     Action, Dir, FetchReq, Fetched, IDLE_RETURN, KeyCtx, Screen, SubViews, effective_server_down,
-    handle_key, handle_mouse, idle_expired, move_sel, screen_after_start, sub_keys, toggle_allowed,
+    handle_key, handle_mouse, idle_expired, is_user_input, move_sel, screen_after_start, sub_keys,
+    toggle_allowed,
 };
 use handicap_tui::inspect::{Reason, RecordLoad, StepLine, cursor_index};
 use handicap_tui::session::{Stage, StartError};
@@ -557,6 +558,30 @@ fn sub_keys_per_screen() {
         assert_eq!(sub_keys(s, q), ["y 종료", "다른 키 취소"], "{s:?}");
         assert!(!sub_keys(s, ctx()).contains(&"q 종료"), "{s:?}");
     }
+}
+
+#[test]
+fn idle_input_ignores_bare_mouse_moves() {
+    use ratatui::crossterm::event::Event;
+    let mouse = |kind| {
+        Event::Mouse(MouseEvent {
+            kind,
+            column: 1,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        })
+    };
+    assert!(is_user_input(&Event::Key(KeyEvent::new(
+        KeyCode::Char('e'),
+        KeyModifiers::NONE
+    ))));
+    assert!(is_user_input(&mouse(MouseEventKind::Down(
+        MouseButton::Left
+    ))));
+    assert!(is_user_input(&mouse(MouseEventKind::ScrollDown)));
+    assert!(!is_user_input(&mouse(MouseEventKind::Moved)));
+    assert!(!is_user_input(&Event::Resize(80, 24)));
+    assert!(!is_user_input(&Event::FocusGained));
 }
 
 #[test]

@@ -123,7 +123,7 @@ async fn fetch_worker_answers_in_order_and_stops() {
     let (at1, at2) = (rs[rs.len() - 2].at_ms, rs[rs.len() - 1].at_ms);
 
     let (tx, rx) = channel();
-    let req = spawn_fetch_worker(&tokio::runtime::Handle::current(), s.api.clone(), tx);
+    let (req, worker) = spawn_fetch_worker(&tokio::runtime::Handle::current(), s.api.clone(), tx);
     let mk = |at_ms| (board.clone(), panel.clone(), at_ms);
     let (b, p, a) = mk(at1);
     req.send(FetchReq::Reason {
@@ -195,5 +195,10 @@ async fn fetch_worker_answers_in_order_and_stops() {
         matches!(end, Err(RecvTimeoutError::Disconnected)),
         "{end:?}"
     );
+    // 통로를 닫은 작업자는 끝나 있어야 한다(App은 세션을 내릴 때 이 핸들을 abort·await한다).
+    tokio::time::timeout(Duration::from_secs(2), worker)
+        .await
+        .expect("작업자가 끝나지 않음")
+        .unwrap();
     s.shutdown().await;
 }

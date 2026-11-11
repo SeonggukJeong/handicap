@@ -289,6 +289,17 @@ pub fn idle_expired(screen: &Screen, last_input: Instant, now: Instant) -> bool 
     target && now.saturating_duration_since(last_input) >= IDLE_RETURN
 }
 
+/// 5분 자동 복귀를 미루는 입력 — 키와 마우스 **조작**(누름·뗌·끌기·휠). 마우스 캡처가 움직임
+/// 보고까지 켜므로(`EnableMouseCapture`) 마우스가 화면 위를 스치기만 해도 복귀가 미뤄지지 않게
+/// 단순 이동은 뺀다. 크기 바뀜·포커스는 입력이 아니다.
+pub fn is_user_input(ev: &Event) -> bool {
+    match ev {
+        Event::Key(_) => true,
+        Event::Mouse(m) => !matches!(m.kind, MouseEventKind::Moved),
+        _ => false,
+    }
+}
+
 /// 기록 조회 요청(`spawn_fetch_worker`가 차례로 처리).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FetchReq {
@@ -325,15 +336,16 @@ pub enum Fetched {
 
 /// 기록 조회 작업자 — 요청을 **하나씩 차례로** 처리한다(동시에 기록 둘을 메모리에 들지 않는다 —
 /// 한 기록이 최대 1 MiB 본문 × 스텝 수). `Reason` 요청은 응답에서 reason·detail만 남기고 기록을 버린다.
-/// 돌려받은 Sender를 버리면 작업자가 끝난다. 결과 수신자가 사라져도 끝난다.
+/// 돌려받은 Sender를 버리면 작업자는 **큐에 남은 요청까지 다 처리한 뒤** 끝난다(tokio mpsc 의미) —
+/// 세션을 내릴 때는 그래서 돌려받은 핸들을 abort·await한다(`App::stop_session`). 결과 수신자가 사라져도 끝난다.
 /// 로그를 남기지 않는다(URL·본문·사유가 로그로 새지 않게).
 pub fn spawn_fetch_worker(
     handle: &Handle,
     api: Api,
     out: mpsc::Sender<Fetched>,
-) -> UnboundedSender<FetchReq> {
+) -> (UnboundedSender<FetchReq>, JoinHandle<()>) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<FetchReq>();
-    handle.spawn(async move {
+    let worker = handle.spawn(async move {
         while let Some(req) = rx.recv().await {
             let msg = match req {
                 FetchReq::Reason {
@@ -368,7 +380,7 @@ pub fn spawn_fetch_worker(
             }
         }
     });
-    tx
+    (tx, worker)
 }
 
 /// 새 화면 상태 묶음 + 화면 전환(순수). App은 이 메서드만 부른다.
@@ -580,6 +592,8 @@ struct Running {
     session: Session,
     boards: Vec<BoardResponse>,
     poller: JoinHandle<()>,
+    /// 이 세션의 기록 조회 작업자
+    fetcher: JoinHandle<()>,
 }
 
 struct App<'a> {
@@ -689,15 +703,14 @@ impl App<'_> {
                     self.board_tx.subscribe(),
                     self.snap_tx.clone(),
                 );
-                self.fetch_req = Some(spawn_fetch_worker(
-                    rt.handle(),
-                    session.api.clone(),
-                    self.fetch_out.0.clone(),
-                ));
+                let (fetch_req, fetcher) =
+                    spawn_fetch_worker(rt.handle(), session.api.clone(), self.fetch_out.0.clone());
+                self.fetch_req = Some(fetch_req);
                 self.running = Some(Running {
                     session,
                     boards,
                     poller,
+                    fetcher,
                 });
                 self.screen = screen_after_start(&Ok(()));
             }
@@ -712,13 +725,15 @@ impl App<'_> {
     }
 
     fn stop_session(&mut self) {
-        // 요청 통로를 닫으면 작업자는 처리 중인 요청 하나를 마치고 끝난다.
         self.fetch_req = None;
         if let Some(r) = self.running.take() {
-            // 중단을 기다린 뒤 세션을 내린다 — 폴러가 지워지는 DB를 읽는 일이 없게.
+            // 중단을 기다린 뒤 세션을 내린다 — 폴러·조회 작업자가 내려가는 컨트롤러·지워지는 DB에
+            // 요청하는 일이 없게. 통로를 닫는 것만으론 작업자가 큐에 남은 요청을 다 처리한다.
             self.rt.block_on(async {
                 r.poller.abort();
+                r.fetcher.abort();
                 let _ = r.poller.await;
+                let _ = r.fetcher.await;
             });
             self.rt.block_on(r.session.shutdown());
         }
@@ -1321,7 +1336,7 @@ fn event_loop(
         }
         let n_boards = app.running.as_ref().map_or(0, |r| r.boards.len());
         let ev = event::read()?;
-        if matches!(ev, Event::Key(_) | Event::Mouse(_)) {
+        if is_user_input(&ev) {
             app.last_input = Instant::now();
         }
         let action = match ev {
