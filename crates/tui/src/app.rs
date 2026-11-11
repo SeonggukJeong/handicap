@@ -2093,11 +2093,7 @@ pub fn edit_keys(
     match &ui.overlay {
         Some(Overlay::Input { .. }) => vec![text::KEYS_SAVE, text::KEYS_CANCEL, text::KEYS_CLEAR],
         Some(Overlay::Pick { .. }) => vec![text::KEYS_PICK, text::KEYS_SAVE, text::KEYS_CANCEL],
-        // 조건 수정 칸에선 `d`가 동작하지 않는다(`edit_key`) — `d 삭제`는 안내하지 않는다.
-        Some(Overlay::CondForm { .. }) => crate::view::edit::cond_form_keys()
-            .into_iter()
-            .filter(|k| *k != text::KEYS_DELETE)
-            .collect(),
+        Some(Overlay::CondForm { .. }) => crate::view::edit::cond_form_keys(),
         Some(Overlay::Confirm { .. } | Overlay::Saving { .. } | Overlay::Notice(_)) => vec![],
         None => match screen {
             Screen::Settings => vec![

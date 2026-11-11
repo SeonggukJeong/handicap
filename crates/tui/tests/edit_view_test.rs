@@ -101,6 +101,37 @@ fn vrow(key: &str, value: &str) -> VarRow {
     }
 }
 
+/// 고른 줄 바탕(`monitor.rs` `C_TEXT`).
+const SEL_BG: Color = Color::Rgb(0xf2, 0xf5, 0xf8);
+
+/// `needle`이 든 첫 **본문** 줄(머리 줄 y=0 제외)의 y.
+fn row_with(buf: &Buffer, needle: &str) -> u16 {
+    (1..buf.area.height)
+        .find(|&y| {
+            // 넓은 글자의 둘째 칸(채움 공백)은 건너뛴다.
+            let mut line = String::new();
+            let mut skip = false;
+            for x in 0..buf.area.width {
+                if skip {
+                    skip = false;
+                    continue;
+                }
+                let sym = buf[(x, y)].symbol();
+                skip = ratatui::text::Span::raw(sym.to_string()).width() == 2;
+                line.push_str(sym);
+            }
+            line.contains(needle)
+        })
+        .unwrap_or_else(|| panic!("{needle:?} 줄 없음"))
+}
+
+/// 그 줄의 `sym` 칸 x.
+fn col_of(buf: &Buffer, y: u16, sym: &str) -> u16 {
+    (0..buf.area.width)
+        .find(|&x| buf[(x, y)].symbol() == sym)
+        .unwrap_or_else(|| panic!("{sym:?} 칸 없음"))
+}
+
 fn find_cell(buf: &Buffer, sym: &str) -> Option<(u16, u16)> {
     for y in 0..buf.area.height {
         for x in 0..buf.area.width {
@@ -153,13 +184,24 @@ fn vars_rows_notes() {
     assert!(txt.contains("이 환경을 쓰는 칸 4개(보드 2개)"), "{txt}");
     assert!(txt.contains("생성 변수 — GUI에서"), "{txt}");
     assert!(txt.contains("▶ order_id"), "{txt}");
-    let (x, y) = find_cell(&buf, "생").unwrap();
-    assert_ne!(buf[(x, y)].fg, Color::Rgb(0xe6, 0xed, 0xf3));
-    // 일반 줄(`A`)과 색이 다르다 = 흐림.
-    let (ax, ay) = find_cell(&buf, "A").unwrap();
-    assert_ne!(buf[(x, y)].fg, buf[(ax, ay)].fg);
-    // 고른 줄 흰 바탕.
-    assert_eq!(buf[(ax, ay)].bg, buf[(2, ay)].bg);
+    // 생성 변수 줄은 흐림: 일반 줄 글자색과 다르다.
+    let gy = row_with(&buf, "nonce");
+    let py = row_with(&buf, "page_size");
+    assert_ne!(
+        buf[(col_of(&buf, gy, "n"), gy)].fg,
+        buf[(col_of(&buf, py, "p"), py)].fg
+    );
+    // 고른 줄은 줄 전체가 흰 바탕, 고르지 않은 줄은 아니다.
+    let sy = row_with(&buf, "▶ order_id");
+    for x in [
+        col_of(&buf, sy, "▶"),
+        col_of(&buf, sy, "A"),
+        buf.area.width - 2,
+    ] {
+        assert_eq!(buf[(x, sy)].bg, SEL_BG, "x={x}");
+    }
+    assert_ne!(buf[(col_of(&buf, py, "p"), py)].bg, SEL_BG);
+    assert_ne!(buf[(col_of(&buf, gy, "n"), gy)].bg, SEL_BG);
 }
 
 #[test]
@@ -195,6 +237,12 @@ fn list_thresholds_colored() {
     assert_eq!(found.len(), 2);
     assert_eq!(found[0], Color::Rgb(0xf5, 0x9e, 0x0b));
     assert_ne!(found[1], Color::Rgb(0xf5, 0x9e, 0x0b));
+    // 고른 줄만 흰 바탕.
+    let sy = row_with(&buf, "▶ 1  ■ 800 ms");
+    let uy = row_with(&buf, "2  ■ 1,500 ms");
+    assert_eq!(buf[(col_of(&buf, sy, "▶"), sy)].bg, SEL_BG);
+    assert_eq!(buf[(col_of(&buf, sy, "8"), sy)].bg, SEL_BG);
+    assert_ne!(buf[(col_of(&buf, uy, "2"), uy)].bg, SEL_BG);
 }
 
 #[test]
@@ -213,8 +261,8 @@ fn list_empty_shows_guidance() {
     let (buf, txt) = draw_list(100, 20, &v, &[]);
     assert!(txt.contains(text::EDIT_NO_CONDITIONS), "{txt}");
     assert!(!txt.contains('▶'), "안내 줄은 고르지 않는다: {txt}");
-    let (x, y) = find_cell(&buf, "조").unwrap();
-    assert_ne!(buf[(x, y)].bg, Color::Rgb(0xe6, 0xed, 0xf3));
+    let gy = row_with(&buf, text::EDIT_NO_CONDITIONS);
+    assert_ne!(buf[(col_of(&buf, gy, "조"), gy)].bg, SEL_BG);
     // 줄이 하나도 없으면 `없음`.
     let v = ListView {
         title: "응답속도 기준선 · 주문 조회",
@@ -300,9 +348,9 @@ fn vars_loading_and_failed() {
 #[test]
 fn remote_strings_sanitized() {
     // 키.
-    let v = vars_view(vec![vrow("K\u{202E}EY", "v")], 0);
+    let v = vars_view(vec![vrow("K\u{202E}E\x1bY", "v")], 0);
     let (_, txt) = draw_vars(80, 12, &v, &[]);
-    assert!(txt.contains("K\u{FFFD}EY"), "key: {txt}");
+    assert!(txt.contains("K\u{FFFD}E\u{FFFD}Y"), "key: {txt}");
     assert!(!txt.contains('\u{202E}'));
     // 드러낸 값.
     let v = vars_view(vec![vrow("K", &env_display("a\u{202E}b\x1bc", true))], 0);

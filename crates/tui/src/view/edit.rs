@@ -67,13 +67,12 @@ pub fn vars_keys(env: bool, reveal: bool) -> Vec<&'static str> {
     k
 }
 
-/// 조건 수정 칸 키 줄 조각.
+/// 조건 수정 칸 키 줄 조각(spec §6.7 — 삭제는 목록 화면의 `d`, 이 칸에는 없다).
 pub fn cond_form_keys() -> Vec<&'static str> {
     vec![
         text::KEYS_NEXT_FIELD,
         text::KEYS_TOGGLE,
         text::KEYS_SAVE,
-        text::KEYS_DELETE,
         text::KEYS_CANCEL,
     ]
 }
