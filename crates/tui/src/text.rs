@@ -395,3 +395,40 @@ pub const FILE_SAVED: &str = "저장됨";
 pub const FILE_SAVE_FAILED: &str = "파일에 저장 못 함 — 재시작하면 사라짐";
 pub const FILE_CHANGED_OUTSIDE: &str =
     "보드 파일이 밖에서 바뀌었습니다 — 저장 안 됨, TUI를 다시 시작하세요";
+
+// ---------- 편집 (tui-2a-1, spec §6.1·§6.3) ----------
+
+pub const VALUE_UNEDITABLE: &str = "이 값은 TUI에서 못 고칩니다 — GUI에서";
+pub const EDIT_SCENARIO_READONLY: &str = "시나리오는 GUI에서 바꿉니다";
+pub const EDIT_GROUP_VALUE: &str = "묶음의 값입니다 — 묶음 설정은 GUI에서";
+pub const EDIT_STEP_READONLY: &str = "볼 스텝은 GUI에서 바꿉니다";
+pub const EDIT_STEP_PANEL_LATENCY: &str = "스텝 칸은 그 스텝의 응답 시간을 씁니다";
+pub const EDIT_NO_CONDITIONS: &str = "조건 추가는 GUI에서(다음 버전에서 TUI 지원)";
+pub const EDIT_NO_DISPLAY: &str = "표시 값 추가는 GUI에서(다음 버전에서 TUI 지원)";
+pub const EDIT_NO_ENV: &str = "이 칸은 환경을 쓰지 않습니다";
+pub const EDIT_NO_ENV_VARS: &str = "이 환경에는 변수가 없습니다";
+pub const EDIT_NO_SCENARIO_VARS: &str = "이 시나리오에는 변수가 없습니다";
+
+pub fn step_change_confirm(conds: usize, displays: usize) -> String {
+    format!("조건 {conds}개·표시 값 {displays}개도 이 스텝으로 바뀝니다 — Enter 계속 · Esc 취소")
+}
+
+pub fn env_drop_confirm(name: &str) -> String {
+    format!("\"{name}\" 환경은 다른 칸이 안 써서 파일에서 빠집니다 — Enter 계속 · Esc 취소")
+}
+
+pub fn delete_confirm(n: usize) -> String {
+    format!("{n}번을 지울까요? y 지우기 · 다른 키 취소")
+}
+
+pub fn share_note(panels: usize, boards: usize) -> String {
+    format!("이 값을 쓰는 칸 {panels}개(보드 {boards}개)가 함께 바뀝니다")
+}
+
+pub fn usage_note(panels: usize, boards: usize) -> String {
+    format!("이 환경을 쓰는 칸 {panels}개(보드 {boards}개)")
+}
+
+pub fn usage_note_scenario(panels: usize, boards: usize) -> String {
+    format!("이 시나리오를 쓰는 칸 {panels}개(보드 {boards}개)")
+}

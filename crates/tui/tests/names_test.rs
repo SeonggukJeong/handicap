@@ -79,8 +79,28 @@ fn names_from_bundle_resolves() {
                 name: "d".into(),
                 method: "GET".into(),
                 url: "/d".into(),
+                branch_hint: Some("분기".into()),
             }
         ))
+    );
+    let hints: Vec<_> = names
+        .step_infos("S1")
+        .unwrap()
+        .iter()
+        .map(|s| s.branch_hint.as_deref())
+        .collect();
+    // a, b(loop 밖 IF 아님), c·d·e(IF 분기), f·g(parallel, IF 밖)
+    assert_eq!(
+        hints,
+        [
+            None,
+            None,
+            Some("분기"),
+            Some("분기"),
+            Some("분기"),
+            None,
+            None
+        ]
     );
     assert_eq!(names.env_name("E1"), Some("운영"));
     assert_eq!(names.env_name("E2"), None);

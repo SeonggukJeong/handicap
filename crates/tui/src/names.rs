@@ -43,6 +43,37 @@ fn collect<'a>(steps: &'a [Step], out: &mut Vec<&'a HttpStep>) {
     }
 }
 
+/// `flatten_http_steps`와 같은 순서에 가장 안쪽 IF 이름을 같이 싣는다.
+fn flatten_with_hint(steps: &[Step]) -> Vec<(&HttpStep, Option<&str>)> {
+    fn walk<'a>(
+        steps: &'a [Step],
+        hint: Option<&'a str>,
+        out: &mut Vec<(&'a HttpStep, Option<&'a str>)>,
+    ) {
+        for s in steps {
+            match s {
+                Step::Http(h) => out.push((h, hint)),
+                Step::Loop(l) => walk(&l.do_, hint, out),
+                Step::If(i) => {
+                    walk(&i.then_, Some(&i.name), out);
+                    for elif in &i.elif {
+                        walk(&elif.then_, Some(&i.name), out);
+                    }
+                    walk(&i.else_, Some(&i.name), out);
+                }
+                Step::Parallel(p) => {
+                    for b in &p.branches {
+                        walk(&b.steps, hint, out);
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(steps, None, &mut out);
+    out
+}
+
 /// `method` = `HttpMethod`의 serde 문자열("GET"), `url` = YAML에 적힌 그대로
 /// (`{{var}}`·`${ENV}` 미치환).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +82,8 @@ pub struct StepInfo {
     pub name: String,
     pub method: String,
     pub url: String,
+    /// 가장 안쪽 IF 이름(GUI `stepOptionsFor`의 `branchHint`). loop·parallel은 상속, IF 밖이면 None.
+    pub branch_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -174,13 +207,14 @@ impl Names {
             .into_iter()
             .filter_map(|s| {
                 let sc = Scenario::from_yaml(&s.yaml).ok()?;
-                let steps = flatten_http_steps(&sc.steps)
+                let steps = flatten_with_hint(&sc.steps)
                     .into_iter()
-                    .map(|h| StepInfo {
+                    .map(|(h, hint)| StepInfo {
                         id: h.id.clone(),
                         name: h.name.clone(),
                         method: method_str(h),
                         url: h.request.url.clone(),
+                        branch_hint: hint.map(str::to_string),
                     })
                     .collect();
                 let vars = sc
