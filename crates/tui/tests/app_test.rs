@@ -585,6 +585,8 @@ fn idle_input_ignores_bare_mouse_moves() {
     assert!(!is_user_input(&mouse(MouseEventKind::Moved)));
     assert!(!is_user_input(&Event::Resize(80, 24)));
     assert!(!is_user_input(&Event::FocusGained));
+    // 붙여넣기도 입력이다(5분 타이머를 미룬다).
+    assert!(is_user_input(&Event::Paste("x".into())));
 }
 
 #[test]
@@ -2154,5 +2156,695 @@ mod save {
             &u.overlay,
             Some(Overlay::Saving { restore: Some(_) })
         ));
+    }
+
+    // ---- tui-2a-1 Task 11: 환경/시나리오 변수 연결·붙여넣기·마우스·리뷰 반영 ----
+
+    use handicap_tui::app::{
+        env_rows, menu_click, menu_item_at, paste_into, paste_target, scen_rows, worker_gone,
+    };
+    use handicap_tui::wire::{EnvironmentResponse, ScenarioResponse};
+
+    const VARS_YAML: &str = "version: 1\nname: s\nvariables:\n  # 주문 번호\n  order_id: \"A-1\"\n  gid: {gen: uuid}\n  multi: |\n    x\nsteps:\n  - { id: \"01J00000000000000000000A01\", name: a, type: http, request: { method: GET, url: \"/a\" }, assert: [] }\n";
+
+    fn env_resp(vars: &[(&str, &str)]) -> EnvironmentResponse {
+        let m: serde_json::Map<String, serde_json::Value> = vars
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), serde_json::Value::from(*v)))
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "id": ENV, "name": "대상", "vars": m, "created_at": 1, "updated_at": 2
+        }))
+        .unwrap()
+    }
+
+    fn scen_resp(yaml: &str, version: i64) -> ScenarioResponse {
+        serde_json::from_value(serde_json::json!({
+            "id": SC, "name": "s", "yaml": yaml, "version": version,
+            "created_at": 1, "updated_at": 2
+        }))
+        .unwrap()
+    }
+
+    fn scen_loaded(yaml: &str, version: i64) -> ScenLoad {
+        ScenLoad::Loaded {
+            id: SC.into(),
+            yaml: yaml.into(),
+            version,
+            vars: handicap_tui::yaml_var::static_vars(yaml),
+        }
+    }
+
+    fn env_ui(vars: &[(&str, &str)]) -> EditUi {
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 12;
+        u.env = Some(EnvLoad::Loaded(env_resp(vars)));
+        u
+    }
+
+    fn scen_ui(yaml: &str) -> EditUi {
+        let mut u = ui("B1", "P1", None);
+        u.cursor = 13;
+        u.scen = Some(scen_loaded(yaml, 4));
+        u
+    }
+
+    fn only_board() -> Vec<BoardResponse> {
+        vec![board("B1", vec![panel("P1")])]
+    }
+
+    fn submit(v: &str) -> EditAction {
+        EditAction::Input(InputOutcome::Submit, text_input(v))
+    }
+
+    fn env_done(id: &str, result: Result<EnvironmentResponse, String>) -> EditDone {
+        EditDone::Env {
+            id: id.into(),
+            result,
+        }
+    }
+
+    #[test]
+    fn late_load_for_other_id_dropped() {
+        let mut bs = boards();
+        let mut t = None;
+        // 지금 E2를 기다리는데 E1 결과 → 버림.
+        let mut u = ui("B1", "P1", None);
+        u.env = Some(EnvLoad::Loading { id: "E2".into() });
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            env_done("E1", Ok(env_resp(&[("K", "v")]))),
+            0,
+        );
+        assert!(matches!(&u.env, Some(EnvLoad::Loading { id }) if id == "E2"));
+        // 같은 id면 받는다(키 순 줄).
+        let mut u = ui("B1", "P1", None);
+        u.env = Some(EnvLoad::Loading { id: ENV.into() });
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            env_done(ENV, Ok(env_resp(&[("Z", "1"), ("A", "2")]))),
+            0,
+        );
+        match &u.env {
+            Some(EnvLoad::Loaded(e)) => {
+                assert_eq!(e.vars.keys().collect::<Vec<_>>(), ["A", "Z"]);
+            }
+            _ => panic!("not loaded"),
+        }
+        // 실패도 그 id일 때만.
+        let mut u = ui("B1", "P1", None);
+        u.env = Some(EnvLoad::Loading { id: ENV.into() });
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            env_done(ENV, Err("없음".into())),
+            0,
+        );
+        assert!(matches!(&u.env, Some(EnvLoad::Failed(m)) if m == "없음"));
+        // 화면을 나갔으면(None) 버린다 — 값이 다시 메모리에 들지 않는다.
+        let mut u = ui("B1", "P1", None);
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            env_done(ENV, Ok(env_resp(&[("K", "v")]))),
+            0,
+        );
+        assert!(u.env.is_none());
+        // 이미 Loaded면 늦은 조회 결과로 덮지 않는다.
+        let mut u = env_ui(&[("K", "mine")]);
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            env_done(ENV, Ok(env_resp(&[("K", "late")]))),
+            0,
+        );
+        assert!(matches!(&u.env, Some(EnvLoad::Loaded(e)) if e.vars["K"] == "mine"));
+        // 시나리오도 같은 규칙.
+        let mut u = ui("B1", "P1", None);
+        u.scen = Some(ScenLoad::Loading { id: "S2".into() });
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Scenario {
+                id: SC.into(),
+                result: Ok(scen_resp(VARS_YAML, 1)),
+            },
+            0,
+        );
+        assert!(matches!(&u.scen, Some(ScenLoad::Loading { id }) if id == "S2"));
+        let mut u = ui("B1", "P1", None);
+        u.scen = Some(ScenLoad::Loading { id: SC.into() });
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Scenario {
+                id: SC.into(),
+                result: Ok(scen_resp(VARS_YAML, 7)),
+            },
+            0,
+        );
+        match &u.scen {
+            Some(ScenLoad::Loaded {
+                id, version, vars, ..
+            }) => {
+                assert_eq!(id, SC);
+                assert_eq!(*version, 7);
+                let keys: Vec<&str> = vars.iter().map(|v| v.key.as_str()).collect();
+                assert_eq!(keys, ["gid", "multi", "order_id"]);
+            }
+            _ => panic!("not loaded"),
+        }
+        let mut u = ui("B1", "P1", None);
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Scenario {
+                id: SC.into(),
+                result: Ok(scen_resp(VARS_YAML, 7)),
+            },
+            0,
+        );
+        assert!(u.scen.is_none());
+        // 편집 상태가 아예 없어도 패닉 없이 버린다.
+        apply_done(
+            None,
+            &mut bs,
+            &mut t,
+            env_done(ENV, Ok(env_resp(&[("K", "v")]))),
+            0,
+        );
+    }
+
+    #[test]
+    fn env_rows_masked_unless_reveal() {
+        let e = env_resp(&[("TOKEN", "SECRET-TOKEN-1"), ("BASE", "http://x")]);
+        let rows = env_rows(&e, false);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].key, "BASE");
+        for r in &rows {
+            assert_eq!(r.value, handicap_tui::view::edit::env_display("", false));
+            assert!(!format!("{r:?}").contains("SECRET-TOKEN-1"), "{r:?}");
+            assert!(!format!("{r:?}").contains("http://x"), "{r:?}");
+            assert_eq!(r.note, None);
+        }
+        let rows = env_rows(&e, true);
+        assert_eq!(rows[1].value, "SECRET-TOKEN-1");
+        // 시나리오 변수는 가리지 않는다 — 못 고치는 줄엔 사유.
+        let rows = scen_rows(&handicap_tui::yaml_var::static_vars(VARS_YAML));
+        let by = |k: &str| rows.iter().find(|r| r.key == k).unwrap().clone();
+        assert_eq!(by("order_id").value, "A-1");
+        assert_eq!(by("order_id").note, None);
+        assert_eq!(by("gid").note, Some("생성 변수 — GUI에서"));
+        assert_eq!(
+            by("multi").note,
+            Some("이 값의 모양은 TUI에서 못 고칩니다 — GUI에서")
+        );
+    }
+
+    #[test]
+    fn env_activate_opens_value_only_and_submit_saves() {
+        let bs = only_board();
+        let mut t = None;
+        let mut u = env_ui(&[("A", "a-val"), ("TOKEN", "old")]);
+        u.list_cursor = 1;
+        run(&Screen::EnvVars, &mut u, &bs, &mut t, EditAction::Activate);
+        match &u.overlay {
+            Some(Overlay::Input {
+                target: InputTarget::EnvVar(k),
+                input,
+                share,
+                error,
+            }) => {
+                assert_eq!(k, "TOKEN");
+                assert_eq!(input.text(), "old");
+                assert_eq!(*share, None, "칸 1개면 공유 문구 없음");
+                assert_eq!(*error, None);
+            }
+            o => panic!("{o:?}"),
+        }
+        let out = run(&Screen::EnvVars, &mut u, &bs, &mut t, submit("new"));
+        match out.req {
+            Some(EditReq::SaveEnv { id, name, vars, .. }) => {
+                assert_eq!(id, ENV);
+                assert_eq!(name, "대상");
+                assert_eq!(vars["TOKEN"], "new");
+                assert_eq!(vars["A"], "a-val", "다른 키는 그대로");
+                assert_eq!(vars.len(), 2);
+            }
+            r => panic!("{r:?}"),
+        }
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Saving { restore: Some(_) })
+        ));
+        assert!(t.is_some());
+        // 저장 성공(화면 그대로) → env는 응답으로 갱신.
+        let mut bs = bs;
+        let seq = t.as_ref().unwrap().seq;
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Saved {
+                seq,
+                req: SavedWhat::Env { id: ENV.into() },
+                server: Ok(SavedValue::Env(env_resp(&[
+                    ("A", "a-val"),
+                    ("TOKEN", "new"),
+                ]))),
+                file: Some(Ok(())),
+            },
+            0,
+        );
+        assert_eq!(u.overlay, None);
+        assert!(matches!(&u.env, Some(EnvLoad::Loaded(e)) if e.vars["TOKEN"] == "new"));
+    }
+
+    #[test]
+    fn env_share_note_and_uneditable_value() {
+        let bs = boards();
+        let mut t = None;
+        let mut u = env_ui(&[("TOKEN", "old")]);
+        run(&Screen::EnvVars, &mut u, &bs, &mut t, EditAction::Activate);
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Input { share: Some(s), .. })
+                if s == "이 값을 쓰는 칸 3개(보드 2개)가 함께 바뀝니다"
+        ));
+        // 입력 규칙(제어 문자)을 못 지키는 값은 입력줄 대신 안내.
+        let mut u = env_ui(&[("TOKEN", "a\tb")]);
+        run(&Screen::EnvVars, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(
+            u.overlay,
+            Some(Overlay::Notice(
+                "이 값은 TUI에서 못 고칩니다 — GUI에서".into()
+            ))
+        );
+        // 2000자 넘는 값도.
+        let long = "x".repeat(2001);
+        let mut u = env_ui(&[("TOKEN", &long)]);
+        run(&Screen::EnvVars, &mut u, &bs, &mut t, EditAction::Activate);
+        assert!(matches!(u.overlay, Some(Overlay::Notice(_))));
+        // 불러오는 중이면 아무것도 안 연다.
+        let mut u = ui("B1", "P1", None);
+        u.env = Some(EnvLoad::Loading { id: ENV.into() });
+        run(&Screen::EnvVars, &mut u, &bs, &mut t, EditAction::Activate);
+        assert_eq!(u.overlay, None);
+    }
+
+    #[test]
+    fn scenario_share_note_when_shared() {
+        let bs = boards(); // 이 시나리오를 쓰는 칸 3개(보드 2개)
+        let mut t = None;
+        let mut u = scen_ui(VARS_YAML);
+        u.list_cursor = 2; // order_id
+        run(
+            &Screen::ScenarioVars,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Activate,
+        );
+        match &u.overlay {
+            Some(Overlay::Input {
+                target: InputTarget::ScenarioVar(k),
+                input,
+                share,
+                ..
+            }) => {
+                assert_eq!(k, "order_id");
+                assert_eq!(input.text(), "A-1");
+                assert_eq!(
+                    share.as_deref(),
+                    Some("이 값을 쓰는 칸 3개(보드 2개)가 함께 바뀝니다")
+                );
+            }
+            o => panic!("{o:?}"),
+        }
+        // 칸 하나뿐이면 문구 없음.
+        let one = only_board();
+        let mut u = scen_ui(VARS_YAML);
+        u.list_cursor = 2;
+        run(
+            &Screen::ScenarioVars,
+            &mut u,
+            &one,
+            &mut t,
+            EditAction::Activate,
+        );
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Input { share: None, .. })
+        ));
+    }
+
+    #[test]
+    fn scenario_activate_not_editable_is_notice() {
+        let bs = boards();
+        let mut t = None;
+        for (i, want) in [
+            (0, "생성 변수 — GUI에서"),
+            (1, "이 값의 모양은 TUI에서 못 고칩니다 — GUI에서"),
+        ] {
+            let mut u = scen_ui(VARS_YAML);
+            u.list_cursor = i;
+            run(
+                &Screen::ScenarioVars,
+                &mut u,
+                &bs,
+                &mut t,
+                EditAction::Activate,
+            );
+            assert_eq!(u.overlay, Some(Overlay::Notice(want.into())), "{i}");
+        }
+    }
+
+    #[test]
+    fn scenario_submit_splices_or_shows_reason() {
+        let bs = only_board();
+        let mut t = None;
+        let mut u = scen_ui(VARS_YAML);
+        u.list_cursor = 2;
+        run(
+            &Screen::ScenarioVars,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Activate,
+        );
+        let out = run(&Screen::ScenarioVars, &mut u, &bs, &mut t, submit("B-2"));
+        let spliced =
+            handicap_tui::yaml_var::splice_static_var(VARS_YAML, "order_id", "B-2").unwrap();
+        match out.req {
+            Some(EditReq::SaveScenario {
+                id, yaml, version, ..
+            }) => {
+                assert_eq!(id, SC);
+                assert_eq!(yaml, spliced);
+                assert_eq!(version, 4);
+            }
+            r => panic!("{r:?}"),
+        }
+        // 성공 → 응답의 yaml·version으로 갱신(줄도 새로).
+        let mut bs = bs;
+        let seq = t.as_ref().unwrap().seq;
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Saved {
+                seq,
+                req: SavedWhat::Scenario { id: SC.into() },
+                server: Ok(SavedValue::Scenario(scen_resp(&spliced, 5))),
+                file: Some(Ok(())),
+            },
+            0,
+        );
+        match &u.scen {
+            Some(ScenLoad::Loaded {
+                yaml,
+                version,
+                vars,
+                ..
+            }) => {
+                assert_eq!(*yaml, spliced);
+                assert_eq!(*version, 5);
+                assert_eq!(
+                    vars.iter().find(|v| v.key == "order_id").unwrap().value,
+                    "B-2"
+                );
+            }
+            _ => panic!("not loaded"),
+        }
+        // 교체가 안 되면(키가 YAML에서 사라짐 — 낡은 줄) 저장하지 않고 입력줄 오류 줄에 사유.
+        let mut u = scen_ui(VARS_YAML);
+        u.overlay = Some(Overlay::Input {
+            target: InputTarget::ScenarioVar("nope".into()),
+            input: text_input("x"),
+            error: None,
+            share: None,
+        });
+        let mut t = None;
+        let out = run(&Screen::ScenarioVars, &mut u, &bs, &mut t, submit("x"));
+        assert!(out.req.is_none());
+        assert!(t.is_none());
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Input { error: Some(e), .. })
+                if e == "이 값의 모양은 TUI에서 못 고칩니다 — GUI에서"
+        ));
+    }
+
+    #[test]
+    fn vars_save_after_leaving_screen_only_notice() {
+        // 저장 중에 5분 복귀(편집 상태는 남지만 env·scen은 비움) → 성공이 와도 다시 채우지 않는다.
+        let mut bs = only_board();
+        let mut t = ticket(8, "B1", "P1");
+        let mut u = env_ui(&[("TOKEN", "old")]);
+        u.overlay = Some(saving(None));
+        idle_drop(&mut u);
+        let n = apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Saved {
+                seq: 8,
+                req: SavedWhat::Env { id: ENV.into() },
+                server: Ok(SavedValue::Env(env_resp(&[("TOKEN", "new")]))),
+                file: Some(Ok(())),
+            },
+            33,
+        );
+        assert_eq!(n, Some(HeaderNotice::Saved(33)));
+        assert!(u.env.is_none(), "값이 메모리에 다시 들면 안 된다");
+        assert_eq!(u.overlay, None);
+        let mut t = ticket(9, "B1", "P1");
+        let mut u = scen_ui(VARS_YAML);
+        u.overlay = Some(saving(None));
+        idle_drop(&mut u);
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            EditDone::Saved {
+                seq: 9,
+                req: SavedWhat::Scenario { id: SC.into() },
+                server: Ok(SavedValue::Scenario(scen_resp(VARS_YAML, 5))),
+                file: Some(Ok(())),
+            },
+            0,
+        );
+        assert!(u.scen.is_none());
+        // 편집 상태 자체가 없을 때도(None) 알림만.
+        let mut t = ticket(10, "B1", "P1");
+        let n = apply_done(
+            None,
+            &mut bs,
+            &mut t,
+            EditDone::Saved {
+                seq: 10,
+                req: SavedWhat::Env { id: ENV.into() },
+                server: Ok(SavedValue::Env(env_resp(&[("TOKEN", "new")]))),
+                file: Some(Ok(())),
+            },
+            1,
+        );
+        assert_eq!(n, Some(HeaderNotice::Saved(1)));
+    }
+
+    /// 리뷰 B1: 5분 복귀는 `Saving.restore` 안의 입력값(환경 토큰 평문일 수 있다)도 버린다.
+    #[test]
+    fn idle_then_rejection_does_not_restore_typed_value() {
+        let mut bs = only_board();
+        let mut t = ticket(5, "B1", "P1");
+        let typed = Overlay::Input {
+            target: InputTarget::EnvVar("TOKEN".into()),
+            input: text_input("TYPED-TOKEN-88"),
+            error: None,
+            share: None,
+        };
+        let mut v = SubViews {
+            edit: Some(env_ui(&[("TOKEN", "old")])),
+            ..SubViews::default()
+        };
+        v.edit.as_mut().unwrap().overlay = Some(saving(Some(typed)));
+        handicap_tui::app::idle_return(&mut v);
+        let u = v.edit.as_mut().expect("저장 중이면 편집 상태는 남는다");
+        assert_eq!(u.overlay, Some(saving(None)));
+        apply_done(Some(u), &mut bs, &mut t, rejected(5, "B1", "거절"), 0);
+        assert!(
+            !matches!(u.overlay, Some(Overlay::Input { .. })),
+            "{:?}",
+            u.overlay
+        );
+        let dump = format!(
+            "{:?}",
+            u.overlay.clone().map(|o| match o {
+                Overlay::Notice(m) => m,
+                o => format!("{o:?}"),
+            })
+        );
+        assert!(!dump.contains("TYPED-TOKEN-88"), "{dump}");
+        assert!(u.env.is_none());
+    }
+
+    /// 리뷰 B2: 작업자가 없거나 죽으면 `저장 중…`에서 빠져나온다.
+    #[test]
+    fn worker_gone_releases_saving() {
+        let mut t = ticket(2, "B1", "P1");
+        let mut u = ui("B1", "P1", Some(saving(Some(timeout_input("9", None)))));
+        u.env = Some(EnvLoad::Loading { id: ENV.into() });
+        u.scen = Some(ScenLoad::Loading { id: SC.into() });
+        assert!(worker_gone(Some(&mut u), &mut t));
+        assert_eq!(t, None);
+        assert_eq!(
+            u.overlay,
+            Some(Overlay::Notice(
+                "저장하지 못했습니다 — TUI를 다시 시작하세요".into()
+            ))
+        );
+        assert!(matches!(&u.env, Some(EnvLoad::Failed(_))));
+        assert!(matches!(&u.scen, Some(ScenLoad::Failed(_))));
+        // 할 일이 없으면 false(화면 불변).
+        let mut t = None;
+        let mut u = ui("B1", "P1", Some(timeout_input("9", None)));
+        assert!(!worker_gone(Some(&mut u), &mut t));
+        assert_eq!(u.overlay, Some(timeout_input("9", None)));
+        // 다른 칸 화면이면 표만 푼다.
+        let mut t = ticket(2, "B1", "P1");
+        let mut u = ui("B1", "P2", Some(timeout_input("9", None)));
+        assert!(worker_gone(Some(&mut u), &mut t));
+        assert_eq!(t, None);
+        assert_eq!(u.overlay, Some(timeout_input("9", None)));
+        let mut t = ticket(2, "B1", "P1");
+        assert!(worker_gone(None, &mut t));
+        assert_eq!(t, None);
+    }
+
+    #[test]
+    fn paste_only_into_input() {
+        // 입력줄 → 붙여넣기(줄바꿈·제어 문자는 빠지고 저장되지 않는다).
+        let mut u = ui("B1", "P1", Some(timeout_input("1", None)));
+        assert!(paste_target(&u));
+        assert!(paste_into(&mut u, "23\n"));
+        assert_eq!(u.overlay, Some(timeout_input("123", None)));
+        // 조건 수정 칸은 값 칸에 포커스일 때만.
+        let form = |focus| Overlay::CondForm {
+            index: 0,
+            ops: vec![ConditionOp::Eq],
+            op: 0,
+            value: text_input("a"),
+            ignore_case: false,
+            trim: false,
+            focus,
+            error: None,
+        };
+        let mut u = ui("B1", "P1", Some(form(CondFocus::Value)));
+        assert!(paste_target(&u));
+        assert!(paste_into(&mut u, "b\r\nc"));
+        assert!(
+            matches!(&u.overlay, Some(Overlay::CondForm { value, .. }) if value.text() == "abc")
+        );
+        for o in [
+            form(CondFocus::Op),
+            form(CondFocus::IgnoreCase),
+            Overlay::Pick {
+                pick: Pick::Env,
+                options: vec![(None, "환경 없음".into())],
+                cursor: 0,
+            },
+            Overlay::Notice("n".into()),
+            saving(Some(timeout_input("1", None))),
+            Overlay::Confirm {
+                text: "t".into(),
+                then: Pending::SetEnv(None),
+                y_only: false,
+            },
+        ] {
+            let mut u = ui("B1", "P1", Some(o.clone()));
+            assert!(!paste_target(&u), "{o:?}");
+            assert!(!paste_into(&mut u, "x"));
+            assert_eq!(u.overlay, Some(o));
+        }
+        let mut u = ui("B1", "P1", None);
+        assert!(!paste_target(&u));
+        assert!(!paste_into(&mut u, "x"));
+        assert_eq!(u.overlay, None);
+    }
+
+    #[test]
+    fn mouse_click_maps_to_item() {
+        let table = [(5u16, 0usize), (6, 1), (7, 1)];
+        assert_eq!(menu_item_at(&table, 7), Some(1));
+        assert_eq!(menu_item_at(&table, 5), Some(0));
+        assert_eq!(menu_item_at(&table, 4), None);
+        assert_eq!(menu_item_at(&table, 8), None);
+        let click = |y| mouse(MouseEventKind::Down(MouseButton::Left), 3, y);
+        // 다른 항목 → 그 항목으로, 고른 항목(여러 줄 어디든) → Enter.
+        assert_eq!(menu_click(&table, 0, click(7)), EditAction::Jump(1));
+        assert_eq!(menu_click(&table, 1, click(6)), EditAction::Activate);
+        assert_eq!(menu_click(&table, 1, click(7)), EditAction::Activate);
+        assert_eq!(menu_click(&table, 1, click(9)), EditAction::None);
+        for kind in [
+            MouseEventKind::Down(MouseButton::Right),
+            MouseEventKind::Up(MouseButton::Left),
+            MouseEventKind::Moved,
+            MouseEventKind::ScrollDown,
+        ] {
+            assert_eq!(menu_click(&table, 0, mouse(kind, 3, 7)), EditAction::None);
+        }
+        // Jump는 메뉴 커서를 그 항목으로.
+        let bs = boards();
+        let mut t = None;
+        let mut u = ui("B1", "P1", None);
+        run(&Screen::Settings, &mut u, &bs, &mut t, EditAction::Jump(1));
+        assert_eq!(u.cursor, 1);
+    }
+
+    /// 리뷰 B3: 좁은 화면에서 빠지는 순서 — 표시 순서는 그대로, `Enter 저장`이 마지막까지.
+    #[test]
+    fn edit_key_bar_keeps_save_longest() {
+        use handicap_tui::view::edit::fit_keys;
+        let input = ["Enter 저장", "Esc 취소", "Ctrl+U 지우기"];
+        assert_eq!(fit_keys(&input, 80), input);
+        let w = |segs: &[&str]| {
+            let s = segs.join("  ");
+            ratatui::text::Span::raw(s).width() as u16 + 1
+        };
+        assert_eq!(fit_keys(&input, w(&input) - 1), ["Enter 저장", "Esc 취소"]);
+        assert_eq!(
+            fit_keys(&input, w(&["Enter 저장", "Esc 취소"]) - 1),
+            ["Enter 저장"]
+        );
+        assert_eq!(fit_keys(&input, 5), ["Enter 저장"]);
+        let pick = ["↑↓ 고르기", "Enter 저장", "Esc 취소"];
+        assert_eq!(fit_keys(&pick, w(&pick) - 1), ["Enter 저장", "Esc 취소"]);
+        assert_eq!(fit_keys(&pick, 12), ["Enter 저장"]);
+        let form = ["Tab 다음 칸", "Space 켜기·끄기", "Enter 저장", "Esc 취소"];
+        assert_eq!(
+            fit_keys(&form, w(&form) - 1),
+            ["Space 켜기·끄기", "Enter 저장", "Esc 취소"]
+        );
+        assert_eq!(
+            fit_keys(&form, w(&["Enter 저장", "Esc 취소"])),
+            ["Enter 저장", "Esc 취소"]
+        );
+        assert_eq!(fit_keys(&form, 12), ["Enter 저장"]);
+        // 저장·취소가 없는 줄은 기존 규칙(앞 조각부터).
+        let menu = ["↑↓ 고르기", "1–14 번호", "Enter 수정", "Esc 모니터로"];
+        assert_eq!(
+            fit_keys(&menu, w(&menu) - 1),
+            ["1–14 번호", "Enter 수정", "Esc 모니터로"]
+        );
     }
 }

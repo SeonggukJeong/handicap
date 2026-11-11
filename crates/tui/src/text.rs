@@ -74,7 +74,7 @@ pub const HELP_KEYS: [(&str, &str); 10] = [
     ("Tab / Shift+Tab", "다음 / 이전 보드"),
     // 50칸 터미널 도움말 상자(설명 칸 30열)에서도 통째로 보이게 짧게.
     ("e", "선택 칸 오류 보기(실패 목록)"),
-    ("Enter", "선택 칸 설정 보기"),
+    ("Enter", "선택 칸 설정 보기·수정"),
     ("b", "테두리 모양 바꾸기(굵은 선 / 반 칸 블록, 기억됨)"),
     ("?", "도움말"),
     ("q / Ctrl+C", "종료 확인창"),
@@ -84,6 +84,13 @@ pub const HELP_KEYS: [(&str, &str); 10] = [
 pub const HELP_IDLE: &str = "오류 보기·칸 설정 화면은 5분 동안 입력이 없으면 모니터로 돌아갑니다";
 pub const HELP_COPY: &str = "글자 복사는 Shift+드래그";
 pub const HELP_FILE: &str = "보드 파일";
+/// 도움말 노란 줄(spec §6.6 — US4).
+pub const HELP_REPLACE_WARN: &str = "새 파일로 바꾸면 이 PC에서 고친 값은 사라집니다";
+
+/// 도움말 백업 줄(spec §6.6) — 실제 경로 기준.
+pub fn help_backups(bak: &str, orig: &str) -> String {
+    format!("백업: {bak} · 원본: {orig}")
+}
 pub const HELP_LOG: &str = "로그";
 
 pub const QUIT_CONFIRM: &str = "종료할까요? y 종료 · 다른 키 취소";
@@ -206,6 +213,8 @@ pub fn span_text(secs: u64) -> String {
 pub const ERRORS_COLS: (&str, &str, &str) = ("시각", "상태", "사유");
 pub const ERRORS_EMPTY: &str = "이 구간에 실패가 없습니다";
 pub const ERRORS_EMPTY_ALL: &str = "아직 점검 결과가 없습니다";
+/// 꺼진 보드(`/status` `enabled: false`)의 빈 목록(roadmap §B48 (2), 목업 §7).
+pub const ERRORS_EMPTY_OFF: &str = "점검이 꺼져 있어 결과가 없습니다";
 
 /// 새 화면(오류 보기·칸 설정)의 무입력 자동 복귀 안내 줄.
 pub const IDLE_NOTICE: &str = "5분 동안 입력이 없으면 모니터로 돌아갑니다";
@@ -430,6 +439,12 @@ pub const EDIT_NO_DISPLAY: &str = "표시 값 추가는 GUI에서(다음 버전�
 pub const EDIT_NO_ENV: &str = "이 칸은 환경을 쓰지 않습니다";
 pub const EDIT_NO_ENV_VARS: &str = "이 환경에는 변수가 없습니다";
 pub const EDIT_NO_SCENARIO_VARS: &str = "이 시나리오에는 변수가 없습니다";
+/// 시나리오 저장 409(버전 어긋남, spec §6.4) — 작업자가 바꾼다.
+pub const SCENARIO_CONFLICT: &str = "다른 곳에서 시나리오가 바뀌었습니다 — 다시 열어 주세요";
+/// 편집 작업자가 없거나 멈춰 저장 결과가 오지 않을 때(TUI 전용).
+pub const SAVE_LOST: &str = "저장하지 못했습니다 — TUI를 다시 시작하세요";
+/// 같은 경우의 환경·시나리오 조회(TUI 전용).
+pub const LOAD_LOST: &str = "불러오지 못했습니다 — TUI를 다시 시작하세요";
 
 pub fn step_change_confirm(conds: usize, displays: usize) -> String {
     format!("조건 {conds}개·표시 값 {displays}개도 이 스텝으로 바뀝니다 — Enter 계속 · Esc 취소")

@@ -567,3 +567,55 @@ fn render_sweep_no_panic() {
         assert!(width(&line) <= 200 * 2);
     }
 }
+
+/// 리뷰 B4: 조건 수정 칸이 열려 있으면 목록은 폼 높이만큼 줄어든 영역에 그려져 고른(마지막) 줄 `▶`가 폼 위에 보인다.
+#[test]
+fn cond_form_does_not_hide_selected_row() {
+    use handicap_tui::view::edit::render_list_with_form;
+    let rows: Vec<ListRow> = (1..=12).map(|i| row(&format!("조건-{i:02}"))).collect();
+    let ops = ["= 같음", "키 있음"];
+    let fv = form(0, &ops, CondFocus::Op);
+    for h in [12u16, 14, 16, 20, 24] {
+        let v = ListView {
+            title: "성공 조건 · 핑",
+            rows: rows.clone(),
+            cursor: 11,
+            overlay: None,
+        };
+        let mut t = Terminal::new(TestBackend::new(60, h)).unwrap();
+        t.draw(|f| render_list_with_form(f, &head(), &v, &[], Some(&fv)))
+            .unwrap();
+        let txt = buffer_text(t.backend().buffer());
+        let lines: Vec<&str> = txt.lines().collect();
+        let sel = lines
+            .iter()
+            .position(|l| l.contains("▶") && l.contains("조건-12"))
+            .unwrap_or_else(|| panic!("h{h}: selected row hidden\n{txt}"));
+        let target = lines
+            .iter()
+            .position(|l| l.contains("대상"))
+            .unwrap_or_else(|| panic!("h{h}: form missing\n{txt}"));
+        assert!(sel < target, "h{h}: selected row below form\n{txt}");
+    }
+    // 폼 없음 = render_list와 같은 화면.
+    let v = ListView {
+        title: "성공 조건 · 핑",
+        rows: rows.clone(),
+        cursor: 11,
+        overlay: None,
+    };
+    let mut a = Terminal::new(TestBackend::new(60, 16)).unwrap();
+    a.draw(|f| render_list_with_form(f, &head(), &v, &[], None))
+        .unwrap();
+    let mut b = Terminal::new(TestBackend::new(60, 16)).unwrap();
+    b.draw(|f| render_list(f, &head(), &v, &[])).unwrap();
+    assert_eq!(a.backend().buffer(), b.backend().buffer());
+    // 아주 작은 화면에서도 패닉 없음.
+    for w in 1..=20u16 {
+        for h in 1..=8u16 {
+            let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+            t.draw(|f| render_list_with_form(f, &head(), &v, &[], Some(&fv)))
+                .unwrap();
+        }
+    }
+}

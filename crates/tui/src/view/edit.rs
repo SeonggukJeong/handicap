@@ -5,8 +5,9 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use ratatui::widgets::Clear;
 
-use super::inspect::render_frame;
+use super::inspect::{render_frame, sub_layout};
 use super::model::parse_hex;
 use super::monitor::{C_BG, C_FAIL, C_MUTED, C_TEXT, HeaderView};
 use super::settings::{OverlayView, col_w, color, overlay_rows, put, render_pick, window};
@@ -75,6 +76,27 @@ pub fn cond_form_keys() -> Vec<&'static str> {
         text::KEYS_SAVE,
         text::KEYS_CANCEL,
     ]
+}
+
+/// 편집 화면 키 줄을 폭에 맞춘다 — **표시 순서는 그대로**, 빠지는 순서만 따로: `Enter 저장`·`Esc 취소`가 아닌 조각을
+/// 앞에서부터, 그다음 `Esc 취소`, `Enter 저장`은 마지막까지(crates/tui/CLAUDE.md "덜 중요한 것부터" — `key_bar`는
+/// 앞 조각부터 빼므로 저장 키가 앞에 있는 줄에서 먼저 사라졌다). 저장·취소가 없는 줄은 `key_bar`와 같은 결과.
+/// 한 조각만 남아도 넘치면 그대로 두고 `key_bar`가 말줄임한다.
+pub fn fit_keys(keys: &[&'static str], width: u16) -> Vec<&'static str> {
+    let avail = usize::from(width).saturating_sub(1);
+    let mut k: Vec<&'static str> = keys.to_vec();
+    while k.len() > 1 && text_width(&k.join("  ")) > avail {
+        let rank = |s: &str| match s {
+            s if s == text::KEYS_SAVE => 2,
+            s if s == text::KEYS_CANCEL => 1,
+            _ => 0,
+        };
+        let low = k.iter().map(|s| rank(s)).min().unwrap_or(0);
+        if let Some(i) = k.iter().position(|s| rank(s) == low) {
+            k.remove(i);
+        }
+    }
+    k
 }
 
 fn digits(mut n: usize) -> usize {
@@ -190,15 +212,71 @@ fn list_row_line(r: &ListRow, no: usize, numw: usize, selected: bool, w: usize) 
 
 /// 하위 목록 화면: body 1행 = 제목, (높이가 되면 빈 줄), 목록, 맨 아래 overlay.
 pub fn render_list(f: &mut Frame, head: &HeaderView, v: &ListView, keys: &[&str]) {
+    render_list_reserving(f, head, v, keys, 0);
+}
+
+/// 조건 수정 칸의 왼쪽 들여쓰기(좁으면 0).
+fn form_x_off(body_w: u16) -> u16 {
+    if body_w > 12 { 2 } else { 0 }
+}
+
+/// 조건 수정 칸 값 칸의 폭(가로 창 계산용) — `body_w` = 화면 body 폭.
+pub fn cond_form_value_width(body_w: u16) -> usize {
+    usize::from(body_w).saturating_sub(usize::from(form_x_off(body_w)) + 1 + FORM_LABEL_W)
+}
+
+/// 조건 수정 칸 줄 수(대상·규칙 + 값·체크·오류 중 있는 것).
+fn cond_form_lines(v: &CondFormView) -> u16 {
+    2 + u16::from(v.value.is_some()) + u16::from(v.flags.is_some()) + u16::from(v.error.is_some())
+}
+
+/// 하위 목록 + (열려 있으면) 조건 수정 칸. 폼이 있으면 목록은 폼 높이만큼 줄어든 영역에 그려
+/// 고른 줄이 폼에 가리지 않는다(커서 줄이 늘 보이게 창을 민다). 폼은 body 맨 아래.
+pub fn render_list_with_form(
+    f: &mut Frame,
+    head: &HeaderView,
+    v: &ListView,
+    keys: &[&str],
+    form: Option<&CondFormView>,
+) {
+    let Some(fv) = form else {
+        render_list(f, head, v, keys);
+        return;
+    };
+    let body = sub_layout(f.area()).body;
+    let h = cond_form_lines(fv).min(body.height);
+    let body = render_list_reserving(f, head, v, keys, usize::from(h));
+    if body.height == 0 || body.width == 0 || h == 0 {
+        return;
+    }
+    let x_off = form_x_off(body.width);
+    let area = Rect::new(
+        body.x.saturating_add(x_off),
+        body.y.saturating_add(body.height.saturating_sub(h)),
+        body.width.saturating_sub(x_off),
+        h,
+    );
+    f.render_widget(Clear, area);
+    render_cond_form(f, area, fv);
+}
+
+/// `reserve` = body 맨 아래에 비워 둘 줄 수(조건 수정 칸 자리). 그린 body를 돌려준다.
+fn render_list_reserving(
+    f: &mut Frame,
+    head: &HeaderView,
+    v: &ListView,
+    keys: &[&str],
+    reserve: usize,
+) -> Rect {
     let body = render_frame(f, head, keys);
     if body.height == 0 || body.width == 0 {
-        return;
+        return body;
     }
     let w = usize::from(body.width);
     let bh = usize::from(body.height);
     let row = |i: usize| Rect::new(body.x, body.y.saturating_add(i as u16), body.width, 1);
     let ov_rows = overlay_rows(v.overlay.as_ref(), w, bh);
-    let oh = ov_rows.len().min(bh);
+    let oh = ov_rows.len().max(reserve).min(bh);
     if bh > oh {
         put(f, row(0), title_line(v.title, None, w));
     }
@@ -229,8 +307,9 @@ pub fn render_list(f: &mut Frame, head: &HeaderView, v: &ListView, keys: &[&str]
             );
         }
     }
-    for (i, l) in ov_rows.into_iter().take(oh).enumerate() {
-        put(f, row(bh - oh + i), l);
+    let n_ov = ov_rows.len().min(oh);
+    for (i, l) in ov_rows.into_iter().take(n_ov).enumerate() {
+        put(f, row(bh - n_ov + i), l);
     }
     if let Some(OverlayView::Pick {
         title,
@@ -240,6 +319,7 @@ pub fn render_list(f: &mut Frame, head: &HeaderView, v: &ListView, keys: &[&str]
     {
         render_pick(f, body, sel_rows, title, options, *cursor);
     }
+    body
 }
 
 // ---------- 조건 수정 칸 ----------

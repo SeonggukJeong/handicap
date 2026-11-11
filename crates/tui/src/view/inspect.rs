@@ -262,7 +262,9 @@ pub fn render_errors(f: &mut Frame, head: &HeaderView, v: &ErrorsView, keys: &[&
     let mut y = 1u16;
     if v.rows.is_empty() {
         if body.height >= 2 {
-            let msg = if v.show_all {
+            let msg = if v.board_off {
+                text::ERRORS_EMPTY_OFF
+            } else if v.show_all {
                 text::ERRORS_EMPTY_ALL
             } else {
                 text::ERRORS_EMPTY

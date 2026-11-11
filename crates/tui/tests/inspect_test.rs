@@ -120,6 +120,7 @@ fn sample_view() -> ErrorsView {
         total: 5,
         span_secs: 25,
         show_all: false,
+        board_off: false,
     }
 }
 
@@ -348,6 +349,7 @@ fn errors_view_window_and_counts() {
         results: &rs,
         thresholds: &[],
         interval_seconds: 5,
+        enabled: true,
     };
     // 실패만 최신 순: [12,11,10,8,7,6,5,4,2,1] — 가운데(7, 5번째 줄).
     let st = ErrorsState {
@@ -519,6 +521,7 @@ fn render_errors_all_mode_shows_latency() {
         total: 5,
         span_secs: 25,
         show_all: true,
+        board_off: false,
     };
     let t = render_view(100, 14, &v);
     println!("{t}");
@@ -1826,4 +1829,42 @@ fn body_lines_width_3_wide_text_fits() {
     }
     let joined: String = l.iter().map(|b| b.text.trim()).collect();
     assert!(joined.contains("가나다라"), "{l:?}");
+}
+
+/// roadmap §B48 (2): 꺼진 보드(`/status` `enabled: false`)는 결과가 늘 비어 "실패 없음"과 구분되지 않는다 — 문구를 따로.
+#[test]
+fn errors_empty_when_board_off() {
+    let off = ErrorsInput {
+        title: "주문 조회",
+        results: &[],
+        thresholds: &[],
+        interval_seconds: 5,
+        enabled: false,
+    };
+    for show_all in [false, true] {
+        let st = ErrorsState {
+            show_all,
+            ..ErrorsState::default()
+        };
+        let v = errors_view(&off, &st, 4);
+        assert!(v.board_off);
+        let t = render_view(80, 12, &v);
+        assert!(t.contains("점검이 꺼져 있어 결과가 없습니다"), "{t}");
+        assert!(!t.contains(text::ERRORS_EMPTY), "{t}");
+        let on = ErrorsInput {
+            enabled: true,
+            ..off
+        };
+        let v = errors_view(&on, &st, 4);
+        assert!(!v.board_off);
+        let t = render_view(80, 12, &v);
+        let want = if show_all {
+            text::ERRORS_EMPTY_ALL
+        } else {
+            text::ERRORS_EMPTY
+        };
+        assert!(t.contains(want), "{t}");
+        assert!(!t.contains("점검이 꺼져"), "{t}");
+    }
+    assert_eq!(text::ERRORS_EMPTY_OFF, "점검이 꺼져 있어 결과가 없습니다");
 }

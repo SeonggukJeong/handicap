@@ -221,6 +221,8 @@ pub struct ErrorsView {
     /// total × interval_seconds (명목 구간)
     pub span_secs: u64,
     pub show_all: bool,
+    /// 꺼진 보드 — 빈 목록 문구를 `ERRORS_EMPTY_OFF`로(roadmap §B48 (2)).
+    pub board_off: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -229,6 +231,8 @@ pub struct ErrorsInput<'a> {
     pub results: &'a [CheckResult],
     pub thresholds: &'a [Threshold],
     pub interval_seconds: u32,
+    /// `/status`의 `enabled` — 꺼진 보드는 결과가 늘 비어 "실패 없음"과 구분되지 않는다.
+    pub enabled: bool,
 }
 
 /// (목록 전체, 창 첫 줄, 커서 줄 번호) — `errors_view`·`visible_results`가 같은 창을 쓴다.
@@ -267,6 +271,7 @@ pub fn errors_view(i: &ErrorsInput, st: &ErrorsState, height: usize) -> ErrorsVi
         total: i.results.len(),
         span_secs: (i.results.len() as u64).saturating_mul(u64::from(i.interval_seconds)),
         show_all: st.show_all,
+        board_off: !i.enabled,
     }
 }
 

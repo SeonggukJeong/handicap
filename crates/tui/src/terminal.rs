@@ -1,11 +1,13 @@
-//! 터미널 수명(raw mode·대체 화면·마우스)과 패닉 훅.
+//! 터미널 수명(raw mode·대체 화면·마우스·브래킷 붙여넣기)과 패닉 훅.
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, ThreadId};
 
 use ratatui::crossterm::cursor::Show;
-use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -24,7 +26,13 @@ pub fn restore() {
         return;
     }
     let mut out = io::stdout();
-    let _ = execute!(out, DisableMouseCapture, LeaveAlternateScreen, Show);
+    let _ = execute!(
+        out,
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        LeaveAlternateScreen,
+        Show
+    );
     let _ = disable_raw_mode();
 }
 
@@ -36,8 +44,18 @@ impl TerminalGuard {
     pub fn enter() -> io::Result<TerminalGuard> {
         enable_raw_mode()?;
         let mut out = io::stdout();
-        if let Err(e) = execute!(out, EnterAlternateScreen, EnableMouseCapture) {
-            let _ = execute!(out, DisableMouseCapture, LeaveAlternateScreen);
+        if let Err(e) = execute!(
+            out,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        ) {
+            let _ = execute!(
+                out,
+                DisableBracketedPaste,
+                DisableMouseCapture,
+                LeaveAlternateScreen
+            );
             let _ = disable_raw_mode();
             return Err(e);
         }

@@ -48,8 +48,11 @@ struct Rig {
 }
 
 async fn rig(srv: &MockServer) -> Rig {
+    rig_with(bundle_for(srv).into_bytes()).await
+}
+
+async fn rig_with(start: Vec<u8>) -> Rig {
     let tmp = tempfile::tempdir().unwrap();
-    let start = bundle_for(srv).into_bytes();
     let file = write(tmp.path(), "b.json", &start);
     let dbdir = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
@@ -342,4 +345,162 @@ fn edit_req_and_done_debug_hide_values() {
             assert!(!s.contains(leak), "{leak} leaked: {s}");
         }
     }
+}
+
+// ---- tui-2a-1 Task 11: 환경 값·시나리오 변수 저장이 다음 점검에 닿는다 ----
+
+const FLOW_YAML: &str = "version: 1\nname: tui-flow\nvariables:\n  # 주문 번호\n  order_id: \"A-1\"\nsteps:\n  - id: 01J0000000000000000000ST01\n    name: ping\n    type: http\n    request:\n      method: GET\n      url: ${BASE_URL}/orders/{{order_id}}\n      headers:\n        X-Token: ${TOKEN}\n    assert:\n      - status: 200\n";
+
+/// `${TOKEN}` 헤더·`{{order_id}}` URL을 쓰는 시나리오 + 환경 BASE_URL·TOKEN=old-token. 점검 주기 1초.
+fn flow_bundle(server: &MockServer) -> Vec<u8> {
+    let mut v: serde_json::Value = serde_json::from_str(TEMPLATE).unwrap();
+    v["scenarios"][0]["yaml"] = FLOW_YAML.into();
+    v["environments"][0]["vars"] = serde_json::json!({
+        "BASE_URL": server.uri(),
+        "TOKEN": "old-token",
+    });
+    serde_json::to_vec_pretty(&v).unwrap()
+}
+
+/// `pred`를 만족하는 요청이 올 때까지(최대 10초).
+async fn wait_request(srv: &MockServer, what: &str, pred: impl Fn(&wiremock::Request) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if srv
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(&pred)
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no request with {what} within 10s"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn token_is(r: &wiremock::Request, v: &str) -> bool {
+    r.headers.get("x-token").and_then(|h| h.to_str().ok()) == Some(v)
+}
+
+fn file_scenario_yaml(path: &Path) -> String {
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    v["scenarios"][0]["yaml"].as_str().unwrap().to_string()
+}
+
+fn changed_lines(a: &str, b: &str) -> Vec<usize> {
+    let la: Vec<&str> = a.split_inclusive('\n').collect();
+    let lb: Vec<&str> = b.split_inclusive('\n').collect();
+    assert_eq!(la.len(), lb.len(), "line count changed");
+    (0..la.len())
+        .filter(|&i| la[i] != lb[i])
+        .map(|i| i + 1)
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn env_value_change_reaches_next_check() {
+    let srv = target().await;
+    let r = rig_with(flow_bundle(&srv)).await;
+    wait_request(&srv, "old token", |q| token_is(q, "old-token")).await;
+    let env = r.s.api.environment(ENV_ID).await.unwrap();
+    let mut vars = env.vars.clone();
+    vars.insert("TOKEN".into(), "new-token".into());
+    r.tx.send(EditReq::SaveEnv {
+        seq: 1,
+        id: ENV_ID.into(),
+        name: env.name.clone(),
+        vars,
+    })
+    .unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            seq: 1,
+            req: SavedWhat::Env { id },
+            server: Ok(SavedValue::Env(e)),
+            file: Some(Ok(())),
+        } => {
+            assert_eq!(id, ENV_ID);
+            assert_eq!(e.vars["TOKEN"], "new-token");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    wait_request(&srv, "new token", |q| token_is(q, "new-token")).await;
+    // 파일을 다시 가져온 새 세션에서 그 값.
+    let db2 = tempfile::tempdir().unwrap();
+    let s2 = Session::start(&r.file, db2.path()).await.unwrap();
+    let e2 = s2.api.environment(ENV_ID).await.unwrap();
+    assert_eq!(e2.vars["TOKEN"], "new-token");
+    assert_eq!(e2.vars["BASE_URL"], srv.uri());
+    s2.shutdown().await;
+    shutdown(r).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scenario_var_change_one_line_in_file() {
+    let srv = target().await;
+    let r = rig_with(flow_bundle(&srv)).await;
+    wait_request(&srv, "/orders/A-1", |q| q.url.path() == "/orders/A-1").await;
+    let sc = r.s.api.scenario(SC_ID).await.unwrap();
+    let yaml = handicap_tui::yaml_var::splice_static_var(&sc.yaml, "order_id", "B-2").unwrap();
+    r.tx.send(EditReq::SaveScenario {
+        seq: 3,
+        id: SC_ID.into(),
+        yaml,
+        version: sc.version,
+    })
+    .unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            seq: 3,
+            req: SavedWhat::Scenario { id },
+            server: Ok(SavedValue::Scenario(s)),
+            file: Some(Ok(())),
+        } => {
+            assert_eq!(id, SC_ID);
+            assert!(s.version > sc.version);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    let in_file = file_scenario_yaml(&r.file);
+    let order_line = FLOW_YAML
+        .lines()
+        .position(|l| l.contains("order_id:"))
+        .unwrap()
+        + 1;
+    assert_eq!(changed_lines(FLOW_YAML, &in_file), vec![order_line]);
+    assert!(in_file.contains("\n  # 주문 번호\n"), "{in_file}");
+    assert!(in_file.contains("order_id: \"B-2\""), "{in_file}");
+    wait_request(&srv, "/orders/B-2", |q| q.url.path() == "/orders/B-2").await;
+    shutdown(r).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scenario_stale_version_409() {
+    let srv = target().await;
+    let r = rig_with(flow_bundle(&srv)).await;
+    let sc = r.s.api.scenario(SC_ID).await.unwrap();
+    let yaml = handicap_tui::yaml_var::splice_static_var(&sc.yaml, "order_id", "C-3").unwrap();
+    r.tx.send(EditReq::SaveScenario {
+        seq: 4,
+        id: SC_ID.into(),
+        yaml,
+        version: sc.version - 1,
+    })
+    .unwrap();
+    match recv(&r.rx).await {
+        EditDone::Saved {
+            seq: 4,
+            server: Err(m),
+            file: None,
+            ..
+        } => assert_eq!(m, "다른 곳에서 시나리오가 바뀌었습니다 — 다시 열어 주세요"),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(std::fs::read(&r.file).unwrap(), r.start);
+    shutdown(r).await;
 }

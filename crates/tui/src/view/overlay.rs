@@ -4,15 +4,20 @@ use std::path::Path;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use super::{centered, key_bar, text_width, wrap_width};
+use super::{centered, fit, key_bar, text_width, wrap_width};
+use crate::filesave::FileTarget;
+use crate::inspect::sanitize;
 use crate::logging::LogLoc;
 use crate::text;
 
-pub fn render_help(f: &mut Frame, file: &Path, log: &LogLoc) {
+/// 도움말. `backups` = 세션의 실제 대상(있으면 보드 파일 줄 아래에 백업 줄). 줄 순서: 키 줄 → 경고(노랑) →
+/// 보드 파일 → 백업 → 로그 → 무입력 → 복사. 높이가 모자라면 새 두 줄부터(백업 → 경고), 그다음 키 줄 →
+/// 복사 안내 → 무입력 안내 순으로 뺀다(경로가 진단에 가장 중요).
+pub fn render_help(f: &mut Frame, file: &Path, backups: Option<&FileTarget>, log: &LogLoc) {
     let key_col = text::HELP_KEYS
         .iter()
         .map(|(k, _)| text_width(k))
@@ -27,22 +32,46 @@ pub fn render_help(f: &mut Frame, file: &Path, log: &LogLoc) {
     let width = area.width.min(78);
     let inner_w = usize::from(width.saturating_sub(2)).max(1);
     // 경로는 줄바꿈 뒤의 행 수로 센다(공백 없는 긴 경로가 상자 밖으로 밀리지 않게 직접 자른다).
-    let mut fixed: Vec<String> =
-        wrap_width(&format!("{}: {}", text::HELP_FILE, file.display()), inner_w);
-    fixed.extend(wrap_width(&text::log_line(log), inner_w));
-    fixed.extend(wrap_width(text::HELP_IDLE, inner_w));
-    fixed.push(text::HELP_COPY.to_string());
-    let want = (key_rows.len() + fixed.len()) as u16 + 3;
-    // 테두리 2 + 키 안내 줄 1. 모자라면 키 줄 → 복사 안내 → 무입력 안내 순으로 뺀다(경로가 진단에 가장 중요).
+    let file_rows = wrap_width(&format!("{}: {}", text::HELP_FILE, file.display()), inner_w);
+    let mut tail: Vec<String> = wrap_width(&text::log_line(log), inner_w);
+    tail.extend(wrap_width(text::HELP_IDLE, inner_w));
+    tail.push(text::HELP_COPY.to_string());
+    let warn_rows = wrap_width(text::HELP_REPLACE_WARN, inner_w);
+    // 실제 경로는 파일 시스템 유래 — 그리기 전에 sanitize, 한 줄에 맞춰 자른다.
+    let backup_row = backups.map(|t| {
+        let line = text::help_backups(
+            &sanitize(&t.bak().display().to_string()),
+            &sanitize(&t.orig_bak().display().to_string()),
+        );
+        fit(&line, inner_w)
+    });
+    let base = key_rows.len() + file_rows.len() + tail.len();
+    let room = usize::from(area.height.saturating_sub(3));
+    let show_backup = backup_row.is_some() && base + warn_rows.len() < room;
+    let show_warn = base + warn_rows.len() <= room;
+    let n_warn = if show_warn { warn_rows.len() } else { 0 };
+    let want = (base + n_warn + usize::from(show_backup)) as u16 + 3;
     let rect = centered(area, width, want.min(area.height));
     let cap = usize::from(rect.height.saturating_sub(3));
-    let keys_shown = cap.saturating_sub(fixed.len()).min(key_rows.len());
-    fixed.truncate(cap);
+    let mut fixed: Vec<String> = file_rows;
+    if show_backup && let Some(b) = backup_row {
+        fixed.push(b);
+    }
+    fixed.extend(tail);
+    let keys_shown = cap.saturating_sub(fixed.len() + n_warn).min(key_rows.len());
+    fixed.truncate(cap.saturating_sub(n_warn));
+    let warn = Style::default().fg(Color::Yellow);
     let lines: Vec<Line> = key_rows
         .into_iter()
         .take(keys_shown)
-        .chain(fixed)
         .map(Line::from)
+        .chain(
+            warn_rows
+                .into_iter()
+                .take(n_warn)
+                .map(|r| Line::styled(r, warn)),
+        )
+        .chain(fixed.into_iter().map(Line::from))
         .collect();
     f.render_widget(Clear, rect);
     let block = Block::default()
