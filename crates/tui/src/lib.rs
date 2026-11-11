@@ -7,6 +7,7 @@ pub mod check_mode;
 pub mod cli;
 pub mod edit;
 pub mod filesave;
+pub mod input;
 pub mod inspect;
 pub mod judge;
 pub mod logging;
