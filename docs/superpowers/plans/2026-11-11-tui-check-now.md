@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-11-tui-check-now-design.md` — **§2 동작 규칙 1–7, §3, §4가 정본**. 구현자는 자기 task가 가리키는 절을 반드시 읽는다. 이 plan과 spec이 다르면 **STOP**하고 보고(임의로 한쪽을 고르지 말 것).
 
+spec·plan 모두 `spec-plan-reviewer` clean APPROVE(spec 3라운드, plan 2라운드 — 2026-11-11).
+
+REVIEW-GATE: APPROVED
+
 **US 블록(매 brief 첨부):** spec의 `## 사용자 스토리 (US)` 헤딩부터 다음 `## ` 헤딩 앞까지.
 
 ## Global Constraints
@@ -328,7 +332,7 @@ async fn check_now_during_running_check_adds_no_round() {
 }
 ```
 
-묶음 실행 단위의 주기는 **묶음의** `interval_seconds`다(`grep -n "interval_seconds: g.interval_seconds" crates/controller/src/monitor/unit.rs`) — 그래서 위 픽스처는 묶음 값만 3600으로 둔다(칸 값 1은 쓰이지 않는다).
+묶음 실행 단위의 주기는 **묶음의** `interval_seconds`다(`grep -n "interval_seconds: g.interval_seconds" crates/controller/src/monitor/unit.rs`) — 그래서 묶음 테스트(`check_now_group_runs_all_members_once`)의 픽스처는 묶음 값만 3600으로 둔다(칸 값 1은 쓰이지 않는다).
 
 (b) REST(`monitor_boards_api_test.rs`, 기존 `make_app`·`send`·`mock`·`create_scenario`·`new_board`·`url`·`wait_results` 재사용):
 
