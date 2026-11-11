@@ -1105,6 +1105,8 @@ fn render_record_loaded() {
     assert_eq!(focus.len(), 1, "{t}");
     assert!(focus[0].trim_start().starts_with("▶ "), "{t}");
     assert!(focus[0].contains(" d "), "{t}");
+    // 사유 줄의 `HTTP 503`이 아니라 스텝 표의 상태 칸에 503이 있어야 한다.
+    assert!(focus[0].contains("503"), "{t}");
     let timeout = t.lines().find(|l| l.contains(" e ")).unwrap();
     assert!(
         timeout.contains("—") && timeout.contains("시간 초과"),

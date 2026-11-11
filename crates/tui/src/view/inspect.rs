@@ -327,6 +327,24 @@ fn http_name(name: &str, loop_index: Option<u32>) -> String {
     }
 }
 
+/// 반복 회차 ` #n`은 반복끼리 구분하는 유일한 표시라 이름만 줄이고 회차는 지킨다
+/// (회차조차 안 들어가는 폭이면 통째로 `fit`).
+fn fit_name(name: &str, loop_index: Option<u32>, width: usize) -> String {
+    let n = sanitize(name);
+    match loop_index {
+        Some(i) => {
+            let suffix = format!(" #{i}");
+            let sw = text_width(&suffix);
+            if width > sw {
+                format!("{}{suffix}", fit(&n, width - sw))
+            } else {
+                fit(&format!("{n}{suffix}"), width)
+            }
+        }
+        None => fit(&n, width),
+    }
+}
+
 fn status_text(status: Option<u16>) -> String {
     status.map_or_else(|| text::NO_VALUE.to_string(), |s| s.to_string())
 }
@@ -465,7 +483,7 @@ fn http_row(l: &StepLine, cursor: bool, c: &StepCols, w: usize) -> Line<'static>
             "{}{:>2}{SGAP}{}",
             if cursor { "▶ " } else { "  " },
             no,
-            pad_to(&fit(&http_name(name, *loop_index), c.name), c.name)
+            pad_to(&fit_name(name, *loop_index, c.name), c.name)
         ),
         base,
     )];
@@ -480,7 +498,9 @@ fn http_row(l: &StepLine, cursor: bool, c: &StepCols, w: usize) -> Line<'static>
         };
         spans.push(Span::styled(format!("{SGAP}{}", pad_to(&req, c.req)), base));
     }
-    let st_style = if status.is_none_or(|s| s >= 400) {
+    // 응답 없음(`—`)만 실패색 — 4xx/5xx 코드는 칸 조건이 판정하므로(조건 `status = 404`인
+    // 칸에선 404가 정상) 코드 자체에 색을 입히지 않는다(목업 §2·GUI `StepRow`와 같다).
+    let st_style = if status.is_none() {
         bold(fail_style())
     } else {
         base
