@@ -422,9 +422,11 @@ fn render_monitor_contains() {
         assert!(text.contains(want), "{want}\n{text}");
     }
     assert!(
-        text.contains("←↑↓→ 칸 이동  Tab 다음 보드  b 테두리  ? 도움말  q 종료"),
+        text.contains("Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"),
         "{text}"
     );
+    // 80열·보드 2개는 다 안 들어가 맨 앞 `b 테두리`만 통째로 빠진다.
+    assert!(!text.contains("b 테두리"), "{text}");
     // 모든 칸이 같은 굵은 테두리, 선택은 `▶` 제목으로 구분한다.
     assert_eq!(text.matches('┏').count(), 3, "{text}");
     assert!(!text.contains('┌'), "{text}");
@@ -440,7 +442,7 @@ fn render_key_bar_single_board_omits_tab() {
     );
     let text = draw(80, 24, |f| render(f, &s));
     assert!(
-        text.contains("←↑↓→ 칸 이동  b 테두리  ? 도움말  q 종료"),
+        text.contains("b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"),
         "{text}"
     );
     assert!(!text.contains("Tab 다음 보드"), "{text}");
@@ -993,7 +995,8 @@ fn help_short_terminal_keeps_esc_row_and_aligns() {
         Span::raw(l[..idx].to_string()).width()
     };
     assert_eq!(col("칸 선택 이동"), col("다음 / 이전 보드"));
-    assert_eq!(col("칸 선택 이동"), col("테두리 모양 바꾸기"));
+    // 높이 12: 키 줄은 앞 5줄만(고정 줄 4 = 경로·로그·무입력·복사) — 보이는 줄끼리 정렬.
+    assert_eq!(col("칸 선택 이동"), col("선택 칸 오류 보기"));
     assert_eq!(col("칸 선택 이동"), col("글자 크기"));
 }
 
@@ -1015,7 +1018,7 @@ fn help_long_path_keeps_log_and_copy_rows() {
 fn help_tiny_height_drops_key_rows_before_paths() {
     let path = format!("/{}", "Z".repeat(150));
     let log = LogLoc::Path("/tmp/tui.log".into());
-    // 높이 9: 본문 6행 = 경로 3 + 로그 1 + 복사 1 + 키 1
+    // 높이 9: 본문 6행 = 경로 3 + 로그 1 + 무입력 1 + 복사 1 (키 줄 0 — 키 줄이 먼저 빠진다)
     let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
     println!("{text}");
     assert_eq!(text.matches('Z').count(), 150, "{text}");
@@ -1224,7 +1227,7 @@ fn bottom_key_bar_shows_only_keys_of_the_open_screen() {
     let monitor = key_bar_row(KeyBar::Monitor);
     assert_eq!(
         monitor,
-        "←↑↓→ 칸 이동  Tab 다음 보드  b 테두리  ? 도움말  q 종료"
+        "Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
     // 도움말: 닫기 키만.
     assert_eq!(key_bar_row(KeyBar::Help), "Esc 닫기");
@@ -2450,15 +2453,17 @@ fn key_bar_has_border_key() {
     let t = draw(80, 12, |f| render(f, &s));
     assert_eq!(
         t.lines().last().unwrap().trim(),
-        "←↑↓→ 칸 이동  b 테두리  ? 도움말  q 종료"
+        "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
     );
     let t = draw(24, 8, |f| render(f, &s));
     let last = t.lines().last().unwrap();
     assert!(!last.contains("칸 이동"), "{t}");
     assert!(last.contains("q 종료"), "{t}");
+    // 좁으면 앞 조각(`b 테두리` → `칸 이동` → …)부터 통째로 빠지고 `? 도움말  q 종료`는 남는다.
     let t = draw(30, 8, |f| render(f, &s));
     let last = t.lines().last().unwrap();
-    assert!(last.contains("b 테두리  ? 도움말  q 종료"), "{t}");
+    assert!(last.contains("? 도움말  q 종료"), "{t}");
+    assert!(!last.contains("b 테두리"), "{t}");
 }
 
 #[test]
@@ -2499,7 +2504,8 @@ fn help_zoom_row_first_and_survives_small_height() {
         assert!(zoom_at < text.find(other).unwrap(), "{other} {text}");
     }
     let path = format!("/{}", "Z".repeat(150));
-    let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
+    // 높이 10: 본문 7행 = 경로 3 + 로그 1 + 무입력 1 + 복사 1 + 키 1 — 남는 한 줄이 글자 크기 줄.
+    let text = draw(80, 10, |f| render_help(f, Path::new(&path), &log));
     assert!(text.contains("Ctrl + + / -"), "{text}");
     assert!(!text.contains("방향키"), "{text}");
 }
@@ -2524,4 +2530,70 @@ fn header_view_matches_monitor_header() {
             "w={w}"
         );
     }
+}
+
+#[test]
+fn key_bar_has_errors_and_settings_keys() {
+    let one = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    let t = draw(100, 12, |f| render(f, &one));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "b 테두리  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    let two = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    let t = draw(100, 12, |f| render(f, &two));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "b 테두리  Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    let t = draw(80, 12, |f| render(f, &two));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "Tab 다음 보드  ←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+    let t = draw(60, 12, |f| render(f, &two));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "←↑↓→ 칸 이동  e 오류 보기  Enter 칸 설정  ? 도움말  q 종료"
+    );
+}
+
+#[test]
+fn help_lists_new_keys_and_idle_rule() {
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    assert_eq!(handicap_tui::text::HELP_KEYS.len(), 10);
+    let text = draw(80, 30, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+    println!("{text}");
+    for want in [
+        "선택 칸 오류 보기",
+        "선택 칸 설정 보기",
+        "5분 동안 입력이 없으면 모니터로 돌아갑니다",
+    ] {
+        assert!(text.contains(want), "{want}\n{text}");
+    }
+    // `e`·`Enter` 줄은 `b` 줄 앞.
+    let at = |n: &str| text.find(n).unwrap();
+    assert!(at("선택 칸 오류 보기") < at("테두리 모양 바꾸기"), "{text}");
+    assert!(at("선택 칸 설정 보기") < at("테두리 모양 바꾸기"), "{text}");
+    // 50열: 무입력 문장이 상자 안에서 두 줄로 나뉘고, 테두리 밖 글자·말줄임이 없다.
+    let text = draw(50, 30, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+    println!("{text}");
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("5분") || l.contains("돌아갑니다"))
+        .collect();
+    assert_eq!(rows.len(), 2, "{text}");
+    for l in &rows {
+        assert!(l.trim_end().ends_with('│'), "{l:?}\n{text}");
+    }
+    let joined: String = rows
+        .iter()
+        .map(|l| l.trim().trim_matches('│').trim())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        joined.contains("5분 동안 입력이 없으면 모니터로 돌아갑니다"),
+        "{joined}"
+    );
+    assert!(!text.contains('…'), "{text}");
 }

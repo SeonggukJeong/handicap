@@ -3,8 +3,8 @@
 //! `targetLabel`·`conditionSummary`, `groups.ts` `groupNumber`)와 같다.
 
 use handicap_controller::monitor::config::{
-    BoardConfig, Condition, ConditionSource, DisplayItem, DisplaySource, LatencySource,
-    PanelConfig, one_of_candidates,
+    BoardConfig, Condition, ConditionOp, ConditionSource, DisplayItem, DisplaySource,
+    LatencySource, PanelConfig, one_of_candidates,
 };
 
 use crate::inspect::sanitize;
@@ -47,7 +47,7 @@ pub fn display_target(d: &DisplayItem) -> String {
 /// GUI `conditionSummary`.
 pub fn condition_summary(c: &Condition, step_name: Option<&str>) -> String {
     let mut s = format!("{} {}", condition_target(c), text::cond_op_label(c.op));
-    if c.op == handicap_controller::monitor::config::ConditionOp::OneOf {
+    if c.op == ConditionOp::OneOf {
         s.push_str(&format!(" {{{}}}", one_of_candidates(&c.value).join(", ")));
     } else if c.op.needs_value() {
         if c.value.is_empty() {
@@ -193,7 +193,7 @@ pub fn settings_items(p: &PanelConfig, names: &Names) -> Vec<SettingItem> {
 pub fn group_number(board: &BoardConfig, group_id: &str) -> usize {
     let mut seen: Vec<&str> = Vec::new();
     for p in &board.panels {
-        if let Some(g) = p.group_id.as_deref()
+        if let Some(g) = p.group_id.as_deref().filter(|g| !g.is_empty())
             && !seen.contains(&g)
         {
             seen.push(g);

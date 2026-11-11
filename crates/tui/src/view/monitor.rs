@@ -773,11 +773,18 @@ pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) -> bool {
     }
     let keys = match bar {
         KeyBar::Monitor => {
-            let mut keys = vec![text::KEYS_MOVE];
+            // 앞 조각부터 통째로 빠진다 — 덜 중요한 `b`·`Tab`을 앞에(목업 §0).
+            let mut keys = vec![text::KEYS_BORDER];
             if s.board_pos.1 > 1 {
                 keys.push(text::KEYS_NEXT_BOARD);
             }
-            keys.extend([text::KEYS_BORDER, text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
+            keys.extend([
+                text::KEYS_MOVE,
+                text::KEYS_ERRORS,
+                text::KEYS_SETTINGS,
+                text::KEYS_HELP_OPEN,
+                text::KEYS_QUIT,
+            ]);
             keys
         }
         KeyBar::Help => vec![text::KEYS_HELP],

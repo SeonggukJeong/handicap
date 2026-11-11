@@ -2,10 +2,14 @@
 
 use std::thread;
 
+use std::time::{Duration, Instant};
+
+use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_tui::app::{
-    Action, Dir, Screen, effective_server_down, handle_key, handle_mouse, move_sel,
-    screen_after_start, toggle_allowed,
+    Action, Dir, FetchReq, Fetched, IDLE_RETURN, KeyCtx, Screen, SubViews, effective_server_down,
+    handle_key, handle_mouse, idle_expired, move_sel, screen_after_start, sub_keys, toggle_allowed,
 };
+use handicap_tui::inspect::{Reason, RecordLoad, StepLine, cursor_index};
 use handicap_tui::session::{Stage, StartError};
 use handicap_tui::terminal::{PanicAction, panic_action, panic_line};
 use handicap_tui::view::monitor::Layout;
@@ -14,8 +18,15 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::Rect;
 
+/// 전역 신호 처리기를 나눠 쓰는 두 테스트를 차례로 돌린다(§B45 (2)·§B46 (2) — 완화만, 효과 실증 불가).
+static SIGNAL_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn key(c: KeyCode) -> KeyEvent {
     KeyEvent::new(c, KeyModifiers::NONE)
+}
+
+fn ctrl(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
 }
 
 fn err() -> StartError {
@@ -302,6 +313,7 @@ fn panic_in_check_main_thread_prints_one_stderr_line_and_logs() {
 #[cfg(unix)]
 #[test]
 fn termination_signals_set_quit_flag() {
+    let _serial = SIGNAL_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -322,6 +334,7 @@ fn termination_signals_set_quit_flag() {
 #[cfg(unix)]
 #[test]
 fn watchdog_fires_when_main_does_not_exit() {
+    let _serial = SIGNAL_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
@@ -369,4 +382,404 @@ fn toggle_allowed_only_when_panels_drawn() {
     assert!(toggle_allowed(&Screen::Monitor, true));
     assert!(!toggle_allowed(&Screen::Monitor, false));
     assert!(!toggle_allowed(&Screen::Help, true));
+}
+
+// ---------- 1b: 오류 보기·칸 설정 화면 전환 (Task 7) ----------
+
+const SUBS: [Screen; 4] = [
+    Screen::Errors,
+    Screen::Record,
+    Screen::Body,
+    Screen::Settings,
+];
+
+fn ch(c: char) -> KeyEvent {
+    key(KeyCode::Char(c))
+}
+
+#[test]
+fn monitor_e_and_enter_open_views() {
+    for c in ['e', 'ㄷ', 'E'] {
+        assert_eq!(
+            handle_key(&Screen::Monitor, ch(c), 1),
+            Action::OpenErrors,
+            "{c}"
+        );
+    }
+    assert_eq!(
+        handle_key(&Screen::Monitor, key(KeyCode::Enter), 1),
+        Action::OpenSettings
+    );
+    for s in [Screen::Help, Screen::Error(err()), Screen::Usage] {
+        for k in [ch('e'), key(KeyCode::Enter)] {
+            let a = handle_key(&s, k, 1);
+            assert!(
+                a != Action::OpenErrors && a != Action::OpenSettings,
+                "{s:?} {a:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sub_screen_keys() {
+    let e = Screen::Errors;
+    let nav = [
+        (key(KeyCode::Up), Action::Up),
+        (ch('k'), Action::Up),
+        (key(KeyCode::Down), Action::Down),
+        (ch('j'), Action::Down),
+        (key(KeyCode::PageUp), Action::PageUp),
+        (key(KeyCode::PageDown), Action::PageDown),
+        (key(KeyCode::Home), Action::Home),
+        (key(KeyCode::End), Action::End),
+        (key(KeyCode::Esc), Action::Back),
+        (ch('q'), Action::AskQuit),
+    ];
+    for s in &SUBS {
+        for (k, want) in nav {
+            assert_eq!(handle_key(s, k, 2), want, "{s:?} {k:?}");
+        }
+        for k in [key(KeyCode::Tab), ch('b'), ch('?')] {
+            assert_eq!(handle_key(s, k, 2), Action::None, "{s:?} {k:?}");
+        }
+    }
+    for c in ['a', 'ㅁ'] {
+        assert_eq!(handle_key(&e, ch(c), 1), Action::ToggleAll, "{c}");
+    }
+    assert_eq!(handle_key(&e, key(KeyCode::Enter), 1), Action::Activate);
+    assert_eq!(handle_key(&e, key(KeyCode::Left), 1), Action::None);
+
+    let r = Screen::Record;
+    assert_eq!(handle_key(&r, ch('a'), 1), Action::None);
+    assert_eq!(handle_key(&r, key(KeyCode::Enter), 1), Action::Activate);
+    assert_eq!(handle_key(&r, key(KeyCode::Left), 1), Action::None);
+    assert_eq!(handle_key(&r, key(KeyCode::Right), 1), Action::None);
+    assert_eq!(handle_key(&r, ch('v'), 1), Action::None);
+
+    let b = Screen::Body;
+    for c in ['v', 'ㅍ'] {
+        assert_eq!(handle_key(&b, ch(c), 1), Action::ToggleReveal, "{c}");
+    }
+    assert_eq!(handle_key(&b, key(KeyCode::Left), 1), Action::PrevStep);
+    assert_eq!(handle_key(&b, ch('h'), 1), Action::PrevStep);
+    assert_eq!(handle_key(&b, key(KeyCode::Right), 1), Action::NextStep);
+    assert_eq!(handle_key(&b, ch('l'), 1), Action::NextStep);
+    assert_eq!(handle_key(&b, key(KeyCode::Enter), 1), Action::None);
+    assert_eq!(handle_key(&b, ch('a'), 1), Action::None);
+
+    let st = Screen::Settings;
+    assert_eq!(handle_key(&st, key(KeyCode::Enter), 1), Action::None);
+    assert_eq!(handle_key(&st, ch('1'), 1), Action::None);
+    assert_eq!(handle_key(&st, key(KeyCode::Esc), 1), Action::Back);
+    assert_eq!(handle_key(&st, ch('e'), 1), Action::None);
+}
+
+#[test]
+fn ctrl_letters_ignored_on_monitor_and_sub_screens_only() {
+    assert_eq!(handle_key(&Screen::Monitor, ctrl('b'), 1), Action::None);
+    assert_eq!(handle_key(&Screen::Monitor, ctrl('e'), 1), Action::None);
+    assert_eq!(handle_key(&Screen::Errors, ctrl('a'), 1), Action::None);
+    assert_eq!(handle_key(&Screen::Body, ctrl('v'), 1), Action::None);
+    for s in [Screen::Monitor, Screen::Errors] {
+        assert_eq!(handle_key(&s, ctrl('c'), 1), Action::AskQuit, "{s:?}");
+        assert_eq!(handle_key(&s, ctrl('q'), 1), Action::AskQuit, "{s:?}");
+    }
+    let confirm = Screen::QuitConfirm(Box::new(Screen::Errors));
+    assert_eq!(handle_key(&confirm, ctrl('y'), 1), Action::Back);
+    assert_eq!(handle_key(&confirm, ctrl('c'), 1), Action::Back);
+    assert_eq!(handle_key(&confirm, ch('y'), 1), Action::Quit);
+    assert_eq!(
+        handle_key(&Screen::Error(err()), ctrl('c'), 1),
+        Action::Quit
+    );
+    assert_eq!(handle_key(&Screen::Help, ctrl('c'), 1), Action::AskQuit);
+}
+
+fn ctx() -> KeyCtx {
+    KeyCtx {
+        quit_confirm: false,
+        show_all: false,
+        reveal: false,
+        has_req_body: false,
+    }
+}
+
+#[test]
+fn sub_keys_per_screen() {
+    assert_eq!(
+        sub_keys(&Screen::Errors, ctx()),
+        ["↑↓ 고르기", "a 전체 회차", "Enter 자세히", "Esc 모니터로"]
+    );
+    let all = KeyCtx {
+        show_all: true,
+        ..ctx()
+    };
+    assert_eq!(
+        sub_keys(&Screen::Errors, all),
+        ["↑↓ 고르기", "a 실패만", "Enter 자세히", "Esc 모니터로"]
+    );
+    assert_eq!(
+        sub_keys(&Screen::Record, ctx()),
+        ["↑↓ 스텝 고르기", "Enter 요청·응답 보기", "Esc 목록으로"]
+    );
+    assert_eq!(
+        sub_keys(&Screen::Body, ctx()),
+        ["↑↓ PgUp PgDn 스크롤", "←→ 이전·다음 스텝", "Esc 자세히로"]
+    );
+    let body = KeyCtx {
+        has_req_body: true,
+        ..ctx()
+    };
+    assert_eq!(
+        sub_keys(&Screen::Body, body),
+        [
+            "↑↓ PgUp PgDn 스크롤",
+            "←→ 이전·다음 스텝",
+            "v 요청 본문 보기",
+            "Esc 자세히로"
+        ]
+    );
+    let shown = KeyCtx {
+        reveal: true,
+        ..body
+    };
+    assert!(sub_keys(&Screen::Body, shown).contains(&"v 가리기"));
+    assert_eq!(
+        sub_keys(&Screen::Settings, ctx()),
+        ["↑↓ 스크롤", "Esc 모니터로"]
+    );
+    let q = KeyCtx {
+        quit_confirm: true,
+        ..ctx()
+    };
+    for s in &SUBS {
+        assert_eq!(sub_keys(s, q), ["y 종료", "다른 키 취소"], "{s:?}");
+        assert!(!sub_keys(s, ctx()).contains(&"q 종료"), "{s:?}");
+    }
+}
+
+#[test]
+fn idle_expired_rules() {
+    assert_eq!(IDLE_RETURN, Duration::from_secs(300));
+    let t0 = Instant::now();
+    for s in &SUBS {
+        assert!(!idle_expired(s, t0, t0 + Duration::from_secs(299)), "{s:?}");
+        assert!(idle_expired(s, t0, t0 + Duration::from_secs(300)), "{s:?}");
+    }
+    let wrapped = Screen::QuitConfirm(Box::new(Screen::Errors));
+    assert!(idle_expired(&wrapped, t0, t0 + Duration::from_secs(300)));
+    let hour = t0 + Duration::from_secs(3600);
+    for s in [
+        Screen::QuitConfirm(Box::new(Screen::Monitor)),
+        Screen::Help,
+        Screen::Monitor,
+        Screen::Starting,
+        Screen::Usage,
+        Screen::Error(err()),
+    ] {
+        assert!(!idle_expired(&s, t0, hour), "{s:?}");
+    }
+    // 시계 역전 — last_input이 now보다 뒤.
+    assert!(!idle_expired(&Screen::Errors, hour, t0));
+}
+
+#[test]
+fn open_errors_pins_cursor_to_first_row() {
+    let mut v = SubViews::default();
+    assert_eq!(v.open_errors("B", "P", &[30, 20, 10]), Screen::Errors);
+    let e = v.errors.as_ref().unwrap();
+    assert_eq!((e.board_id.as_str(), e.panel_id.as_str()), ("B", "P"));
+    assert_eq!(e.cursor_at, Some(30));
+    assert_eq!(cursor_index(&[40, 30, 20, 10], e.cursor_at), 1);
+
+    let mut v = SubViews::default();
+    v.open_errors("B", "P", &[]);
+    let e = v.errors.as_mut().unwrap();
+    assert_eq!(e.cursor_at, None);
+    e.pin_cursor(&[10]);
+    assert_eq!(e.cursor_at, Some(10));
+    assert_eq!(cursor_index(&[20, 10], e.cursor_at), 1);
+
+    // show_all을 끄며 커서 줄(정상 회차 25)이 빠지면 그보다 오래된 첫 실패 줄로 다시 고정.
+    e.show_all = true;
+    e.cursor_at = Some(25);
+    e.show_all = false;
+    e.pin_cursor(&[30, 20, 10]);
+    assert_eq!(e.cursor_at, Some(20));
+    e.pin_cursor(&[]);
+    assert_eq!(e.cursor_at, None);
+}
+
+fn result(at: i64) -> CheckResult {
+    CheckResult {
+        at_ms: at,
+        verdict: Verdict::Fail,
+        latency_ms: Some(5),
+        reason: None,
+        detail: None,
+        display: vec![],
+    }
+}
+
+fn http_line(trace_idx: usize) -> StepLine {
+    StepLine::Http {
+        trace_idx,
+        no: trace_idx + 1,
+        loop_index: None,
+        name: format!("s{trace_idx}"),
+        method: None,
+        url: None,
+        status: None,
+        latency_ms: None,
+        error: None,
+        timed_out: false,
+        focus: false,
+    }
+}
+
+fn lines3() -> Vec<StepLine> {
+    vec![
+        http_line(0),
+        StepLine::If {
+            branch: "then".into(),
+        },
+        http_line(2),
+    ]
+}
+
+#[test]
+fn sub_views_transitions() {
+    let mut v = SubViews::default();
+    assert!(v.open_record(result(7)).is_none(), "errors 없이");
+    v.open_errors("B", "P", &[7]);
+    assert_eq!(
+        v.open_record(result(7)),
+        Some((
+            Screen::Record,
+            FetchReq::Record {
+                board_id: "B".into(),
+                panel_id: "P".into(),
+                at_ms: 7
+            }
+        ))
+    );
+    {
+        let r = v.record.as_ref().unwrap();
+        assert_eq!(
+            (r.board_id.as_str(), r.panel_id.as_str(), r.at_ms),
+            ("B", "P", 7)
+        );
+        assert_eq!(r.clicked.at_ms, 7);
+        assert!(matches!(r.load, RecordLoad::Loading));
+        assert_eq!(r.cursor, 0);
+    }
+    let lines = lines3();
+    v.record.as_mut().unwrap().cursor = 1;
+    assert_eq!(v.open_body(&lines), None, "If 줄");
+    assert!(v.body.is_none());
+    v.record.as_mut().unwrap().cursor = 0;
+    assert_eq!(v.open_body(&lines), Some(Screen::Body));
+    assert_eq!(v.body.as_ref().unwrap().line_idx, 0);
+
+    // 옆 스텝으로 — BodyState를 새로 만든다(가림·스크롤·캐시 초기화).
+    {
+        let b = v.body.as_mut().unwrap();
+        b.reveal = true;
+        b.scroll = 9;
+    }
+    assert!(v.step_body(&lines, 1));
+    {
+        let b = v.body.as_ref().unwrap();
+        assert_eq!((b.line_idx, b.reveal, b.scroll), (2, false, 0));
+        assert!(b.lines().is_empty(), "이전 스텝의 줄이 남지 않는다");
+    }
+    assert_eq!(v.record.as_ref().unwrap().cursor, 2);
+    v.body.as_mut().unwrap().scroll = 4;
+    assert!(!v.step_body(&lines, 1), "끝");
+    assert_eq!(v.body.as_ref().unwrap().scroll, 4, "body 불변");
+    assert!(v.step_body(&lines, -1));
+    assert_eq!(v.body.as_ref().unwrap().line_idx, 0);
+    assert_eq!(v.record.as_ref().unwrap().cursor, 0);
+
+    v.body.as_mut().unwrap().reveal = true;
+    assert_eq!(v.back(&Screen::Body), Some(Screen::Record));
+    assert!(v.body.is_none());
+    assert_eq!(v.open_body(&lines), Some(Screen::Body));
+    assert!(!v.body.as_ref().unwrap().reveal, "다시 열면 가림");
+    v.back(&Screen::Body);
+
+    assert_eq!(v.back(&Screen::Record), Some(Screen::Errors));
+    assert!(v.record.is_none());
+    assert_eq!(v.back(&Screen::Errors), Some(Screen::Monitor));
+    assert!(v.errors.is_none());
+    assert_eq!(v.open_settings(), Screen::Settings);
+    v.settings_scroll = 3;
+    assert_eq!(v.open_settings(), Screen::Settings);
+    assert_eq!(v.settings_scroll, 0);
+    assert_eq!(v.back(&Screen::Settings), Some(Screen::Monitor));
+    assert_eq!(v.back(&Screen::Help), Some(Screen::Monitor));
+    assert_eq!(v.back(&Screen::Monitor), None);
+    assert_eq!(v.back(&Screen::Starting), None);
+    assert!(v.open_record(result(7)).is_none());
+}
+
+#[test]
+fn idle_return_clears_views() {
+    let mut v = SubViews::default();
+    v.open_errors("B", "P", &[7]);
+    v.open_record(result(7)).unwrap();
+    v.open_body(&lines3()).unwrap();
+    v.body.as_mut().unwrap().reveal = true;
+    v.settings_scroll = 7;
+    v.clear();
+    assert!(v.errors.is_none() && v.record.is_none() && v.body.is_none());
+    assert_eq!(v.settings_scroll, 0);
+}
+
+#[test]
+fn fetched_for_other_panel_is_dropped() {
+    let reason = |b: &str, p: &str, at: i64, r: Reason| Fetched::Reason {
+        board_id: b.into(),
+        panel_id: p.into(),
+        at_ms: at,
+        reason: r,
+    };
+    let record = |b: &str, p: &str, at: i64| Fetched::Record {
+        board_id: b.into(),
+        panel_id: p.into(),
+        at_ms: at,
+        load: RecordLoad::Gone,
+    };
+    let mut v = SubViews::default();
+    assert!(
+        !v.accept(reason("B", "P1", 5, Reason::Gone)),
+        "화면을 이미 나감"
+    );
+    v.open_errors("B", "P1", &[7, 5]);
+    let cached = |v: &SubViews| {
+        v.errors
+            .as_ref()
+            .unwrap()
+            .cache
+            .reason_for(&result(5), false)
+    };
+    assert!(!v.accept(reason("B", "P2", 5, Reason::Gone)));
+    assert!(!v.accept(reason("X", "P1", 5, Reason::Gone)));
+    assert_eq!(cached(&v), Reason::Loading);
+    assert!(v.accept(reason("B", "P1", 5, Reason::Gone)));
+    assert_eq!(cached(&v), Reason::Gone);
+
+    assert!(!v.accept(record("B", "P1", 7)), "기록 화면 없음");
+    v.open_record(result(7)).unwrap();
+    assert!(!v.accept(record("B", "P1", 8)));
+    // 묶음의 다른 칸 — 같은 at_ms.
+    assert!(!v.accept(record("B", "P2", 7)));
+    assert!(!v.accept(record("X", "P1", 7)));
+    assert!(matches!(
+        v.record.as_ref().unwrap().load,
+        RecordLoad::Loading
+    ));
+    assert!(v.accept(record("B", "P1", 7)));
+    assert!(matches!(v.record.as_ref().unwrap().load, RecordLoad::Gone));
 }

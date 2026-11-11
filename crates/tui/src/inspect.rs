@@ -178,6 +178,16 @@ pub struct ErrorsState {
     pub cache: ReasonCache,
 }
 
+impl ErrorsState {
+    /// 커서를 지금 목록(`rows_at`, 최신 순)의 한 줄 at_ms에 고정한다 — 빈 목록이면 None.
+    /// `cursor_at`이 None인 채면 줄 번호 0에 붙어 새 결과가 올 때마다 맨 윗줄로 옮겨 가므로
+    /// 열 때·`a` 뒤·매 펌프에 부른다(사용자 확정 3).
+    pub fn pin_cursor(&mut self, rows_at: &[i64]) {
+        self.cursor_at =
+            (!rows_at.is_empty()).then(|| rows_at[cursor_index(rows_at, self.cursor_at)]);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorRow {
     pub at_ms: i64,
@@ -707,9 +717,9 @@ impl Lines {
     }
 
     /// 2칸 들여쓴 `Text` 줄 — 폭 `width - 2`로 감싼 뒤 각 줄에 들여쓰기를 붙인다(뒷줄도 2칸).
-    /// 폭이 2칸 이하면 들여쓰기 없이 감싼다.
+    /// 들여쓴 뒤 남는 폭이 2칸 미만이면(2칸 글자가 넘치지 않게) 들여쓰기 없이 감싼다.
     fn indented(&mut self, s: &str) {
-        let (pad, room) = if self.width > BODY_INDENT.len() {
+        let (pad, room) = if self.width >= BODY_INDENT.len() + 2 {
             (BODY_INDENT, self.width - BODY_INDENT.len())
         } else {
             ("", self.width)

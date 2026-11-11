@@ -20,6 +20,11 @@ use tokio::runtime::Runtime;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use handicap_controller::monitor::check::CheckResult;
+
+use crate::inspect::{
+    BodyState, ErrorsState, Reason, RecordLoad, RecordState, StepLine, neighbor_http,
+};
 use crate::judge::grid_for;
 use crate::logging::LogLoc;
 use crate::poll::{PollSnapshot, spawn_poller};
@@ -41,6 +46,14 @@ pub enum Screen {
     QuitConfirm(Box<Screen>),
     Error(StartError),
     Usage,
+    /// 오류 목록(spec §5.3-1). 화면 상태는 `SubViews`에.
+    Errors,
+    /// 기록 자세히(§5.3-2)
+    Record,
+    /// 요청·응답 본문(§5.3-3)
+    Body,
+    /// 칸 설정 보기(§5.4)
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +77,19 @@ pub enum Action {
     Quit,
     Retry,
     ToggleBorder,
+    OpenErrors,
+    OpenSettings,
+    Activate,
+    ToggleAll,
+    ToggleReveal,
+    PrevStep,
+    NextStep,
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
 }
 
 /// 대문자(Caps Lock)와 한글 2벌식 자모(같은 물리 키)를 소문자 영문 키로 맞춘다.
@@ -77,6 +103,9 @@ fn normalize_char(c: char) -> char {
         'ㅣ' => 'l',
         'ㄱ' => 'r',
         'ㅠ' => 'b',
+        'ㄷ' => 'e',
+        'ㅁ' => 'a',
+        'ㅍ' => 'v',
         c => c.to_ascii_lowercase(),
     }
 }
@@ -90,6 +119,11 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
     let ctrl_c = ctrl && code == KeyCode::Char('c');
     let quit_key = ctrl_c || code == KeyCode::Char('q');
     let k = KeyEvent::new(code, k.modifiers);
+    // Ctrl이 눌린 문자 키(Ctrl+C·Ctrl+Q 밖)는 모니터·새 화면 넷에서 무동작 — Ctrl+B가 `b`로 읽히지 않게(§B46 (2)).
+    let ctrl_letter = ctrl && matches!(code, KeyCode::Char(_)) && !quit_key;
+    if ctrl_letter && (matches!(screen, Screen::Monitor) || is_sub(screen)) {
+        return Action::None;
+    }
     match screen {
         Screen::Starting => Action::None,
         Screen::Monitor => {
@@ -105,8 +139,16 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
                 KeyCode::BackTab if n_boards > 1 => Action::PrevBoard,
                 KeyCode::Char('b') => Action::ToggleBorder,
                 KeyCode::Char('?') => Action::OpenHelp,
+                KeyCode::Char('e') => Action::OpenErrors,
+                KeyCode::Enter => Action::OpenSettings,
                 _ => Action::None,
             }
+        }
+        Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {
+            if quit_key {
+                return Action::AskQuit;
+            }
+            sub_screen_key(screen, k.code)
         }
         Screen::Help => {
             if quit_key {
@@ -140,6 +182,270 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
             } else {
                 Action::None
             }
+        }
+    }
+}
+
+/// 새 화면 넷(오류 목록·자세히·본문·칸 설정).
+fn is_sub(screen: &Screen) -> bool {
+    matches!(
+        screen,
+        Screen::Errors | Screen::Record | Screen::Body | Screen::Settings
+    )
+}
+
+/// 새 화면 넷의 키(종료 키는 호출 쪽이 먼저 본다).
+fn sub_screen_key(screen: &Screen, code: KeyCode) -> Action {
+    let common = match code {
+        KeyCode::Up | KeyCode::Char('k') => Some(Action::Up),
+        KeyCode::Down | KeyCode::Char('j') => Some(Action::Down),
+        KeyCode::PageUp => Some(Action::PageUp),
+        KeyCode::PageDown => Some(Action::PageDown),
+        KeyCode::Home => Some(Action::Home),
+        KeyCode::End => Some(Action::End),
+        KeyCode::Esc => Some(Action::Back),
+        _ => None,
+    };
+    if let Some(a) = common {
+        return a;
+    }
+    match (screen, code) {
+        (Screen::Errors, KeyCode::Char('a')) => Action::ToggleAll,
+        (Screen::Errors | Screen::Record, KeyCode::Enter) => Action::Activate,
+        (Screen::Body, KeyCode::Left | KeyCode::Char('h')) => Action::PrevStep,
+        (Screen::Body, KeyCode::Right | KeyCode::Char('l')) => Action::NextStep,
+        (Screen::Body, KeyCode::Char('v')) => Action::ToggleReveal,
+        _ => Action::None,
+    }
+}
+
+/// 새 화면 넷의 키 줄 조각을 고르는 데 쓰는 화면 상태.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyCtx {
+    pub quit_confirm: bool,
+    pub show_all: bool,
+    pub reveal: bool,
+    /// 본문 화면의 스텝에 요청 본문이 있는가
+    pub has_req_body: bool,
+}
+
+/// 새 화면 네 개의 키 줄 조각(앞 조각부터 통째로 빠진다 — 덜 중요한 것을 앞에). 목업처럼
+/// `q 종료`는 쓰지 않는다(`q`는 동작하고 도움말에 있다). 새 화면이 아니면 빈 목록.
+pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
+    if c.quit_confirm && is_sub(screen) {
+        return vec![text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL];
+    }
+    match screen {
+        Screen::Errors => vec![
+            text::KEYS_PICK,
+            if c.show_all {
+                text::KEYS_ALL_OFF
+            } else {
+                text::KEYS_ALL_ON
+            },
+            text::KEYS_DETAIL,
+            text::KEYS_TO_MONITOR,
+        ],
+        Screen::Record => vec![text::KEYS_PICK_STEP, text::KEYS_BODY, text::KEYS_TO_LIST],
+        Screen::Body => {
+            let mut keys = vec![text::KEYS_SCROLL, text::KEYS_STEP_NAV];
+            if c.has_req_body {
+                keys.push(if c.reveal {
+                    text::KEYS_HIDE
+                } else {
+                    text::KEYS_REVEAL
+                });
+            }
+            keys.push(text::KEYS_TO_DETAIL);
+            keys
+        }
+        Screen::Settings => vec![text::KEYS_SCROLL_SHORT, text::KEYS_TO_MONITOR],
+        _ => vec![],
+    }
+}
+
+/// 입력 없이 이만큼 지나면 모니터 화면으로.
+pub const IDLE_RETURN: Duration = Duration::from_secs(300);
+
+/// 새 화면 넷, 또는 그 넷을 감싼 종료 확인창일 때만 대상 — 입력 없이 `IDLE_RETURN`이 지났으면 true.
+/// 도움말·모니터·모니터 위 종료 확인창·오류/사용법/시작 화면은 항상 false. 시계 역전은 0초로 본다.
+pub fn idle_expired(screen: &Screen, last_input: Instant, now: Instant) -> bool {
+    let target = match screen {
+        Screen::QuitConfirm(inner) => is_sub(inner),
+        s => is_sub(s),
+    };
+    target && now.saturating_duration_since(last_input) >= IDLE_RETURN
+}
+
+/// 기록 조회 요청(작업자는 Task 8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchReq {
+    /// 목록 사유 칸용(응답에서 reason·detail만 남긴다)
+    Reason {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+    },
+    /// 자세히 화면용
+    Record {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+    },
+}
+
+/// 기록 조회 결과.
+#[derive(Debug)]
+pub enum Fetched {
+    Reason {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+        reason: Reason,
+    },
+    Record {
+        board_id: String,
+        panel_id: String,
+        at_ms: i64,
+        load: RecordLoad,
+    },
+}
+
+/// 새 화면 상태 묶음 + 화면 전환(순수). App은 이 메서드만 부른다.
+#[derive(Debug, Default)]
+pub struct SubViews {
+    pub errors: Option<ErrorsState>,
+    pub record: Option<RecordState>,
+    pub body: Option<BodyState>,
+    pub settings_scroll: usize,
+}
+
+impl SubViews {
+    /// 전부 비운다(재시도·보드 전환·5분 자동 복귀).
+    pub fn clear(&mut self) {
+        *self = SubViews::default();
+    }
+
+    /// 오류 보기를 연다. `rows_at` = 지금 목록(최신 순 at_ms) — 커서를 첫 줄의 at_ms에 고정한다.
+    pub fn open_errors(&mut self, board_id: &str, panel_id: &str, rows_at: &[i64]) -> Screen {
+        let mut st = ErrorsState {
+            board_id: board_id.to_string(),
+            panel_id: panel_id.to_string(),
+            ..ErrorsState::default()
+        };
+        st.pin_cursor(rows_at);
+        self.errors = Some(st);
+        self.record = None;
+        self.body = None;
+        Screen::Errors
+    }
+
+    pub fn open_settings(&mut self) -> Screen {
+        self.settings_scroll = 0;
+        Screen::Settings
+    }
+
+    /// 목록 → 자세히. errors가 없으면 None.
+    pub fn open_record(&mut self, clicked: CheckResult) -> Option<(Screen, FetchReq)> {
+        let e = self.errors.as_ref()?;
+        let req = FetchReq::Record {
+            board_id: e.board_id.clone(),
+            panel_id: e.panel_id.clone(),
+            at_ms: clicked.at_ms,
+        };
+        self.record = Some(RecordState {
+            board_id: e.board_id.clone(),
+            panel_id: e.panel_id.clone(),
+            at_ms: clicked.at_ms,
+            clicked,
+            load: RecordLoad::Loading,
+            cursor: 0,
+        });
+        self.body = None;
+        Some((Screen::Record, req))
+    }
+
+    /// 자세히 → 본문. `lines[cursor]`가 Http가 아니면 None. 본문은 언제나 새로(가림·스크롤·캐시 초기화).
+    pub fn open_body(&mut self, lines: &[StepLine]) -> Option<Screen> {
+        let cursor = self.record.as_ref()?.cursor;
+        if !matches!(lines.get(cursor), Some(StepLine::Http { .. })) {
+            return None;
+        }
+        self.body = Some(BodyState::new(cursor));
+        Some(Screen::Body)
+    }
+
+    /// 본문에서 옆 HTTP 스텝으로(사용자 확정 6). 옮겼으면 true — `BodyState`를 새로 만든다
+    /// (캐시 키에 스텝이 없어 그대로 두면 이전 스텝의 줄이 남는다).
+    pub fn step_body(&mut self, lines: &[StepLine], dir: isize) -> bool {
+        let (Some(body), Some(record)) = (self.body.as_mut(), self.record.as_mut()) else {
+            return false;
+        };
+        match neighbor_http(lines, body.line_idx, dir) {
+            Some(n) => {
+                *body = BodyState::new(n);
+                record.cursor = n;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `Esc` 한 단계 뒤. 그 외 화면은 None(상태 불변).
+    pub fn back(&mut self, screen: &Screen) -> Option<Screen> {
+        match screen {
+            Screen::Body => {
+                self.body = None;
+                Some(Screen::Record)
+            }
+            Screen::Record => {
+                self.record = None;
+                self.body = None;
+                Some(Screen::Errors)
+            }
+            Screen::Errors => {
+                self.clear_inspect();
+                Some(Screen::Monitor)
+            }
+            Screen::Settings | Screen::Help => Some(Screen::Monitor),
+            _ => None,
+        }
+    }
+
+    fn clear_inspect(&mut self) {
+        self.errors = None;
+        self.record = None;
+        self.body = None;
+    }
+
+    /// 현재 보고 있는 보드·칸·회차의 것만 받아들인다. 받아들였으면 true.
+    /// 묶음 칸들은 같은 at_ms를 나눠 쓰므로 Record는 보드·칸·회차 셋 다 맞춰 본다.
+    pub fn accept(&mut self, msg: Fetched) -> bool {
+        match msg {
+            Fetched::Reason {
+                board_id,
+                panel_id,
+                at_ms,
+                reason,
+            } => match self.errors.as_mut() {
+                Some(e) if e.board_id == board_id && e.panel_id == panel_id => {
+                    e.cache.put(at_ms, reason);
+                    true
+                }
+                _ => false,
+            },
+            Fetched::Record {
+                board_id,
+                panel_id,
+                at_ms,
+                load,
+            } => match self.record.as_mut() {
+                Some(r) if r.board_id == board_id && r.panel_id == panel_id && r.at_ms == at_ms => {
+                    r.load = load;
+                    true
+                }
+                _ => false,
+            },
         }
     }
 }
@@ -354,6 +660,8 @@ impl App<'_> {
             }
             Screen::Error(e) => render_error(f, e, &self.file, &self.log),
             Screen::Usage => render_usage(f),
+            // Task 8이 채운다.
+            Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {}
         }
     }
 
@@ -413,6 +721,20 @@ impl App<'_> {
                 self.screen = Screen::Starting;
                 return false;
             }
+            // Task 8이 연결한다.
+            Action::OpenErrors
+            | Action::OpenSettings
+            | Action::Activate
+            | Action::ToggleAll
+            | Action::ToggleReveal
+            | Action::PrevStep
+            | Action::NextStep
+            | Action::Up
+            | Action::Down
+            | Action::PageUp
+            | Action::PageDown
+            | Action::Home
+            | Action::End => {}
         }
         false
     }

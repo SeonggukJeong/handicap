@@ -30,9 +30,10 @@ pub fn render_help(f: &mut Frame, file: &Path, log: &LogLoc) {
     let mut fixed: Vec<String> =
         wrap_width(&format!("{}: {}", text::HELP_FILE, file.display()), inner_w);
     fixed.extend(wrap_width(&text::log_line(log), inner_w));
+    fixed.extend(wrap_width(text::HELP_IDLE, inner_w));
     fixed.push(text::HELP_COPY.to_string());
     let want = (key_rows.len() + fixed.len()) as u16 + 3;
-    // 테두리 2 + 키 안내 줄 1. 모자라면 키 줄 → 복사 안내 순으로 뺀다(경로가 진단에 가장 중요).
+    // 테두리 2 + 키 안내 줄 1. 모자라면 키 줄 → 복사 안내 → 무입력 안내 순으로 뺀다(경로가 진단에 가장 중요).
     let rect = centered(area, width, want.min(area.height));
     let cap = usize::from(rect.height.saturating_sub(3));
     let keys_shown = cap.saturating_sub(fixed.len()).min(key_rows.len());

@@ -44,9 +44,27 @@ pub const KEYS_RETRY: &str = "r 다시 시도";
 pub const KEYS_HELP: &str = "Esc 닫기";
 pub const KEYS_CONFIRM_YES: &str = "y 종료";
 pub const KEYS_CONFIRM_CANCEL: &str = "다른 키 취소";
+pub const KEYS_ERRORS: &str = "e 오류 보기";
+pub const KEYS_SETTINGS: &str = "Enter 칸 설정";
+
+/// 오류 보기·칸 설정 화면 키 줄 조각(목업 §1–§4 — 앞 조각부터 통째로 빠진다).
+pub const KEYS_PICK: &str = "↑↓ 고르기";
+pub const KEYS_PICK_STEP: &str = "↑↓ 스텝 고르기";
+pub const KEYS_SCROLL: &str = "↑↓ PgUp PgDn 스크롤";
+pub const KEYS_SCROLL_SHORT: &str = "↑↓ 스크롤";
+pub const KEYS_ALL_ON: &str = "a 전체 회차";
+pub const KEYS_ALL_OFF: &str = "a 실패만";
+pub const KEYS_DETAIL: &str = "Enter 자세히";
+pub const KEYS_BODY: &str = "Enter 요청·응답 보기";
+pub const KEYS_STEP_NAV: &str = "←→ 이전·다음 스텝";
+pub const KEYS_REVEAL: &str = "v 요청 본문 보기";
+pub const KEYS_HIDE: &str = "v 가리기";
+pub const KEYS_TO_MONITOR: &str = "Esc 모니터로";
+pub const KEYS_TO_LIST: &str = "Esc 목록으로";
+pub const KEYS_TO_DETAIL: &str = "Esc 자세히로";
 
 pub const HELP_TITLE: &str = "도움말";
-pub const HELP_KEYS: [(&str, &str); 8] = [
+pub const HELP_KEYS: [(&str, &str); 10] = [
     (
         "Ctrl + + / -",
         // 터미널 글꼴 크기 — 고정은 자동 시작 줄의 `--zoom=` (50칸 터미널에서도 통째로 보이게 짧게).
@@ -54,12 +72,15 @@ pub const HELP_KEYS: [(&str, &str); 8] = [
     ),
     ("방향키 / h j k l", "칸 선택 이동"),
     ("Tab / Shift+Tab", "다음 / 이전 보드"),
+    ("e", "선택 칸 오류 보기(실패 목록 → 자세히 → 요청·응답)"),
+    ("Enter", "선택 칸 설정 보기"),
     ("b", "테두리 모양 바꾸기(굵은 선 / 반 칸 블록, 기억됨)"),
     ("?", "도움말"),
     ("q / Ctrl+C", "종료 확인창"),
     ("Esc", "한 단계 뒤로"),
     ("마우스 왼쪽 클릭", "그 칸 선택"),
 ];
+pub const HELP_IDLE: &str = "오류 보기·칸 설정 화면은 5분 동안 입력이 없으면 모니터로 돌아갑니다";
 pub const HELP_COPY: &str = "글자 복사는 Shift+드래그";
 pub const HELP_FILE: &str = "보드 파일";
 pub const HELP_LOG: &str = "로그";

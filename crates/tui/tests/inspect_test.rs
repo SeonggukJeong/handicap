@@ -1808,3 +1808,15 @@ fn body_lines_wrapped_rows_keep_indent() {
         }
     }
 }
+
+#[test]
+fn body_lines_width_3_wide_text_fits() {
+    // 폭 3이면 들여쓰기 뒤 1칸에 2칸 글자가 들어가 넘친다 — 들여쓰기 없이 감싼다.
+    let s = body_step(None, Some("가나다라"));
+    let l = body_lines(&binput(&s), 3);
+    for b in &l {
+        assert!(Span::raw(b.text.clone()).width() <= 3, "{b:?}");
+    }
+    let joined: String = l.iter().map(|b| b.text.trim()).collect();
+    assert!(joined.contains("가나다라"), "{l:?}");
+}

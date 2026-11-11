@@ -441,6 +441,20 @@ fn group_panel_marks_and_note() {
     assert_eq!(group_number(&board, "G2"), 1);
     assert_eq!(group_number(&board, "G1"), 2);
     assert_eq!(group_number(&board, "G9"), 0);
+    // GUI는 빈 문자열 group_id를 세지 않는다.
+    let mut blank = board.clone();
+    blank.panels.insert(
+        0,
+        PanelConfig {
+            id: "P0".into(),
+            group_id: Some(String::new()),
+            ..PanelConfig::default()
+        },
+    );
+    assert_eq!(
+        (group_number(&blank, "G2"), group_number(&blank, "")),
+        (1, 0)
+    );
     assert_eq!(
         group_note(&board, p).as_deref(),
         Some("(묶음) = 점검 묶음 1의 값 — 칸마다 따로 못 바꿉니다")
