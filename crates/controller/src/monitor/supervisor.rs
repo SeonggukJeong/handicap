@@ -514,7 +514,9 @@ impl MonitorSupervisor {
     /// 순서가 load-bearing: ① 락은 겹쳐 잡지 않는다(view 락에서 버퍼·신호 `Arc`만 복제하고 해제,
     /// 그다음 버퍼 락) ② 마지막 결과 시각 `last_at_ms`를 **깨우기 전에** 서버가 읽어 돌려준다 —
     /// 클라이언트가 따로 읽으면 요청과 읽기 사이에 새 결과가 끼어 "요청 뒤 결과"를 구별 못 한다.
-    /// 버퍼를 읽은 **뒤에** 깨워야 `last_at_ms`가 깨움으로 생긴 회차를 포함하지 않는다.
+    /// 버퍼를 읽은 **뒤에** 깨운다 — 기준에 든 결과는 그 회차의 `Notified`가 만들어진 뒤 push된
+    /// 것이므로(`unit_loop`), 읽은 뒤의 `notify_waiters()`는 반드시 그 대기에 닿는다. 반대 순서면
+    /// 점검 중에 버려진 깨우기 뒤에 push된 결과가 기준이 되어 요청한 쪽이 다음 정기 회차까지 기다린다.
     /// 깨우기는 `notify_waiters()`만 쓴다 — `notify_one()`은 허가를 저장해 점검 중 요청이 다음
     /// 회차를 예약한다(규칙 3 위반).
     pub fn check_now(&self, board_id: &str, panel_id: &str) -> CheckNow {
@@ -1574,6 +1576,12 @@ mod tests {
         sup.reconcile(&db, &id).await.unwrap();
         wait_results(&sup, &id, &[P1]).await;
         assert_eq!(sup.check_now(&id, P2), CheckNow::NoPanel);
+        // 슬롯은 있는데 `view`가 `None`(켜졌다 꺼진 보드): 뒷 갈래의 Off.
+        monitor_boards::set_enabled(&db, &id, false).await.unwrap();
+        sup.reconcile(&db, &id).await.unwrap();
+        assert!(sup.existing_slot(&id).is_some());
+        assert!(lock(&sup.existing_slot(&id).unwrap().view).is_none());
+        assert_eq!(sup.check_now(&id, P1), CheckNow::Off);
     }
 
     #[tokio::test]

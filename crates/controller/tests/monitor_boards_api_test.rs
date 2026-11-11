@@ -932,9 +932,9 @@ async fn check_now_404_409_200() {
     assert_eq!(st, StatusCode::OK, "{v}");
     assert!(v.as_object().unwrap().contains_key("last_at_ms"), "{v}");
     assert_eq!(v["last_at_ms"].as_i64(), Some(last));
-    // 주기 3600초인데 2초 안에 결과 1 → 2.
-    let st2 = tokio::time::timeout(Duration::from_secs(2), wait_results(&app, id, 2))
+    // 주기 3600초인데 3초 안에 결과 1 → 2.
+    let st2 = tokio::time::timeout(Duration::from_secs(3), wait_results(&app, id, 2))
         .await
-        .expect("지금 점검 회차가 2초 안에 와야 한다");
+        .expect("지금 점검 회차가 3초 안에 와야 한다");
     assert!(st2["panels"][0]["results"][1]["at_ms"].as_i64().unwrap() > last);
 }

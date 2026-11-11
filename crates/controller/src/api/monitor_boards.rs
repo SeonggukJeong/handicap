@@ -356,6 +356,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn check_now_response_none_serializes_as_null_key() {
+        // spec §3.3 "키는 항상 있다" — `skip_serializing_if` 회귀 가드(부재 키는 Index가 Null이라 공허하므로 contains_key).
+        let v = serde_json::to_value(CheckNowResponse { last_at_ms: None }).unwrap();
+        let obj = v.as_object().unwrap();
+        assert!(obj.contains_key("last_at_ms"));
+        assert!(obj["last_at_ms"].is_null());
+    }
+
     fn cfg(bar: u32) -> PanelConfig {
         PanelConfig {
             id: "P".into(),
