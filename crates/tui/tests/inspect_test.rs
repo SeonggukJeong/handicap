@@ -139,6 +139,12 @@ fn sanitize_replaces_control_chars() {
     assert_eq!(sanitize("a\rb"), "ab");
     assert_eq!(sanitize("x\x1b[31my"), "x\u{FFFD}[31my");
     assert_eq!(sanitize("\u{7}"), "\u{FFFD}");
+    // bidi 제어(대상 응답이 줄을 시각적으로 뒤집어 URL·상태를 다르게 보이게 하는 것)도 치환
+    for c in [
+        '\u{202A}', '\u{202E}', '\u{2066}', '\u{2069}', '\u{200E}', '\u{200F}', '\u{061C}',
+    ] {
+        assert_eq!(sanitize(&format!("a{c}b")), "a\u{FFFD}b", "{:?}", c);
+    }
     assert_eq!(sanitize("a\u{2028}b\u{2029}"), "a\u{FFFD}b\u{FFFD}");
     assert_eq!(sanitize("한글 OK"), "한글 OK");
 }

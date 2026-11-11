@@ -29,7 +29,8 @@ pub enum Reason {
 }
 
 /// 화면에 그리는 **모든 원격 문자열**(사유·판정 상세·이름·URL·오류·본문)이 거친다. 탭 → 공백 4칸, CR 제거,
-/// 그 밖의 `char::is_control`(ESC 포함)·U+2028/2029 → `�`. 줄바꿈(`\n`)은 호출 쪽이 먼저 나눈다.
+/// 그 밖의 `char::is_control`(ESC 포함)·U+2028/2029·bidi 제어(U+061C·200E/200F·202A–202E·2066–2069 —
+/// 대상 응답이 줄을 시각적으로 뒤집어 URL·상태를 달리 보이게 하지 못하게) → `�`. 줄바꿈(`\n`)은 호출 쪽이 먼저 나눈다.
 pub fn sanitize(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -37,6 +38,11 @@ pub fn sanitize(s: &str) -> String {
             '\t' => out.push_str("    "),
             '\r' => {}
             '\u{2028}' | '\u{2029}' => out.push('\u{FFFD}'),
+            '\u{061C}'
+            | '\u{200E}'
+            | '\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}' => out.push('\u{FFFD}'),
             c if c.is_control() => out.push('\u{FFFD}'),
             c => out.push(c),
         }
