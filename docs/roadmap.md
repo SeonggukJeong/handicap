@@ -910,7 +910,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 ### B48. 터미널 모니터 1b 오류 보기·칸 설정 보기 (tui-monitor-1b, 2026-11-11, 코드 `98b2f6c`..`cbc053c`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §5.3·§5.4, plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`) 판단·연기
 
-**다음 슬라이스**: ~~TUI 2 설정 수정·파일 저장~~ ✅ 2a-1 완료(§B49) → 2a-2 미리 실행, 또는 ②b 겹침 질문 흐름. ~~**머지 전 사용자 확인**: 맥에서 `connect_timeout_knob`·`error_kind` 1회~~ ✅ 2026-11-11 merge `78abf725`에서 확인 — macOS는 대기열이 차면 간헐 RST(`ConnectionReset`)라 4건 실패 → `StalledListener`가 macOS만 비라우팅 IP로 `cfg!` 분기(`crates/engine/CLAUDE.md`). 실기: Ubuntu 19.04에서 `e`/`Enter` 흐름.
+**다음 슬라이스**: ~~TUI 2 설정 수정·파일 저장~~ ✅ 2a-1 완료(§B49) → ~~2a-2 미리 실행~~ ✅ `r` 지금 점검으로 대체·완료(§B51), 또는 ②b 겹침 질문 흐름. ~~**머지 전 사용자 확인**: 맥에서 `connect_timeout_knob`·`error_kind` 1회~~ ✅ 2026-11-11 merge `78abf725`에서 확인 — macOS는 대기열이 차면 간헐 RST(`ConnectionReset`)라 4건 실패 → `StalledListener`가 macOS만 비라우팅 IP로 `cfg!` 분기(`crates/engine/CLAUDE.md`). 실기: Ubuntu 19.04에서 `e`/`Enter` 흐름.
 
 (1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
 - **엔진 테스트 픽스처 교체(`6e5fd7e`)를 이 슬라이스에서 함**(plan 범위 밖, 사용자 승인): 클라우드 샌드박스가 `10.255.255.1:81`을 즉시 거부해 pre-commit이 모든 cargo 커밋을 막았다. cost-if-wrong: macOS에서 채움 루프 패닉 → 맥 pre-commit 차단. 해소: `cfg(target_os = "macos")` 폴백 또는 채움 상한 초과 시 다른 정체 수단.
@@ -936,7 +936,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 ### B49. 터미널 모니터 2a-1 칸 설정 수정·변수 값 수정·파일 저장 (tui-2a-1, 2026-11-11, 코드 `94bae76`..`8b2e86a`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §6, plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md`) 판단·연기
 
-**다음 슬라이스**: TUI 2a-2 미리 실행(메뉴 `p`, 목업 §6, 묶음 칸은 그 칸의 스텝만 — US4 나머지 문장) → 2b 조건·표시 값 추가. ~~**머지 전 사용자 확인**: 맥에서 ff-merge + `cargo test -p handicap-tui`~~ ✅ 2026-11-11 merge 커밋 `78abf725`(ff 불가 — 로컬 axis-ticks 미push, 이 블록과 번호가 겹친 axis-ticks는 §B50으로)·맥 전체 게이트 1846/1846 통과·push 완료. 실기: Ubuntu 19.04 gnome-terminal에서 편집 흐름과 모호 폭 문자 `▶ ■ • ①② [x] ‹ ›`.
+**다음 슬라이스**: ~~TUI 2a-2 미리 실행(메뉴 `p`, 목업 §6, 묶음 칸은 그 칸의 스텝만 — US4 나머지 문장)~~ ✅ `r` 지금 점검으로 대체·완료(tui-check-now §B51 — 메뉴 `p` 없음, 묶음 칸은 스텝 전부 + `◀ 이 칸`) → 2b 조건·표시 값 추가. ~~**머지 전 사용자 확인**: 맥에서 ff-merge + `cargo test -p handicap-tui`~~ ✅ 2026-11-11 merge 커밋 `78abf725`(ff 불가 — 로컬 axis-ticks 미push, 이 블록과 번호가 겹친 axis-ticks는 §B50으로)·맥 전체 게이트 1846/1846 통과·push 완료. 실기: Ubuntu 19.04 gnome-terminal에서 편집 흐름과 모호 폭 문자 `▶ ■ • ①② [x] ‹ ›`.
 
 (1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
 - ~~**조건 규칙 목록 순서 = `ConditionOp` 정의 순서**(plan 지시), GUI 드롭다운과 다름~~ ✅ **GUI 순서로 맞춤**(사용자 결정 2026-11-11, `8b2e86a` — `edit::ops_for`가 `OPS_BY_SOURCE` 순서, 집합은 서버 허용 표 그대로. `ops_order_matches_gui_dropdown`이 `ui/src/monitor/conditions.ts`를 읽어 대조하므로 GUI가 순서를 바꾸면 TUI 테스트가 알려 준다).
@@ -976,6 +976,31 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - 비목표 둘(세로 눈금 `graph_max_ms` 상시 표시·딱 떨어지는 시각 :00/:30 맞춤)은 사용자가 이번에 뺀 것 — 재개 신호가 오면 새 요청으로(spec §1·§7).
 - **선재 flake 재확인**: `tempdb::tests::remove_active_deletes_live_dirs`가 전역 `ACTIVE` 목록을 통째 지워 같은 프로세스의 다른 tempdb 테스트 디렉터리를 삭제한다(최종 리뷰가 plain `cargo test`에서 2회 관측, `tempdb.rs:74`·`:230`). §B46 "CI 노출 flake 2건"과 같은 뿌리 — 해소는 그쪽(테스트 전용 정적 Mutex 직렬화 또는 `remove_active`가 목록을 인자로).
 - M1 수정 첫 커밋 시도에서 pre-commit 게이트가 exit 1(출력 잘려 원인 미확인) → 직후 workspace nextest 1595/1595 green·재시도 통과. cost-if-wrong: 숨은 flake가 하나 더 있을 수 있음. 해소: 재발 시 출력 전체를 파일로 남겨 확인.
+
+### B51. 터미널 모니터 `r` 지금 점검 (tui-check-now, 2026-11-11, 코드 `9074630`..`a532eab`, spec `docs/superpowers/specs/2026-11-11-tui-check-now-design.md`, plan `docs/superpowers/plans/2026-11-11-tui-check-now.md`) 판단·연기
+
+**다음 슬라이스**: TUI **2b 조건·표시 값 추가**(US9 — 진입점은 "미리 실행 결과"가 아니라 요청·응답 기록 화면, 상위 설계 §0 표). 2a-2 "미리 실행"(메뉴 `p`)은 이 슬라이스가 대체 — 판정을 고쳐 볼 일이 생기면 사용자가 새로 요청(spec US 앵커). **머지 전 사용자 확인**: 맥에서 merge + 전체 게이트(cloud 컨테이너는 `cargo test --workspace` 폴백만 돌았다 — nextest·macOS 미실행), Ubuntu 19.04 실기에서 `r`.
+
+(1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
+- **spec §7의 TUI in-process "끈 보드 → `ApiError.status == Some(409)`" 테스트 미작성**(plan이 의식적으로 뺌, 최종 리뷰 Minor 3 기각): `Session`이 REST 주소를 밖에 주지 않고 `Api`에 정지 메서드가 없어 테스트만을 위해 production 표면을 늘려야 한다. cost-if-wrong: TUI 쪽 409 → 문구 경로의 통합 회귀를 단위에서 못 잡는다 — 공용 `parse`(기존 409 테스트)·`check_notice`/`check_reply` 순수 테스트·컨트롤러 `check_now_404_409_200`·라이브 US4(c)가 그물. 해소: `Api::stop`이 생기면(GUI처럼 TUI에서 보드를 끄는 기능) 한 줄 추가.
+- **`repeated_kicks_while_waiting_run_once`는 테스트가 직접 `notify_waiters`를 불러 실제 호출 경로의 `notify_one` 회귀를 못 지킨다**(Task 1 리뷰 Minor, 연타용 `check_now` 경유 테스트 미추가): 같은 회귀를 `check_now_during_running_check_adds_no_round`(실제 경로·wiremock 1.5초)가 잡는다. cost-if-wrong: 없음에 가까움.
+- **머리 줄 `CheckSent` 테스트는 "같은 폭에서 같다"가 아니라 "거치는 상태의 순서가 같다"**(plan 문구와 다름): `저장됨`(6칸)과 `지금 점검`(8칸)의 폭이 달라 문턱이 2칸 어긋난다. cost-if-wrong: 문턱 폭 자체의 회귀(한 단계가 통째로 사라지지 않는 한)는 안 잡힌다.
+- **`App` 조립은 단위 테스트가 없다**(`pump`의 가로채기·`check_alert` 5초 만료·`pump_check_ready`·`run_edit`의 지금 점검 갈래·`start_session`의 통로 비우기): 판정은 순수 함수(`check_notice`·`shown_notice`·`check_reply`·`check_ready`·`check_open_allowed`)로 뺐고 연결은 라이브 표가 그물(§B49 같은 항목과 한 뿌리). 해소: `App`을 테스트 가능한 조각으로 떼는 리팩터 때.
+- **보안 게이트 grep은 매치 0인데 `security-reviewer`를 돌렸다**(plan·spec §9는 "매치 예상"이라 적었으나 그 목록은 엔진·바인딩·업로드 경로) — 요청 실행을 유발하는 새 길이라 판단으로. spec §9에 사실 정정.
+- **리뷰 두 단계를 동시에 띄움**(루트 규칙은 spec-compliance → code-quality 순), Task 6(문서)은 Task 5 리뷰와 병렬, 최종 리뷰 Minor 수정(`a532eab`)은 orchestrator가 직접(주석 2곳 + 5줄 조기 반환 + 문서). cost-if-wrong: 최종 수정은 재리뷰 없이 게이트만 통과 — 동작 불변 변경이라 수용.
+- **커밋 trailer가 섞여 있다**: 구현 subagent(Sonnet) 커밋 `1f66ac8`·`bcb8e6a`·`2b16855`은 `Co-Authored-By: Claude Sonnet 5.5`, 나머지는 `Claude Fable 5.2`. 게이트를 다시 돌려 amend할 값어치가 없어 그대로.
+- **plan 체크박스 미갱신**(커밋이 진실의 원천).
+
+(2) 연기(재개 신호 = 그 파일을 만질 때 / 2b)
+- **선재 — `POST …/start`가 이미 켜진 보드에도 reconcile을 다시 돌린다**(보안 리뷰 Info-1, `api/monitor_boards.rs` `set_enabled`): 루프를 멈췄다 다시 띄워 첫 회차가 즉시 돌므로, 본문 없는 POST 연타(교차 사이트 단순 요청 포함)로 **1초 바닥 없이** 대상에 요청을 보낼 수 있고 꺼진 보드를 켤 수도 있다 — 새 `check-now`보다 강한 길이 이미 있었다. 실제 장벽은 보드 id(ULID)를 알아야 한다는 것뿐. 해소: 이미 켜져 있으면 reconcile 생략(멱등 200), 또는 쓰기 라우트에 `Origin`/`Sec-Fetch-Site` 검사(§B41 (2)의 CSRF 동류와 함께).
+- **바닥 1초는 회차 시작(허가 대기 전) 기준**(보안 Info-3): 동시 점검 허가가 밀린 회차 직후 깨우면 실제 전송 두 번이 한 차례 1초보다 가깝게 붙는다(주기 1초 설정에서도 같은 일). 해소: `floor`를 허가 획득 시각(`at_ms`) 기준으로.
+- **설정 저장·정지가 옛 루프를 멈추는 동안(최대 2초)의 요청은 200인데 결과가 안 올 수 있다**(Task 2 리뷰 M-1, spec §3.3·§10): 칸이 지워지거나 보드가 꺼지는 저장과 겹칠 때만 — 대기 창은 `Esc`·5분 복귀. 해소: `reconcile_slot`이 멈추기 전에 `kicks`만 비우기(그 사이 요청은 409).
+- **"회차 수 × 주기"로 어림하는 표시가 지금 점검만큼 길게 나온다**(최종 리뷰 Minor 1): TUI 오류 보기 머리 `최근 N회(약 M분)`(`inspect.rs` `span_secs`)·GUI 막대 왼쪽 `N분 전`(`logic.ts` `axisAgoLabel`). 해소: 처음·끝 결과의 실제 시각 차.
+- **라이브로 돌려 보지 않은 순서 3개**(최종 리뷰): ① 오류 보기에서 나온 직후 모니터 `r` — 조회 작업자 큐에 남은 기록 조회(큰 본문) 뒤에 줄을 서 알림·회차가 늦는다 ② `r` → 1초 안에 `Tab` — `지금 점검 HH:MM:SS` 알림이 보드에 묶이지 않아 다른 보드 머리 줄에도 보인다 ③ 대기 창이 떠 있는 채 세션 재시작(코드 경로는 리뷰로 확인: `fetch_out` 비움·`check_seq` 유지·`views` 비움).
+- **알림 시각이 머리 줄 시계보다 1초 앞설 수 있다**(라이브 관찰 `지금 점검 13:49:28  … 13:49:27`): 알림 = TUI가 결과를 받은 로컬 시각, 시계 = 마지막 폴링의 서버 시각. 표시뿐.
+- **`Alt+r`도 지금 점검**(Task 5 리뷰 M2 — 기존 `a`/`d`/`s`/`v`와 같은 수준, 숫자 키만 ALT를 뺀다) · 조회 작업자가 패닉하면 대기 창은 `Esc`까지 남는다(spec §10 "제한 시간 없음"과 같은 뒷문).
+- **spec §10 그대로**: GUI에 지금 점검 버튼 없음(서버 길만) · 자세히·요청·응답 화면에서 다시 점검 키 없음 · 꺼진 보드는 지금 점검 불가 · 대기 창 제한 시간 없음(폴링 끊김·시계 역행 포함) · 기준을 읽은 직후 결과가 들어오면 덤 회차 1회.
+- **Ubuntu 19.04 실기·gnome-terminal 미확인**(사용자) — §B48·§B49와 같은 항목.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 

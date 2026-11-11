@@ -2,7 +2,7 @@
 
 - 날짜: 2026-11-11 · 유형: `user-path` · 상위 설계: [tui-monitor 설계](2026-11-07-tui-monitor-design.md) — **그 문서의 슬라이스 2a-2 "미리 실행"(§6.5, 메뉴 `p`)을 이 문서가 대체**한다(§6) · 결정 기록: [ADR-0053](../../adr/0053-ops-monitor-mode.md)·[ADR-0055](../../adr/0055-tui-monitor.md)(새 ADR 없음 — §11)
 - 범위: `crates/controller`(점검 루프에 깨우기 신호 + REST 길 하나) + `crates/tui`(키·화면 연결) + 문서. 엔진·proto·DB·GUI(`ui/`) 0-diff.
-- 상태: 구현 완료(코드 9074630..bcb8e6a), 라이브·마무리는 finish-slice
+- 상태: 구현·라이브 완료(코드 9074630..a532eab, 2026-11-11 — 라이브 US1~US4 + 극단값 PROVEN, 판단·연기 roadmap §B51). 맥 merge·Ubuntu 실기는 사용자
 
 ## 사용자 스토리 (US)
 
