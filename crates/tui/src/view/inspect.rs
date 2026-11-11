@@ -1,5 +1,5 @@
 //! 새 화면(오류 보기·칸 설정)이 같이 쓰는 틀(머리 줄·무입력 안내 줄·키 줄)과 오류 목록 그리기.
-//! 배치 기준은 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html` §1·§2.
+//! 배치 기준은 목업 `docs/superpowers/specs/2026-11-10-tui-1b-mockups/01-screens.html` §1·§2·§3.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -13,7 +13,8 @@ use super::monitor::{
 };
 use super::{fit, key_bar, text_width};
 use crate::inspect::{
-    ErrorRow, ErrorsView, Note, Reason, RecordBody, RecordView, StepLine, sanitize, window_start,
+    BodyLine, BodyLineKind, ErrorRow, ErrorsView, Note, Reason, RecordBody, RecordView, StepLine,
+    sanitize, window_start,
 };
 use crate::judge::{PanelState, format_hms, format_ms};
 use crate::text;
@@ -721,7 +722,13 @@ pub fn render_record(f: &mut Frame, head: &HeaderView, v: &RecordView, keys: &[&
             .iter()
             .position(|&(i, e)| i == cursor && !e)
             .unwrap_or(0);
-        let start = window_start(cur_vis, rows.len(), h);
+        let mut start = window_start(cur_vis, rows.len(), h);
+        // 커서 스텝에 오류 줄이 딸려 있는데 커서가 창 맨 아래면 한 줄 내려 오류 줄까지 보이게
+        // (창이 1줄이면 커서 줄을 지킨다).
+        let has_err = rows.get(cur_vis + 1) == Some(&(cursor, true));
+        if has_err && h >= 2 && cur_vis + 1 >= start + h {
+            start += 1;
+        }
         for &r in rows.iter().skip(start).take(h) {
             out.push(vis_line(lines, r, cursor, &c, w));
         }
@@ -729,5 +736,68 @@ pub fn render_record(f: &mut Frame, head: &HeaderView, v: &RecordView, keys: &[&
     for (i, line) in out.into_iter().take(avail).enumerate() {
         let y = body.y.saturating_add(i as u16);
         put(f, Rect::new(body.x, y, body.width, 1), line);
+    }
+}
+
+// ---------- 요청·응답 본문 (목업 §3) ----------
+
+/// 본문 화면의 body 줄 수(`sub_layout(area).body.height`).
+pub fn body_height(area: Rect) -> usize {
+    usize::from(sub_layout(area).body.height)
+}
+
+fn body_style(k: BodyLineKind) -> Style {
+    match k {
+        BodyLineKind::Title | BodyLineKind::Heading => Style::default()
+            .fg(color(C_TEXT))
+            .add_modifier(Modifier::BOLD),
+        BodyLineKind::Note => Style::default().fg(color(C_SLOW)),
+        BodyLineKind::Error => fail_style(),
+        BodyLineKind::Text | BodyLineKind::Summary => Style::default(),
+    }
+}
+
+/// 요청·응답 본문(목업 §3): `lines[scroll..]`을 body에 그린다. 전체 줄 수가 body 높이보다 많으면
+/// 첫 화면 줄 오른쪽 끝에 `{보이는 마지막 줄 번호}/{전체}줄`(폭이 모자라면 통째 생략).
+pub fn render_body(
+    f: &mut Frame,
+    head: &HeaderView,
+    lines: &[BodyLine],
+    scroll: usize,
+    keys: &[&str],
+) {
+    let body = render_frame(f, head, keys);
+    if body.height == 0 || body.width == 0 {
+        return;
+    }
+    let w = usize::from(body.width);
+    let h = usize::from(body.height);
+    let total = lines.len();
+    let scroll = scroll.min(total.saturating_sub(h));
+    let end = scroll.saturating_add(h).min(total);
+    let pos = (total > h).then(|| text::line_pos(end, total));
+    for (row, l) in lines[scroll..end].iter().enumerate() {
+        let y = body.y.saturating_add(row as u16);
+        let area = Rect::new(body.x, y, body.width, 1);
+        let style = body_style(l.kind);
+        let text = sanitize(&l.text);
+        match pos.as_ref().filter(|p| row == 0 && text_width(p) + 2 <= w) {
+            Some(p) => {
+                let pw = text_width(p);
+                let room = w - pw - 1;
+                let shown = fit(&text, room);
+                let gap = w.saturating_sub(text_width(&shown) + pw);
+                put(
+                    f,
+                    area,
+                    Line::from(vec![
+                        Span::styled(shown, style),
+                        Span::raw(" ".repeat(gap)),
+                        Span::styled(p.clone(), muted()),
+                    ]),
+                );
+            }
+            None => put(f, area, Line::from(Span::styled(fit(&text, w), style))),
+        }
     }
 }

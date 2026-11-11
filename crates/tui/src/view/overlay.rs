@@ -8,27 +8,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use super::{centered, key_bar, text_width};
+use super::{centered, key_bar, text_width, wrap_width};
 use crate::logging::LogLoc;
 use crate::text;
-
-/// 표시 폭 `w` 행들로 글자 단위로 자른다(넓은 문자는 쪼개지 않는다).
-fn wrap_width(s: &str, w: usize) -> Vec<String> {
-    let mut rows = Vec::new();
-    let mut cur = String::new();
-    let mut used = 0;
-    for c in s.chars() {
-        let cw = text_width(c.encode_utf8(&mut [0; 4]));
-        if used + cw > w && !cur.is_empty() {
-            rows.push(std::mem::take(&mut cur));
-            used = 0;
-        }
-        cur.push(c);
-        used += cw;
-    }
-    rows.push(cur);
-    rows
-}
 
 pub fn render_help(f: &mut Frame, file: &Path, log: &LogLoc) {
     let key_col = text::HELP_KEYS

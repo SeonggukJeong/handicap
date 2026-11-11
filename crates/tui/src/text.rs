@@ -232,3 +232,35 @@ pub const RECORD_COLS: (&str, &str, &str, &str, &str) = ("#", "스텝", "요청"
 pub const TIMED_OUT: &str = "시간 초과";
 /// 스텝 칸이 보는 그 스텝 줄 표시(사용자 확정 9).
 pub const THIS_PANEL: &str = "◀ 이 칸";
+
+// ---------- 요청·응답 본문 (1b) ----------
+
+/// `ko.monitor.recordReqHeaders`
+pub const RECORD_REQ_HEADERS: &str = "요청 헤더";
+/// `ko.monitor.recordReqBody`
+pub const RECORD_REQ_BODY: &str = "요청 본문";
+/// `ko.monitor.recordRespHeaders`
+pub const RECORD_RESP_HEADERS: &str = "응답 헤더";
+/// `ko.monitor.recordRespBody`
+pub const RECORD_RESP_BODY: &str = "응답 본문";
+/// `ko.monitor.recordReqBodyHidden`
+pub const RECORD_REQ_BODY_HIDDEN: &str = "요청 본문은 가려져 있습니다";
+
+/// `ko.monitor.recordClipped`
+pub fn record_clipped(kb: u32) -> String {
+    format!("기록 상한 {kb}KB에서 잘림")
+}
+
+/// `ko.monitor.recordEngineTruncated`
+pub const RECORD_ENGINE_TRUNCATED: &str = "1 MiB에서 잘림 — 실제 응답은 더 큼";
+/// `ko.monitor.recordTreeTooLarge`
+pub const RECORD_TREE_TOO_LARGE: &str = "64KB를 넘는 본문은 원문으로 표시합니다";
+/// `ko.monitor.recordTreeTooDeep`
+pub const RECORD_TREE_TOO_DEEP: &str = "너무 깊게 중첩된 본문은 원문으로 표시합니다";
+/// `ko.monitor.recordMaskedHint`
+pub const RECORD_MASKED_HINT: &str = "인증 값은 ••••로 가렸습니다";
+
+/// 본문 화면 줄 위치(TUI 전용, 목업 §3).
+pub fn line_pos(end: usize, total: usize) -> String {
+    format!("{end}/{total}줄")
+}

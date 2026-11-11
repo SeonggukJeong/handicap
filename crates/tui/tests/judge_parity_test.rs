@@ -403,6 +403,15 @@ fn mirrored_text_exists_in_ko_ts() {
         ("recordTraceCut", text::RECORD_TRACE_CUT),
         ("scenario", text::SET_SCENARIO),
         ("environment", text::SET_ENV),
+        ("recordReqHeaders", text::RECORD_REQ_HEADERS),
+        ("recordReqBody", text::RECORD_REQ_BODY),
+        ("recordRespHeaders", text::RECORD_RESP_HEADERS),
+        ("recordRespBody", text::RECORD_RESP_BODY),
+        ("recordReqBodyHidden", text::RECORD_REQ_BODY_HIDDEN),
+        ("recordEngineTruncated", text::RECORD_ENGINE_TRUNCATED),
+        ("recordTreeTooLarge", text::RECORD_TREE_TOO_LARGE),
+        ("recordTreeTooDeep", text::RECORD_TREE_TOO_DEEP),
+        ("recordMaskedHint", text::RECORD_MASKED_HINT),
     ] {
         assert!(
             ko.contains(&format!("{key}: \"{val}\"")),
@@ -425,6 +434,12 @@ fn mirrored_text_exists_in_ko_ts() {
             "recordTitle: (title: string, when: string) => `{t}`"
         )),
         "ko.monitor.recordTitle"
+    );
+    assert_eq!(text::record_clipped(64), "기록 상한 64KB에서 잘림");
+    let c = text::record_clipped(0).replacen("0KB", "${kb}KB", 1);
+    assert!(
+        ko.contains(&format!("recordClipped: (kb: number) => `{c}`")),
+        "ko.monitor.recordClipped"
     );
     let chip = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),

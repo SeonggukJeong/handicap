@@ -1149,6 +1149,16 @@ fn render_record_sanitizes_remote_text() {
     assert!(t.contains("a\u{FFFD}b    c"), "{t}");
     assert!(t.contains("http://h/x\u{FFFD}y"), "{t}");
     assert!(t.contains("bo\u{FFFD}om"), "{t}");
+    let mut v = loaded_view();
+    if let RecordBody::Loaded { lines, .. } = &mut v.body {
+        for l in lines.iter_mut() {
+            if let StepLine::Http { name, .. } = l {
+                *name = "na\x1bme".into();
+            }
+        }
+    }
+    let t = render_rec(110, 22, &v);
+    assert!(t.contains("na\u{FFFD}me"), "{t}");
 }
 
 #[test]
@@ -1232,4 +1242,523 @@ fn header_sanitizes_board_name() {
         handicap_tui::view::monitor::render_header_view(f, Rect::new(0, 0, 100, 1), &hv)
     });
     assert!(t.contains("운영    보드\u{FFFD}이름"), "{t}");
+}
+
+#[test]
+fn render_record_keeps_error_row_under_cursor_at_window_bottom() {
+    // 스텝 줄 창 높이 2: 커서 스텝(오류 있음)이 창 맨 아래에 오면 그 오류 줄이 잘렸었다.
+    let rows: Vec<StepTrace> = (0..6)
+        .map(|i| {
+            http(
+                "A01",
+                Some(i),
+                Some(200),
+                (i == 2).then_some("cursor-step-error"),
+            )
+        })
+        .collect();
+    let rec = record(Some(trace(rows)), None, None);
+    let p = panel(Some("E1"), None);
+    let st = rstate(RecordLoad::Loaded(Box::new(rec)), 2);
+    let v = record_view(&p, &st, &names());
+    // 머리 1 + 키 1 + body 6(제목·상태·시나리오·표 머리 + 스텝 2줄).
+    let t = render_rec(110, 8, &v);
+    assert!(t.contains("▶ "), "{t}");
+    assert!(t.contains("cursor-step-error"), "{t}");
+}
+
+// ---------- 요청·응답 본문 (Task 5, 목업 §3) ----------
+
+use handicap_tui::inspect::{
+    BodyInput, BodyLine, BodyLineKind, BodyState, PRETTY_MAX_BYTES, Pretty, body_lines, clip_flags,
+    pretty_json,
+};
+use handicap_tui::view::inspect::{body_height, render_body};
+use handicap_tui::wire::{ClipSide, Clipped};
+
+/// 문자열(`"`…`"`) 밖의 JSON 공백을 뺀 글자열.
+fn strip_ws_outside_strings(s: &str) -> String {
+    let mut out = String::new();
+    let (mut in_str, mut esc) = (false, false);
+    for c in s.chars() {
+        if in_str {
+            out.push(c);
+            if esc {
+                esc = false;
+            } else if c == '\\' {
+                esc = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = true;
+                out.push(c);
+            }
+            ' ' | '\t' | '\n' | '\r' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn json_of(p: Pretty) -> String {
+    match p {
+        Pretty::Json(s) => s,
+        other => panic!("Json 아님: {other:?}"),
+    }
+}
+
+#[test]
+fn pretty_json_indents_objects_and_arrays() {
+    assert_eq!(
+        pretty_json(r#"{"error":"x","n":[1,2],"e":{},"a":[]}"#),
+        Pretty::Json(
+            "{\n  \"error\": \"x\",\n  \"n\": [\n    1,\n    2\n  ],\n  \"e\": {},\n  \"a\": []\n}"
+                .into()
+        )
+    );
+}
+
+#[test]
+fn pretty_json_preserves_tokens() {
+    let src = r#"{"z":1.0,"a":1e3,"big":12345678901234567890,"s":"a{b,c}:\"d\" \\","k":null}"#;
+    let p = json_of(pretty_json(src));
+    let keys: Vec<usize> = ["\"z\"", "\"a\"", "\"big\"", "\"s\"", "\"k\""]
+        .iter()
+        .map(|k| p.find(k).unwrap_or_else(|| panic!("{k} 없음: {p}")))
+        .collect();
+    assert!(keys.windows(2).all(|w| w[0] < w[1]), "키 순서: {p}");
+    assert_eq!(strip_ws_outside_strings(&p), strip_ws_outside_strings(src));
+    for tok in ["1.0", "1e3", "12345678901234567890"] {
+        assert!(p.contains(tok), "{tok} 없음: {p}");
+    }
+    assert!(p.contains(r#""a{b,c}:\"d\" \\""#), "{p}");
+    // 이미 들여쓴 JSON도 같은 결과(멱등).
+    assert_eq!(json_of(pretty_json(&p)), p);
+    let spaced = "{ \"z\" : 1.0 ,\n \"a\":1e3,\"big\":12345678901234567890,\"s\":\"a{b,c}:\\\"d\\\" \\\\\",\r\n\t\"k\" : null }";
+    assert_eq!(json_of(pretty_json(spaced)), p);
+}
+
+#[test]
+fn pretty_json_falls_back_to_raw() {
+    assert_eq!(pretty_json("plain text"), Pretty::Raw);
+    assert_eq!(pretty_json(r#"{"a":"#), Pretty::Raw);
+    assert_eq!(pretty_json("42"), Pretty::Raw);
+    assert_eq!(pretty_json(r#""s""#), Pretty::Raw);
+    assert_eq!(pretty_json(""), Pretty::Raw);
+    let big_json = format!(r#"{{"a":"{}"}}"#, "x".repeat(65_537 - 8));
+    assert_eq!(big_json.len(), 65_537);
+    assert!(big_json.len() > PRETTY_MAX_BYTES);
+    assert_eq!(pretty_json(&big_json), Pretty::TooLarge);
+    assert_eq!(pretty_json(&"p".repeat(65_537)), Pretty::TooLarge);
+}
+
+#[test]
+fn pretty_json_depth_limit() {
+    let nest = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+    assert!(matches!(pretty_json(&nest(64)), Pretty::Json(_)));
+    assert_eq!(pretty_json(&nest(65)), Pretty::TooDeep);
+    let started = std::time::Instant::now();
+    let worst = nest(32_000);
+    assert_eq!(worst.len(), 64_000);
+    assert_eq!(pretty_json(&worst), Pretty::TooDeep);
+    let in_str = format!(r#"{{"s":"{}"}}"#, "[".repeat(100));
+    assert!(matches!(pretty_json(&in_str), Pretty::Json(_)));
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}
+
+#[test]
+fn clip_flags_by_trace_index() {
+    let c = vec![
+        Clipped {
+            step: 0,
+            side: ClipSide::Request,
+        },
+        Clipped {
+            step: 2,
+            side: ClipSide::Response,
+        },
+    ];
+    assert_eq!(clip_flags(&c, 0), (true, false));
+    assert_eq!(clip_flags(&c, 2), (false, true));
+    assert_eq!(clip_flags(&c, 1), (false, false));
+}
+
+fn body_step(req_body: Option<&str>, resp_body: Option<&str>) -> StepTrace {
+    let mut s = http("A03", None, Some(503), None);
+    let rq = s.request.as_mut().unwrap();
+    rq.url = "http://h/orders/1042".into();
+    rq.body = req_body.map(str::to_string);
+    rq.headers = BTreeMap::from([
+        ("accept".to_string(), "application/json".to_string()),
+        ("authorization".to_string(), "Basic x".to_string()),
+    ]);
+    match resp_body {
+        Some(b) => {
+            let r = s.response.as_mut().unwrap();
+            r.latency_ms = 781;
+            r.body = b.to_string();
+            r.headers = BTreeMap::from([("content-type".to_string(), "text/plain".to_string())]);
+        }
+        None => s.response = None,
+    }
+    s
+}
+
+fn binput(step: &StepTrace) -> BodyInput<'_> {
+    BodyInput {
+        panel_title: "주문 조회",
+        at_ms: NOW,
+        no: 3,
+        name: "주문 상세",
+        step,
+        clipped_req: false,
+        clipped_resp: false,
+        limit_kb: 128,
+        reveal: false,
+    }
+}
+
+fn kinds_texts(l: &[BodyLine]) -> Vec<(BodyLineKind, &str)> {
+    l.iter().map(|b| (b.kind, b.text.as_str())).collect()
+}
+
+/// 앞쪽 `Heading` 하나를 건너뛴 뒤 다음 `Heading` 전까지의 `Text` 줄(한 구역).
+fn text_lines(l: &[BodyLine]) -> Vec<&str> {
+    let skip = usize::from(l.first().is_some_and(|b| b.kind == BodyLineKind::Heading));
+    l.iter()
+        .skip(skip)
+        .take_while(|b| b.kind != BodyLineKind::Heading)
+        .filter(|b| b.kind == BodyLineKind::Text)
+        .map(|b| b.text.as_str())
+        .collect()
+}
+
+fn has(l: &[BodyLine], kind: BodyLineKind, text: &str) -> bool {
+    l.iter().any(|b| b.kind == kind && b.text == text)
+}
+
+#[test]
+fn request_body_hidden_until_reveal() {
+    let s = body_step(Some("SECRET-PAYLOAD"), Some(""));
+    let i = binput(&s);
+    let l = body_lines(&i, 80);
+    assert!(l.iter().all(|b| !b.text.contains("SECRET")), "{l:?}");
+    assert!(has(&l, BodyLineKind::Note, "요청 본문은 가려져 있습니다"));
+    assert!(has(&l, BodyLineKind::Heading, "요청 본문"));
+    let i = BodyInput {
+        reveal: true,
+        ..binput(&s)
+    };
+    let l = body_lines(&i, 80);
+    assert!(
+        l.iter()
+            .any(|b| b.kind == BodyLineKind::Text && b.text.contains("SECRET-PAYLOAD")),
+        "{l:?}"
+    );
+    assert!(!has(&l, BodyLineKind::Note, "요청 본문은 가려져 있습니다"));
+    for body in [None, Some("")] {
+        let s = body_step(body, Some(""));
+        let l = body_lines(&binput(&s), 80);
+        assert!(!l.iter().any(|b| b.text == "요청 본문"), "{l:?}");
+        assert!(!has(&l, BodyLineKind::Note, "요청 본문은 가려져 있습니다"));
+    }
+}
+
+#[test]
+fn body_lines_sections_and_notes() {
+    let s = body_step(None, Some("line1\nline2"));
+    let l = body_lines(&binput(&s), 80);
+    assert_eq!(
+        l[0],
+        BodyLine {
+            kind: BodyLineKind::Title,
+            text: format!("주문 조회 · {} · 3 주문 상세", format_hms(NOW)),
+        }
+    );
+    assert_eq!(
+        l[1],
+        BodyLine {
+            kind: BodyLineKind::Summary,
+            text: "GET http://h/orders/1042   →   503   781 ms".into(),
+        }
+    );
+    assert_eq!(
+        kinds_texts(&l[2..]),
+        vec![
+            (BodyLineKind::Heading, "요청 헤더"),
+            (BodyLineKind::Text, "  accept         application/json"),
+            (BodyLineKind::Text, "  authorization  Basic x"),
+            (BodyLineKind::Heading, "응답 헤더"),
+            (BodyLineKind::Text, "  content-type  text/plain"),
+            (BodyLineKind::Heading, "응답 본문"),
+            (BodyLineKind::Text, "  line1"),
+            (BodyLineKind::Text, "  line2"),
+        ]
+    );
+
+    // 응답 잘림·엔진 잘림.
+    let mut s2 = body_step(None, Some("line1"));
+    s2.response.as_mut().unwrap().body_truncated = true;
+    let i = BodyInput {
+        clipped_resp: true,
+        ..binput(&s2)
+    };
+    let l = body_lines(&i, 80);
+    let h = l.iter().position(|b| b.text == "응답 본문").unwrap();
+    assert_eq!(
+        (l[h + 1].kind, l[h + 1].text.as_str()),
+        (BodyLineKind::Note, "기록 상한 128KB에서 잘림")
+    );
+    assert!(has(
+        &l,
+        BodyLineKind::Note,
+        "1 MiB에서 잘림 — 실제 응답은 더 큼"
+    ));
+
+    // 요청 잘림 + 가림.
+    let s3 = body_step(Some("p"), Some(""));
+    let i = BodyInput {
+        clipped_req: true,
+        ..binput(&s3)
+    };
+    let l = body_lines(&i, 80);
+    let n = l
+        .iter()
+        .position(|b| b.text == "요청 본문은 가려져 있습니다")
+        .unwrap();
+    assert_eq!(l[n + 1].text, "기록 상한 128KB에서 잘림");
+
+    // 가린 인증 값 안내.
+    let mut s4 = body_step(None, Some(""));
+    s4.request
+        .as_mut()
+        .unwrap()
+        .headers
+        .insert("authorization".into(), "Bearer ••••".into());
+    let l = body_lines(&binput(&s4), 80);
+    assert_eq!(
+        (l.last().unwrap().kind, l.last().unwrap().text.as_str()),
+        (BodyLineKind::Note, "인증 값은 ••••로 가렸습니다")
+    );
+    let l = body_lines(&binput(&s), 80);
+    assert!(!l.iter().any(|b| b.text.contains("가렸습니다")));
+
+    // 오류·시간 초과·응답 없음.
+    let mut s5 = body_step(None, None);
+    s5.error = Some("boom".into());
+    s5.timed_out = true;
+    let l = body_lines(&binput(&s5), 80);
+    assert!(has(&l, BodyLineKind::Error, "boom"));
+    assert!(has(&l, BodyLineKind::Note, "시간 초과"));
+    assert!(
+        !l.iter()
+            .any(|b| b.text == "응답 헤더" || b.text == "응답 본문")
+    );
+    assert_eq!(l[1].text, "GET http://h/orders/1042");
+    assert!(!l[1].text.contains('→'));
+}
+
+#[test]
+fn body_lines_json_body_is_indented() {
+    let j = r#"{"error":"service_unavailable","trace_id":"9f"}"#;
+    let s = body_step(None, Some(j));
+    let l = body_lines(&binput(&s), 80);
+    let h = l.iter().position(|b| b.text == "응답 본문").unwrap();
+    assert_eq!(
+        text_lines(&l[h..]),
+        vec![
+            "  {",
+            "    \"error\": \"service_unavailable\",",
+            "    \"trace_id\": \"9f\"",
+            "  }"
+        ]
+    );
+    // 잘린 본문 → 원문 한 줄.
+    let i = BodyInput {
+        clipped_resp: true,
+        ..binput(&s)
+    };
+    let l = body_lines(&i, 80);
+    let h = l.iter().position(|b| b.text == "응답 본문").unwrap();
+    assert_eq!(text_lines(&l[h..]), vec![format!("  {j}").as_str()]);
+    assert!(!l.iter().any(|b| b.text.contains("64KB")));
+    // 66KB(JSON이든 평문이든) → 안내 + 원문.
+    for big in [
+        format!(r#"{{"a":"{}"}}"#, "x".repeat(66 * 1024)),
+        "p".repeat(66 * 1024),
+    ] {
+        let s = body_step(None, Some(&big));
+        let l = body_lines(&binput(&s), 70_000);
+        assert!(has(
+            &l,
+            BodyLineKind::Note,
+            "64KB를 넘는 본문은 원문으로 표시합니다"
+        ));
+        let h = l.iter().position(|b| b.text == "응답 본문").unwrap();
+        assert_eq!(text_lines(&l[h..]), vec![format!("  {big}").as_str()]);
+    }
+    // 65단 중첩.
+    let deep = format!("{}{}", "[".repeat(65), "]".repeat(65));
+    let s = body_step(None, Some(&deep));
+    let l = body_lines(&binput(&s), 200);
+    assert!(has(
+        &l,
+        BodyLineKind::Note,
+        "너무 깊게 중첩된 본문은 원문으로 표시합니다"
+    ));
+    assert!(has(&l, BodyLineKind::Text, &format!("  {deep}")));
+    // 요청 본문 JSON + reveal.
+    let s = body_step(Some(r#"{"user":"qa"}"#), Some(""));
+    let i = BodyInput {
+        reveal: true,
+        ..binput(&s)
+    };
+    let l = body_lines(&i, 80);
+    let h = l.iter().position(|b| b.text == "요청 본문").unwrap();
+    assert_eq!(
+        text_lines(&l[h..]),
+        vec!["  {", "    \"user\": \"qa\"", "  }"]
+    );
+}
+
+#[test]
+fn body_lines_wrap_wide_text() {
+    let s = body_step(None, Some(&"가".repeat(12)));
+    let l = body_lines(&binput(&s), 10);
+    let h = l.iter().position(|b| b.text == "응답 본문").unwrap();
+    assert!(text_lines(&l[h..]).len() > 1, "{l:?}");
+    for b in &l {
+        assert!(Span::raw(b.text.clone()).width() <= 10, "{b:?}");
+    }
+    let _ = body_lines(&binput(&s), 0);
+}
+
+#[test]
+fn body_lines_escape_sequence_is_inert() {
+    let s = body_step(None, Some("\x1b[2J\x1b[Hpwned"));
+    let l = body_lines(&binput(&s), 80);
+    assert!(l.iter().all(|b| !b.text.contains('\x1b')), "{l:?}");
+    assert!(l.iter().any(|b| b.text.contains("\u{FFFD}[2J")), "{l:?}");
+    let s = body_step(None, Some("{\"a\":\"x\x1by\"}"));
+    let l = body_lines(&binput(&s), 80);
+    assert!(l.iter().all(|b| !b.text.contains('\x1b')), "{l:?}");
+    assert!(l.iter().any(|b| b.text.contains("x\u{FFFD}y")), "{l:?}");
+    let t = draw(80, 20, |f| render_body(f, &head(), &l, 0, &bkeys()));
+    assert!(!t.contains('\x1b'), "{t}");
+    assert!(t.contains("x\u{FFFD}y"), "{t}");
+}
+
+fn bkeys() -> Vec<&'static str> {
+    vec!["↑↓ PgUp PgDn 스크롤", "←→ 이전·다음 스텝", "Esc 자세히로"]
+}
+
+fn many_lines(n: usize) -> Vec<BodyLine> {
+    (0..n)
+        .map(|i| BodyLine {
+            kind: if i == 0 {
+                BodyLineKind::Title
+            } else {
+                BodyLineKind::Text
+            },
+            text: format!("row-{i:02}"),
+        })
+        .collect()
+}
+
+#[test]
+fn body_state_caches_and_clamps() {
+    let s = body_step(Some("REQ\nREQ2\nREQ3"), Some("a\nb\nc"));
+    let i = binput(&s);
+    let mut st = BodyState::new(4);
+    assert_eq!((st.line_idx, st.reveal, st.scroll), (4, false, 0));
+    let n1 = st.ensure(&i, 40);
+    assert_eq!(st.ensure(&i, 40), n1);
+    assert_eq!(st.lines().len(), n1);
+    st.reveal = true;
+    let n2 = st.ensure(
+        &BodyInput {
+            reveal: true,
+            ..binput(&s)
+        },
+        40,
+    );
+    assert_ne!(n1, n2);
+    assert!(st.lines().iter().any(|b| b.text.contains("REQ")));
+    // 폭을 바꾸면 다시 만든다(좁은 폭 → 줄바꿈으로 줄 수 증가).
+    let n3 = st.ensure(
+        &BodyInput {
+            reveal: true,
+            ..binput(&s)
+        },
+        8,
+    );
+    assert!(n3 > n2, "{n3} {n2}");
+
+    // 30줄·height 10.
+    let long = "x\n".repeat(30);
+    let s = body_step(None, Some(&long));
+    let i = binput(&s);
+    let mut st = BodyState::new(0);
+    let n = st.ensure(&i, 40);
+    st.scroll_by(100, 10);
+    assert_eq!(st.scroll, n - 10);
+    st.scroll_by(-100, 10);
+    assert_eq!(st.scroll, 0);
+    st.scroll_to_end(10);
+    assert_eq!(st.scroll, n - 10);
+    st.scroll_by(5, n + 5);
+    assert_eq!(st.scroll, 0);
+    st.scroll_to_end(n + 5);
+    assert_eq!(st.scroll, 0);
+}
+
+#[test]
+fn render_body_scrolls_and_shows_position() {
+    let l = many_lines(40);
+    let area = Rect::new(0, 0, 80, 14);
+    let h = body_height(area);
+    assert_eq!(h, usize::from(sub_layout(area).body.height));
+    let t = draw(80, 14, |f| render_body(f, &head(), &l, 0, &bkeys()));
+    let rows: Vec<&str> = t.lines().collect();
+    assert!(rows[0].contains(text::MONITOR_TITLE), "{t}");
+    assert!(rows[1].contains("row-00"), "{t}");
+    assert!(rows[1].trim_end().ends_with(&format!("{h}/40줄")), "{t}");
+    assert!(rows[12].contains(text::IDLE_NOTICE), "{t}");
+    assert!(rows[13].contains("Esc 자세히로"), "{t}");
+    let t = draw(80, 14, |f| render_body(f, &head(), &l, 15, &bkeys()));
+    let rows: Vec<&str> = t.lines().collect();
+    assert!(rows[1].contains("row-15"), "{t}");
+    assert!(
+        rows[1].trim_end().ends_with(&format!("{}/40줄", 15 + h)),
+        "{t}"
+    );
+    let short = many_lines(5);
+    let t = draw(80, 14, |f| render_body(f, &head(), &short, 0, &bkeys()));
+    assert!(!t.contains("줄\n") && !t.contains("/5줄"), "{t}");
+    assert!(t.contains("row-04"), "{t}");
+}
+
+#[test]
+fn body_size_sweep_no_panic() {
+    let s = body_step(
+        Some("REQ"),
+        Some(&"{\"k\":[1,2,3],\"가\":\"나다\"}\n".repeat(3)),
+    );
+    for w in 1..=50u16 {
+        let i = BodyInput {
+            reveal: true,
+            ..binput(&s)
+        };
+        let l = body_lines(&i, usize::from(w));
+        for h in 1..=12u16 {
+            let bh = body_height(Rect::new(0, 0, w, h));
+            for scroll in [0, l.len() / 2, l.len().saturating_sub(bh)] {
+                let _ = draw(w, h, |f| render_body(f, &head(), &l, scroll, &bkeys()));
+            }
+        }
+    }
 }

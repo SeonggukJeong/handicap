@@ -41,6 +41,24 @@ pub(crate) fn fit(s: &str, w: usize) -> String {
     out
 }
 
+/// 표시 폭 `w` 행들로 글자 단위로 자른다(넓은 문자는 쪼개지 않는다).
+pub(crate) fn wrap_width(s: &str, w: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut cur = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        let cw = text_width(c.encode_utf8(&mut [0; 4]));
+        if used + cw > w && !cur.is_empty() {
+            rows.push(std::mem::take(&mut cur));
+            used = 0;
+        }
+        cur.push(c);
+        used += cw;
+    }
+    rows.push(cur);
+    rows
+}
+
 /// 키 안내 줄 — 폭에 안 들어가면 앞 조각부터 통째로 뺀다(마지막 조각은 남기고, 그래도 넘치면 `…`).
 /// 앞에 공백 1칸을 둔다.
 pub(crate) fn key_bar(segments: &[&str], width: u16) -> String {

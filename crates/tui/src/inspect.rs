@@ -4,13 +4,15 @@ use std::collections::{HashMap, HashSet};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_controller::monitor::config::{PanelConfig, Threshold};
-use handicap_engine::{ScenarioTrace, StepKind};
+use handicap_controller::monitor::record::MASK;
+use handicap_engine::{ScenarioTrace, StepKind, StepTrace};
 
 use crate::api::ApiError;
-use crate::judge::{PanelState, format_date_hms};
+use crate::judge::{PanelState, format_date_hms, format_hms, format_ms};
 use crate::names::Names;
 use crate::text;
-use crate::wire::CheckRecord;
+use crate::view::{text_width, wrap_width};
+use crate::wire::{CheckRecord, ClipSide, Clipped};
 
 /// 목록 한 줄의 사유 칸.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -496,5 +498,346 @@ pub fn record_view(panel: &PanelConfig, st: &RecordState, names: &Names) -> Reco
             .as_deref()
             .map(|e| names.env_name(e).unwrap_or(e).to_string()),
         body,
+    }
+}
+
+// ---------- 요청·응답 본문 (spec §5.3-4, 목업 §3) ----------
+
+/// GUI `TREE_MAX_BYTES`·`TREE_MAX_DEPTH`와 같은 한도.
+pub const PRETTY_MAX_BYTES: usize = 64 * 1024;
+pub const PRETTY_MAX_DEPTH: usize = 64;
+
+/// `pretty_json`의 결과.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pretty {
+    Json(String),
+    TooLarge,
+    TooDeep,
+    Raw,
+}
+
+fn is_json_ws(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r')
+}
+
+fn push_newline(out: &mut String, depth: usize) {
+    out.push('\n');
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
+}
+
+/// 판정 순서: ① `s.len() > PRETTY_MAX_BYTES` → TooLarge(내용과 무관 — GUI와 같다)
+/// ② 첫 비공백 글자가 `{`/`[`가 아니거나 `serde_json::from_str::<serde::de::IgnoredAny>(s)`가 실패 → Raw
+/// ③ 들여쓰며 훑는 중 `{`/`[` 중첩이 PRETTY_MAX_DEPTH를 넘으면 **그 자리에서 멈추고** TooDeep ④ 그 외 Json.
+/// 주의: IgnoredAny 경로는 serde_json의 재귀 상한(128)을 타지 않는다(반복문) — 깊이는 ③이 직접 센다.
+///
+/// 값을 다시 만들지 않고 글자 흐름을 다시 줄바꿈한다(`serde_json::Value`를 거치면 키 순서가 바뀐다).
+pub fn pretty_json(s: &str) -> Pretty {
+    if s.len() > PRETTY_MAX_BYTES {
+        return Pretty::TooLarge;
+    }
+    if !matches!(s.trim_start().chars().next(), Some('{' | '[')) {
+        return Pretty::Raw;
+    }
+    if serde_json::from_str::<serde::de::IgnoredAny>(s).is_err() {
+        return Pretty::Raw;
+    }
+    let mut out = String::with_capacity(s.len() * 2);
+    let mut depth = 0usize;
+    let (mut in_str, mut esc) = (false, false);
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_str {
+            out.push(c);
+            if esc {
+                esc = false;
+            } else if c == '\\' {
+                esc = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = true;
+                out.push(c);
+            }
+            '{' | '[' => {
+                depth += 1;
+                if depth > PRETTY_MAX_DEPTH {
+                    return Pretty::TooDeep;
+                }
+                out.push(c);
+                while chars.peek().is_some_and(|&n| is_json_ws(n)) {
+                    chars.next();
+                }
+                let close = if c == '{' { '}' } else { ']' };
+                if chars.peek() == Some(&close) {
+                    chars.next();
+                    out.push(close);
+                    depth -= 1;
+                } else {
+                    push_newline(&mut out, depth);
+                }
+            }
+            '}' | ']' => {
+                depth = depth.saturating_sub(1);
+                push_newline(&mut out, depth);
+                out.push(c);
+            }
+            ',' => {
+                out.push(c);
+                push_newline(&mut out, depth);
+            }
+            ':' => out.push_str(": "),
+            c if is_json_ws(c) => {}
+            c => out.push(c),
+        }
+    }
+    Pretty::Json(out)
+}
+
+/// (요청 잘림, 응답 잘림) — `Clipped.step`은 `trace.steps` 인덱스.
+pub fn clip_flags(clipped: &[Clipped], trace_idx: usize) -> (bool, bool) {
+    let hit = |side: ClipSide| {
+        clipped
+            .iter()
+            .any(|c| c.side == side && usize::try_from(c.step).is_ok_and(|s| s == trace_idx))
+    };
+    (hit(ClipSide::Request), hit(ClipSide::Response))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyLineKind {
+    Title,
+    Summary,
+    Error,
+    Heading,
+    Text,
+    Note,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BodyLine {
+    pub kind: BodyLineKind,
+    pub text: String,
+}
+
+pub struct BodyInput<'a> {
+    /// 제목 줄용(StepLine::Http의 no·name)
+    pub panel_title: &'a str,
+    pub at_ms: i64,
+    pub no: usize,
+    pub name: &'a str,
+    pub step: &'a StepTrace,
+    pub clipped_req: bool,
+    pub clipped_resp: bool,
+    pub limit_kb: u32,
+    pub reveal: bool,
+}
+
+/// 헤더 이름 칸 최대 폭.
+const HEADER_NAME_MAX: usize = 24;
+
+struct Lines {
+    out: Vec<BodyLine>,
+    width: usize,
+}
+
+impl Lines {
+    /// `\n`으로 나눈 뒤 `sanitize` → `wrap_width`.
+    fn wrapped(&mut self, kind: BodyLineKind, s: &str) {
+        for part in s.split('\n') {
+            for row in wrap_width(&sanitize(part), self.width) {
+                self.out.push(BodyLine { kind, text: row });
+            }
+        }
+    }
+
+    /// 짧은 고정 문구(제목·안내) — 줄바꿈만.
+    fn fixed(&mut self, kind: BodyLineKind, s: &str) {
+        for row in wrap_width(s, self.width) {
+            self.out.push(BodyLine { kind, text: row });
+        }
+    }
+
+    fn headers(&mut self, title: &str, headers: &std::collections::BTreeMap<String, String>) {
+        if headers.is_empty() {
+            return;
+        }
+        self.fixed(BodyLineKind::Heading, title);
+        let name_w = headers
+            .keys()
+            .map(|k| text_width(&sanitize(k)))
+            .max()
+            .unwrap_or(0)
+            .min(HEADER_NAME_MAX);
+        for (k, v) in headers {
+            let k = sanitize(k);
+            let pad = " ".repeat(name_w.saturating_sub(text_width(&k)));
+            // 값 속 줄바꿈은 줄로 나누지 않고 sanitize가 치환한다(헤더 한 개 = 한 줄 흐름).
+            let line = format!("  {k}{pad}  {}", sanitize(v));
+            for row in wrap_width(&line, self.width) {
+                self.out.push(BodyLine {
+                    kind: BodyLineKind::Text,
+                    text: row,
+                });
+            }
+        }
+    }
+
+    /// 본문 규칙: 잘렸으면 원문, 아니면 `pretty_json` 갈래. 본문 `Text`는 2칸 들여쓴다.
+    fn body(&mut self, body: &str, clipped: bool) {
+        let pretty = if clipped {
+            Pretty::Raw
+        } else {
+            pretty_json(body)
+        };
+        let shown = match &pretty {
+            Pretty::Json(p) => p.as_str(),
+            Pretty::TooLarge => {
+                self.fixed(BodyLineKind::Note, text::RECORD_TREE_TOO_LARGE);
+                body
+            }
+            Pretty::TooDeep => {
+                self.fixed(BodyLineKind::Note, text::RECORD_TREE_TOO_DEEP);
+                body
+            }
+            Pretty::Raw => body,
+        };
+        for part in shown.split('\n') {
+            let line = format!("  {}", sanitize(part));
+            for row in wrap_width(&line, self.width) {
+                self.out.push(BodyLine {
+                    kind: BodyLineKind::Text,
+                    text: row,
+                });
+            }
+        }
+    }
+}
+
+/// 폭 `width`(0이면 1로)에 맞춰 줄바꿈한 전체 줄(목업 §3, GUI `StepRow` 펼친 내용과 같은 구분).
+pub fn body_lines(i: &BodyInput, width: usize) -> Vec<BodyLine> {
+    let mut l = Lines {
+        out: Vec::new(),
+        width: width.max(1),
+    };
+    let step = i.step;
+    l.wrapped(
+        BodyLineKind::Title,
+        &format!(
+            "{} · {} · {} {}",
+            i.panel_title,
+            format_hms(i.at_ms),
+            i.no,
+            i.name
+        ),
+    );
+    let mut summary = match &step.request {
+        Some(r) => format!("{} {}", r.method, r.url),
+        None => text::NO_VALUE.to_string(),
+    };
+    if let Some(r) = &step.response {
+        summary.push_str(&format!(
+            "   →   {}   {}",
+            r.status,
+            format_ms(r.latency_ms as f64)
+        ));
+    }
+    l.wrapped(BodyLineKind::Summary, &summary);
+    if let Some(e) = &step.error {
+        l.wrapped(BodyLineKind::Error, e);
+    }
+    if step.timed_out {
+        l.fixed(BodyLineKind::Note, text::TIMED_OUT);
+    }
+    let mut masked = false;
+    if let Some(r) = &step.request {
+        masked |= r.url.contains(MASK) || r.headers.values().any(|v| v.contains(MASK));
+        l.headers(text::RECORD_REQ_HEADERS, &r.headers);
+        if let Some(b) = r.body.as_deref().filter(|b| !b.is_empty()) {
+            l.fixed(BodyLineKind::Heading, text::RECORD_REQ_BODY);
+            if i.reveal {
+                if i.clipped_req {
+                    l.fixed(BodyLineKind::Note, &text::record_clipped(i.limit_kb));
+                }
+                l.body(b, i.clipped_req);
+            } else {
+                l.fixed(BodyLineKind::Note, text::RECORD_REQ_BODY_HIDDEN);
+                if i.clipped_req {
+                    l.fixed(BodyLineKind::Note, &text::record_clipped(i.limit_kb));
+                }
+            }
+        }
+    }
+    if let Some(r) = &step.response {
+        masked |= r.headers.values().any(|v| v.contains(MASK));
+        l.headers(text::RECORD_RESP_HEADERS, &r.headers);
+        if !r.body.is_empty() {
+            l.fixed(BodyLineKind::Heading, text::RECORD_RESP_BODY);
+            if i.clipped_resp {
+                l.fixed(BodyLineKind::Note, &text::record_clipped(i.limit_kb));
+            }
+            if r.body_truncated {
+                l.fixed(BodyLineKind::Note, text::RECORD_ENGINE_TRUNCATED);
+            }
+            l.body(&r.body, i.clipped_resp || r.body_truncated);
+        }
+    }
+    if masked {
+        l.fixed(BodyLineKind::Note, text::RECORD_MASKED_HINT);
+    }
+    l.out
+}
+
+/// 만든 줄을 (폭, reveal)로 기억 — 매 프레임 다시 만들지 않는다(1 MiB 본문).
+#[derive(Debug, Default)]
+pub struct BodyState {
+    /// StepLine 목록에서의 줄 번호
+    pub line_idx: usize,
+    pub reveal: bool,
+    pub scroll: usize,
+    cache: Option<(usize, bool, Vec<BodyLine>)>,
+}
+
+impl BodyState {
+    /// 항상 reveal false · scroll 0 (옆 스텝으로 갈 때도 new).
+    pub fn new(line_idx: usize) -> BodyState {
+        BodyState {
+            line_idx,
+            ..BodyState::default()
+        }
+    }
+
+    /// 캐시가 (width, self.reveal)와 다르면 다시 만든다. 돌려주는 줄 수.
+    /// `i.reveal`은 무시하고 `self.reveal`을 쓴다(가림 상태의 단일 소스).
+    pub fn ensure(&mut self, i: &BodyInput, width: usize) -> usize {
+        let fresh = matches!(&self.cache, Some((w, r, _)) if *w == width && *r == self.reveal);
+        if !fresh {
+            let input = BodyInput {
+                reveal: self.reveal,
+                ..*i
+            };
+            self.cache = Some((width, self.reveal, body_lines(&input, width)));
+        }
+        self.lines().len()
+    }
+
+    pub fn lines(&self) -> &[BodyLine] {
+        self.cache.as_ref().map_or(&[], |(_, _, l)| l.as_slice())
+    }
+
+    /// `scroll`을 `delta`만큼 옮기되 `0..=len.saturating_sub(height)`에 가둔다.
+    pub fn scroll_by(&mut self, delta: isize, height: usize) {
+        let max = self.lines().len().saturating_sub(height);
+        let cur = self.scroll.min(max) as isize;
+        self.scroll = (cur.saturating_add(delta)).clamp(0, max as isize) as usize;
+    }
+
+    pub fn scroll_to_end(&mut self, height: usize) {
+        self.scroll = self.lines().len().saturating_sub(height);
     }
 }
