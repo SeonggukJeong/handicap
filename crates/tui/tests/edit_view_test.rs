@@ -1083,3 +1083,30 @@ fn cond_form_target_keeps_text_when_widths_disagree() {
         }
     }
 }
+
+/// 반대쪽 어긋남 — 글자 하나씩 잰 폭이 줄 전체 폭보다 넓은 글자(피부색 수식 이모지, ZWJ 이모지).
+/// 줄 전체로는 한 줄에 드는 대상을 줄바꿈하면 "한 줄 대상은 변경 전과 같다"(spec §2.2-3)가 깨진다.
+#[test]
+fn cond_form_target_that_fits_stays_one_line() {
+    use handicap_tui::view::edit::cond_form_height;
+    let ops = ["= 같음", "키 있음"];
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    for target in [
+        format!("$.{}", "👍\u{1F3FD}".repeat(20)),
+        format!("$.{}.x", "👨\u{200D}👩\u{200D}👧".repeat(12)),
+    ] {
+        // 전제: 줄 전체 폭은 값 칸(69칸)에 들고, 글자 하나씩 더한 폭은 넘는다.
+        let per_char: usize = target
+            .chars()
+            .map(|c| width(c.encode_utf8(&mut [0; 4])))
+            .sum();
+        assert!(width(&target) <= 69 && per_char > 69, "{target}: 전제");
+        let mut fv = form(0, &ops, CondFocus::Op);
+        fv.target = &target;
+        assert_eq!(cond_form_height(&fv, 80, 21), 4, "{target}: 높이");
+        let txt = draw_list_form(80, 24, &v, &fv);
+        let lines: Vec<&str> = txt.lines().collect();
+        assert_eq!(target_line_ids(&lines).len(), 1, "{target}\n{txt}");
+    }
+}

@@ -242,7 +242,9 @@ const FORM_LIST_KEEP: u16 = 3;
 /// `sanitize`한 대상 글자를 값 칸 폭 `fw`로 나눈 줄들(좁으면 한 줄).
 fn target_rows(target: &str, fw: usize) -> Vec<String> {
     let s = sanitize(target);
-    if fw < TARGET_WRAP_MIN_W {
+    // 줄 전체 폭으로 한 줄에 들면 그대로 — 글자 하나씩 잰 폭이 더 넓은 글자(ZWJ·피부색 이모지)가
+    // 한 줄 대상을 둘로 나누지 않게(그리는 쪽 `fit`도 줄 전체 폭으로 잰다).
+    if fw < TARGET_WRAP_MIN_W || text_width(&s) <= fw {
         return vec![s];
     }
     let rows = wrap_width(&s, fw);
