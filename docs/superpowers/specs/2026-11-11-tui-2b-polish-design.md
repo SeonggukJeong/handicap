@@ -3,7 +3,7 @@
 - 날짜: 2026-11-11 · 유형: `correctness-bug` + `internal-polish` · 상위 설계: [tui-2b 설계](2026-11-11-tui-2b-add-from-response-design.md)의 §2.4 숫자 글자 규칙·§3.2 조건 칸 `대상` 줄·§10 한계 2줄을 **이 문서가 개정**한다 · 결정 기록: [ADR-0055](../../adr/0055-tui-monitor.md)(새 ADR 없음)
 - 출처: roadmap §B52 (2) 연기 항목 3건 — 사용자 선택(2026-11-11 `/start-slice`: "B. TUI 소형 보완", US 승인 "빈 화면도 포함").
 - 범위: `crates/tui`만(`pick.rs`·`view/edit.rs`·`view/values.rs`·`view/inspect.rs`·`app.rs`·`text.rs` + 테스트) + 문서. **컨트롤러·엔진·proto·DB·GUI(`ui/`)·`Cargo.toml` 0-diff.**
-- 상태: 설계 초안(리뷰 2라운드 반영 — 재검토 중)
+- 상태: 설계 리뷰 통과(`spec-plan-reviewer` 3라운드 clean APPROVE, 2026-11-11) → plan `docs/superpowers/plans/2026-11-11-tui-2b-polish.md` 리뷰 중
 
 ## 사용자 스토리 (US)
 
