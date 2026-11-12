@@ -731,3 +731,319 @@ fn cond_form_long_received_is_clipped_before_sanitize() {
     assert!(line.ends_with('…'), "{line}");
     assert!(!line.contains('끝'), "{line}");
 }
+
+// ---------- tui-2b-polish: 대상 줄바꿈 ----------
+
+/// 조건 칸 값 칸이 시작하는 열(들여쓰기 2 + 라벨 칸 9) — 화면 폭 13 이상.
+const FORM_VALUE_X: usize = 11;
+
+/// 시험용 긴 대상 — 마디마다 번호를 섞어 줄 순서가 바뀌면 이어 붙인 글자가 달라진다. 정확히 `n`자(ASCII).
+fn long_target(n: usize) -> String {
+    let mut s = String::from("$.");
+    let mut i = 0;
+    while s.len() < n {
+        s.push_str(&format!("seg{i:03}abc."));
+        i += 1;
+    }
+    s.truncate(n);
+    s
+}
+
+/// 표시 폭 `cols` 뒤의 글자.
+fn after_cols(line: &str, cols: usize) -> String {
+    let mut used = 0;
+    let mut out = String::new();
+    for c in line.chars() {
+        if used >= cols {
+            out.push(c);
+        } else {
+            used += width(c.encode_utf8(&mut [0; 4]));
+        }
+    }
+    out
+}
+
+/// 조건 칸 라벨 줄(들여쓰기 2 + ` 라벨`)인가.
+fn is_label(line: &str, label: &str) -> bool {
+    line.starts_with(&format!("   {label} "))
+}
+
+/// `대상` 라벨 줄부터 다음 라벨 줄(`받은 값`·`규칙`) 전까지의 줄 번호들.
+fn target_line_ids(lines: &[&str]) -> Vec<usize> {
+    let Some(start) = lines
+        .iter()
+        .position(|l| is_label(l, text::COND_FORM_TARGET))
+    else {
+        return vec![];
+    };
+    let end = (start + 1..lines.len())
+        .find(|&i| {
+            is_label(lines[i], text::PICK_COL_VALUE) || is_label(lines[i], text::COND_FORM_OP)
+        })
+        .unwrap_or(lines.len());
+    (start..end).collect()
+}
+
+fn cond_list() -> Vec<ListRow> {
+    (1..=12).map(|i| row(&format!("조건-{i:02}"))).collect()
+}
+
+fn draw_list_form(w: u16, h: u16, v: &ListView, fv: &CondFormView) -> String {
+    use handicap_tui::view::edit::render_list_with_form;
+    let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+    t.draw(|f| render_list_with_form(f, &head(), v, &[], Some(fv)))
+        .unwrap();
+    buffer_text(t.backend().buffer())
+}
+
+fn cond_list_view(rows: &[ListRow]) -> ListView<'_> {
+    ListView {
+        title: "성공 조건 · 핑",
+        rows: rows.to_vec(),
+        cursor: rows.len().saturating_sub(1),
+        overlay: None,
+    }
+}
+
+#[test]
+fn cond_form_target_wraps_fully() {
+    let target = long_target(500);
+    assert_eq!(target.len(), 500);
+    let ops = ["= 같음", "키 있음"];
+    let mut fv = form(0, &ops, CondFocus::Op);
+    fv.target = &target;
+    let rows = cond_list();
+    let txt = draw_list_form(80, 24, &cond_list_view(&rows), &fv);
+    let lines: Vec<&str> = txt.lines().collect();
+    let ids = target_line_ids(&lines);
+    assert_eq!(ids.len(), 8, "500자 / 69칸 = 8줄\n{txt}");
+    let joined: String = ids
+        .iter()
+        .map(|&i| after_cols(lines[i], FORM_VALUE_X).trim_end().to_string())
+        .collect();
+    assert_eq!(joined, target, "{txt}");
+    // 이어지는 줄은 라벨 칸이 빈칸.
+    for &i in &ids[1..] {
+        assert!(lines[i].starts_with(&" ".repeat(FORM_VALUE_X)), "{txt}");
+    }
+}
+
+#[test]
+fn cond_form_target_ellipsis_when_short() {
+    let target = long_target(500);
+    let ops = ["= 같음", "키 있음"];
+    let mut fv = form(0, &ops, CondFocus::Op);
+    fv.target = &target;
+    let short = form(0, &ops, CondFocus::Op);
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    let mut ellipsis_seen = 0;
+    for h in (5..=24u16).rev() {
+        let txt = draw_list_form(80, h, &v, &fv);
+        let lines: Vec<&str> = txt.lines().collect();
+        // 필수 줄: `규칙`은 한 줄 대상 조건 칸에서 보이면 긴 쪽에서도 보인다.
+        let short_txt = draw_list_form(80, h, &v, &short);
+        if short_txt.lines().any(|l| is_label(l, text::COND_FORM_OP)) {
+            assert!(
+                lines.iter().any(|l| is_label(l, text::COND_FORM_OP)),
+                "h{h}: 규칙 줄 없음\n{txt}"
+            );
+        }
+        let ids = target_line_ids(&lines);
+        assert!(!ids.is_empty(), "h{h}: 대상 줄 없음\n{txt}");
+        let joined: String = ids
+            .iter()
+            .map(|&i| after_cols(lines[i], FORM_VALUE_X).trim_end().to_string())
+            .collect();
+        if joined != target {
+            let last = lines[*ids.last().unwrap()].trim_end();
+            assert!(last.ends_with('…'), "h{h}: 잘린 대상의 마지막 줄\n{txt}");
+            ellipsis_seen += 1;
+        }
+    }
+    assert!(ellipsis_seen >= 1, "스윕 안에 잘린 높이가 없다 — 공허");
+}
+
+#[test]
+fn cond_form_keeps_selected_row_with_long_target() {
+    let target = long_target(500);
+    let ops = ["= 같음", "키 있음"];
+    let mut long = form(0, &ops, CondFocus::Op);
+    long.target = &target;
+    let short = form(0, &ops, CondFocus::Op);
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    assert_eq!(v.cursor, 11);
+    let sel = |txt: &str| {
+        txt.lines()
+            .position(|l| l.contains("▶") && l.contains("조건-12"))
+    };
+    let mut checked = 0;
+    for h in 8..=24u16 {
+        let s_txt = draw_list_form(80, h, &v, &short);
+        if sel(&s_txt).is_none() {
+            continue;
+        }
+        checked += 1;
+        let txt = draw_list_form(80, h, &v, &long);
+        let lines: Vec<&str> = txt.lines().collect();
+        let s = sel(&txt).unwrap_or_else(|| panic!("h{h}: 고른 줄이 가려짐\n{txt}"));
+        let t = lines
+            .iter()
+            .position(|l| is_label(l, text::COND_FORM_TARGET))
+            .unwrap_or_else(|| panic!("h{h}: 대상 줄 없음\n{txt}"));
+        assert!(s < t, "h{h}: 고른 줄이 대상 줄 아래\n{txt}");
+    }
+    assert!(
+        checked >= 10,
+        "짧은 대상에서 고른 줄이 보이는 높이가 너무 적다: {checked}"
+    );
+}
+
+#[test]
+fn cond_form_width_sweep() {
+    use handicap_tui::view::edit::cond_form_value_width;
+    let ascii = long_target(500);
+    let hangul = "$.가나다라마바사아자차".repeat(20);
+    let ops = ["= 같음", "키 있음"];
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    for target in [&ascii, &hangul] {
+        let mut fv = form(0, &ops, CondFocus::Op);
+        fv.target = target;
+        for w in 1..=120u16 {
+            for h in [6u16, 10, 24] {
+                let txt = draw_list_form(w, h, &v, &fv);
+                let lines: Vec<&str> = txt.lines().collect();
+                let fw = cond_form_value_width(w);
+                if (13..=18).contains(&w) {
+                    assert!(fw < 8, "w{w}: fw {fw}");
+                    let ids = target_line_ids(&lines);
+                    assert_eq!(ids.len(), 1, "w{w} h{h}: fw<8은 한 줄\n{txt}");
+                    assert!(
+                        is_label(lines[ids[0] + 1], text::COND_FORM_OP),
+                        "w{w} h{h}: 규칙 줄이 대상 바로 다음\n{txt}"
+                    );
+                }
+                if w == 19 && h != 6 {
+                    assert_eq!(fw, 8);
+                    let ids = target_line_ids(&lines);
+                    assert!(ids.len() >= 2, "w{w} h{h}: fw 8은 줄바꿈\n{txt}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cond_form_wide_and_bidi() {
+    let hangul = "$.가나다라마바사아자차".repeat(20);
+    let ops = ["= 같음", "키 있음"];
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    let mut fv = form(0, &ops, CondFocus::Op);
+    fv.target = &hangul;
+    // 넓은 글자가 화면 폭을 넘지 않는다.
+    for w in [20u16, 33, 61, 80, 81] {
+        let txt = draw_list_form(w, 24, &v, &fv);
+        for l in txt.lines() {
+            assert!(width(l) <= usize::from(w), "w{w}: {l}");
+        }
+    }
+    // 잘리는 높이에서 마지막 대상 줄이 `…`.
+    let txt = draw_list_form(80, 12, &v, &fv);
+    let lines: Vec<&str> = txt.lines().collect();
+    let ids = target_line_ids(&lines);
+    assert!(ids.len() >= 2, "{txt}");
+    assert!(
+        lines[*ids.last().unwrap()].trim_end().ends_with('…'),
+        "{txt}"
+    );
+    // 둘째 줄 이후 자리의 bidi 제어 문자는 이어지는 줄에 `\u{FFFD}`로 보인다.
+    let mut bidi = long_target(500);
+    bidi.replace_range(100..101, "\u{202E}");
+    fv.target = &bidi;
+    let txt = draw_list_form(80, 24, &v, &fv);
+    assert!(!txt.contains('\u{202E}'), "{txt}");
+    let lines: Vec<&str> = txt.lines().collect();
+    let ids = target_line_ids(&lines);
+    assert!(!lines[ids[0]].contains('\u{FFFD}'), "{txt}");
+    assert!(
+        ids[1..].iter().any(|&i| lines[i].contains('\u{FFFD}')),
+        "이어지는 줄에 \\u{{FFFD}} 없음\n{txt}"
+    );
+}
+
+#[test]
+fn cond_form_height_matches_drawn() {
+    use handicap_tui::view::edit::cond_form_height;
+    use handicap_tui::view::inspect::sub_layout;
+    let w = 80u16;
+    let ops = ["= 같음", "키 있음"];
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    for body_h in [5u16, 8, 12, 21] {
+        let h = (1..=60u16)
+            .find(|&h| sub_layout(Rect::new(0, 0, w, h)).body.height == body_h)
+            .unwrap_or_else(|| panic!("body {body_h} 화면 높이 없음"));
+        let body = sub_layout(Rect::new(0, 0, w, h)).body;
+        for len in [10usize, 70, 200, 500] {
+            let target = long_target(len);
+            for extras in [false, true] {
+                let mut fv = form(0, &ops, CondFocus::Op);
+                fv.target = &target;
+                if extras {
+                    fv.received = Some("\"OK\"");
+                    fv.hint = Some("매번 바뀌는 값이면 실패합니다");
+                }
+                let fh = cond_form_height(&fv, body.width, body.height);
+                assert!(fh <= body.height);
+                let txt = draw_list_form(w, h, &v, &fv);
+                let lines: Vec<&str> = txt.lines().collect();
+                let bottom = usize::from(body.y + body.height);
+                let top = bottom - usize::from(fh);
+                let area = &lines[top..bottom];
+                let ctx = format!("body{body_h} len{len} extras{extras} fh{fh}\n{txt}");
+                // ⓐ 빈 줄 없음.
+                for l in area {
+                    assert!(!l.trim().is_empty(), "빈 줄: {ctx}");
+                }
+                // ⓑ 첫 줄 = 대상 라벨, 영역 안에 규칙 라벨.
+                assert!(is_label(area[0], text::COND_FORM_TARGET), "{ctx}");
+                assert!(
+                    area.iter().any(|l| is_label(l, text::COND_FORM_OP)),
+                    "{ctx}"
+                );
+                // ⓒ 다 들어가는 높이에서는 대상 줄 수 == 줄바꿈 줄 수.
+                if body_h == 21 {
+                    let ids = target_line_ids(area);
+                    assert_eq!(ids.len(), len.div_ceil(69), "{ctx}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cond_form_height_short_target_unchanged() {
+    use handicap_tui::view::edit::cond_form_height;
+    let ops = ["= 같음", "키 있음"];
+    // 필수 4줄(대상·규칙·값·체크).
+    let fv = form(0, &ops, CondFocus::Op);
+    assert_eq!(cond_form_height(&fv, 80, 21), 4);
+    // + 받은 값·안내.
+    let mut fv = form(0, &ops, CondFocus::Op);
+    fv.received = Some("\"OK\"");
+    fv.hint = Some("매번 바뀌는 값이면 실패합니다");
+    assert_eq!(cond_form_height(&fv, 80, 21), 6);
+    // 값을 안 쓰는 규칙 = 대상·규칙.
+    let fv = form(1, &ops, CondFocus::Op);
+    assert_eq!(cond_form_height(&fv, 80, 21), 2);
+    // 본문이 낮으면 본문 높이.
+    let fv = form(0, &ops, CondFocus::Op);
+    assert_eq!(cond_form_height(&fv, 80, 3), 3);
+    // 오류 줄 + 좁은 폭.
+    let mut fv = form(0, &ops, CondFocus::Op);
+    fv.error = Some("값이 비어 있습니다");
+    assert_eq!(cond_form_height(&fv, 15, 10), 5);
+}

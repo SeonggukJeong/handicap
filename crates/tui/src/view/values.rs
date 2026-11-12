@@ -7,7 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use super::edit::{CondFormView, cond_form_lines, render_form_at_bottom};
+use super::edit::{CondFormView, cond_form_height, render_form_at_bottom};
 use super::inspect::render_frame;
 use super::monitor::{C_BG, C_MUTED, C_SLOW, C_TEXT, HeaderView};
 use super::settings::{OverlayView, color, overlay_rows, put};
@@ -152,7 +152,10 @@ pub fn render_values(f: &mut Frame, head: &HeaderView, v: &ValuesView, keys: &[&
 
     // 맨 아래 자리 — 조건 칸이 있으면 칸, 아니면 선택 창 줄들.
     let (ov_rows, form_h) = match v.form {
-        Some(fv) => (Vec::new(), usize::from(cond_form_lines(fv)).min(bh)),
+        Some(fv) => (
+            Vec::new(),
+            usize::from(cond_form_height(fv, body.width, body.height)),
+        ),
         None => (overlay_rows(v.overlay.as_ref(), w, bh), 0),
     };
     let ov_n = ov_rows.len().min(bh);

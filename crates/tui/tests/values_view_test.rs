@@ -584,3 +584,85 @@ fn choice_head_wraps() {
         );
     }
 }
+
+// ---------- tui-2b-polish: 조건 칸 대상 줄바꿈 ----------
+
+/// 정확히 `n`자 ASCII 대상 — 마디마다 번호(줄 순서가 바뀌면 이어 붙인 글자가 달라진다).
+fn long_target(n: usize) -> String {
+    let mut s = String::from("$.");
+    let mut i = 0;
+    while s.len() < n {
+        s.push_str(&format!("seg{i:03}abc."));
+        i += 1;
+    }
+    s.truncate(n);
+    s
+}
+
+/// 표시 폭 `cols` 뒤의 글자.
+fn after_cols(line: &str, cols: usize) -> String {
+    let mut used = 0;
+    let mut out = String::new();
+    for c in line.chars() {
+        if used >= cols {
+            out.push(c);
+        } else {
+            used += Span::raw(c.to_string()).width();
+        }
+    }
+    out
+}
+
+#[test]
+fn values_form_long_target() {
+    use handicap_tui::view::edit::cond_form_height;
+    let target = long_target(500);
+    let f = fix((1..=6).map(|i| rv(&format!("row{i:02}"), "x")).collect());
+    let m = |i: usize| f.marks[i];
+    let ops: &[&'static str] = &["= 같음", "키 있음"];
+    let fv = CondFormView {
+        target: &target,
+        ops,
+        op: 0,
+        value: Some(("OK".to_string(), 2)),
+        flags: Some((true, false)),
+        focus: CondFocus::Value,
+        error: None,
+        received: Some("\"OK\""),
+        hint: Some("매번 바뀌는 값이면 실패합니다"),
+    };
+    let mut v = f.view(&m, 5);
+    v.form = Some(&fv);
+    // 조건 칸 라벨 줄 = 들여쓰기 2 + ` 라벨 ` (표 머리 `  대상  받은 값`과 구분된다).
+    let label = |l: &str, s: &str| l.starts_with(&format!("   {s} "));
+    let (_, txt) = draw(80, 24, &v, &[]);
+    let lines: Vec<&str> = txt.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| label(l, text::COND_FORM_TARGET))
+        .unwrap_or_else(|| panic!("대상 줄 없음\n{txt}"));
+    let end = lines
+        .iter()
+        .position(|l| label(l, text::PICK_COL_VALUE))
+        .unwrap_or_else(|| panic!("받은 값 줄 없음\n{txt}"));
+    assert_eq!(end - start, 8, "{txt}");
+    let joined: String = lines[start..end]
+        .iter()
+        .map(|l| after_cols(l, 11).trim_end().to_string())
+        .collect();
+    assert_eq!(joined, target, "{txt}");
+    let sel = lines
+        .iter()
+        .position(|l| l.contains("row06"))
+        .unwrap_or_else(|| panic!("고른 줄이 가려짐\n{txt}"));
+    assert!(sel < start, "{txt}");
+    // 높이 스윕: 패닉 없음, 조건 칸이 body를 다 덮지 않으면 제목 줄이 보인다.
+    for h in 6..=24u16 {
+        let (_, txt) = draw(80, h, &v, &[]);
+        let body = sub_layout(Rect::new(0, 0, 80, h)).body;
+        let fh = cond_form_height(&fv, body.width, body.height);
+        if fh < body.height {
+            assert!(txt.contains(text::PICK_TITLE_SUFFIX), "h{h}\n{txt}");
+        }
+    }
+}

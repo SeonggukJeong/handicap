@@ -11,7 +11,7 @@ use super::inspect::{render_frame, sub_layout};
 use super::model::parse_hex;
 use super::monitor::{C_BG, C_FAIL, C_MUTED, C_TEXT, HeaderView};
 use super::settings::{OverlayView, col_w, color, overlay_rows, put, render_pick, window};
-use super::{fit, text_width};
+use super::{fit, text_width, wrap_width};
 use crate::app::CondFocus;
 use crate::inspect::sanitize;
 use crate::text;
@@ -230,8 +230,33 @@ fn cond_form_base(v: &CondFormView) -> u16 {
 }
 
 /// 조건 수정 칸 줄 수(필수 줄 + 받은 값·안내 줄 중 있는 것).
-pub(crate) fn cond_form_lines(v: &CondFormView) -> u16 {
+fn cond_form_lines(v: &CondFormView) -> u16 {
     cond_form_base(v) + u16::from(v.received.is_some()) + u16::from(v.hint.is_some())
+}
+
+/// 대상 줄을 줄바꿈하는 최소 값 칸 폭(spec §2.2-2) — 이보다 좁으면 지금처럼 한 줄.
+const TARGET_WRAP_MIN_W: usize = 8;
+/// 대상의 이어지는 줄은 위 목록에 이만큼이 남는 한도까지만 늘린다(spec §2.2-4).
+const FORM_LIST_KEEP: u16 = 3;
+
+/// `sanitize`한 대상 글자를 값 칸 폭 `fw`로 나눈 줄들(좁으면 한 줄).
+fn target_rows(target: &str, fw: usize) -> Vec<String> {
+    let s = sanitize(target);
+    if fw < TARGET_WRAP_MIN_W {
+        return vec![s];
+    }
+    wrap_width(&s, fw)
+}
+
+/// 조건 칸 높이(spec §2.2-4) — `body_w`·`body_h` = 화면 body 크기. 필수 줄 + 받은 값·안내 줄에
+/// 대상의 이어지는 줄을 위 목록에 [`FORM_LIST_KEEP`]줄이 남는 한도까지 더한다.
+pub fn cond_form_height(v: &CondFormView, body_w: u16, body_h: u16) -> u16 {
+    let now = cond_form_lines(v);
+    let fw = cond_form_value_width(body_w);
+    let more = target_rows(v.target, fw).len().saturating_sub(1);
+    let extra = u16::try_from(more).unwrap_or(u16::MAX);
+    let room = body_h.saturating_sub(FORM_LIST_KEEP).saturating_sub(now);
+    now.saturating_add(extra.min(room)).min(body_h)
 }
 
 /// `h`줄에서 받은 값·안내 줄이 그려지는가 — 모자라면 안내 → 받은 값 순으로 뺀다(필수 줄이 먼저).
@@ -272,7 +297,7 @@ pub fn render_list_with_form(
         return;
     };
     let body = sub_layout(f.area()).body;
-    let h = cond_form_lines(fv).min(body.height);
+    let h = cond_form_height(fv, body.width, body.height);
     let body = render_list_reserving(f, head, v, keys, usize::from(h));
     render_form_at_bottom(f, body, h, fv);
 }
@@ -414,7 +439,7 @@ pub fn received_head(r: &str, fw: usize) -> (&str, bool) {
     }
 }
 
-/// 조건 수정 칸(목업 §4 오른쪽): `area`의 줄 위에서부터 대상 · 규칙 · 값 · 체크 · 오류. 모자란 줄은 아래부터 생략.
+/// 조건 수정 칸(목업 §4 오른쪽): `area`의 줄 위에서부터 대상(1줄 이상) · 받은 값 · 규칙 · 값 · 체크 · 오류. 모자란 줄은 아래부터 생략.
 pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
     let w = usize::from(area.width);
     if w == 0 {
@@ -425,12 +450,28 @@ pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
     let fw = w.saturating_sub(1 + FORM_LABEL_W);
     let label_w = w.min(1 + FORM_LABEL_W);
 
-    lines.push(Line::from(vec![
-        form_label(text::COND_FORM_TARGET, label_w),
-        Span::styled(fit(&sanitize(v.target), fw), text_style),
-    ]));
-
     let (show_received, show_hint) = extras_shown(v, usize::from(area.height));
+    // 대상(spec §2.2): 필수 줄·받은 값·안내를 뺀 남는 줄만큼 이어지는 줄을 그린다.
+    let extras = usize::from(show_received) + usize::from(show_hint);
+    let fixed = usize::from(cond_form_base(v)) + extras;
+    let spare = usize::from(area.height).saturating_sub(fixed);
+    let rows = target_rows(v.target, fw);
+    let shown = 1 + rows.len().saturating_sub(1).min(spare);
+    for (i, row) in rows.iter().take(shown).enumerate() {
+        // 다 못 보이면 마지막 줄은 남은 글자 전체를 `fit` — `…`로 맺는다(spec §2.2-5).
+        let t = if i + 1 == shown && shown < rows.len() {
+            fit(&rows[i..].concat(), fw)
+        } else {
+            fit(row, fw)
+        };
+        let label = if i == 0 {
+            form_label(text::COND_FORM_TARGET, label_w)
+        } else {
+            Span::raw(" ".repeat(label_w))
+        };
+        lines.push(Line::from(vec![label, Span::styled(t, text_style)]));
+    }
+
     if let (true, Some(r)) = (show_received, v.received) {
         // 받은 값은 최대 64KB — 매 프레임 통째 `sanitize`하지 않게 앞부분만(어차피 한 줄로 `fit`).
         let (head, cut) = received_head(r, fw);
