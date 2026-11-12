@@ -22,7 +22,7 @@ const POLL_EVERY: Duration = Duration::from_secs(1);
 pub fn sanitize(s: &str) -> String {
     s.chars()
         .map(|c| {
-            if c.is_control() || c == '\u{2028}' || c == '\u{2029}' {
+            if handicap_controller::monitor::config::is_forbidden_text_char(c) {
                 ' '
             } else {
                 c

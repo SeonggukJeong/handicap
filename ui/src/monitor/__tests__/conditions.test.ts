@@ -116,7 +116,7 @@ describe("conditions", () => {
     });
     const rows: Array<[ConditionClick, string, string, "volatile" | "secret" | null]> = [
       [body("session_id", "a".repeat(32)), "not_empty", "", "secret"],
-      [body("session_id", ""), "eq", "", null],
+      [body("session_id", ""), "exists", "", "secret"],
       [body("token", "x".repeat(41)), "not_empty", "", "secret"],
       [body("name", "web-1"), "eq", "web-1", null],
       [body("name", "x".repeat(41)), "not_empty", "", "volatile"],

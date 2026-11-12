@@ -86,7 +86,7 @@ function AddChoice({
       reason = k.displayAuthHeader;
   }
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-2">
+    <div className="mt-1 flex flex-wrap items-center gap-2 rounded bg-accent-50 px-2 py-1 font-sans text-xs text-slate-700">
       <button type="button" onClick={() => setStage("condition")} className={addButtonCls}>
         {k.condChooseCondition}
       </button>
@@ -103,7 +103,7 @@ function AddChoice({
         {k.condChooseDisplay}
       </button>
       {reason !== undefined && (
-        <span id={reasonId} className="text-xs text-slate-500">
+        <span id={reasonId} className="text-xs text-slate-700">
           {reason}
         </span>
       )}

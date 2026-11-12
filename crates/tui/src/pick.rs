@@ -582,9 +582,15 @@ pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
                 hint: Some(Hint::Masked),
                 focus_value: false,
             }
-        } else if secret && !v.is_empty() {
+        } else if secret {
+            // 빈 값은 `키 있음` — `=` 비교가 실패하면 판정 사유에 받은 값이 실린다(최종 보안 리뷰 S1).
+            let op = if v.is_empty() {
+                ConditionOp::Exists
+            } else {
+                ConditionOp::NotEmpty
+            };
             Draft {
-                cond: mk(source, path, ConditionOp::NotEmpty, ""),
+                cond: mk(source, path, op, ""),
                 hint: Some(Hint::SecretName),
                 focus_value: false,
             }

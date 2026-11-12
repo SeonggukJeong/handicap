@@ -94,14 +94,14 @@ pub async fn export(
             if !yamls.contains_key(&p.scenario_id) {
                 return Err(ApiError::BadRequest(format!(
                     "보드 '{}' 칸 {n}: 시나리오가 없습니다",
-                    b.name
+                    crate::monitor::config::replace_forbidden(&b.name)
                 )));
             }
             if let Some(e) = &p.environment_id {
                 if !envs.contains_key(e) {
                     return Err(ApiError::BadRequest(format!(
                         "보드 '{}' 칸 {n}: 환경이 없습니다",
-                        b.name
+                        crate::monitor::config::replace_forbidden(&b.name)
                     )));
                 }
             }

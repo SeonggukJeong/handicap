@@ -1197,9 +1197,9 @@ fn default_condition_prefill_parity() {
         ),
         (
             mkrow("session_id", st(""), false),
-            ConditionOp::Eq,
+            ConditionOp::Exists,
             "",
-            None,
+            Some(Hint::SecretName),
         ),
         (
             mkrow("token", st(&x41), false),

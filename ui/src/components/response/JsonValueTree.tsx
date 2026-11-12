@@ -12,7 +12,8 @@ function isScalar(v: unknown): v is string | number | boolean | null {
   return v === null || typeof v !== "object";
 }
 
-/** Nearest object-key ancestor (skip array indices) → var suggestion source. */
+/** Nearest object-key ancestor (skip array indices) → var suggestion source.
+ *  Falls back to "value"; monitor `lastKeyOf` (monitor/conditions.ts) intentionally has no fallback. */
 function lastKey(segments: ReadonlyArray<Segment>): string {
   for (let i = segments.length - 1; i >= 0; i--) {
     const seg = segments[i];

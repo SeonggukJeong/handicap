@@ -246,6 +246,16 @@ describe("PreviewResult", () => {
     expect(chooseDisplay().getAttribute("aria-describedby")).toBe(note.id);
   });
 
+  it("header_secret_name_shows_note_but_auth_header_shows_only_reason", async () => {
+    const { user } = setup(preview("{}", { "X-Api-Key": "k", Authorization: "Bearer z" }));
+    await user.click(add(ko.monitor.condTargetHeader("X-Api-Key")));
+    expect(screen.getByText(ko.monitor.displaySecretNote)).toBeInTheDocument();
+    expect(chooseDisplay()).toBeEnabled();
+    await user.click(add(ko.monitor.condTargetHeader("Authorization")));
+    expect(screen.getByText(ko.monitor.displayAuthHeader)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.displaySecretNote)).not.toBeInTheDocument();
+  });
+
   it("plain_name_display_has_no_secret_note", async () => {
     const { user } = setup(preview('{"session_id":"s","name":"n"}'));
     await user.click(add("name"));

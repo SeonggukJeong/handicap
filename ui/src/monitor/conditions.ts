@@ -199,7 +199,8 @@ export function isSecretName(name: string): boolean {
   return SECRET_WORDS.some((w) => n.includes(w));
 }
 
-/** Last object key of a path, skipping array indexes; `null` when there is none. */
+/** Last object key of a path, skipping array indexes; `null` when there is none.
+ *  Intentionally differs from the private `lastKey` in JsonValueTree.tsx (no "value" fallback, spec 2.1). */
 export function lastKeyOf(segments: ReadonlyArray<Segment>): string | null {
   for (let i = segments.length - 1; i >= 0; i--) {
     const seg = segments[i];
@@ -227,10 +228,11 @@ export function defaultCondition(
     v: string,
     name: string | null,
   ): { condition: Condition; hint: CondHint } => {
-    // Secret-looking name with a real value: never prefill the value (it would be
-    // stored in the board and shown on screen).
-    if (name !== null && isSecretName(name) && v !== "")
-      return { condition: mk(source, path, "not_empty", ""), hint: "secret" };
+    // Secret-looking name: never prefill the value (it would be stored in the board
+    // and shown on screen). An empty value uses `exists`: a failed `=` check puts the
+    // received value in the judgment reason, leaking a token filled in later.
+    if (name !== null && isSecretName(name))
+      return { condition: mk(source, path, v === "" ? "exists" : "not_empty", ""), hint: "secret" };
     // The server rejects forbidden characters in a stored value, so they also
     // fall back to "not empty".
     if (len(v) > VOLATILE_LEN || [...v].some(isForbiddenTextChar))

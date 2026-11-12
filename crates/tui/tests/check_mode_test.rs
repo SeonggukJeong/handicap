@@ -74,6 +74,8 @@ fn sanitize_maps_control_chars_to_space() {
     assert_eq!(sanitize("a\u{1b}[31mb"), "a [31mb");
     assert_eq!(sanitize("x\ny\r\tz"), "x y  z");
     assert_eq!(sanitize("l\u{2028}m\u{2029}n"), "l m n");
+    assert_eq!(sanitize("a\u{202E}b\u{2066}c"), "a b c");
+    assert_eq!(sanitize("z\u{200D}w"), "z\u{200D}w");
     assert_eq!(sanitize("한글 ✔ 정상"), "한글 ✔ 정상");
 }
 
