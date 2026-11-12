@@ -35,3 +35,7 @@
 ## `just run-controller-with-ui` stale `ui/dist`
 
 - **`just run-controller-with-ui`는 `ui/dist`가 *없을 때만* UI를 빌드한다**(`if [ ! -f ui/dist/index.html ]`) — UI 변경/머지 후 dist가 stale이어도 재빌드 안 하고 옛 번들을 단일-포트(8080)로 서빙한다(위 포트 선점과 다른 별개 함정). 새 UI 기능이 안 보이면 `just ui-build` 수동 실행(+브라우저 hard reload). vite dev 5173은 HMR이라 무관.
+
+## 워커 CPU 비용 A/B (빌드 플래그·파서 변경)
+
+- **부하 run의 지연(p50 등)은 본문 받기 *전*에 재므로 파싱·추출 비용이 안 보인다 — 워커 CPU가 한계인 포화 RPS와 요청당 워커 CPU로 잰다** (float-roundtrip): 같은 커밋에서 release 워커 두 벌을 만들고(작업 트리에서만 플래그를 바꿔 빌드 후 원복·`shasum` 다름 확인) `--worker-bin`에 `exec /usr/bin/time -l <워커> "$@"` 감싸개 스크립트를 준다 — 컨트롤러가 run마다 워커를 새로 띄우고 워커 stderr를 상속하므로 run마다 컨트롤러 로그 파일을 따로 두면(같은 파일 `2>`는 앞 run 줄을 지운다) `user`+`sys` ÷ `count` = 요청당 CPU. 응답기는 멀티스레드(axum)로 — 스레드를 늘려도 RPS가 그대로여야 응답기 한계가 아니다. 프로세스 이름은 `pgrep -x`(`-f`는 컨트롤러의 `--worker-bin …` 명령줄까지 잡는다). 같은 맥의 상주 VM·IDE가 코어를 나눠 써서 idle이 0이 안 될 수 있다 — 교차(off/on/off/on…)로 흔들림을 상쇄.

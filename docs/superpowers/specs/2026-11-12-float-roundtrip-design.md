@@ -1,7 +1,7 @@
 # 소수 정확히 읽기 (`serde_json` `float_roundtrip`) — 설계
 
 - 날짜: 2026-11-12 · 유형: **correctness-bug** · 출처: roadmap §B53 (3)(착수 메모 ①–⑤)
-- 상태: spec
+- 상태: 완료(2026-11-12, 코드 `2552f09`..`bee5b2f` — 라이브 US1~US3 PROVEN, 속도 §5 통과, 판단·연기 roadmap §B54)
 
 ## 사용자 스토리 (US)
 
