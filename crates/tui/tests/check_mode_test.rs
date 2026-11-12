@@ -78,7 +78,7 @@ fn sanitize_maps_control_chars_to_space() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn check_output_has_no_escape_from_titles() {
+async fn check_rejects_title_with_control_char() {
     let srv = target(ResponseTemplate::new(200)).await;
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("b.json");

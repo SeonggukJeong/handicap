@@ -1021,7 +1021,7 @@ mod group_tests {
             .collect();
         let mut v1 = file(json!({ "panels": panels }));
         v1["boards"][0]["name"] = json!(bad_name);
-        // 2) 검증 실패(빈 칸 제목)
+        // 2) 검증 실패(validate_and_normalize가 보드 이름의 금지 글자를 거절 — 오류에 이름을 되울린다)
         let mut v2 = file(json!({
             "panels": [{"id": PANEL, "title": " ", "scenario_id": SCEN, "environment_id": ENV}]
         }));

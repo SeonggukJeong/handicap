@@ -1557,6 +1557,23 @@ mod group_tests {
     }
 
     #[test]
+    fn group_rejects_forbidden_chars() {
+        const F: &str = "에 쓸 수 없는 글자(제어·방향 제어·줄 구분 문자)가 있습니다";
+        let mut g = group(1);
+        g.scenario_id = "S\u{2028}".into();
+        assert_eq!(
+            err(cfg(vec![g], vec![member(1, Some(9))])),
+            format!("점검 묶음 1: 시나리오 id{F}")
+        );
+        let mut g = group(1);
+        g.environment_id = Some("E\u{7F}".into());
+        assert_eq!(
+            err(cfg(vec![g], vec![member(1, Some(9))])),
+            format!("점검 묶음 1: 환경 id{F}")
+        );
+    }
+
+    #[test]
     fn error_table() {
         assert_eq!(
             err(cfg(vec![group(1)], vec![solo("a")])),
