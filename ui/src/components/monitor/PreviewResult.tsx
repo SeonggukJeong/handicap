@@ -4,6 +4,8 @@ import { ko } from "../../i18n/ko";
 import { formatMs } from "../../monitor/logic";
 import {
   defaultCondition,
+  isSecretName,
+  lastKeyOf,
   parseBodyJson,
   targetLabel,
   type ConditionClick,
@@ -54,7 +56,9 @@ function AddChoice({
   confirmRow,
   close,
   startAtCondition,
+  secretName,
 }: {
+  secretName: boolean;
   item: DisplayItem | null;
   existing: DisplayItem[];
   onAddDisplay?: (d: DisplayItem) => void;
@@ -67,6 +71,7 @@ function AddChoice({
     startAtCondition || item === null || onAddDisplay === undefined ? "condition" : "choose",
   );
   const reasonId = useId();
+  const noteId = useId();
   if (stage === "condition") return <>{confirmRow(close)}</>;
   let reason: string | undefined;
   if (item !== null) {
@@ -88,7 +93,7 @@ function AddChoice({
       <button
         type="button"
         disabled={reason !== undefined}
-        aria-describedby={reason !== undefined ? reasonId : undefined}
+        aria-describedby={reason !== undefined ? reasonId : secretName ? noteId : undefined}
         onClick={() => {
           if (item !== null) onAddDisplay?.(item);
           close();
@@ -100,6 +105,11 @@ function AddChoice({
       {reason !== undefined && (
         <span id={reasonId} className="text-xs text-slate-500">
           {reason}
+        </span>
+      )}
+      {reason === undefined && secretName && (
+        <span id={noteId} className="text-xs text-amber-700">
+          {k.displaySecretNote}
         </span>
       )}
     </div>
@@ -132,17 +142,22 @@ function StepRow({
       existing={displayItems}
       onAddDisplay={onAddDisplay}
       startAtCondition={c.kind === "body_text"}
+      secretName={
+        c.kind === "header"
+          ? isSecretName(c.name)
+          : c.kind === "body" && c.key !== null && isSecretName(c.key)
+      }
       close={close}
       confirmRow={(done) => confirmRow(c, done)}
     />
   );
   const confirmRow = (c: ConditionClick, close: () => void) => {
-    const { condition, volatileHint } = defaultCondition(s.step_id, c);
+    const { condition, hint } = defaultCondition(s.step_id, c);
     return (
       <ConditionRow
         initial={condition}
         mode="create"
-        volatileHint={volatileHint}
+        hint={hint}
         blockedReason={blockedReason}
         onSubmit={(next) => {
           onAddCondition?.(next);
@@ -217,7 +232,8 @@ function StepRow({
             }
             belowHeading={
               interactive &&
-              !treeBody && (
+              !treeBody &&
+              !resp.body_truncated && (
                 <div className="mb-1">
                   <button
                     type="button"
@@ -241,7 +257,15 @@ function StepRow({
                           k.condAddAria(targetLabel({ source: "body", path: l.path }))
                         }
                         renderConfirm={(l, close) =>
-                          choice({ kind: "body", path: l.path, value: l.value }, close)
+                          choice(
+                            {
+                              kind: "body",
+                              path: l.path,
+                              value: l.value,
+                              key: lastKeyOf(l.segments),
+                            },
+                            close,
+                          )
                         }
                       />
                     ),

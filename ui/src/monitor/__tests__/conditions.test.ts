@@ -4,6 +4,8 @@ import {
   conditionError,
   conditionSummary,
   defaultCondition,
+  isSecretName,
+  lastKeyOf,
   isFiniteNumberText,
   normalizeCondition,
   oneOfCandidates,
@@ -11,6 +13,7 @@ import {
   targetLabel,
 } from "../conditions";
 import type { Condition } from "../../api/monitors";
+import type { ConditionClick } from "../conditions";
 import { ko } from "../../i18n/ko";
 
 const SID = "01HZZZZZZZZZZZZZZZZZZZZZA1";
@@ -37,22 +40,22 @@ describe("conditions", () => {
   it("default_condition_table", () => {
     const s40 = "가".repeat(40);
     const s41 = "가".repeat(41);
-    let r = defaultCondition(SID, { kind: "body", path: "$.a", value: s40 });
+    let r = defaultCondition(SID, { kind: "body", path: "$.a", value: s40, key: "a" });
     expect(r.condition).toMatchObject({ source: "body", path: "$.a", op: "eq", value: s40 });
-    expect(r.volatileHint).toBe(false);
-    r = defaultCondition(SID, { kind: "body", path: "$.a", value: s41 });
+    expect(r.hint).toBeNull();
+    r = defaultCondition(SID, { kind: "body", path: "$.a", value: s41, key: "a" });
     expect(r.condition.op).toBe("not_empty");
     expect(r.condition.value).toBe("");
-    expect(r.volatileHint).toBe(true);
-    r = defaultCondition(SID, { kind: "body", path: "$.n", value: 12 });
+    expect(r.hint).toBe("volatile");
+    r = defaultCondition(SID, { kind: "body", path: "$.n", value: 12, key: "n" });
     expect(r.condition).toMatchObject({ op: "eq", value: "12" });
-    r = defaultCondition(SID, { kind: "body", path: "$.b", value: false });
+    r = defaultCondition(SID, { kind: "body", path: "$.b", value: false, key: "b" });
     expect(r.condition).toMatchObject({ op: "eq", value: "false" });
-    r = defaultCondition(SID, { kind: "body", path: "$.z", value: null });
+    r = defaultCondition(SID, { kind: "body", path: "$.z", value: null, key: "z" });
     expect(r.condition).toMatchObject({ op: "exists", value: "" });
     r = defaultCondition(SID, { kind: "header", name: "X-A", value: "x".repeat(50) });
     expect(r.condition).toMatchObject({ source: "header", path: "X-A", op: "not_empty" });
-    expect(r.volatileHint).toBe(true);
+    expect(r.hint).toBe("volatile");
     r = defaultCondition(SID, { kind: "header", name: "X-A", value: "ok" });
     expect(r.condition).toMatchObject({ op: "eq", value: "ok" });
     r = defaultCondition(SID, { kind: "status", status: 200 });
@@ -62,6 +65,79 @@ describe("conditions", () => {
     expect(r.condition.ignore_case).toBe(false);
     expect(r.condition.trim).toBe(false);
     expect(r.condition.step_id).toBe(SID);
+  });
+
+  // Keep in sync: crates/tui/tests/pick_test.rs `secret_name_table` (same rows, same order).
+  it("secret_name_table", () => {
+    for (const n of [
+      "session_id",
+      "X-Api-Key",
+      "csrfToken",
+      "password",
+      "author",
+      "Set-Cookie",
+      "user_pwd",
+      "Authorization",
+      "refresh_token",
+    ]) {
+      expect(isSecretName(n), n).toBe(true);
+    }
+    for (const n of ["name", "id", "count", "status", "url", "message"]) {
+      expect(isSecretName(n), n).toBe(false);
+    }
+  });
+
+  it("last_key_of_skips_indexes", () => {
+    expect(lastKeyOf([])).toBeNull();
+    expect(lastKeyOf([{ kind: "index", index: 0 }])).toBeNull();
+    expect(
+      lastKeyOf([
+        { kind: "key", key: "tokens" },
+        { kind: "index", index: 0 },
+      ]),
+    ).toBe("tokens");
+    expect(
+      lastKeyOf([
+        { kind: "key", key: "a" },
+        { kind: "key", key: "b" },
+      ]),
+    ).toBe("b");
+  });
+
+  // Keep in sync: crates/tui/tests/pick_test.rs `default_condition_prefill_parity`
+  // (same rows, same order; the TUI-only Authorization/Masked row is the GUI
+  // Set-Cookie header row here).
+  it("default_condition_prefill_parity", () => {
+    const body = (name: string, value: string | number) => ({
+      kind: "body" as const,
+      path: `$.${name}`,
+      value,
+      key: name,
+    });
+    const rows: Array<[ConditionClick, string, string, "volatile" | "secret" | null]> = [
+      [body("session_id", "a".repeat(32)), "not_empty", "", "secret"],
+      [body("session_id", ""), "eq", "", null],
+      [body("token", "x".repeat(41)), "not_empty", "", "secret"],
+      [body("name", "web-1"), "eq", "web-1", null],
+      [body("name", "x".repeat(41)), "not_empty", "", "volatile"],
+      [body("name", "a\tb"), "not_empty", "", "volatile"],
+      [body("name", "a\u{200f}b"), "not_empty", "", "volatile"],
+      [body("session_count", 5), "eq", "5", null],
+      [{ kind: "header", name: "Set-Cookie", value: "sid=abc" }, "not_empty", "", "secret"],
+    ];
+    for (const [click, op, value, hint] of rows) {
+      const r = defaultCondition(SID, click);
+      const label = JSON.stringify(click);
+      expect(r.condition.op, label).toBe(op);
+      expect(r.condition.value, label).toBe(value);
+      expect(r.hint, label).toBe(hint);
+    }
+  });
+
+  it("body_without_key_is_never_secret", () => {
+    const r = defaultCondition(SID, { kind: "body", path: "$[0]", value: "abc", key: null });
+    expect(r.condition.op).toBe("eq");
+    expect(r.hint).toBeNull();
   });
 
   it("condition_error_cases", () => {

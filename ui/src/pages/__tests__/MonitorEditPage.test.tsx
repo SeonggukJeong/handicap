@@ -1067,11 +1067,11 @@ describe("MonitorEditPage preview conditions", () => {
 
   it("preview_long_string_defaults_not_empty_with_hint", async () => {
     const user = userEvent.setup();
-    previewWith({ body: JSON.stringify({ token: "x".repeat(41) }) });
+    previewWith({ body: JSON.stringify({ trace_id: "x".repeat(41) }) });
     renderAt("/monitors/B1");
     await expandAll();
     await runPreviewUi(user);
-    await user.click(await addBtn("token"));
+    await user.click(await addBtn("trace_id"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("not_empty");
     expect(screen.getByLabelText(ko.monitor.condValue)).toBeDisabled();

@@ -11,12 +11,13 @@ import {
   needsValue,
   normalizeCondition,
   targetLabel,
+  type CondHint,
 } from "../../monitor/conditions";
 
 type Props = {
   initial: Condition;
   mode: "create" | "edit";
-  volatileHint?: boolean;
+  hint?: CondHint;
   blockedReason?: string;
   submitAriaLabel?: string;
   onSubmit: (c: Condition) => void;
@@ -29,7 +30,7 @@ type Props = {
 export function ConditionRow({
   initial,
   mode,
-  volatileHint,
+  hint,
   blockedReason,
   submitAriaLabel,
   onSubmit,
@@ -122,7 +123,8 @@ export function ConditionRow({
       <Button variant="secondary" type="button" onClick={onCancel}>
         {k.condCancel}
       </Button>
-      {volatileHint && <p className="w-full text-slate-500">{k.condVolatileHint}</p>}
+      {hint === "volatile" && <p className="w-full text-slate-500">{k.condVolatileHint}</p>}
+      {hint === "secret" && <p className="w-full text-slate-500">{k.condSecretHint}</p>}
       {error && (
         <p id={errId} className="w-full text-red-700">
           {error}

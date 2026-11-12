@@ -1,5 +1,6 @@
 import type { Condition, ConditionOp, ConditionSource } from "../api/monitors";
 import { ko } from "../i18n/ko";
+import { isForbiddenTextChar, type Segment } from "../scenario/jsonPath";
 
 /** Mirrors crates/controller/src/monitor/config.rs `validate_conditions` (minus JSONPath parsing). */
 const TEN: readonly ConditionOp[] = [
@@ -180,17 +181,37 @@ export function conditionSummary(c: Condition, stepName: string | undefined): st
 }
 
 export type ConditionClick =
-  | { kind: "body"; path: string; value: string | number | boolean | null }
+  | { kind: "body"; path: string; value: string | number | boolean | null; key: string | null }
   | { kind: "header"; name: string; value: string }
   | { kind: "status"; status: number }
   | { kind: "body_text" };
 
+export type CondHint = "volatile" | "secret" | null;
+
 const VOLATILE_LEN = 40;
+
+// Keep in sync with SECRET_WORDS in crates/tui/src/pick.rs (is_secret_name).
+const SECRET_WORDS = ["token", "secret", "pass", "pwd", "session", "key", "csrf", "auth", "cookie"];
+
+/** Name looks like a credential: ASCII-lowercased substring match on the word list. */
+export function isSecretName(name: string): boolean {
+  const n = name.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  return SECRET_WORDS.some((w) => n.includes(w));
+}
+
+/** Last object key of a path, skipping array indexes; `null` when there is none. */
+export function lastKeyOf(segments: ReadonlyArray<Segment>): string | null {
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const seg = segments[i];
+    if (seg.kind === "key") return seg.key;
+  }
+  return null;
+}
 
 export function defaultCondition(
   stepId: string,
   click: ConditionClick,
-): { condition: Condition; volatileHint: boolean } {
+): { condition: Condition; hint: CondHint } {
   const mk = (source: ConditionSource, path: string, op: ConditionOp, value: string) => ({
     step_id: stepId,
     source,
@@ -200,26 +221,34 @@ export function defaultCondition(
     ignore_case: false,
     trim: false,
   });
-  const str = (source: ConditionSource, path: string, v: string) =>
-    len(v) <= VOLATILE_LEN
-      ? { condition: mk(source, path, "eq", v), volatileHint: false }
-      : { condition: mk(source, path, "not_empty", ""), volatileHint: true };
+  const str = (
+    source: ConditionSource,
+    path: string,
+    v: string,
+    name: string | null,
+  ): { condition: Condition; hint: CondHint } => {
+    // Secret-looking name with a real value: never prefill the value (it would be
+    // stored in the board and shown on screen).
+    if (name !== null && isSecretName(name) && v !== "")
+      return { condition: mk(source, path, "not_empty", ""), hint: "secret" };
+    // The server rejects forbidden characters in a stored value, so they also
+    // fall back to "not empty".
+    if (len(v) > VOLATILE_LEN || [...v].some(isForbiddenTextChar))
+      return { condition: mk(source, path, "not_empty", ""), hint: "volatile" };
+    return { condition: mk(source, path, "eq", v), hint: null };
+  };
   switch (click.kind) {
     case "body": {
       const v = click.value;
-      if (v === null)
-        return { condition: mk("body", click.path, "exists", ""), volatileHint: false };
-      if (typeof v === "string") return str("body", click.path, v);
-      return { condition: mk("body", click.path, "eq", String(v)), volatileHint: false };
+      if (v === null) return { condition: mk("body", click.path, "exists", ""), hint: null };
+      if (typeof v === "string") return str("body", click.path, v, click.key);
+      return { condition: mk("body", click.path, "eq", String(v)), hint: null };
     }
     case "header":
-      return str("header", click.name, click.value);
+      return str("header", click.name, click.value, click.name);
     case "status":
-      return {
-        condition: mk("status", "", "eq", String(click.status)),
-        volatileHint: false,
-      };
+      return { condition: mk("status", "", "eq", String(click.status)), hint: null };
     case "body_text":
-      return { condition: mk("body_text", "", "contains", ""), volatileHint: false };
+      return { condition: mk("body_text", "", "contains", ""), hint: null };
   }
 }

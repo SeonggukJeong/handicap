@@ -7,7 +7,7 @@ import { ko } from "../../../i18n/ko";
 
 const STEP = "01HZZZZZZZZZZZZZZZZZZZZZA1";
 
-function preview(body: string, headers: Record<string, string> = {}): Preview {
+function preview(body: string, headers: Record<string, string> = {}, truncated = false): Preview {
   return {
     trace: {
       ok: true,
@@ -26,7 +26,7 @@ function preview(body: string, headers: Record<string, string> = {}): Preview {
             headers,
             set_cookies: [],
             body,
-            body_truncated: false,
+            body_truncated: truncated,
           },
           extracted: {},
           unbound_vars: [],
@@ -220,6 +220,57 @@ describe("PreviewResult", () => {
     );
     expect(occurrences(container.textContent ?? "", ko.monitor.previewBodyClickHint)).toBe(1);
     expect(container.textContent).not.toMatch(/\d자/);
+  });
+
+  it("truncated_text_body_hides_body_text_condition_button", () => {
+    const body = "x".repeat(700);
+    const { unmount } = render(
+      <PreviewResult preview={preview(body, {}, true)} stepNames={{}} onAddCondition={vi.fn()} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.condAddBodyText }),
+    ).not.toBeInTheDocument();
+    unmount();
+    render(
+      <PreviewResult preview={preview(body, {}, false)} stepNames={{}} onAddCondition={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: ko.monitor.condAddBodyText })).toBeInTheDocument();
+  });
+
+  it("secret_name_display_shows_note_and_keeps_button_enabled", async () => {
+    const { user } = setup(preview('{"session_id":"s","name":"n"}'));
+    await user.click(add("session_id"));
+    const note = screen.getByText(ko.monitor.displaySecretNote);
+    expect(chooseDisplay()).toBeEnabled();
+    expect(note.id).not.toBe("");
+    expect(chooseDisplay().getAttribute("aria-describedby")).toBe(note.id);
+  });
+
+  it("plain_name_display_has_no_secret_note", async () => {
+    const { user } = setup(preview('{"session_id":"s","name":"n"}'));
+    await user.click(add("name"));
+    expect(screen.queryByText(ko.monitor.displaySecretNote)).not.toBeInTheDocument();
+    expect(chooseDisplay()).toBeEnabled();
+  });
+
+  it("full_display_shows_only_max_reason_not_secret_note", async () => {
+    const items: DisplayItem[] = [
+      { step_id: STEP, source: "status", path: "" },
+      { step_id: STEP, source: "body", path: "$.zzz" },
+    ];
+    const { user } = setup(preview('{"session_id":"s","name":"n"}'), { displayItems: items });
+    await user.click(add("session_id"));
+    expect(screen.getByText(ko.monitor.displayMax)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.displaySecretNote)).not.toBeInTheDocument();
+  });
+
+  it("secret_name_condition_is_not_empty_without_comparison_value", async () => {
+    const { user } = setup(preview('{"session_id":"s","name":"n"}'));
+    await user.click(add("session_id"));
+    await user.click(chooseCond());
+    expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("not_empty");
+    expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("");
+    expect(screen.getByText(ko.monitor.condSecretHint)).toBeInTheDocument();
   });
 
   it("body_text_goes_straight_to_condition", async () => {

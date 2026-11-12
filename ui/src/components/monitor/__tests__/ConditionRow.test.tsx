@@ -15,12 +15,13 @@ const INIT: Condition = {
   trim: false,
 };
 
-function setup(over: Partial<Condition> = {}) {
+function setup(over: Partial<Condition> = {}, hint?: "volatile" | "secret" | null) {
   const onSubmit = vi.fn();
   render(
     <ConditionRow
       initial={{ ...INIT, ...over }}
       mode="create"
+      hint={hint}
       onSubmit={onSubmit}
       onCancel={() => {}}
     />,
@@ -29,6 +30,25 @@ function setup(over: Partial<Condition> = {}) {
 }
 
 describe("ConditionRow", () => {
+  it("hint_selects_the_matching_note", () => {
+    const noop = () => {};
+    const { unmount } = render(
+      <ConditionRow initial={INIT} mode="create" hint="secret" onSubmit={noop} onCancel={noop} />,
+    );
+    expect(screen.getByText(ko.monitor.condSecretHint)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.condVolatileHint)).not.toBeInTheDocument();
+    unmount();
+    const v = render(
+      <ConditionRow initial={INIT} mode="create" hint="volatile" onSubmit={noop} onCancel={noop} />,
+    );
+    expect(screen.getByText(ko.monitor.condVolatileHint)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.condSecretHint)).not.toBeInTheDocument();
+    v.unmount();
+    setup({}, null);
+    expect(screen.queryByText(ko.monitor.condVolatileHint)).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.condSecretHint)).not.toBeInTheDocument();
+  });
+
   it("exists keeps the value input but disabled", async () => {
     const { user } = setup();
     await user.selectOptions(screen.getByLabelText(ko.monitor.condOp), "exists");
