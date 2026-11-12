@@ -108,7 +108,7 @@ function AddChoice({
         </span>
       )}
       {reason === undefined && secretName && (
-        <span id={noteId} className="text-xs text-amber-700">
+        <span id={noteId} className="text-xs text-amber-800">
           {k.displaySecretNote}
         </span>
       )}

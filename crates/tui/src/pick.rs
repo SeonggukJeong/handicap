@@ -574,7 +574,7 @@ pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
         hint: None,
         focus_value: false,
     };
-    // 문자열(본문·헤더) — 인증 헤더 → 비밀 이름(빈 값 제외) → 길이·입력줄 순(spec §2.3).
+    // 문자열(본문·헤더) — 인증 헤더 → 비밀 이름(`값 있음`, 빈 값이면 `키 있음` — 둘 다 비밀 안내) → 길이·입력줄 순(spec §2.3).
     let string = |source, path: &str, v: &str, auth: bool, secret: bool| {
         if auth {
             Draft {
