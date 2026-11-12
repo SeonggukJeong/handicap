@@ -21,7 +21,7 @@ REVIEW-GATE: PENDING
 - 와이어(REST·proto)·DB·보드 파일 모양 무변경. 바뀌는 것은 숫자 글자와 화면 줄뿐이다.
 - 이 저장소는 **cloud 세션**에서 구현한다: `cargo-nextest` 없음 → 테스트는 `cargo test`. `pnpm build`는 메모리 부족으로 세션을 죽인다 — `ui/`를 건드리지 않으므로 돌리지 않는다. 디스크가 빠듯하다 — `CARGO_TARGET_DIR`를 따로 만들지 말고 workspace `target/`만 쓴다.
 - 커밋: 단일 FOREGROUND 호출(timeout 600000ms), `| tail`·`| head` 금지, 판정은 `; echo exit=$?`, 뒤에 `git log -1 --oneline`으로 확인. `--no-verify` 금지. pre-commit이 workspace 전체 `fmt --check`·build·clippy `-D warnings`·`cargo test --workspace`를 돈다(수 분) — 그동안 다른 `cargo` 금지.
-- 커밋 메시지 끝 두 줄(그대로): `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>` / `Claude-Session: https://claude.ai/code/session_019DFYqLn2pR43LWdZdgqf2b` — 구현 subagent는 자기 harness가 지정한 귀속 줄을 쓴다.
+- 커밋 메시지 끝의 귀속 줄은 그 커밋을 만드는 세션의 harness가 지정한 것을 쓴다(plan에 고정하지 않는다).
 - `tdd-guard`: `crates/*/src`를 고치기 전에 테스트 변경이 먼저 있어야 한다(`crates/<x>/tests/*.rs` 수정, 또는 그 src 파일에 `#[cfg(test)]`가 이미 있거나 이번 편집이 넣음). 각 task의 Step 순서가 그 순서다 — 바꾸지 않는다.
 - 이 plan의 줄번호는 참고다. 고치기 전에 `grep -n`으로 다시 찾는다.
 - Write/Edit 도구가 `\u{…}` 꼴이 아닌 이스케이프를 실제 글자로 바꿀 수 있다 — 테스트의 특수 글자는 **Rust 이스케이프(`"\u{2764}\u{FE0F}"`)로만** 적는다. 커밋 전 금지 글자(제어·방향 제어) 확인: `git diff --cached | grep '^+' | python3 -I -c "import sys;s=sys.stdin.read();print([hex(ord(c)) for c in s if (ord(c)<0x20 and c not in '\n\t') or 0x7f<=ord(c)<=0x9f or ord(c) in (0x61c,0x200e,0x200f,0x2028,0x2029) or 0x202a<=ord(c)<=0x202e or 0x2066<=ord(c)<=0x2069])"` → `[]`.
@@ -316,16 +316,17 @@ spec §2.5-3·-5, §6 "숫자 글자"의 TUI 줄.
 spec §2.1 전체, §6 "폭 재기".
 
 **Files:**
-- Modify: `crates/tui/Cargo.toml`, `Cargo.lock`(자동), `crates/tui/src/view/mod.rs`, `crates/tui/src/view/values.rs`, `crates/tui/src/view/edit.rs`, `crates/tui/tests/values_view_test.rs`, `crates/tui/tests/inspect_test.rs`
+- Modify: `crates/tui/Cargo.toml`, `Cargo.lock`(자동), `crates/tui/src/view/mod.rs`, `crates/tui/src/view/values.rs`, `crates/tui/src/view/edit.rs`, `crates/tui/tests/values_view_test.rs`, `crates/tui/tests/inspect_test.rs`, `crates/tui/tests/pick_test.rs`
 - 건드리지 않는다: `crates/tui/src/input.rs`, `view/settings.rs`의 `col_w`·`window`(입력줄 — spec §9).
 
 - [ ] **Step 1: 의존 선언**. `crates/tui/Cargo.toml` `[dependencies]`의 `ratatui = "0.30"` 아래에 `unicode-segmentation = "1"`. `cargo build -p handicap-tui` → `git diff Cargo.lock`이 `handicap-tui`의 의존 목록에 `"unicode-segmentation",` 한 줄만 더하는지 확인(새 `[[package]]`가 생기면 STOP).
 - [ ] **Step 2: 소비처 렌더 테스트(일부 RED)** — `crates/tui/tests/`.
-  - `values_view_test.rs` `value_column_aligned_for_odd_width_targets`: 줄 3개 — 대상 `"\u{644}\u{627}key"`(람-알레프)·`"\u{FF76}\u{FF9E}key"`(반각 가타카나+탁점)·`"plain"`, 받은 값은 서로 다른 ASCII(`v1`·`v2`·`v3`). 80×14로 그려 **버퍼 칸 좌표로** 각 줄에서 받은 값 첫 글자 칸의 x를 구해 셋이 같은지 단언(줄 문자열 인덱스가 아니라 `buf[(x, y)].symbol()`을 훑는다 — 넓은 글자의 둘째 칸은 공백이다, `crates/tui/CLAUDE.md`). 기대: 지금 **RED**(옛 `text_width`는 람-알레프를 1칸·반각 탁점을 2칸으로 잰다 — 그린 칸은 2·3).
+  - `values_view_test.rs` `value_column_aligned_for_odd_width_targets`: 줄 3개 — 대상 `"\u{644}\u{627}key"`(람-알레프)·`"\u{FF76}\u{FF9E}key"`(반각 가타카나+탁점)·`"plain"`, 받은 값은 서로 다른 ASCII(`v1`·`v2`·`v3`). **대상 칸 폭은 도우미 `fix()`가 잰 값(옛 문자열 전체 폭)을 쓰지 말고** `Fix.tw`를 세 대상을 `Buffer::set_stringn`으로 그린 칸 수의 최대(6)로 덮어쓴다 — 운영 코드(`ValuesState::new`)는 `text_width`로 잰다. 80×14로 그려 **버퍼 칸 좌표로** 각 줄에서 받은 값 첫 글자 칸의 x를 구해 셋이 같은지, 그리고 세 대상이 `…` 없이 다 보이는지 단언(줄 문자열 인덱스가 아니라 `buf[(x, y)].symbol()`을 훑는다 — 넓은 글자의 둘째 칸은 공백이다, `crates/tui/CLAUDE.md`). 기대: 지금 **RED**(옛 `text_width`는 람-알레프를 1칸·반각 탁점을 2칸으로 잰다 — 그린 칸은 2·3).
   - `values_view_test.rs` `long_target_with_emoji_keeps_column`: 대상 `format!("data.{}\u{2764}\u{FE0F}.leaf", "a".repeat(300))`와 `"short"` 두 줄 — 받은 값 열 x가 같고 첫 줄이 `▶ …`로 시작. 폭 60..=100 스윕. 기대: 지금 일부 폭에서 RED(옛 `fit_head`는 `❤️`를 1칸으로 센다).
   - `values_view_test.rs` `choice_head_rows_fit_width`: 선택 창 머리가 `format!("{}\u{2764}\u{FE0F}{}", "a".repeat(n), "b".repeat(40))`(n = 60..=80)일 때 80×14로 그려, 머리 줄들(앞 공백 2칸을 떼고 `trim_end`)을 이어 붙이면 원문과 같고 `…`가 없다. 기대: 지금 일부 n에서 RED(줄이 1칸 넘쳐 끝 글자가 잘린다).
+  - `pick_test.rs` `target_width_is_drawn_width`: 람-알레프 쌍을 6번 이은 키(JSON 이스케이프 `\u0644\u0627`×6 + `key`)와 `plain` 키를 가진 본문(헤더 없음)의 값 목록으로 `ValuesState::new(step_id, list, None)`를 만들면 `target_width`가 각 줄 대상(`texts`의 `target()`)을 `Buffer::set_stringn`으로 그린 칸 수의 최대와 같다(운영 경로의 대상 칸 폭). 키를 길게 하는 이유: 응답 코드 줄의 대상(`상태코드`, 8칸)보다 넓어야 그 키가 최대를 정한다. 기대: 지금 **RED**(옛 `text_width`는 람-알레프 쌍을 1칸으로 재 6칸 좁다).
   - `inspect_test.rs` `body_lines_fit_width_with_emoji`: `handicap_tui::inspect::body_lines`(공개 — `grep -n 'pub fn body_lines' crates/tui/src/inspect.rs`)에 본문 `{"k":"<❤️ 40개>"}`를 넣고 폭 20..=40에서 각 `BodyLine.text`를 `ratatui::buffer::Buffer::set_stringn`으로 그린 칸 수가 폭 이하. 기대: 지금 RED.
-  실행: `cargo test -p handicap-tui --test values_view_test --test inspect_test`. RED/GREEN을 테스트별로 적어 둔다. 넷 다 GREEN이면 STOP(테스트가 공허하다).
+  실행: `cargo test -p handicap-tui --test values_view_test --test inspect_test --test pick_test`. RED/GREEN을 테스트별로 적어 둔다. 다섯 중 GREEN인 것이 있으면 STOP(그 테스트가 공허하다).
 - [ ] **Step 3: 불변식 테스트 + 속도 기준선** — `crates/tui/src/view/mod.rs` 끝에 아래 인라인 테스트 모듈을 넣는다(이 편집이 `#[cfg(test)]`를 넣으므로 tdd-guard를 통과한다). 옛 구현에 대고 돈다.
 
 ```rust
@@ -558,7 +559,7 @@ spec §2.2, §6 "선택 창 머리".
   - `choice_head_line_at_low_height`: 안내 없는 선택 창(머리 `"hdrmark  =  \"OK\""`), 폭 80, 터미널 높이 3..=9(본문 1..=7 — 높이 10부터는 무입력 안내 줄이 본문을 한 줄 더 가져가 본문 = 높이 − 3이다). 높이마다 (머리 글자 `hdrmark` 보임, 제목 접미 `— 값 고르기` 보임, `▶ status` 보임, 선택 두 줄 보임)을 구해 spec §2.2 첫 표와 대조: 본문 5 이상 = 머리·제목·목록·선택 / **본문 4 = 머리·목록·선택, 제목 없음** / **본문 3 = 머리·선택, 제목 없음** / 본문 2 = 선택만 / 본문 1 = 고른 선택 줄만.
   - `choice_head_line_needs_note_visible`: 안내 있는 선택 창(`note_choice`), 같은 스윕 — 본문 6 이상 그대로 / **본문 5 = 머리·목록·선택·안내, 제목 없음** / 본문 4 = 제목·목록·선택(머리 없음·안내 없음) / 본문 3 = 제목·선택.
   - `no_choice_keeps_title`: 선택 창이 없으면 터미널 높이 3..=9 모두 제목이 보인다. `Confirm`·`Notice` 창(1줄)은 본문 2 이상(터미널 높이 4..=9)에서 제목이 보인다(본문 1은 창 한 줄뿐 — 지금 동작).
-  - `choice_head_line_long_and_sanitized`: 머리 1,000자(`"T".repeat(1000)`)·제어 문자가 든 머리(`"a\u{1b}[31mb  =  1"`)를 본문 3·4에서 — 머리 줄이 `…`로 끝나고 그 줄의 그린 폭 ≤ 화면 폭, `\u{FFFD}`가 보인다.
+  - `choice_head_line_long_and_sanitized`: 본문 3·4에서 ⓐ 머리 1,000자(`"T".repeat(1000)`) — 머리 줄이 `…`로 끝나고 그 줄의 그린 폭 ≤ 화면 폭 ⓑ 제어 문자가 든 짧은 머리(`"a\u{1b}[31mb  =  1"`) — 머리 줄에 `\u{FFFD}`가 보이고 `…`는 없으며 폭 안.
   - **기존 테스트 2개를 고친다**(spec §6): `choice_note_outlives_head_sweep`의 끝 단언 `note_only >= 4 * 91`을 지우고, 대신 "본문 5(터미널 높이 7)이고 폭 30 이상이면 `note && hd`"를 세어 `>= 4 * 91`로 단언한다(`if hd { assert!(note, …) }`는 **그대로 둔다**). `choice_note_only_at_body_height_five`는 `assert_eq!(first_head, first_note, …)`로 바꾸고 이름을 `choice_note_and_head_first_at_body_height_five`로, 주석도 맞춘다.
   실행: `cargo test -p handicap-tui --test values_view_test choice`. 기대: 새 테스트 중 `choice_head_line_at_low_height`·`choice_head_line_needs_note_visible`·`choice_head_line_long_and_sanitized`와 고친 두 테스트 **RED**, `no_choice_keeps_title` GREEN.
 - [ ] **Step 2: 구현(GREEN)**.
@@ -615,10 +616,10 @@ spec §2.3·§2.4, §6 "대체 화면"·"조건 칸". Task 3 뒤에 한다(`wrap
 - Modify: `crates/tui/tests/inspect_test.rs`, `crates/tui/src/view/inspect.rs`, `crates/tui/src/view/edit.rs`
 
 - [ ] **Step 1: 대체 화면 테스트(RED)** — `crates/tui/tests/inspect_test.rs`(`render_missing_wraps_and_survives_small` 옆, 같은 도우미 `draw`·`head`). `render_missing_ellipsis_when_cut`: 폭 20·40·80 × 본문 1줄·2줄·넉넉한 높이(터미널 높이 = 본문 + 2). 안내(`text::SUB_MISSING`)를 `폭 − 1`칸으로 줄바꿈한 줄 수가 본문 높이보다 많으면 마지막 본문 줄이 `…`로 끝나고(`trim_end` 뒤), 아니면 본문 어디에도 `…`가 없다. 80열은 본문 1줄에서도 `…` 없음. 기대: 20열·40열의 본문 1줄(20열은 2줄도)에서 **RED**.
-- [ ] **Step 2: 대체 화면 구현(GREEN)** — `view/inspect.rs` `render_missing`: 줄바꿈한 줄 `rows`와 `h = body.height`에서 `n = rows.len().min(h)`줄을 그리되, `n < rows.len()`이면 마지막 줄을 `fit(&rows[n - 1..].concat(), w)`로(spec §2.3). 실행: `cargo test -p handicap-tui --test inspect_test render_missing` → GREEN(기존 두 테스트 포함).
+- [ ] **Step 2: 대체 화면 구현(GREEN)** — `view/inspect.rs` `render_missing`: 줄바꿈한 줄 `rows`와 `h = body.height`에서 `n = rows.len().min(h)`줄을 그리되, `n < rows.len()`이면 마지막 줄을 `fit(&rows[n - 1..].concat(), w)`로(spec §2.3). **본문 높이 0이면 아무것도 그리지 않고 돌아간다**(`n == 0`에서 `n - 1`은 빼기 넘침 — 터미널 높이 1이 그 경우이고, 기존 `render_missing_wraps_and_survives_small`의 높이 1..=8 스윕이 지킨다). 실행: `cargo test -p handicap-tui --test inspect_test render_missing` → GREEN(기존 두 테스트 포함).
 - [ ] **Step 3: 조건 칸 테스트** — `crates/tui/src/view/edit.rs` 끝에 인라인 `#[cfg(test)] mod tests`(`target_rows`가 비공개다). **편집 순서**: ① 테스트 모듈을 넣는 편집이 먼저다(이 편집이 `#[cfg(test)]`를 넣어 tdd-guard를 통과한다 — `edit.rs`에는 아직 인라인 테스트가 없다) ② 그다음 `target_rows`의 **시그니처만** 바꾼다: `fn target_rows(target: &str, fw: usize, max_rows: usize) -> (Vec<String>, bool)` — 본문은 일단 상한을 무시하고 전체를 줄바꿈해 `(rows, false)`를 돌려주게 두고, 두 호출 쪽(`cond_form_height`·`render_cond_form`)은 `.0`만 쓰게 맞춘다(동작 불변). 테스트:
   - `target_rows_prefix_equals_full`: 대상(ASCII 60자 · 500자 · 100,000자 · `❤️`가 섞인 2,000자) × `fw` 8·20·69 × `max_rows` 1·3·10에서, `target_rows(t, fw, max_rows).0`의 앞 `max_rows`줄 == `wrap_width(&sanitize(t), fw)`의 앞 `max_rows`줄.
-  - `target_rows_cut_inside_cluster`: 예산 경계가 묶음 가운데에 오는 대상 둘에서 위와 같은 단언(앞 `max_rows`줄이 같다) — ⓐ `"a"` + `"\u{2764}\u{FE0F}"` 반복(예산이 짝수라 경계가 `\u{2764}`와 `\u{FE0F}` 사이) ⓑ ZWJ 가족 이모지 `"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"` 반복(글자 7개에 2칸 — 예산이 상한 줄 바로 뒤에서 떨어진다). `fw` 20·69 × `max_rows` 3·10.
+  - `target_rows_cut_inside_cluster`: 예산(`budget = (max_rows + 1) * fw * 4`글자) 경계가 묶음 가운데에 오는 대상에서 위와 같은 단언(앞 `max_rows`줄이 같다). 대상은 `fw` 20·69 × `max_rows` 3·10 조합마다 만든다 — ZWJ 가족 이모지 `"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"`(글자 7개에 2칸 — 예산이 상한 줄 바로 뒤에서 떨어지는 빽빽한 글자)를 `(budget - 1) / 7`번, 그 뒤 `"a"`를 `(budget - 1) % 7`번, 그 뒤 `"\u{2764}\u{FE0F}"`, 그 뒤 `"tail".repeat(50)`. **테스트 안에서 경계를 단언한다**: `t.chars().nth(budget - 1) == Some('\u{2764}')`이고 `t.chars().nth(budget) == Some('\u{FE0F}')`(예산식이 바뀌어 경계가 옮겨 가면 이 단언이 먼저 깨진다).
   - `target_rows_does_not_scan_whole_target`: 1 MiB 대상(`"a".repeat(1 << 20)`), `fw = 69`, `max_rows = 24` → 돌려준 줄들의 글자 수 합 ≤ `(24 + 1) * 69 * 4`, 둘째 값(잘림) `true`. 짧은 대상은 `false`.
   - `target_rows_narrow_is_single_row`: `fw < 8`이면 한 줄(기존 동작).
   실행: `cargo test -p handicap-tui --lib view::edit`. 기대: `target_rows_does_not_scan_whole_target` **RED**, 나머지 GREEN.
@@ -642,5 +643,5 @@ spec §5.
 
 1. 전수 확인(직접 재실행): Global Constraints의 0-diff 명령 · `grep -rn 'encode_utf8' crates/tui/src`(2줄) · `grep -rn 'stringify' crates/controller/src`(import 1 + `value_text` 안 1 + `datasets` 테스트 이름 1) · `cargo test --workspace` · `TZ=UTC cargo test -p handicap-tui`.
 2. 최종 리뷰: `handicap-reviewer`(초점 — 옛 숫자 글자·옛 폭 재기의 부수효과에 기대던 소비자: GUI가 서버 표시 값·사유 글자를 다시 해석하는 곳이 있는가[`grep -rn 'display\b\|reason' ui/src/monitor ui/src/components/monitor`], TUI `marks`·`judge`가 숫자 글자를 비교하는 곳이 있는가). `security-reviewer`: spec §8대로 판정 경로를 건드렸으므로 돌린다 + `finish-slice` §0 grep 직접 실행.
-3. 라이브 검증: spec §7 표 전부(tmux + 응답기, `crates/tui/CLAUDE.md`의 tmux 함정). 칸 1–9 × 80×24·160×50 전후 화면 비교는 **이 plan의 base 커밋에서 빌드한 바이너리의 캡처**와 새 바이너리의 캡처를 글자 단위로 비교한다(base 바이너리는 Task 1 시작 전에 `cp target/debug/handicap-tui <scratch>/tui-base`로 떠 둔다). GUI 대조는 `ui/src/monitor/conditions.ts` `defaultCondition`을 esbuild로 묶어 node로(`pnpm build` 금지).
+3. 라이브 검증: spec §7 표 전부(tmux + 응답기, `crates/tui/CLAUDE.md`의 tmux 함정). 칸 1–9 × 80×24·160×50 전후 화면 비교는 **이 plan의 base 커밋에서 빌드한 바이너리의 캡처**와 새 바이너리의 캡처를 글자 단위로 비교한다(base 바이너리는 Task 1 시작 전에 base 커밋에서 `cargo build -p handicap-tui -p handicap-worker`를 돌린 뒤 `cp target/debug/handicap-tui <scratch>/tui-base`로 떠 둔다 — 빌드 없이 복사하면 옛 `target/`의 낡은 바이너리가 기준이 된다). GUI 대조는 `ui/src/monitor/conditions.ts` `defaultCondition`을 esbuild로 묶어 node로(`pnpm build` 금지).
 4. `/finish-slice`: build-log 단락(증명된 US / 못 한 US·속도 전후 수치·cloud에서 못 한 검증), roadmap `§B56`(번호는 `grep -n '^### B' docs/roadmap.md`로 다시 확인) — (0) 로컬 머지 절차 · 사용자 결정 줄(spec §10) · 판단과 비용 · 연기(spec §9) · **릴리즈 노트 한 줄**("소수 값에 `포함` 조건을 단 칸은 판정이 바뀔 수 있다 — 서버가 숫자를 `1.0`이 아니라 `1`로, `1e+16`이 아니라 `10000000000000000`으로 적는다. 화면 표시 값도 같은 글자로 바뀐다."), §B52 (2)·§B53 (1)(2)의 해소 항목에 취소선 + ✅, 현황판·root 상태 줄.
