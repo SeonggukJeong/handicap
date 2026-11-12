@@ -9,6 +9,7 @@ use std::fmt;
 
 use handicap_controller::monitor::config::{
     Condition, ConditionOp, ConditionSource, DisplayItem, DisplaySource, PanelConfig,
+    is_forbidden_text_char,
 };
 use handicap_engine::{ScenarioTrace, StepKind, TracedResponse};
 use serde::Deserialize;
@@ -198,7 +199,9 @@ pub fn segments_to_path(segs: &[Seg]) -> String {
                     match ch {
                         '\\' => out.push_str("\\\\"),
                         '\'' => out.push_str("\\'"),
-                        c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                        c if is_forbidden_text_char(c) => {
+                            out.push_str(&format!("\\u{:04x}", c as u32))
+                        }
                         c => out.push(c),
                     }
                 }
@@ -224,7 +227,7 @@ fn path_len(segs: &[Seg]) -> usize {
                     .chars()
                     .map(|c| match c {
                         '\\' | '\'' => 2,
-                        c if (c as u32) < 0x20 => 6,
+                        c if is_forbidden_text_char(c) => 6,
                         c => c.len_utf8(),
                     })
                     .sum::<usize>()
@@ -829,5 +832,32 @@ pub fn number_text(v: f64) -> String {
         format!("{mant}e+{e}")
     } else {
         format!("{mant}e{e}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_len_matches_generated_path() {
+        let k = |s: &str| Seg::Key(s.to_string());
+        for key in [
+            "a",
+            "a b",
+            "it's",
+            "a\\b",
+            "\u{1f}",
+            "a\u{202E}b",
+            "a\u{2028}b",
+            "a\u{85}b",
+            "a\u{7F}b",
+            "a\u{2066}b",
+            "a\u{200D}b",
+            "한글",
+        ] {
+            let segs = vec![k(key), Seg::Index(12)];
+            assert_eq!(path_len(&segs), segments_to_path(&segs).len(), "{key:?}");
+        }
     }
 }
