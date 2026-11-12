@@ -72,6 +72,8 @@ pub enum OverlayView<'a> {
         head: String,
         options: [(&'a str, Option<&'a str>); 2],
         cursor: usize,
+        /// 두 선택 줄 아래 안내 한 줄(강조색, 흐리지 않음) — 머리 줄보다 오래 남는다.
+        note: Option<&'a str>,
     },
     Confirm(&'a str),
     Saving,
@@ -292,8 +294,11 @@ pub(crate) fn overlay_rows(
             head,
             options,
             cursor,
+            note,
         }) => {
             let sel = Style::default().fg(color(C_BG)).bg(color(C_TEXT));
+            // 막은 이유(`muted` + 흐림)와 구분 — 안내는 막지 않으니 강조색, 흐림 없음.
+            let note_style = Style::default().fg(color(C_SLOW));
             let cursor = &(*cursor).min(1);
             let mut opt_rows: Vec<Line<'static>> = options
                 .iter()
@@ -322,10 +327,16 @@ pub(crate) fn overlay_rows(
                 })
                 .collect();
             // 높이가 모자라면 머리 줄 → 안 고른 줄 순으로 뺀다(고른 줄이 마지막까지 남는다).
-            if bh >= 5 {
-                // 머리는 줄바꿈 — 제목 줄 + 고른 목록 줄 + 두 선택 줄을 남긴다(본문 높이 5 이상일 때 최소 1줄, 4 이하면
-                // 머리 없음 — 높이 4에서 머리를 넣으면 목록이 0줄이 된다). 넘치면 마지막 머리 줄 끝을 `…`로.
-                let cap = bh - 4;
+            // 안내 줄은 본문 높이 5 이상에서만(두 선택 줄 + 안내 = 3줄, 제목 + 고른 목록 줄이 남는다). 안내가 있으면
+            // 머리가 한 줄 늦게(6 이상) 나온다 — 안내가 머리보다 오래 남는다.
+            let note_line = note
+                .filter(|_| bh >= 5)
+                .map(|n| Line::from(Span::styled(fit(&format!("  {n}"), w), note_style)));
+            let head_min = if note.is_some() { 6 } else { 5 };
+            if bh >= head_min {
+                // 머리는 줄바꿈 — 제목 줄 + 고른 목록 줄 + 두 선택 줄(+ 안내 줄)을 남긴다(본문 높이 5 이상일 때 최소 1줄,
+                // 4 이하면 머리 없음 — 높이 4에서 머리를 넣으면 목록이 0줄이 된다). 넘치면 마지막 머리 줄 끝을 `…`로.
+                let cap = bh - 4 - usize::from(note_line.is_some());
                 // 머리는 최대 64KB 값일 수 있다 — 보일 줄 수를 넉넉히 덮는 만큼만 잘라 줄바꿈한다(매 프레임 전체를 훑지 않게).
                 let budget = (cap + 1).saturating_mul(w.max(1)).saturating_mul(4);
                 let mut it = head.chars();
@@ -346,8 +357,10 @@ pub(crate) fn overlay_rows(
                     )));
                 }
                 ov_rows.extend(opt_rows);
+                ov_rows.extend(note_line);
             } else if bh >= 2 {
                 ov_rows.extend(opt_rows);
+                ov_rows.extend(note_line);
             } else {
                 let i = (*cursor).min(opt_rows.len().saturating_sub(1));
                 if i < opt_rows.len() {

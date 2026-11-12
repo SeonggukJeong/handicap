@@ -411,6 +411,8 @@ pub enum Overlay {
         cursor: usize,
         cond_block: Option<&'static str>,
         display_block: Option<&'static str>,
+        /// 이름이 비밀 같고 표시 줄이 안 막혔을 때의 안내 줄(막지 않는다).
+        display_note: Option<&'static str>,
     },
 }
 
@@ -2534,12 +2536,15 @@ fn activate_value(ui: &mut EditUi, p: &PanelConfig) {
     }
     let display_block =
         pick::display_item(&v.step_id, row).and_then(|d| pick::display_block(p, &d));
+    let display_note =
+        (display_block.is_none() && row.secret_name).then_some(text::DISPLAY_SECRET_NOTE);
     ui.overlay = Some(match (cond_block, display_block) {
         (Some(c), Some(d)) => Overlay::Notice(format!("{c} · {d}")),
         _ => Overlay::AddChoice {
             cursor: usize::from(cond_block.is_some()),
             cond_block,
             display_block,
+            display_note,
         },
     });
 }
@@ -2582,6 +2587,7 @@ fn choose_add(ui: &mut EditUi, cx: &mut EditCtx, bi: usize, pi: usize) -> Option
         cursor,
         cond_block,
         display_block,
+        ..
     }) = &ui.overlay
     else {
         return None;
@@ -3038,6 +3044,7 @@ fn overlay_view<'a>(
             cursor,
             cond_block,
             display_block,
+            display_note,
         } => {
             let t = values.and_then(|v| v.texts.get(v.cursor))?;
             OverlayView::Choice {
@@ -3047,6 +3054,7 @@ fn overlay_view<'a>(
                     (text::DISPLAY_ADD_CHOICE, *display_block),
                 ],
                 cursor: *cursor,
+                note: *display_note,
             }
         }
     })

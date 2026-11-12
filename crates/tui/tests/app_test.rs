@@ -3016,7 +3016,40 @@ mod save {
                 cursor,
                 cond_block: c,
                 display_block: d,
+                display_note: None,
             }
+        }
+
+        fn secret_str(path: &str, v: &str) -> ValueRow {
+            ValueRow {
+                secret_name: true,
+                ..body_str(path, v)
+            }
+        }
+
+        #[test]
+        fn choice_note_only_for_secret_unblocked() {
+            let s = Screen::Values;
+            let mut t = None;
+            let note = |u: &EditUi| match &u.overlay {
+                Some(Overlay::AddChoice { display_note, .. }) => *display_note,
+                o => panic!("{o:?}"),
+            };
+            // 비밀 같은 이름 + 안 막힘 → 안내.
+            let bs = boards();
+            let mut u = values_ui(vec![secret_str("$.token", "x")]);
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            assert_eq!(note(&u), Some(text::DISPLAY_SECRET_NOTE));
+            // 같은 줄이라도 표시 값이 가득 차 막혔으면 안내 없음.
+            let mut bs2 = boards();
+            two_displays(&mut bs2);
+            let mut u = values_ui(vec![secret_str("$.token", "x")]);
+            run(&s, &mut u, &bs2, &mut t, EditAction::Activate);
+            assert_eq!(note(&u), None);
+            // 비밀 이름이 아니면 안내 없음.
+            let mut u = values_ui(vec![body_str("$.status", "OK")]);
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            assert_eq!(note(&u), None);
         }
 
         fn ck(c: KeyCode) -> EditAction {

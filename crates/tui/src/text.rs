@@ -537,6 +537,8 @@ pub const MARK_DISPLAY: &str = "표시";
 pub const COND_ADD_CHOICE: &str = "조건으로 추가";
 /// `ko.monitor.condChooseDisplay`
 pub const DISPLAY_ADD_CHOICE: &str = "화면에 추가";
+/// 이름이 비밀 같은 값을 `화면에 추가`할 때 선택 창 아래 안내(막지 않는다) — 화면 값은 가려지지 않는다.
+pub const DISPLAY_SECRET_NOTE: &str = "이름이 비밀 값처럼 보입니다 — 화면에 늘 보입니다";
 /// `ko.monitor.condMax`
 pub const COND_MAX: &str = "조건은 최대 10개까지 추가할 수 있습니다";
 /// `ko.monitor.displayMax`

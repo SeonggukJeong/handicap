@@ -136,6 +136,7 @@ fn choice<'a>(cursor: usize) -> OverlayView<'a> {
             (text::DISPLAY_ADD_CHOICE, Some(text::DISPLAY_MAX)),
         ],
         cursor,
+        note: None,
     }
 }
 
@@ -474,6 +475,7 @@ fn remote_strings_sanitized() {
             (text::DISPLAY_ADD_CHOICE, None),
         ],
         cursor: 0,
+        note: None,
     });
     let (_, txt) = draw(80, 14, &v, &[]);
     assert!(txt.contains("s\u{FFFD}t"), "{txt}");
@@ -550,6 +552,7 @@ fn choice_head_wraps() {
             (text::DISPLAY_ADD_CHOICE, None),
         ],
         cursor,
+        note: None,
     };
     let mut v = f.view(&m, 0);
     v.overlay = Some(ov(0));
@@ -585,6 +588,117 @@ fn choice_head_wraps() {
             "높이 {h}: 고른 줄이 안 보인다\n{txt}"
         );
     }
+}
+
+// ---------- tui-2b-secrets §2.4: 화면에 추가 안내 줄 ----------
+
+fn note_choice<'a>(head: &str, cursor: usize) -> OverlayView<'a> {
+    OverlayView::Choice {
+        head: head.to_string(),
+        options: [
+            (text::COND_ADD_CHOICE, None),
+            (text::DISPLAY_ADD_CHOICE, None),
+        ],
+        cursor,
+        note: Some(text::DISPLAY_SECRET_NOTE),
+    }
+}
+
+#[test]
+fn choice_note_outlives_head_sweep() {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    let heads = [
+        "hdrmark  =  \"OK\"".to_string(),
+        format!("hdrmark{}  =  \"{}\"", "T".repeat(295), "v".repeat(100)),
+    ];
+    let mut note_only = 0;
+    let mut head_seen = 0;
+    for head in &heads {
+        for cursor in 0..2usize {
+            for w in 1..=120u16 {
+                for h in 1..=24u16 {
+                    let mut v = f.view(&m, 0);
+                    v.overlay = Some(note_choice(head, cursor));
+                    let (_, txt) = draw(w, h, &v, &[]);
+                    if w < 30 {
+                        continue;
+                    }
+                    let note = txt.contains("이름이 비밀");
+                    let hd = txt.contains("hdrmark");
+                    let sel_opt = if cursor == 0 {
+                        "▶ 조건으로 추가"
+                    } else {
+                        "▶ 화면에 추가"
+                    };
+                    if note {
+                        assert!(txt.contains(sel_opt), "w{w} h{h}: 고른 줄 없음\n{txt}");
+                        assert!(txt.contains("▶ status"), "w{w} h{h}: 목록 고른 줄\n{txt}");
+                    }
+                    if hd {
+                        head_seen += 1;
+                        assert!(note, "w{w} h{h}: 머리는 보이는데 안내가 없다\n{txt}");
+                    }
+                    if note && !hd {
+                        note_only += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(head_seen > 0, "머리가 한 번도 안 보여 공허");
+    // 본문 높이 5(머리 없음, 안내만)가 폭마다 하나씩 있다: 2 머리 x 2 커서 x 91 폭 이상.
+    assert!(
+        note_only >= 4 * 91,
+        "안내만 보이는 높이가 모자람 {note_only}"
+    );
+}
+
+#[test]
+fn choice_note_only_at_body_height_five() {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    // 머리는 짧은 것 — 안내가 처음 보이는 높이(= 본문 5)에서 머리는 없고, 한 칸 위(본문 4)엔 안내도 없다.
+    let seen: Vec<(u16, bool, bool)> = (1..=24u16)
+        .map(|h| {
+            let mut v = f.view(&m, 0);
+            v.overlay = Some(note_choice("hdrmark  =  \"OK\"", 0));
+            let (_, txt) = draw(80, h, &v, &[]);
+            (h, txt.contains("이름이 비밀"), txt.contains("hdrmark"))
+        })
+        .collect();
+    let first_note = seen.iter().find(|(_, n, _)| *n).unwrap().0;
+    let first_head = seen.iter().find(|(_, _, hd)| *hd).unwrap().0;
+    assert_eq!(first_head, first_note + 1, "{seen:?}");
+    assert!(
+        seen.iter().all(|(h, n, _)| *n == (*h >= first_note)),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn choice_note_style_is_not_dim() {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    let mut v = f.view(&m, 0);
+    v.overlay = Some(note_choice("status  =  \"OK\"", 0));
+    let (buf, _) = draw(80, 14, &v, &[]);
+    let y = row_with(&buf, "이름이 비밀");
+    let mut seen = 0;
+    for x in 0..80u16 {
+        let c = &buf[(x, y)];
+        if c.symbol().trim().is_empty() {
+            continue;
+        }
+        seen += 1;
+        assert!(!c.modifier.contains(Modifier::DIM), "x{x} 흐림");
+        assert_ne!(c.fg, Color::Rgb(0x9a, 0xa7, 0xb4), "x{x} 흐린 글자색");
+    }
+    assert!(seen > 10);
+    // 안내가 없으면 그 줄도 없다.
+    v.overlay = Some(choice(0));
+    let (_, txt) = draw(80, 14, &v, &[]);
+    assert!(!txt.contains("이름이 비밀"), "{txt}");
 }
 
 // ---------- tui-2b-polish: 조건 칸 대상 줄바꿈 ----------
