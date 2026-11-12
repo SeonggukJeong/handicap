@@ -1274,16 +1274,19 @@ fn target_width_is_drawn_width() {
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
     use ratatui::style::Style;
-    let body = format!("{{\"{}key\":1,\"plain\":2}}", "\\u0644\\u0627".repeat(6));
-    let list = value_list(&resp(200, &[], &body), false, 64);
-    let st = ValuesState::new("S1".into(), list, None);
     let drawn = |s: &str| {
         let mut b = Buffer::empty(Rect::new(0, 0, 400, 1));
         usize::from(b.set_stringn(0, 0, s, usize::MAX, Style::default()).0)
     };
-    let want = st.texts.iter().map(|t| drawn(t.target())).max().unwrap();
-    assert!(want > drawn("상태코드"), "긴 키가 최대를 정해야 한다");
-    assert_eq!(st.target_width, want);
+    // 람-알레프(옛 재기 1칸·그린 칸 2) · 반각 가타카나+탁점(옛 재기 2칸·그린 칸 3).
+    for pair in ["\\u0644\\u0627", "\\uff76\\uff9e"] {
+        let body = format!("{{\"{}key\":1,\"plain\":2}}", pair.repeat(6));
+        let list = value_list(&resp(200, &[], &body), false, 64);
+        let st = ValuesState::new("S1".into(), list, None);
+        let want = st.texts.iter().map(|t| drawn(t.target())).max().unwrap();
+        assert!(want > drawn("상태코드"), "긴 키가 최대를 정해야 한다");
+        assert_eq!(st.target_width, want, "{pair}");
+    }
 }
 
 /// 속도 확인(spec tui-2b-width-number §2.1-10) — 3만 줄 값 목록 열기.

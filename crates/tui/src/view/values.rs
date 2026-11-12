@@ -56,17 +56,22 @@ pub fn fit_head(s: &str, w: usize) -> String {
     if w == 0 {
         return String::new();
     }
-    let mut tail: Vec<&str> = Vec::new();
+    let mut tail: Vec<(&str, usize)> = Vec::new();
     let mut used = 0;
     for (g, gw) in cells_rev(s) {
         if used + gw > w - 1 {
             break;
         }
         used += gw;
-        tail.push(g);
+        tail.push((g, gw));
+    }
+    // 잘린 자리 바로 뒤의 폭 0 묶음은 버린다 — 앞 글자와 묶이지 못한 결합 글자는 `…` 위에 얹힌다
+    // (결합 글자는 보통 앞 글자와 한 묶음이지만, 제어 갈래 글자 뒤에서는 홀로 선다).
+    while tail.last().is_some_and(|(_, gw)| *gw == 0) {
+        tail.pop();
     }
     let mut out = String::from("…");
-    out.extend(tail.into_iter().rev());
+    out.extend(tail.into_iter().rev().map(|(g, _)| g));
     out
 }
 

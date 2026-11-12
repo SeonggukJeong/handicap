@@ -188,6 +188,10 @@ mod tests {
         "1\u{FE0F}\u{20E3}",
         "\u{FFFD}",
         "\u{1112}\u{1161}\u{11AB}",
+        // 묶음 경계가 까다로운 것: 제어 갈래지만 그려지는 글자(soft hyphen)·그 뒤에서 홀로 서는 결합 글자·앞붙임 글자.
+        "\u{AD}",
+        "\u{301}",
+        "\u{600}",
     ];
 
     fn samples() -> Vec<String> {
@@ -216,8 +220,25 @@ mod tests {
     #[test]
     fn cells_fast_path_equals_graphemes() {
         const EDGE: &[&str] = &[
-            "a", "b ", "1", "\r", "\n", "\t", "\u{1b}", "\u{7f}", "\u{600}", "\u{301}", "\u{200D}",
-            "\u{FE0F}", "\u{20E3}", "\u{d55c}", "\u{FF9E}",
+            "a",
+            "b ",
+            "1",
+            "\r",
+            "\n",
+            "\t",
+            "\u{1b}",
+            "\u{7f}",
+            "\u{600}",
+            "\u{301}",
+            "\u{200D}",
+            "\u{FE0F}",
+            "\u{20E3}",
+            "\u{d55c}",
+            "\u{FF9E}",
+            "\u{1F1F0}",
+            "\u{915}\u{94D}",
+            "\u{1F44D}",
+            "\u{AD}",
         ];
         let mut all = samples();
         for a in EDGE {
@@ -232,6 +253,11 @@ mod tests {
             }
         }
         all.push("plain ascii only".repeat(10));
+        // 빠른 길과 묶음 나누기를 여러 번 오가는 긴 글자.
+        all.push(
+            "ab\u{d55c}cd\u{301}ef\r\ngh\u{1F1F0}ij\u{915}\u{94D}k\u{1F44D}\u{200D}l\u{AD}\u{301}m"
+                .into(),
+        );
         for s in all {
             let want: Vec<(&str, usize)> = s.graphemes(true).map(|g| (g, cell_of(g))).collect();
             assert_eq!(cells(&s).collect::<Vec<_>>(), want, "{s:?}");
@@ -252,10 +278,25 @@ mod tests {
                     assert_eq!(fit(&s, w), s);
                     assert_eq!(fit_head(&s, w), s);
                 } else if w > 0 {
-                    assert!(fit(&s, w).ends_with('\u{2026}'), "fit {s:?} w{w}");
+                    // 잘렸으면 `…` + 더 넣을 수 없을 만큼 채웠다(덜 채운 회귀를 잡는다).
+                    let f = fit(&s, w);
+                    let kept = f.strip_suffix('\u{2026}').expect("fit …");
+                    assert!(s.starts_with(kept), "fit {s:?} w{w}");
+                    let next = cells(&s[kept.len()..]).next().map_or(0, |(_, gw)| gw);
+                    assert!(text_width(kept) + 1 + next > w, "fit {s:?} w{w}: {f:?}");
+                    let h = fit_head(&s, w);
+                    let kept = h.strip_prefix('\u{2026}').expect("fit_head …");
+                    assert!(s.ends_with(kept), "fit_head {s:?} w{w}");
+                    let left = &s[..s.len() - kept.len()];
+                    let prev = cells_rev(left).map(|(_, gw)| gw).find(|gw| *gw > 0);
                     assert!(
-                        fit_head(&s, w).starts_with('\u{2026}'),
-                        "fit_head {s:?} w{w}"
+                        text_width(kept) + 1 + prev.unwrap_or(0) > w,
+                        "fit_head {s:?} w{w}: {h:?}"
+                    );
+                    // `…` 바로 뒤에 폭 0 묶음(홀로 선 결합 글자)이 오지 않는다 — `…` 위에 얹힌다.
+                    assert!(
+                        cells(kept).next().is_none_or(|(_, gw)| gw > 0),
+                        "fit_head {s:?} w{w}: {h:?}"
                     );
                 }
             }
@@ -271,6 +312,12 @@ mod tests {
                 for r in &rows {
                     let single = r.graphemes(true).filter(|g| drawn(g) > 0).count() <= 1;
                     assert!(drawn(r) <= w || single, "{s:?} w{w} row {r:?}");
+                }
+                // 줄마다 더 넣을 수 없을 만큼 채웠다 — 다음 줄의 첫 묶음이 이 줄에 안 들어간다.
+                for pair in rows.windows(2) {
+                    let first = cells(&pair[1]).next().map_or(0, |(_, gw)| gw);
+                    assert!(first > 0, "{s:?} w{w} row {:?}", pair[1]);
+                    assert!(text_width(&pair[0]) + first > w, "{s:?} w{w} rows {pair:?}");
                 }
             }
         }
