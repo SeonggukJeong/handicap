@@ -1,5 +1,6 @@
 # 2b 후속 묶음 A — 비밀처럼 보이는 이름·잘린 본문 버튼·보드 글자 칸 거절 (tui-2b-secrets)
 
+- 상태: **구현 완료** (코드 `0f8b874a`..`e901cc91`, 라이브 US1–US5 PROVEN) · 판단·연기·릴리즈 노트 → roadmap §B55 · §2.3 빈 값 규칙은 최종 보안 리뷰로 `키 있음`으로 정정됨
 - 날짜: 2026-11-12 · 유형: `correctness-bug` + 보안 low/info · 출처: roadmap §B52 (2) 1–3번째 항목 · §B53 (2) "§B52 (2)의 남은 것"
 - 범위: TUI(`crates/tui`) + GUI(`ui/src`) + 컨트롤러 검증(`crates/controller/src/monitor/config.rs`·`board_file.rs`) + 엔진 테스트 1개. 와이어·마이그레이션·엔진 실행 경로 무변경.
 
