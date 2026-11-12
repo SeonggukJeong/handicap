@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use super::edit::{CondFormView, cond_form_height, render_form_at_bottom};
 use super::inspect::render_frame;
 use super::monitor::{C_BG, C_MUTED, C_SLOW, C_TEXT, HeaderView};
-use super::settings::{OverlayView, color, overlay_rows, put};
+use super::settings::{OverlayView, choice_head_line, color, overlay_rows, put};
 use super::{cells_rev, fit, text_width, wrap_width};
 use crate::inspect::sanitize;
 use crate::pick;
@@ -174,6 +174,12 @@ pub fn render_values(f: &mut Frame, head: &HeaderView, v: &ValuesView, keys: &[&
                 Span::styled(r, muted),
             ]),
             _ => Line::from(Span::styled(fit(&t, w), bold)),
+        };
+        // 낮은 화면의 선택 창은 제목 줄 자리에 고른 값(머리) 한 줄을 그린다(spec tui-2b-width-number §2.2).
+        let title_line = if v.form.is_none() {
+            choice_head_line(v.overlay.as_ref(), w, bh).unwrap_or(title_line)
+        } else {
+            title_line
         };
         put(f, row(0), title_line);
 

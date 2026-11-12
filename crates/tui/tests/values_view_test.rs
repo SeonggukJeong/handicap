@@ -612,7 +612,7 @@ fn choice_note_outlives_head_sweep() {
         "hdrmark  =  \"OK\"".to_string(),
         format!("hdrmark{}  =  \"{}\"", "T".repeat(295), "v".repeat(100)),
     ];
-    let mut note_only = 0;
+    let mut both_at_five = 0;
     let mut head_seen = 0;
     for head in &heads {
         for cursor in 0..2usize {
@@ -639,26 +639,27 @@ fn choice_note_outlives_head_sweep() {
                         head_seen += 1;
                         assert!(note, "w{w} h{h}: 머리는 보이는데 안내가 없다\n{txt}");
                     }
-                    if note && !hd {
-                        note_only += 1;
+                    // 본문 높이 5(터미널 높이 7): 머리 한 줄과 안내가 같이 보인다.
+                    if h == 7 && note && hd {
+                        both_at_five += 1;
                     }
                 }
             }
         }
     }
     assert!(head_seen > 0, "머리가 한 번도 안 보여 공허");
-    // 본문 높이 5(머리 없음, 안내만)가 폭마다 하나씩 있다: 2 머리 x 2 커서 x 91 폭 이상.
+    // 본문 높이 5에서 머리 한 줄과 안내가 같이 보인다: 2 머리 x 2 커서 x 91 폭(30..=120) 이상.
     assert!(
-        note_only >= 4 * 91,
-        "안내만 보이는 높이가 모자람 {note_only}"
+        both_at_five >= 4 * 91,
+        "머리와 안내가 같이 보이는 높이가 모자람 {both_at_five}"
     );
 }
 
 #[test]
-fn choice_note_only_at_body_height_five() {
+fn choice_note_and_head_first_at_body_height_five() {
     let f = fix(vec![rv("status", "1")]);
     let m = |i: usize| f.marks[i];
-    // 머리는 짧은 것 — 안내가 처음 보이는 높이(= 본문 5)에서 머리는 없고, 한 칸 위(본문 4)엔 안내도 없다.
+    // 머리는 짧은 것 — 안내가 처음 보이는 높이(= 본문 5)에서 머리 한 줄도 같이 나오고, 한 칸 위(본문 4)엔 둘 다 없다.
     let seen: Vec<(u16, bool, bool)> = (1..=24u16)
         .map(|h| {
             let mut v = f.view(&m, 0);
@@ -669,7 +670,7 @@ fn choice_note_only_at_body_height_five() {
         .collect();
     let first_note = seen.iter().find(|(_, n, _)| *n).unwrap().0;
     let first_head = seen.iter().find(|(_, _, hd)| *hd).unwrap().0;
-    assert_eq!(first_head, first_note + 1, "{seen:?}");
+    assert_eq!(first_head, first_note, "{seen:?}");
     assert!(
         seen.iter().all(|(h, n, _)| *n == (*h >= first_note)),
         "{seen:?}"
@@ -920,6 +921,188 @@ fn choice_head_rows_fit_width() {
         assert_eq!(joined, head, "n={n}");
         for y in 0..buf.area.height {
             assert!(!cell_line(&buf, y).contains('…'), "n={n}");
+        }
+    }
+}
+
+// ---------- tui-2b-width-number §2.2: 낮은 화면의 선택 창 머리 한 줄 ----------
+
+const CHOICE_TITLE_MARK: &str = "\u{2014} \u{ac12} \u{ace0}\u{b974}\u{ae30}";
+
+/// 줄별 위치: (머리, 제목 접미, 목록 고른 줄, 선택 0, 선택 1) — 터미널 줄 y(없으면 None).
+#[derive(Debug, PartialEq)]
+struct Layout {
+    head: Option<usize>,
+    title: Option<usize>,
+    list: Option<usize>,
+    opt0: Option<usize>,
+    opt1: Option<usize>,
+}
+
+fn layout(txt: &str, head_mark: &str) -> Layout {
+    let pos = |needle: &str| txt.lines().position(|l| l.contains(needle));
+    Layout {
+        head: pos(head_mark),
+        title: pos(CHOICE_TITLE_MARK),
+        list: pos("\u{25b6} status"),
+        opt0: pos(text::COND_ADD_CHOICE),
+        opt1: pos(text::DISPLAY_ADD_CHOICE),
+    }
+}
+
+fn low_overlay_layout(ov: OverlayView, h: u16) -> (Layout, String) {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    let mut v = f.view(&m, 0);
+    v.overlay = Some(ov);
+    let (_, txt) = draw(80, h, &v, &[]);
+    (layout(&txt, "hdrmark"), txt)
+}
+
+fn plain_choice(head: &str) -> OverlayView<'static> {
+    OverlayView::Choice {
+        head: head.to_string(),
+        options: [
+            (text::COND_ADD_CHOICE, None),
+            (text::DISPLAY_ADD_CHOICE, None),
+        ],
+        cursor: 0,
+        note: None,
+    }
+}
+
+#[test]
+fn choice_head_line_at_low_height() {
+    for h in 3..=9u16 {
+        let bh = usize::from(h) - 2;
+        let (l, txt) = low_overlay_layout(plain_choice("hdrmark  =  \"OK\""), h);
+        let msg = format!("본문 {bh}: {l:?}\n{txt}");
+        match bh {
+            5.. => {
+                // 제목 · 목록 · 머리 · 선택 2줄.
+                assert_eq!(l.title, Some(1), "{msg}");
+                assert!(l.list.is_some() && l.head.is_some(), "{msg}");
+                assert!(l.list < l.head && l.head < l.opt0, "{msg}");
+                assert_eq!(l.opt1, l.opt0.map(|y| y + 1), "{msg}");
+            }
+            4 => {
+                // 머리 · 목록 · 선택 2줄, 제목 없음.
+                assert_eq!(l.head, Some(1), "{msg}");
+                assert_eq!(l.title, None, "{msg}");
+                assert_eq!(l.list, Some(2), "{msg}");
+                assert_eq!((l.opt0, l.opt1), (Some(3), Some(4)), "{msg}");
+            }
+            3 => {
+                // 머리 · 선택 2줄, 제목·목록 없음.
+                assert_eq!(l.head, Some(1), "{msg}");
+                assert_eq!(l.title, None, "{msg}");
+                assert_eq!(l.list, None, "{msg}");
+                assert_eq!((l.opt0, l.opt1), (Some(2), Some(3)), "{msg}");
+            }
+            2 => {
+                // 선택 2줄만(한계).
+                assert_eq!((l.head, l.title, l.list), (None, None, None), "{msg}");
+                assert_eq!((l.opt0, l.opt1), (Some(1), Some(2)), "{msg}");
+            }
+            _ => {
+                // 고른 선택 줄만(한계).
+                assert_eq!((l.head, l.title, l.list), (None, None, None), "{msg}");
+                assert_eq!((l.opt0.is_some(), l.opt1), (true, None), "{msg}");
+            }
+        }
+    }
+}
+
+#[test]
+fn choice_head_line_needs_note_visible() {
+    for h in 3..=9u16 {
+        let bh = usize::from(h) - 2;
+        let (l, txt) = low_overlay_layout(note_choice("hdrmark  =  \"OK\"", 0), h);
+        let note = txt.contains("이름이 비밀");
+        let msg = format!("본문 {bh}: {l:?}\n{txt}");
+        match bh {
+            6.. => {
+                assert_eq!(l.title, Some(1), "{msg}");
+                assert!(l.list < l.head && l.head < l.opt0, "{msg}");
+                assert!(l.head.is_some() && note, "{msg}");
+            }
+            5 => {
+                // 머리 · 목록 · 선택 2줄 · 안내, 제목 없음.
+                assert_eq!(l.head, Some(1), "{msg}");
+                assert_eq!(l.title, None, "{msg}");
+                assert_eq!(l.list, Some(2), "{msg}");
+                assert_eq!((l.opt0, l.opt1), (Some(3), Some(4)), "{msg}");
+                assert!(note, "{msg}");
+            }
+            4 => {
+                // 제목 · 목록 · 선택 2줄(머리·안내 없음).
+                assert_eq!((l.title, l.list), (Some(1), Some(2)), "{msg}");
+                assert_eq!((l.opt0, l.opt1), (Some(3), Some(4)), "{msg}");
+                assert!(l.head.is_none() && !note, "{msg}");
+            }
+            3 => {
+                assert_eq!(l.title, Some(1), "{msg}");
+                assert_eq!((l.opt0, l.opt1), (Some(2), Some(3)), "{msg}");
+                assert!(l.head.is_none() && l.list.is_none() && !note, "{msg}");
+            }
+            _ => {
+                assert!(l.head.is_none() && l.title.is_none() && !note, "{msg}");
+            }
+        }
+    }
+}
+
+#[test]
+fn no_choice_keeps_title() {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    for h in 3..=9u16 {
+        let v = f.view(&m, 0);
+        let (_, txt) = draw(80, h, &v, &[]);
+        assert!(
+            txt.contains(CHOICE_TITLE_MARK),
+            "높이 {h}: 제목 없음\n{txt}"
+        );
+    }
+    for h in 4..=9u16 {
+        for ov in [OverlayView::Confirm("sure"), OverlayView::Notice("hey")] {
+            let mut v = f.view(&m, 0);
+            v.overlay = Some(ov);
+            let (_, txt) = draw(80, h, &v, &[]);
+            assert!(
+                txt.contains(CHOICE_TITLE_MARK),
+                "높이 {h}: 제목 없음\n{txt}"
+            );
+        }
+    }
+}
+
+#[test]
+fn choice_head_line_long_and_sanitized() {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    for w in [40u16, 80] {
+        for h in [5u16, 6] {
+            // ⓐ 머리 1,000자: 한 줄이 `…`로 끝나고 폭 안.
+            let mut v = f.view(&m, 0);
+            v.overlay = Some(plain_choice(&"T".repeat(1000)));
+            let (_, txt) = draw(w, h, &v, &[]);
+            let l = txt
+                .lines()
+                .find(|l| l.contains("TTT"))
+                .unwrap_or_else(|| panic!("w{w} h{h}: 머리 줄 없음\n{txt}"));
+            assert!(l.trim_end().ends_with('\u{2026}'), "w{w} h{h}: {l:?}");
+            assert!(drawn_w(l) <= usize::from(w), "w{w} h{h}: {l:?}");
+            // ⓑ 제어 문자가 든 짧은 머리: `\u{FFFD}`가 보이고 `…`는 없다.
+            let mut v = f.view(&m, 0);
+            v.overlay = Some(plain_choice("a\u{1b}[31mb  =  1"));
+            let (_, txt) = draw(w, h, &v, &[]);
+            let l = txt
+                .lines()
+                .find(|l| l.contains('\u{FFFD}'))
+                .unwrap_or_else(|| panic!("w{w} h{h}: U+FFFD 없음\n{txt}"));
+            assert!(!l.contains('\u{2026}'), "w{w} h{h}: {l:?}");
+            assert!(drawn_w(l) <= usize::from(w), "w{w} h{h}: {l:?}");
         }
     }
 }

@@ -258,6 +258,40 @@ pub(crate) fn overlay_text(t: &str, style: Style, w: usize) -> Line<'static> {
     ))
 }
 
+/// 선택 창 안내 줄이 나오는 최소 본문 높이.
+pub(crate) const CHOICE_NOTE_MIN: usize = 5;
+
+/// 선택 창 줄들에 머리가 들어가는 최소 본문 높이 — 안내가 있으면 한 줄 늦다(안내가 머리보다 오래 남는다).
+pub(crate) fn choice_head_min(has_note: bool) -> usize {
+    if has_note { 6 } else { 5 }
+}
+
+/// 선택 창 줄들에 머리가 못 들어가는 높이에서 값 목록 화면이 제목 줄 자리에 그리는 머리 한 줄
+/// (spec tui-2b-width-number §2.2). 안내가 있는 선택 창은 안내가 그려지는 높이에서만 — 머리가 보이면 안내도 보인다.
+pub(crate) fn choice_head_line(
+    overlay: Option<&OverlayView>,
+    w: usize,
+    bh: usize,
+) -> Option<Line<'static>> {
+    let Some(OverlayView::Choice { head, note, .. }) = overlay else {
+        return None;
+    };
+    if bh >= choice_head_min(note.is_some()) || (note.is_some() && bh < CHOICE_NOTE_MIN) {
+        return None;
+    }
+    // 머리는 최대 64KB 값일 수 있다 — 한 줄에 넉넉한 만큼만 잘라 `sanitize`한다.
+    let mut it = head.chars();
+    let short: String = it.by_ref().take((w + 1).saturating_mul(4)).collect();
+    let mut s = sanitize(&short);
+    if it.next().is_some() {
+        s.push('…');
+    }
+    Some(Line::from(Span::styled(
+        fit(&format!("  {s}"), w),
+        Style::default().fg(color(C_TEXT)),
+    )))
+}
+
 /// 키 줄 위 overlay 줄들(Input = 공유·입력·오류, 나머지 1줄, Pick은 없음). 모자라면 공유 → 오류 순으로 뺀다.
 /// 편집 메뉴·하위 목록·변수 화면이 같이 쓴다.
 pub(crate) fn overlay_rows(
@@ -330,10 +364,9 @@ pub(crate) fn overlay_rows(
             // 안내 줄은 본문 높이 5 이상에서만(두 선택 줄 + 안내 = 3줄, 제목 + 고른 목록 줄이 남는다). 안내가 있으면
             // 머리가 한 줄 늦게(6 이상) 나온다 — 안내가 머리보다 오래 남는다.
             let note_line = note
-                .filter(|_| bh >= 5)
+                .filter(|_| bh >= CHOICE_NOTE_MIN)
                 .map(|n| Line::from(Span::styled(fit(&format!("  {n}"), w), note_style)));
-            let head_min = if note.is_some() { 6 } else { 5 };
-            if bh >= head_min {
+            if bh >= choice_head_min(note.is_some()) {
                 // 머리는 줄바꿈 — 제목 줄 + 고른 목록 줄 + 두 선택 줄(+ 안내 줄)을 남긴다(본문 높이 5 이상일 때 최소 1줄,
                 // 4 이하면 머리 없음 — 높이 4에서 머리를 넣으면 목록이 0줄이 된다). 넘치면 마지막 머리 줄 끝을 `…`로.
                 let cap = bh - 4 - usize::from(note_line.is_some());
