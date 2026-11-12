@@ -544,6 +544,11 @@ pub fn fit_head(s: &str, w: usize) -> String {
   2. `wrap_width`를 글자 단위(`s.chars()` + 글자 하나 폭)로 → `wrap_rows_fit_and_join_back` RED.
   원복 뒤 `git diff`에 실증 흔적이 없는지 확인.
 - [ ] **Step 6: 속도 확인**. `cargo test -p handicap-tui --release --lib perf_width -- --ignored --nocapture` → 새 수치. 세 수치 중 하나라도 기준선의 **1.5배를 넘으면 STOP**(spec §2.1-10). 전후 수치를 리포트에 적는다(설계 시점 scratch 실측 — 새 구현: 1 MiB 줄바꿈 약 19ms, `text_width` 10회 약 144ms).
+> **구현 중 정정(2026-11-12, Task 3 Step 6에서 STOP → orchestrator 판단)**
+> - Step 6의 기준(미세 측정 `perf_width` 세 수치 ≤ 기준선 1.5배)은 **이 plan의 결함**이다. 옛 `text_width`(문자열 전체 폭 — 틀린 값을 내지만 1 MiB에 약 2ms)가 기준선이면 이 plan이 스스로 적은 예상(`text_width` 10회 약 144ms)부터 기준을 넘는다. spec §2.1-10이 요구한 것은 미세 측정이 아니라 **두 동작**(1 MiB 본문의 요청·응답 화면 줄 만들기·3만 줄 값 목록 열기)의 전후 비교다.
+> - 그래서 ① 두 동작을 직접 재는 측정을 더했다(`inspect_test.rs` `perf_body_lines_1mib`·`pick_test.rs` `perf_values_open_30k`, `#[ignore]`). ② 그 측정에서 Step 4의 인라인 구현 그대로는 ASCII가 많은 본문이 약 1.9배였다 → `cells`에 ASCII 빠른 길을 넣었다(`Cells` 반복자 — 앞뒤 바이트도 ASCII인 인쇄 글자는 묶음 나누기 없이 낸다, `graphemes(true)`와 같은 묶음을 낸다는 것을 `cells_fast_path_equals_graphemes`가 지킨다). `cells`는 앞에서부터만 돌고, 뒤에서부터는 `cells_rev`(`fit_head`)다 — Step 4 인라인의 `impl DoubleEndedIterator`·`cells(s).rev()`와 다르다.
+> - 실측(release, 각 3회 중앙값, 옛 → 새): 본문 줄 만들기 폭 80 21.1ms → 22.0ms(1.04배)·폭 40 21.7ms → 23.1ms(1.07배), 값 목록 열기(`value_list` + `ValuesState::new`) 19.3ms → 24.5ms(1.27배) — spec 기준(1.5배) 안. 미세 측정은 줄바꿈 24.8ms → 17.0ms(0.7배)·`text_width` 10회 19.1ms → 약 100ms·줄당 11.3ms → 약 29ms(묶음 나누기의 값 — 판단·비용은 roadmap §B).
+
 - [ ] **Step 7: 전수 확인 + 게이트 + 커밋**. `grep -rn 'encode_utf8' crates/tui/src` → `input.rs` 1줄·`view/settings.rs` 1줄(`col_w`)만 남는다. `grep -rn 'wrap_measured' crates/tui` → 0줄. `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings; echo exit=$?`. 커밋 `feat(tui): 폭 재기를 ratatui가 그리는 폭 하나로 — 글자 묶음 단위 (tui-2b-width-number §2.1)`.
 
 ---

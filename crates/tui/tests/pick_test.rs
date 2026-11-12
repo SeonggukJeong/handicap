@@ -1070,6 +1070,10 @@ const EXACT: &[(&str, &str)] = &[
     ("1130439128653781.25", "1130439128653781.2"),
     ("1486072376365191.75", "1486072376365191.8"),
     ("1e16", "10000000000000000"),
+    ("-5", "-5"),
+    ("-9223372036854775808", "-9223372036854775808"),
+    ("18446744073709551615", "18446744073709551615"),
+    ("-0", "0"),
 ];
 
 #[test]
@@ -1263,4 +1267,48 @@ fn default_condition_prefill_parity() {
         assert_eq!(d.cond.value, val, "{:?}", r);
         assert_eq!(d.hint, hint, "{:?}", r);
     }
+}
+
+#[test]
+fn target_width_is_drawn_width() {
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::style::Style;
+    let body = format!("{{\"{}key\":1,\"plain\":2}}", "\\u0644\\u0627".repeat(6));
+    let list = value_list(&resp(200, &[], &body), false, 64);
+    let st = ValuesState::new("S1".into(), list, None);
+    let drawn = |s: &str| {
+        let mut b = Buffer::empty(Rect::new(0, 0, 400, 1));
+        usize::from(b.set_stringn(0, 0, s, usize::MAX, Style::default()).0)
+    };
+    let want = st.texts.iter().map(|t| drawn(t.target())).max().unwrap();
+    assert!(want > drawn("상태코드"), "긴 키가 최대를 정해야 한다");
+    assert_eq!(st.target_width, want);
+}
+
+/// 속도 확인(spec tui-2b-width-number §2.1-10) — 3만 줄 값 목록 열기.
+/// `cargo test -p handicap-tui --release --test pick_test perf_values_open -- --ignored --nocapture`
+#[test]
+#[ignore = "수동 측정"]
+fn perf_values_open_30k() {
+    // 본문은 64KB까지 값 목록이 된다 — 한 자리 숫자 3만 개가 줄 수 최대에 가깝다.
+    let items = vec!["0"; 30_000].join(",");
+    let body = format!("{{\"\u{ac12}\u{2764}\u{FE0F}\":[{items}]}}");
+    let t = std::time::Instant::now();
+    let list = value_list(&resp(200, &[], &body), false, 1024);
+    let listed = t.elapsed();
+    let rows = list.rows.len();
+    assert!(
+        rows > 30_000,
+        "줄 {rows} 본문 {}바이트 {:?}",
+        body.len(),
+        list.notes
+    );
+    let t = std::time::Instant::now();
+    let st = ValuesState::new("S1".into(), list, None);
+    println!(
+        "perf_values_open rows={rows} value_list={listed:?} open={:?} tw={}",
+        t.elapsed(),
+        st.target_width
+    );
 }

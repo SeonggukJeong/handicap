@@ -19,6 +19,7 @@ path = "src/main.rs"
 handicap-controller = { path = "../controller", features = ["in-process"] }
 handicap-engine = { path = "../engine" }
 ratatui = "0.30"
+unicode-segmentation = "1"
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

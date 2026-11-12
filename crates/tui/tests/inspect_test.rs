@@ -1936,3 +1936,48 @@ fn render_missing_wraps_and_survives_small() {
         }
     }
 }
+
+#[test]
+fn body_lines_fit_width_with_emoji() {
+    use ratatui::style::Style;
+    let body = format!("{{\"k\":\"{}\"}}", "\u{2764}\u{FE0F}".repeat(40));
+    let s = body_step(None, Some(&body));
+    for w in 20..=40usize {
+        for b in body_lines(&binput(&s), w) {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 400, 1));
+            let n = usize::from(
+                buf.set_stringn(0, 0, &b.text, usize::MAX, Style::default())
+                    .0,
+            );
+            assert!(n <= w, "폭 {w}: {n}칸 {:?}", b.text);
+        }
+    }
+}
+
+/// 속도 확인(spec tui-2b-width-number §2.1-10) — 1 MiB 본문의 요청·응답 화면 줄 만들기.
+/// `cargo test -p handicap-tui --release --test inspect_test perf_body_lines -- --ignored --nocapture`
+#[test]
+#[ignore = "수동 측정"]
+fn perf_body_lines_1mib() {
+    let unit = "abc \u{d55c}\u{ae00} \u{2764}\u{FE0F} key 12345.678 ";
+    let long = unit.repeat(512 * 1024 / unit.len());
+    let mut items = String::new();
+    let mut i = 0;
+    while items.len() < 512 * 1024 {
+        items.push_str(&format!(
+            "\"k{i}\":\"\u{ac12} {i} \u{2764}\u{FE0F} plain ascii value\","
+        ));
+        i += 1;
+    }
+    let body = format!("{{{items}\"long\":\"{long}\"}}");
+    let s = body_step(None, Some(&body));
+    for w in [80usize, 40] {
+        let t = std::time::Instant::now();
+        let n = body_lines(&binput(&s), w).len();
+        println!(
+            "perf_body_lines w={w} bytes={} lines={n} {:?}",
+            body.len(),
+            t.elapsed()
+        );
+    }
+}

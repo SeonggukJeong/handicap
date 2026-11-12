@@ -10,7 +10,7 @@ use handicap_tui::view::settings::OverlayView;
 use handicap_tui::view::values::{ValuesView, fit_head, mark_text, render_values};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier};
 use ratatui::text::Span;
@@ -787,4 +787,139 @@ fn values_form_long_target() {
         checked >= 10,
         "제목 줄을 본 높이가 너무 적다 — 공허: {checked}"
     );
+}
+
+// ---------- tui-2b-width-number §2.1: 그리는 폭 하나로 ----------
+
+/// ratatui가 실제로 쓰는 칸 수.
+fn drawn_w(s: &str) -> usize {
+    let mut b = Buffer::empty(Rect::new(0, 0, 400, 1));
+    usize::from(
+        b.set_stringn(0, 0, s, usize::MAX, ratatui::style::Style::default())
+            .0,
+    )
+}
+
+/// 한 줄의 글자 — 넓은 글자의 둘째 칸은 건너뛴다(`CellWidth` 기준).
+fn cell_line(buf: &Buffer, y: u16) -> String {
+    let mut out = String::new();
+    let mut skip = 0usize;
+    for x in 0..buf.area.width {
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        let sym = buf[(x, y)].symbol();
+        skip = if sym.contains(char::is_control) {
+            0
+        } else {
+            usize::from(sym.cell_width()).saturating_sub(1)
+        };
+        out.push_str(sym);
+    }
+    out
+}
+
+/// `a` 다음 칸이 `b`인 첫 x(없으면 패닉).
+fn x_of_pair(buf: &Buffer, y: u16, a: &str, b: &str) -> u16 {
+    (0..buf.area.width - 1)
+        .find(|&x| buf[(x, y)].symbol() == a && buf[(x + 1, y)].symbol() == b)
+        .unwrap_or_else(|| panic!("{a}{b} 칸 없음 y={y}: {:?}", cell_line(buf, y)))
+}
+
+fn row_y(buf: &Buffer, needle: &str) -> u16 {
+    (1..buf.area.height)
+        .find(|&y| cell_line(buf, y).contains(needle))
+        .unwrap_or_else(|| panic!("{needle:?} 줄 없음"))
+}
+
+#[test]
+fn value_column_aligned_for_odd_width_targets() {
+    let targets = ["\u{644}\u{627}key", "\u{FF76}\u{FF9E}key", "plain"];
+    let mut f = fix(vec![
+        rv(targets[0], "v1"),
+        rv(targets[1], "v2"),
+        rv(targets[2], "v3"),
+    ]);
+    // 운영 코드(`ValuesState::new`)는 `text_width`로 잰다 — 여기서는 그린 칸 수의 최대(6)로 둔다.
+    f.tw = targets.iter().map(|t| drawn_w(t)).max().unwrap();
+    assert_eq!(f.tw, 6);
+    let m = |i: usize| f.marks[i];
+    let (buf, _) = draw(80, 14, &f.view(&m, 0), &[]);
+    let xs: Vec<u16> = ["1", "2", "3"]
+        .iter()
+        .map(|d| {
+            let y = row_y(&buf, &format!("v{d}"));
+            x_of_pair(&buf, y, "v", d)
+        })
+        .collect();
+    assert!(xs.iter().all(|&x| x == xs[0]), "받은 값 열이 어긋남 {xs:?}");
+    for t in targets {
+        assert!(
+            (1..buf.area.height).any(|y| cell_line(&buf, y).contains(t)),
+            "{t:?} 대상이 다 안 보인다"
+        );
+    }
+    for y in 1..buf.area.height {
+        assert!(!cell_line(&buf, y).contains('…'), "{}", cell_line(&buf, y));
+    }
+}
+
+#[test]
+fn long_target_with_emoji_keeps_column() {
+    let long = format!("data.{}\u{2764}\u{FE0F}.leaf", "a".repeat(300));
+    let f = fix(vec![rv(&long, "v1"), rv("short", "v2")]);
+    let m = |i: usize| f.marks[i];
+    for w in 60..=100u16 {
+        let (buf, _) = draw(w, 14, &f.view(&m, 0), &[]);
+        let y1 = row_y(&buf, "v1");
+        let y2 = row_y(&buf, "v2");
+        let x1 = x_of_pair(&buf, y1, "v", "1");
+        let x2 = x_of_pair(&buf, y2, "v", "2");
+        assert_eq!(x1, x2, "폭 {w}: 받은 값 열이 어긋남");
+        assert!(
+            cell_line(&buf, y1).starts_with("▶ …"),
+            "폭 {w}: {:?}",
+            cell_line(&buf, y1)
+        );
+    }
+}
+
+#[test]
+fn choice_head_rows_fit_width() {
+    let f = fix(vec![rv("status", "1")]);
+    let m = |i: usize| f.marks[i];
+    for n in 60..=80usize {
+        let head = format!("{}\u{2764}\u{FE0F}{}", "a".repeat(n), "b".repeat(40));
+        let mut v = f.view(&m, 0);
+        v.overlay = Some(OverlayView::Choice {
+            head: head.clone(),
+            options: [
+                (text::COND_ADD_CHOICE, None),
+                (text::DISPLAY_ADD_CHOICE, None),
+            ],
+            cursor: 0,
+            note: None,
+        });
+        let (buf, _) = draw(80, 14, &v, &[]);
+        let mut joined = String::new();
+        for y in 0..buf.area.height {
+            let line = cell_line(&buf, y);
+            let t = line.trim_end();
+            let Some(body) = t.strip_prefix("  ") else {
+                continue;
+            };
+            if !body.is_empty()
+                && body
+                    .chars()
+                    .all(|c| matches!(c, 'a' | 'b' | '\u{2764}' | '\u{FE0F}'))
+            {
+                joined.push_str(body);
+            }
+        }
+        assert_eq!(joined, head, "n={n}");
+        for y in 0..buf.area.height {
+            assert!(!cell_line(&buf, y).contains('…'), "n={n}");
+        }
+    }
 }

@@ -11,7 +11,7 @@ use super::edit::{CondFormView, cond_form_height, render_form_at_bottom};
 use super::inspect::render_frame;
 use super::monitor::{C_BG, C_MUTED, C_SLOW, C_TEXT, HeaderView};
 use super::settings::{OverlayView, color, overlay_rows, put};
-use super::{fit, text_width, wrap_width};
+use super::{cells_rev, fit, text_width, wrap_width};
 use crate::inspect::sanitize;
 use crate::pick;
 use crate::text;
@@ -48,7 +48,7 @@ pub fn mark_text(cond_marks: usize, display_mark: bool) -> String {
     parts.join(" · ")
 }
 
-/// 넘치면 **앞**을 `…`로 줄인다(끝의 키 이름이 보이게). 넓은 글자는 반쪽으로 자르지 않는다.
+/// 넘치면 **앞**을 `…`로 줄인다(끝의 키 이름이 보이게). 글자 묶음은 쪼개지 않는다.
 pub fn fit_head(s: &str, w: usize) -> String {
     if text_width(s) <= w {
         return s.to_string();
@@ -56,25 +56,18 @@ pub fn fit_head(s: &str, w: usize) -> String {
     if w == 0 {
         return String::new();
     }
-    let mut tail: Vec<char> = Vec::new();
+    let mut tail: Vec<&str> = Vec::new();
     let mut used = 0;
-    for c in s.chars().rev() {
-        let cw = text_width(c.encode_utf8(&mut [0; 4]));
-        if used + cw > w - 1 {
+    for (g, gw) in cells_rev(s) {
+        if used + gw > w - 1 {
             break;
         }
-        used += cw;
-        tail.push(c);
+        used += gw;
+        tail.push(g);
     }
-    // 잘린 경계 바로 뒤의 폭 0 글자(결합 문자 등)는 `…` 위에 얹히니 버린다.
-    while tail
-        .last()
-        .is_some_and(|c| text_width(c.encode_utf8(&mut [0; 4])) == 0)
-    {
-        tail.pop();
-    }
-    tail.push('…');
-    tail.iter().rev().collect()
+    let mut out = String::from("…");
+    out.extend(tail.into_iter().rev());
+    out
 }
 
 fn pad_to(s: &str, w: usize) -> String {
