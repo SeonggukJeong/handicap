@@ -1,6 +1,7 @@
 pub mod board_file;
 pub mod check;
 pub mod config;
+pub mod number;
 pub mod record;
 pub mod step_judge;
 pub mod supervisor;

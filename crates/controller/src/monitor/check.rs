@@ -86,6 +86,14 @@ fn normalize_chars(s: &str) -> String {
         .collect()
 }
 
+/// 받은 값의 글자 — 숫자는 `monitor::number`(GUI `String(v)`와 같은 글자), 그 밖은 엔진 `stringify`.
+fn value_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Number(n) => super::number::number_text(n),
+        other => stringify(other),
+    }
+}
+
 /// 벽 화면에 나가는 사용자 값의 정규화 + 200자(문자 경계) 상한(`…`).
 pub(crate) fn shown(s: &str) -> String {
     // normalize_chars is 1:1 per char, so cutting first is identical but avoids
@@ -369,7 +377,7 @@ fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&BodyJson>) -
                         }),
                         _ => false,
                     },
-                    text: stringify(&v),
+                    text: value_text(&v),
                     num: match &v {
                         serde_json::Value::Number(n) => n.as_f64(),
                         _ => None,
@@ -697,7 +705,7 @@ pub(crate) fn display_values(panel: &PanelConfig, trace: &ScenarioTrace) -> Vec<
                         .entry(idx)
                         .or_insert_with(|| BodyJson::parse(&resp.body))
                         .as_ref()?;
-                    json.path_first(&it.path).map(|v| shown(&stringify(&v)))
+                    json.path_first(&it.path).map(|v| shown(&value_text(&v)))
                 }
                 DisplaySource::Header => resp
                     .headers
@@ -1311,6 +1319,70 @@ steps:
             assert_eq!(ne.verdict, Verdict::Fail, "≠ {lit}");
             assert_eq!(ne.reason.as_deref(), Some(want), "≠ 사유 {lit}");
         }
+    }
+
+    #[test]
+    fn cond_number_text_is_js_notation() {
+        for (lit, want) in [
+            ("1.0", "1"),
+            ("1E5", "100000"),
+            ("1e16", "10000000000000000"),
+            ("0.000001", "0.000001"),
+            ("-0.0", "0"),
+            ("12345678901234567890", "12345678901234567890"),
+        ] {
+            let t = t_body(&format!(r#"{{"v":{lit}}}"#));
+            let r = judge_c(
+                &one_step(),
+                vec![cond(A, Src::Body, "$.v", Op::Ne, want)],
+                &t,
+            );
+            assert_eq!(r.verdict, Verdict::Fail, "≠ {want} ({lit})");
+            assert_eq!(r.reason.as_deref(), Some(want), "사유 {lit}");
+        }
+    }
+
+    #[test]
+    fn cond_number_ops_unchanged_by_notation() {
+        let t = t_body(r#"{"v":1.0}"#);
+        let run =
+            |op, val: &str| judge_c(&one_step(), vec![cond(A, Src::Body, "$.v", op, val)], &t);
+        for (op, val) in [
+            (Op::Eq, "1"),
+            (Op::Eq, "1.0"),
+            (Op::OneOf, "1, 2"),
+            (Op::Gte, "1"),
+            (Op::Lte, "1.0"),
+            (Op::NotEmpty, ""),
+            (Op::Exists, ""),
+        ] {
+            assert_eq!(run(op, val).verdict, Verdict::Ok, "{op:?} {val}");
+        }
+        assert_eq!(run(Op::Ne, "1.0").verdict, Verdict::Fail, "≠ 1.0");
+        let t = t_body(r#"{"v":1e16}"#);
+        let run =
+            |op, val: &str| judge_c(&one_step(), vec![cond(A, Src::Body, "$.v", op, val)], &t);
+        for (op, val) in [
+            (Op::Eq, "10000000000000000"),
+            (Op::Eq, "1e16"),
+            (Op::Gt, "9000000000000000"),
+        ] {
+            assert_eq!(run(op, val).verdict, Verdict::Ok, "{op:?} {val}");
+        }
+    }
+
+    #[test]
+    fn cond_contains_sees_new_number_text() {
+        let t = t_body(r#"{"v":1.0}"#);
+        let run =
+            |op, val: &str| judge_c(&one_step(), vec![cond(A, Src::Body, "$.v", op, val)], &t);
+        assert_eq!(run(Op::Contains, ".0").verdict, Verdict::Fail);
+        assert_eq!(run(Op::Contains, "1").verdict, Verdict::Ok);
+        let t = t_body(r#"{"v":1e16}"#);
+        let run =
+            |op, val: &str| judge_c(&one_step(), vec![cond(A, Src::Body, "$.v", op, val)], &t);
+        assert_eq!(run(Op::Contains, "e+").verdict, Verdict::Fail);
+        assert_eq!(run(Op::Contains, "0000").verdict, Verdict::Ok);
     }
 
     #[test]
@@ -2086,6 +2158,41 @@ steps:
             ),
             vec![Some(String::new())]
         );
+    }
+
+    #[test]
+    fn display_number_text_is_js_notation() {
+        let body = r#"{"a":1.0,"b":1e16,"c":0.000001,"d":100.25,"e":12345678901234567890}"#;
+        for (path, want) in [
+            ("$.a", "1"),
+            ("$.b", "10000000000000000"),
+            ("$.c", "0.000001"),
+            ("$.d", "100.25"),
+            ("$.e", "12345678901234567890"),
+        ] {
+            assert_eq!(
+                display_values(&dpanel(vec![ditem(A, Dsp::Body, path)]), &t_body(body)),
+                vec![Some(want.to_string())],
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_number_values_keep_engine_text() {
+        let body = r#"{"s":"1.0","arr":[1.0,2],"o":{"k":1.0},"t":true,"n":null}"#;
+        for (path, want) in [
+            ("$.s", "1.0"),
+            ("$.arr", "[1.0,2]"),
+            ("$.o", r#"{"k":1.0}"#),
+            ("$.t", "true"),
+        ] {
+            assert_eq!(
+                display_values(&dpanel(vec![ditem(A, Dsp::Body, path)]), &t_body(body)),
+                vec![Some(want.to_string())],
+                "{path}"
+            );
+        }
     }
 
     fn yaml_run_panel(id: String, items: Vec<DisplayItem>) -> PanelConfig {
