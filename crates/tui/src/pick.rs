@@ -31,7 +31,7 @@ pub enum PickValue {
     Header(String),
     Null,
     Bool(bool),
-    /// 숫자 글자 — 정수는 그대로, 소수는 Rust `f64` `{}` 표기.
+    /// 숫자 글자 — 정수는 그대로, 그 밖은 JavaScript `String(number)` 표기 규칙(`number_text`).
     Number(String),
     Str(String),
     BodyText,
@@ -273,7 +273,7 @@ impl<'de> Deserialize<'de> for Node {
                 Ok(Node::Num(v.to_string()))
             }
             fn visit_f64<E>(self, v: f64) -> Result<Node, E> {
-                Ok(Node::Num(format!("{v}")))
+                Ok(Node::Num(number_text(v)))
             }
             fn visit_str<E>(self, v: &str) -> Result<Node, E> {
                 Ok(Node::Str(v.to_string()))
@@ -806,5 +806,27 @@ pub fn auto_target(lines: &[StepLine], step_panel: bool) -> Option<usize> {
     match (http.next(), http.next()) {
         (Some(i), None) => Some(i),
         _ => None,
+    }
+}
+
+/// `f64` → JavaScript `String(number)` 표기 규칙의 글자(tui-2b-polish spec §2.1-2).
+/// 0은 `0`, 십진 지수 −6..=20은 지수 없는 십진, 그 밖은 `{가수}e{+|-}{지수}`.
+pub fn number_text(v: f64) -> String {
+    if v == 0.0 {
+        return "0".to_string();
+    }
+    let sci = format!("{v:e}");
+    let Some((mant, exp)) = sci.split_once('e') else {
+        return sci;
+    };
+    let Ok(e) = exp.parse::<i32>() else {
+        return sci;
+    };
+    if (-6..=20).contains(&e) {
+        format!("{v}")
+    } else if e >= 0 {
+        format!("{mant}e+{e}")
+    } else {
+        format!("{mant}e{e}")
     }
 }

@@ -1011,3 +1011,96 @@ fn auto_target_table() {
     // If 줄만 → None.
     assert_eq!(auto_target(&[if_line()], false), None);
 }
+
+// ---------- tui-2b-polish: 숫자 글자 ----------
+
+/// 본문 `{"v":<lit>}`의 `$.v` 줄 → (값 목록에 보이는 글자, 기본 조건의 비교값).
+fn number_of(lit: &str) -> (String, String) {
+    let l = value_list(&resp(200, &[], &format!("{{\"v\":{lit}}}")), false, 64);
+    let row = l
+        .rows
+        .iter()
+        .find(|r| matches!(&r.kind, RowKind::Body { path } if path == "$.v"))
+        .unwrap_or_else(|| panic!("{lit}: no $.v row"));
+    (row.shown(), default_condition("S1", row).cond.value)
+}
+
+/// spec §2.1-3 — `serde_json`이 정확히 읽는 글자. GUI `String(JSON.parse(x))`와 같은 글자
+/// (마지막 행만 뜻대로 다르다 — 정수 꼴은 본문 값 그대로).
+const EXACT: &[(&str, &str)] = &[
+    ("1e300", "1e+300"),
+    ("2.5e-300", "2.5e-300"),
+    ("5e-324", "5e-324"),
+    ("1.7976931348623157e308", "1.7976931348623157e+308"),
+    ("1e21", "1e+21"),
+    ("1e20", "100000000000000000000"),
+    ("1e299", "1e+299"),
+    ("1.0", "1"),
+    ("1.5", "1.5"),
+    ("1e5", "100000"),
+    ("1E5", "100000"),
+    ("18446744073709551616", "18446744073709552000"),
+    ("1e-6", "0.000001"),
+    ("1e-7", "1e-7"),
+    ("0.00000123", "0.00000123"),
+    ("1.5e-7", "1.5e-7"),
+    ("-1e300", "-1e+300"),
+    ("-2.5e-10", "-2.5e-10"),
+    ("-0.0", "0"),
+    ("0.0", "0"),
+    ("100.25", "100.25"),
+    ("3.0e2", "300"),
+    ("0.1", "0.1"),
+    ("12345678901234567890", "12345678901234567890"),
+];
+
+/// spec §2.1-4 — `serde_json`(float_roundtrip 꺼짐)이 한 끝자리 다르게 읽는 글자: 서버가 읽은 값의 글자.
+/// 이 표가 RED가 되면 `serde_json` 읽기가 바뀐 것(spec §9 첫 항목의 해소 신호) — 표를 고치지 말고 보고.
+const MISREAD: &[(&str, &str)] = &[
+    ("1.5e-300", "1.4999999999999998e-300"),
+    ("9.720979928970337e2", "972.0979928970336"),
+    ("4.5e250", "4.4999999999999993e+250"),
+];
+
+#[test]
+fn number_text_tables() {
+    for (lit, want) in EXACT.iter().chain(MISREAD) {
+        let (shown, value) = number_of(lit);
+        assert_eq!(shown, *want, "shown for {lit}");
+        assert_eq!(value, *want, "condition value for {lit}");
+    }
+}
+
+#[test]
+fn number_text_reads_back_as_server_value() {
+    // 서버: 실제 값 = serde_json이 읽은 f64, 비교값 = str::parse(`parse_finite`) → `==`.
+    for (lit, text) in EXACT.iter().chain(MISREAD) {
+        let server: f64 = serde_json::from_str(lit).unwrap();
+        let back: f64 = text
+            .parse()
+            .unwrap_or_else(|_| panic!("{text} not a number"));
+        assert_eq!(back, server, "{lit} -> {text}");
+    }
+}
+
+#[test]
+fn number_text_is_short() {
+    use handicap_tui::pick::number_text;
+    for v in [
+        f64::MAX,
+        f64::MIN,
+        f64::MIN_POSITIVE,
+        -f64::MIN_POSITIVE,
+        5e-324,
+        -5e-324,
+        -1.2345678901234567e-100,
+        -0.0000012345678901234567,
+        1.2345678901234567e20,
+    ] {
+        let t = number_text(v);
+        assert!(t.len() <= 26, "{t} is {} chars", t.len());
+        assert_eq!(t.parse::<f64>().unwrap(), v, "{t}");
+    }
+    assert_eq!(number_text(0.0), "0");
+    assert_eq!(number_text(-0.0), "0");
+}
