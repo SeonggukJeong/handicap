@@ -3,7 +3,7 @@
 - 날짜: 2026-11-12 · 유형: `correctness-bug` + `internal-polish` · 결정 기록: [ADR-0055](../../adr/0055-tui-monitor.md)(새 ADR 없음)
 - 출처: roadmap §B52 (2)·§B53 (1)(2)의 남은 항목 — 사용자 선택 2026-11-12 `/start-slice`("2b follow-up bundle B·C") + 범위 질문 3개의 답(아래 §10).
 - 범위: `crates/tui`(폭 재기·선택 창 머리·대체 화면·조건 칸 그리기) + `crates/controller/src/monitor`(숫자 글자 함수·판정의 글자) + `testdata/` 픽스처 + 문서. **엔진·proto·DB·REST 모양·GUI(`ui/`)·데스크톱 0-diff.** `Cargo.toml`은 `crates/tui`에 직접 의존 1줄(§2.1-6).
-- 상태: **구현 완료**(2026-11-12, 코드 `f67f964`..`6748edd`, 라이브 US1·US2·US4·US5 PROVEN·US3은 단위 테스트 — build-log `tui-2b-width-number`) · 판단·연기·로컬 머지 절차 roadmap §B56 · 구현 뒤 고친 곳: §2.1-5(폭 0 묶음 버리기를 되살림)·§2.1-10(속도 기준의 측정 방법·`cells` 빠른 길)·§2.2-2(표시가 막힌 비밀 이름 줄)·§2.4-3(`+1`줄은 여유) · plan `docs/superpowers/plans/2026-11-12-tui-2b-width-number.md`
+- 상태: **구현 완료**(2026-11-12, 코드 `f67f964`..`6748edd`, 라이브 US1·US2·US4·US5 PROVEN·US3은 단위 테스트 — build-log `tui-2b-width-number`) · 판단·연기·로컬 머지 절차 roadmap §B56 · 구현 뒤 고친 곳: §2.1-2(`cells_rev`)·§2.1-5(폭 0 묶음 버리기를 되살림)·§2.1-10(속도 기준의 측정 방법·`cells` 빠른 길)·§2.2-2(표시가 막힌 비밀 이름 줄)·§2.4-3(`+1`줄은 여유) · plan `docs/superpowers/plans/2026-11-12-tui-2b-width-number.md`
 - 상위 설계 개정: [tui-2b-polish 설계](2026-11-11-tui-2b-polish-design.md) §2.1(숫자 글자 — 이 문서 §2.5가 대체)·§2.2-1의 폭 재기 보정 줄(§2.1이 대체)·§9의 해당 한계 줄.
 
 ## 사용자 스토리 (US)
@@ -40,7 +40,7 @@
 ### 2.1 폭 재기 (US1)
 
 1. **기준**: 문자열의 폭 = ratatui `Buffer::set_stringn`이 그 문자열에 쓰는 칸 수. 곧 `UnicodeSegmentation::graphemes(s, true)`의 글자 묶음마다, 제어 문자(`char::is_control`)가 든 묶음은 0칸, 그 밖은 `ratatui::buffer::CellWidth::cell_width`의 합이다. TUI가 글자를 그리는 길(`put` → `Paragraph`)도 묶음마다 `cell_width`로 배치한다. 예외: `Block` 제목은 ratatui가 문자열 전체 폭(`Span::width`)으로 자리를 잡는다 — 지금 제목은 모두 한 조각이고 고정 문구·`fit`한 글자라 보이는 차이는 없다(§9).
-2. `view/mod.rs`에 묶음과 그 폭을 내는 도우미 하나(`cells`)를 두고, `text_width`·`fit`·`wrap_width`·`view::values::fit_head` 넷이 그것만 쓴다. 글자 하나씩 폭을 재는 코드는 이 넷에서 없앤다.
+2. `view/mod.rs`에 묶음과 그 폭을 내는 도우미 하나(`cells`)를 두고, `text_width`·`fit`·`wrap_width`·`view::values::fit_head` 넷이 그것만 쓴다. 글자 하나씩 폭을 재는 코드는 이 넷에서 없앤다. (구현 뒤 정정: `cells`는 앞에서부터만 돈다 — 뒤에서부터 보는 `fit_head`는 같은 칸 수 규칙(`cell_of`)을 쓰는 `cells_rev`를 쓴다.)
 3. `fit(s, w)`: 폭이 `w` 이하면 그대로. `w == 0`이면 빈 글자. 아니면 앞에서부터 묶음을 넣되 넣은 폭이 `w − 1`을 넘지 않게 하고 끝에 `…`.
 4. `wrap_width(s, w)`: 묶음 단위로 줄을 채운다. 다음 묶음을 넣으면 `w`를 넘고 현재 줄이 비어 있지 않으면 줄을 바꾼다. 폭 0 묶음은 줄을 바꾸지 않고 현재 줄에 붙인다. 묶음 하나가 `w`보다 넓으면 그 묶음만으로 한 줄이다. 빈 글자는 빈 줄 하나.
 5. `fit_head(s, w)`: 폭이 `w` 이하면 그대로. `w == 0`이면 빈 글자. 아니면 뒤에서부터 묶음을 넣되 넣은 폭이 `w − 1`을 넘지 않게 하고 앞에 `…`. 결합 글자는 앞 글자와 한 묶음이라 `…` 바로 뒤에 결합 글자만 남는 일이 없다(옛 "경계의 폭 0 글자 버리기" 보정 삭제). (구현 뒤 정정: 틀렸다 — soft hyphen(U+00AD)·ZWSP 같은 제어 갈래 글자 뒤의 결합 글자는 홀로 서고 soft hyphen 자체도 0칸 묶음이다. `fit_head`는 잘린 자리의 **폭 0 묶음**을 버린다 — 옛 보정을 묶음 단위로 되살렸다, roadmap §B56 (1).)

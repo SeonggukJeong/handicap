@@ -1,6 +1,6 @@
 // 모니터 숫자 글자 골든 픽스처 — JavaScript `String(number)`(V8)의 글자.
 // 만들기: node testdata/number_text_golden.mjs > testdata/number_text_golden.json
-// 읽는 곳: crates/controller/src/monitor/number.rs 테스트(`float_text`가 같은 글자를 내는지).
+// 읽는 곳: crates/controller/tests/monitor_number_test.rs(`monitor::number::float_text`가 같은 글자를 내는지).
 // 줄 모양: ["f64 비트(16진 16자)", "기대 글자"]. 난수는 고정 씨앗이라 다시 만들어도 같은 파일이다.
 let s = 0x9e3779b97f4a7c15n;
 const M = (1n << 64n) - 1n;
