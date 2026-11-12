@@ -811,6 +811,7 @@ pub fn auto_target(lines: &[StepLine], step_panel: bool) -> Option<usize> {
 
 /// `f64` → JavaScript `String(number)` 표기 규칙의 글자(tui-2b-polish spec §2.1-2).
 /// 0은 `0`, 십진 지수 −6..=20은 지수 없는 십진, 그 밖은 `{가수}e{+|-}{지수}`.
+/// 비유한 수(`NaN`·무한대)는 Rust 표기 그대로 — `serde_json`은 만들지 않는다.
 pub fn number_text(v: f64) -> String {
     if v == 0.0 {
         return "0".to_string();

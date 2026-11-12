@@ -925,6 +925,7 @@ fn cond_form_width_sweep() {
                         "w{w} h{h}: 규칙 줄이 대상 바로 다음\n{txt}"
                     );
                 }
+                // 높이 6은 본문이 낮아 이어지는 줄 자리가 없다(목록 3줄 + 필수 줄이 본문보다 크다 — room 0).
                 if w == 19 && h != 6 {
                     assert_eq!(fw, 8);
                     let ids = target_line_ids(&lines);
@@ -1046,4 +1047,39 @@ fn cond_form_height_short_target_unchanged() {
     let mut fv = form(0, &ops, CondFocus::Op);
     fv.error = Some("값이 비어 있습니다");
     assert_eq!(cond_form_height(&fv, 15, 10), 5);
+}
+
+/// 줄바꿈(글자 단위로 잰 폭)과 `fit`(줄 전체로 잰 폭)이 어긋나는 글자 — 이모지 변형 선택자(VS16).
+/// `❤`(1칸) 뒤에 `\u{FE0F}`가 붙으면 줄 전체 폭은 2칸으로 재어져, 줄 끝에 걸리면 가운데 줄이 `…`로 잘렸다.
+#[test]
+fn cond_form_target_keeps_text_when_widths_disagree() {
+    let ops = ["= 같음", "키 있음"];
+    let rows = cond_list();
+    let v = cond_list_view(&rows);
+    // 80열 = 값 칸 69칸. 하트가 줄 끝 자리(69번째 칸)에 오는 것을 중심으로 앞뒤 자리 전부.
+    for lead in 60..=70usize {
+        let target = format!(
+            "$.{}\u{2764}\u{FE0F}.tail{}",
+            "a".repeat(lead),
+            "0123456789".repeat(12)
+        );
+        let mut fv = form(0, &ops, CondFocus::Op);
+        fv.target = &target;
+        let txt = draw_list_form(80, 24, &v, &fv);
+        let lines: Vec<&str> = txt.lines().collect();
+        let ids = target_line_ids(&lines);
+        assert!(ids.len() >= 2, "lead{lead}\n{txt}");
+        let joined: String = ids
+            .iter()
+            .map(|&i| after_cols(lines[i], FORM_VALUE_X).trim_end().to_string())
+            .collect();
+        assert_eq!(joined, target, "lead{lead}: 대상 글자가 사라짐\n{txt}");
+        for &i in &ids {
+            assert!(!lines[i].contains('…'), "lead{lead}: 다 보이는데 …\n{txt}");
+            assert!(
+                width(lines[i].trim_end()) <= 80,
+                "lead{lead}: 폭 넘침\n{txt}"
+            );
+        }
+    }
 }

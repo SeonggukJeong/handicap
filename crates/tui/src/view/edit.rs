@@ -245,7 +245,41 @@ fn target_rows(target: &str, fw: usize) -> Vec<String> {
     if fw < TARGET_WRAP_MIN_W {
         return vec![s];
     }
-    wrap_width(&s, fw)
+    let rows = wrap_width(&s, fw);
+    if rows.iter().all(|r| text_width(r) <= fw) {
+        return rows;
+    }
+    wrap_measured(&s, fw)
+}
+
+/// 줄 전체 폭으로 재며 나눈다 — `wrap_width`는 글자 하나씩 폭을 더하고 그리는 쪽의 `fit`은 줄 전체를 재는데,
+/// 두 재기가 어긋나는 글자(이모지 변형 선택자 `\u{FE0F}` — 앞 글자를 2칸으로 만든다)가 줄 끝에 걸리면
+/// 가운데 줄이 `fit`에서 잘려 글자를 잃는다. 폭 0 글자는 앞 글자와 함께 다음 줄로 넘긴다.
+fn wrap_measured(s: &str, w: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut cur = String::new();
+    for c in s.chars() {
+        cur.push(c);
+        if text_width(&cur) <= w || cur.chars().nth(1).is_none() {
+            continue;
+        }
+        // 넘친 글자(와 그 글자가 붙는 앞 글자)를 다음 줄로.
+        let mut carry = String::new();
+        while let Some(last) = cur.pop() {
+            carry.insert(0, last);
+            if text_width(last.encode_utf8(&mut [0; 4])) > 0 || cur.is_empty() {
+                break;
+            }
+        }
+        if cur.is_empty() {
+            // 한 글자 묶음이 줄보다 넓다 — 그대로 한 줄(그리는 쪽이 `fit`).
+            cur = carry;
+            continue;
+        }
+        rows.push(std::mem::replace(&mut cur, carry));
+    }
+    rows.push(cur);
+    rows
 }
 
 /// 조건 칸 높이(spec §2.2-4) — `body_w`·`body_h` = 화면 body 크기. 필수 줄 + 받은 값·안내 줄에

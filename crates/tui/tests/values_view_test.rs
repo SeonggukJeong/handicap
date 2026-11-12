@@ -657,12 +657,18 @@ fn values_form_long_target() {
         .unwrap_or_else(|| panic!("고른 줄이 가려짐\n{txt}"));
     assert!(sel < start, "{txt}");
     // 높이 스윕: 패닉 없음, 조건 칸이 body를 다 덮지 않으면 제목 줄이 보인다.
+    let mut checked = 0;
     for h in 6..=24u16 {
         let (_, txt) = draw(80, h, &v, &[]);
         let body = sub_layout(Rect::new(0, 0, 80, h)).body;
         let fh = cond_form_height(&fv, body.width, body.height);
         if fh < body.height {
+            checked += 1;
             assert!(txt.contains(text::PICK_TITLE_SUFFIX), "h{h}\n{txt}");
         }
     }
+    assert!(
+        checked >= 10,
+        "제목 줄을 본 높이가 너무 적다 — 공허: {checked}"
+    );
 }
