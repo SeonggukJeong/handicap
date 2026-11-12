@@ -11,9 +11,9 @@
 
 **Tech Stack:** Rust(controller·tui, ratatui 0.30.2, `unicode-segmentation` 1.x, `serde_json` 1.0.150 `float_roundtrip`) · node(픽스처 생성 1회).
 
-REVIEW-GATE: PENDING
+REVIEW-GATE: APPROVED
 
-**Spec:** `docs/superpowers/specs/2026-11-12-tui-2b-width-number-design.md` (APPROVED — 리뷰 2라운드). 구현자는 자기 task가 가리키는 spec 절을 함께 읽는다. US 블록은 spec 앞머리 `사용자 스토리 (US)`.
+**Spec:** `docs/superpowers/specs/2026-11-12-tui-2b-width-number-design.md` (APPROVED — 리뷰 2라운드). 이 plan도 `spec-plan-reviewer` 2라운드(1라운드 APPROVE-WITH-FIXES 반영 뒤 APPROVE). 구현자는 자기 task가 가리키는 spec 절을 함께 읽는다. US 블록은 spec 앞머리 `사용자 스토리 (US)`.
 
 ## Global Constraints
 
