@@ -19,6 +19,7 @@
 - 값을 품는 타입에 derive `Debug`를 새로 달지 않는다.
 - **cloud 컨테이너 환경**: `cargo-nextest`가 없다 — pre-commit이 `cargo test --workspace`로 대신한다(수 분). 커밋은 한 번에 하나, `| tail`·`| head` 금지, 판정은 `; echo exit=$?` 뒤 `git log -1`. `~/.cargo/config.toml`의 `[profile.dev] debug = false`(디스크 한도 때문)를 지우지 않는다. `pnpm build`는 돌리지 않는다(OOM — 이 슬라이스는 `ui/` 무접촉).
 - 작업 위치: `/home/user/handicap`, 브랜치 `ccr-7683ac09-t7d25q`(워크트리 없음). subagent prompt 첫 줄은 `cd /home/user/handicap`.
+- 커밋 전에 `cargo fmt -p handicap-tui`(pre-commit이 `fmt --check`로 거절한다 — plan의 조각도 그대로 붙이면 줄 길이에 걸릴 수 있다).
 - 기대값이 구현 결과와 다르면 기대값을 고치지 말고 **STOP → 재현 → 보고**(§2.1 표는 실행으로 확인한 값이다 — spec §11 ①).
 
 ## Review Focus
@@ -222,7 +223,8 @@ fn target_rows(target: &str, fw: usize) -> Vec<String> {
 pub fn cond_form_height(v: &CondFormView, body_w: u16, body_h: u16) -> u16 {
     let now = cond_form_lines(v);
     let fw = cond_form_value_width(body_w);
-    let extra = u16::try_from(target_rows(v.target, fw).len().saturating_sub(1)).unwrap_or(u16::MAX);
+    let more = target_rows(v.target, fw).len().saturating_sub(1);
+    let extra = u16::try_from(more).unwrap_or(u16::MAX);
     let room = body_h.saturating_sub(FORM_LIST_KEEP).saturating_sub(now);
     now.saturating_add(extra.min(room)).min(body_h)
 }
@@ -232,7 +234,8 @@ pub fn cond_form_height(v: &CondFormView, body_w: u16, body_h: u16) -> u16 {
 
 ```rust
 let (show_received, show_hint) = extras_shown(v, usize::from(area.height));
-let fixed = usize::from(cond_form_base(v)) + usize::from(show_received) + usize::from(show_hint);
+let extras = usize::from(show_received) + usize::from(show_hint);
+let fixed = usize::from(cond_form_base(v)) + extras;
 let spare = usize::from(area.height).saturating_sub(fixed);
 let rows = target_rows(v.target, fw);
 let shown = 1 + rows.len().saturating_sub(1).min(spare);
@@ -261,15 +264,15 @@ for (i, row) in rows.iter().take(shown).enumerate() {
 
 `edit_view_test.rs`에 새 섹션(`// ---------- tui-2b-polish: 대상 줄바꿈 ----------`). 필요한 단언(spec §6 ①–⑥ — 테스트 이름은 자유, 단언은 전부):
 
-1. `cond_form_target_wraps_fully`: ASCII 500자 경로(`format!("$.{}", "abcdefghi.".repeat(50))`를 500자로 자른 것 — 글자마다 구별되게 뒤에 번호를 섞어도 좋다)를 `target`으로 한 `CondFormView`를 `render_list_with_form`으로 80×24에 그린다. 화면에서 `대상` 라벨 줄부터 `규칙` 라벨 줄 전까지의 줄들에서 값 칸 글자(라벨 칸 뒤)를 뽑아 `trim_end` 후 이으면 원래 글자와 같다.
+1. `cond_form_target_wraps_fully`: ASCII 500자 경로(`format!("$.{}", "abcdefghi.".repeat(50))`는 502자 — 앞 500자로 자른다. 줄 순서가 바뀐 것을 잡게 마디마다 번호를 섞어도 좋다. 리뷰어 실측: 80×24·`form()` 도우미에서 값 칸 69칸·대상 8줄이 전부 보인다)를 `target`으로 한 `CondFormView`를 `render_list_with_form`으로 80×24에 그린다. 화면에서 `대상` 라벨 줄부터 `규칙` 라벨 줄 전까지의 줄들에서 값 칸 글자(라벨 칸 뒤)를 뽑아 `trim_end` 후 이으면 원래 글자와 같다.
 2. `cond_form_target_ellipsis_when_short`: 같은 조건 칸을 높이 24 → 5로 1줄씩 줄이며 그린다. 높이마다: 패닉 없음 · `규칙` 라벨 줄이 보임(필수 줄, 본문이 필수 줄보다 낮은 높이는 지금 동작과 같은지만 — 한 줄 대상 조건 칸과 같은 줄에 `규칙`이 보이면 통과) · 대상이 다 안 보이는 높이에서는 **마지막 대상 줄이 `…`로 끝난다**. 스윕 안에 `…`가 나오는 높이가 **1개 이상** 있음을 따로 단언한다(공허 방지).
 3. `cond_form_keeps_selected_row_with_long_target`: 12줄 목록(커서 11)을 `render_list_with_form`으로, 높이 8..=24에서 대상이 짧은 조건 칸과 500자 조건 칸 각각 그린다 — 짧은 쪽에서 고른 줄(`▶`+`조건-12`)이 보이는 높이에서는 긴 쪽에서도 보이고 `대상` 줄보다 위다.
-4. `cond_form_width_sweep`: 폭 1..=120 × 높이 {6, 10, 24}에서 500자 대상·한글 경로 대상(`"$.가나다라마바사아자차".repeat(20)`) 패닉 없음. `cond_form_value_width(w) < 8`인 폭에서는 대상 줄이 1줄(`규칙` 줄이 `대상` 줄 바로 다음 — `받은 값` 없는 조건 칸으로).
-5. `cond_form_wide_and_bidi`: 한글 경로가 화면 폭을 넘지 않는다(각 줄 `width(line) <= w` — 기존 `width` 도우미(37)) · 대상에 `\u{202E}`를 넣으면 화면에 `\u{FFFD}`가 **보인다**(긍정 단언) · 한글 경로가 잘리는 높이에서 마지막 대상 줄이 `…`로 끝난다.
-6. `cond_form_height_matches_drawn`: 본문 높이 {3, 5, 8, 12, 21} × 대상 길이 {10, 70, 200, 500} × (받은 값·안내 있음/없음)에서 `cond_form_height(v, body_w, body_h)` == `render_list_with_form`이 실제로 조건 칸에 쓴 줄 수(화면에서 `대상` 라벨 줄부터 body 끝까지의 줄 수 — body 높이는 `sub_layout(Rect::new(0,0,w,h)).body.height`로 구한다).
+4. `cond_form_width_sweep`: 폭 1..=120 × 높이 {6, 10, 24}에서 500자 대상·한글 경로 대상(`"$.가나다라마바사아자차".repeat(20)`) 패닉 없음(전 폭). 줄 위치 단언은 **라벨이 온전한 폭에서만**: 화면 폭 13..=18(값 칸 폭 `cond_form_value_width(w)`가 2..=7 — 8 미만)에서는 대상 줄이 1줄(`규칙` 줄이 `대상` 줄 바로 다음 — `받은 값` 없는 조건 칸으로), 폭 19(값 칸 8)에서는 대상이 2줄 이상. 폭 12 이하는 라벨 자체가 줄어 줄을 못 찾으므로 패닉 없음만 본다.
+5. `cond_form_wide_and_bidi`: 한글 경로가 화면 폭을 넘지 않는다(각 줄 `width(line) <= w` — 기존 `width` 도우미(37)) · 대상의 **둘째 줄 이후 자리**(값 칸 폭보다 뒤 — 예: 80열에서 100번째 글자)에 `\u{202E}`를 넣으면 `\u{FFFD}`가 `대상` 라벨 줄이 아닌 **이어지는 줄**에 보인다(긍정 단언 — 한 줄 대상의 같은 단언은 기존 `remote_strings_sanitized`가 이미 한다) · 한글 경로가 잘리는 높이에서 마지막 대상 줄이 `…`로 끝난다.
+6. `cond_form_height_matches_drawn`: 화면 80열 × 본문 높이 {5, 8, 12, 21} × 대상 길이 {10, 70, 200, 500} × (받은 값·안내 있음/없음)에서 `render_list_with_form`으로 그린 뒤 — body 높이는 `sub_layout(Rect::new(0,0,w,h)).body.height`. 조건 칸 영역 = body 맨 아래 `cond_form_height(v, body_w, body_h)`줄(조건 칸은 늘 그 자리에 놓이므로 **"`대상` 줄부터 body 끝까지 줄 수 == 높이"는 구조상 늘 참 — 그것만 재면 공허하다**). 그래서 그 영역 안에서: ⓐ **빈 줄이 없다**(모든 줄에 공백 아닌 글자 — 그리는 쪽이 줄을 덜 그리면 빈 줄이 남는다) ⓑ 영역의 첫 줄에 `대상` 라벨, 영역 안에 `규칙` 라벨 줄(높이가 모자라 필수 줄이 잘리면 여기서 걸린다) ⓒ 대상이 다 들어가는 조합(높이 21)에서는 `대상` 줄 수 == `wrap` 줄 수(값 칸 69칸 기준 `ceil(길이/69)`). body 높이가 필수 줄보다 낮은 조합은 표에서 뺀다(지금 동작 그대로 — 단언 2가 본다).
 7. 짧은 대상(`"status"`)의 `cond_form_height` == 변경 전 값(필수 줄 + 받은 값·안내)임을 3~4가지 조합으로.
 
-`values_view_test.rs`: `values_form_long_target`: 값 목록 화면(`fix(...)` + `form: Some(&fv)`)에서 500자 대상 → 80×24에서 대상이 여러 줄이고 고른 줄(커서 줄)이 보인다 · 높이 6..=24 스윕에서 패닉 없음, 제목 줄(`— 값 고르기`)이 조건 칸이 body 전체를 덮지 않는 높이에서 보인다.
+`values_view_test.rs`: `values_form_long_target`: 값 목록 화면(`fix(...)` + `form: Some(&fv)`, `received`·`hint` 있는 조건 칸)에서 ASCII 500자 대상 → 80×24에서 `대상` 라벨 줄부터 `받은 값` 라벨 줄 전까지의 값 칸 글자를 이으면 원래 글자와 같고(spec §6 ① — 두 화면 각각) 고른 줄(커서 줄)이 보인다 · 높이 6..=24 스윕에서 패닉 없음, 제목 줄(`— 값 고르기`)이 조건 칸이 body 전체를 덮지 않는 높이에서 보인다.
 
 - [ ] **Step 2: RED 확인**
 
@@ -282,9 +285,9 @@ Expected: 컴파일 실패(`cond_form_height` 없음).
 
 Run: `cargo test -p handicap-tui 2>&1; echo exit=$?` → exit=0. 기존 테스트(`cond_form_layout`·`cond_form_received_and_hint`·`cond_form_does_not_hide_selected_row`·`render_sweep_no_panic`·`width_sweep_no_panic` 등)를 고치지 않았는지 `git diff --stat`으로 확인(테스트 파일은 추가만).
 
-- [ ] **Step 5: 회귀 실증 2건**
+- [ ] **Step 5: 회귀 실증 3건**
 
-① `render_cond_form`의 마지막 줄을 `fit(row, fw)`로 바꾸면(남은 글자 대신 그 줄만) 단언 2의 `…` 긍정 단언이 RED ② `cond_form_height`에서 `room`을 `body_h.saturating_sub(now)`로 바꾸면(목록 3줄 미보장) 단언 3 또는 6이 RED. 각각 확인 후 원복(보고에 인용).
+① `render_cond_form`의 마지막 줄을 `fit(row, fw)`로 바꾸면(남은 글자 대신 그 줄만) 단언 2의 `…` 긍정 단언이 RED ② `cond_form_height`에서 `room`을 `body_h.saturating_sub(now)`로 바꾸면(목록 3줄 미보장) **단언 3이 RED**(화면 80열·높이 8~12에서 고른 줄이 사라진다 — 리뷰어 계산: 높이 12면 body 9·필수 4·이어지는 줄 7, 맞는 `room` = 2·바꾼 `room` = 5) ③ `render_cond_form`의 `spare`에 `.min(1)`을 붙이면(높이는 그대로인데 대상을 2줄만 그림) **단언 6 ⓐ가 RED**(빈 줄). 각각 확인 후 원복(보고에 RED 출력 인용).
 
 - [ ] **Step 6: 커밋**
 
@@ -298,7 +301,7 @@ Run: `cargo test -p handicap-tui 2>&1; echo exit=$?` → exit=0. 기존 테스�
 **Spec:** §2.3, §6 `inspect_test`·`app_test`. **US:** US3.
 
 **Files:**
-- Test: `crates/tui/tests/inspect_test.rs`(도우미 `draw`(45)·`head`(71)), `crates/tui/tests/app_test.rs`(`edit_keys` 테스트(2092 근처)와 `ui`/`ui_with` 도우미(862·1493)가 본보기)
+- Test: `crates/tui/tests/inspect_test.rs`(도우미 `draw`(45)·`head`(71)), `crates/tui/tests/app_test.rs`(`edit_keys_per_mode`(2088)와 최상위 도우미 `ui_with`(862)가 본보기 — 1493의 `ui`는 함수 안에 든 도우미라 밖에서 못 쓴다)
 - Modify: `crates/tui/src/text.rs`(`KEYS_BACK`(499) 근처에 `SUB_MISSING`), `crates/tui/src/view/inspect.rs`(`render_frame`(67) 아래에 `render_missing`), `crates/tui/src/app.rs`(`draw_sub`(3848)·`draw_values`(3934)·`draw_edit`(3996), 새 `pub fn missing_keys`를 `edit_keys`(2804) 아래에)
 
 **Interfaces:**
@@ -379,16 +382,16 @@ fn draw_sub(&self, f: &mut ratatui::Frame, screen: &Screen, quit_confirm: bool) 
 Run: `cargo test -p handicap-tui --test inspect_test --test app_test 2>&1; echo exit=$?`
 Expected: 컴파일 실패(`render_missing`·`missing_keys`·`SUB_MISSING` 없음).
 
-- [ ] **Step 3: 구현** — 위 "설계"대로. `inspect.rs`의 `use super::{fit, key_bar, text_width};`(14)에 `wrap_width`를 더한다. `put`은 `inspect.rs`의 지역 함수(26), `color`·`C_MUTED`는 `render_frame`(67)이 이미 쓰는 이름이다.
+- [ ] **Step 3: 구현** — 위 "설계"대로. `app.rs`에 `render_missing`의 `use`를 더한다(`render_body`·`render_errors`를 들여오는 `use crate::view::inspect::{…}` 줄 — `grep -n 'render_errors' crates/tui/src/app.rs`로 찾는다). `inspect.rs`의 `use super::{fit, key_bar, text_width};`(14)에 `wrap_width`를 더한다. `put`은 `inspect.rs`의 지역 함수(26), `color`·`C_MUTED`는 `render_frame`(67)이 이미 쓰는 이름이다.
 
 - [ ] **Step 4: GREEN + 전수 확인**
 
 Run: `cargo test -p handicap-tui 2>&1; echo exit=$?` → exit=0.
 전수 확인(보고에 출력 첨부): `awk '/fn draw_sub_screen/,/^    }$/' crates/tui/src/app.rs | grep -n 'return;'` → 0건(전부 `return false;`/`return true;`), `draw_values`·`draw_edit`도 같은 방식으로. `grep -n 'fn draw_sub_screen\|fn draw_values\|fn draw_edit' crates/tui/src/app.rs`의 세 시그니처가 `-> bool`.
 
-- [ ] **Step 5: 통합 테스트로 정상 경로 확인**
+- [ ] **Step 5: 정상 경로가 `true`를 돌려주는지 전수 확인**
 
-Run: `cargo test -p handicap-tui --test save_flow_test 2>&1; echo exit=$?` → exit=0(실 세션으로 하위 화면을 지나는 흐름 — 정상 경로가 `false`를 돌려주면 여기서 화면 글자가 달라진다. 이 테스트가 화면을 그리지 않으면 그렇다고 보고 — 그물은 라이브 표).
+정상 갈래가 `false`를 돌려주면 정상 화면 위에 안내가 덮인다 — 단위 테스트가 못 잡는다(`save_flow_test`는 화면을 그리지 않는다). 두 겹으로 막는다: ① **정적 확인**(보고에 표로): `draw_sub_screen`·`draw_values`·`draw_edit`에서 `render_errors`·`render_record`·`render_body`·`render_values`·`render_edit_menu`(2곳)·`render_list_with_form`·`render_vars`(2곳)를 부르는 **9곳 각각**에 대해 그 호출 뒤 그 갈래가 `true`로 끝나는 줄 번호를 적는다(`grep -n 'render_errors(\|render_record(\|render_body(\|render_values(\|render_edit_menu(\|render_list_with_form(\|render_vars(' crates/tui/src/app.rs`). ② **라이브**(마무리 단계 — spec §7 "US3(정상 경로)" 행): 하위 화면 8종을 한 번씩 열어 `SUB_MISSING` 글자가 **없음**을 확인.
 
 - [ ] **Step 6: 커밋**
 
@@ -417,5 +420,5 @@ Run: `cargo test -p handicap-tui --test save_flow_test 2>&1; echo exit=$?` → e
 
 - **최종 리뷰**: `handicap-reviewer`(BASE = Task 1 직전 커밋). 초점: Review Focus 6항 + "옛 숫자 글자에 기대던 소비자"(`grep -rn 'PickValue::Number' crates/tui`).
 - **보안 게이트**: `finish-slice` §0 grep을 직접 돌린다 + working-rules §3("값을 새 sink로 옮기는가").
-- **라이브 검증**: spec §7 표 전부(tmux — `crates/tui/CLAUDE.md` 라이브 함정). US3는 라이브 없음(사용자 승인). 모니터 화면 무변경 근거를 build-log에.
+- **라이브 검증**: spec §7 표 전부(tmux — `crates/tui/CLAUDE.md` 라이브 함정). US3의 대체 화면 자체는 라이브 없음(사용자 승인) — 대신 "US3(정상 경로)" 행으로 하위 화면 8종에 안내가 **안** 뜨는 것을 본다. 모니터 화면 무변경 근거를 build-log에.
 - **마무리 기록**(`/finish-slice`): build-log 단락 · roadmap §B52 (2) 해소 3줄 취소선 · **새 §B 블록**(번호 = `grep -n '^### B' docs/roadmap.md` 마지막 + 1 — 머리에 로컬(맥) ff-merge 절차[선례 §B52 (0)], "선재 버그: `serde_json` 소수 읽기 → GUI에서 만든 `=`·`≠`·`∈` 숫자 조건 오판정"[spec §9 첫 항목 — 해소 경로 `float_roundtrip` 별도 슬라이스], 사용자 결정 줄[2026-11-11: B 묶음·빈 화면 포함·US3 단위 테스트만]) · 현황판 · 루트 상태 줄 · spec 상태 줄. cloud는 master에 합치지 않는다 — 지정 브랜치 push까지.
