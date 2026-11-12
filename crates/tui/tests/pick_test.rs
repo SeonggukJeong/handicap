@@ -1066,7 +1066,20 @@ const EXACT: &[(&str, &str)] = &[
     ("9.720979928970337e2", "972.0979928970337"),
     ("4.5e250", "4.5e+250"),
     ("12345678901234567890", "12345678901234567890"),
+    ("1658206780088562.3", "1658206780088562.2"),
+    ("1130439128653781.25", "1130439128653781.2"),
+    ("1486072376365191.75", "1486072376365191.8"),
+    ("1e16", "10000000000000000"),
 ];
+
+#[test]
+fn number_text_same_as_server() {
+    use handicap_controller::monitor::number::number_text;
+    for (lit, _) in EXACT.iter() {
+        let n: serde_json::Number = serde_json::from_str(lit).unwrap();
+        assert_eq!(number_of(lit).0, number_text(&n), "{lit}");
+    }
+}
 
 #[test]
 fn number_text_tables() {

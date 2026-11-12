@@ -32,7 +32,7 @@ pub enum PickValue {
     Header(String),
     Null,
     Bool(bool),
-    /// 숫자 글자 — 정수는 그대로, 그 밖은 JavaScript `String(number)` 표기 규칙(`number_text`).
+    /// 숫자 글자 — 정수는 그대로, 그 밖은 컨트롤러 `monitor::number::float_text`(`number_text`)의 글자.
     Number(String),
     Str(String),
     BodyText,
@@ -856,27 +856,9 @@ pub fn auto_target(lines: &[StepLine], step_panel: bool) -> Option<usize> {
     }
 }
 
-/// `f64` → JavaScript `String(number)` 표기 규칙의 글자(tui-2b-polish spec §2.1-2).
-/// 0은 `0`, 십진 지수 −6..=20은 지수 없는 십진, 그 밖은 `{가수}e{+|-}{지수}`.
-/// 비유한 수(`NaN`·무한대)는 Rust 표기 그대로 — `serde_json`은 만들지 않는다.
+/// 컨트롤러 `monitor::number::float_text` — 서버 판정·표시 값과 같은 글자(spec tui-2b-width-number §2.5).
 pub fn number_text(v: f64) -> String {
-    if v == 0.0 {
-        return "0".to_string();
-    }
-    let sci = format!("{v:e}");
-    let Some((mant, exp)) = sci.split_once('e') else {
-        return sci;
-    };
-    let Ok(e) = exp.parse::<i32>() else {
-        return sci;
-    };
-    if (-6..=20).contains(&e) {
-        format!("{v}")
-    } else if e >= 0 {
-        format!("{mant}e+{e}")
-    } else {
-        format!("{mant}e{e}")
-    }
+    handicap_controller::monitor::number::float_text(v)
 }
 
 #[cfg(test)]
