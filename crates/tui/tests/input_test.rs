@@ -232,3 +232,13 @@ fn line_input_debug_hides_text() {
     let d = format!("{li:?}");
     assert!(!d.contains("TYPED") && !d.contains("'T'"), "{d}");
 }
+
+#[test]
+fn input_and_server_agree_on_every_char() {
+    use handicap_controller::monitor::config::is_forbidden_text_char;
+    for n in 0..=0x10FFFFu32 {
+        if let Some(c) = char::from_u32(n) {
+            assert_eq!(accept_char(c), !is_forbidden_text_char(c), "U+{n:04X}");
+        }
+    }
+}

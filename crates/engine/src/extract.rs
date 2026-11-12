@@ -327,6 +327,29 @@ mod tests {
     use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 
     #[test]
+    fn escaped_bidi_quoted_name_selects_raw_key() {
+        for (esc, ch) in [
+            ("202e", '\u{202E}'),
+            ("2028", '\u{2028}'),
+            ("0085", '\u{85}'),
+            ("2066", '\u{2066}'),
+        ] {
+            let path = format!("$['a\\u{esc}b']");
+            assert!(jsonpath_is_valid(&path), "{path} must parse");
+            assert!(jsonpath_is_simple(&path), "{path} must be simple");
+            let key = format!("a{ch}b");
+            let mut m = serde_json::Map::new();
+            m.insert(key, serde_json::json!(7));
+            let body = serde_json::Value::Object(m);
+            assert_eq!(
+                jsonpath_first(&body, &path),
+                Some(serde_json::json!(7)),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn jsonpath_is_valid_accepts_and_rejects() {
         for ok in ["$.a", "$['a b'][0]", "$"] {
             assert!(jsonpath_is_valid(ok), "{ok}");

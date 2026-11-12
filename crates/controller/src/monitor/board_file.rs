@@ -11,7 +11,7 @@ use ulid::Ulid;
 
 use super::check::collect_http_steps;
 use super::config::{
-    BoardConfig, LatencySource, MAX_PANELS, apply_group_mirror, check_counts,
+    BoardConfig, LatencySource, MAX_PANELS, apply_group_mirror, check_counts, replace_forbidden,
     validate_and_normalize,
 };
 use crate::api::environments::env_problem;
@@ -366,7 +366,8 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
     // R6 참조 정합 — 묶음 칸의 사본 값은 묶음 값으로 먼저 덮어쓴다. 칸·묶음 개수 상한(R7과 같은
     // 문구)은 묶음 반영 전에 — 거대한 칸·묶음 목록이 아래 처리에 닿지 않게.
     for (b, cfg) in input.boards.iter().zip(&mut configs) {
-        check_counts(cfg).map_err(|r| format!("보드 '{}' {r}", b.name.trim()))?;
+        check_counts(cfg)
+            .map_err(|r| format!("보드 '{}' {r}", replace_forbidden(b.name.trim())))?;
         apply_group_mirror(cfg);
     }
     let scenario_ids: HashSet<&str> = scenarios.iter().map(|s| s.id.as_str()).collect();
@@ -374,7 +375,7 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
     let mut used_scenarios: HashSet<&str> = HashSet::new();
     let mut used_envs: HashSet<&str> = HashSet::new();
     for (b, cfg) in input.boards.iter().zip(&configs) {
-        let board = b.name.trim();
+        let board = replace_forbidden(b.name.trim());
         for (n, p) in cfg.panels.iter().enumerate() {
             let n = n + 1;
             if !scenario_ids.contains(p.scenario_id.as_str()) {
@@ -415,7 +416,7 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
     let mut boards = Vec::with_capacity(input.boards.len());
     for (b, mut cfg) in input.boards.iter().zip(configs) {
         let name = validate_and_normalize(&b.name, &mut cfg)
-            .map_err(|r| format!("보드 '{}' {r}", b.name.trim()))?;
+            .map_err(|r| format!("보드 '{}' {r}", replace_forbidden(b.name.trim())))?;
         let warnings = board_warnings(&cfg, &http_steps);
         boards.push(ValidBoard {
             id: b.id.clone(),
@@ -1009,5 +1010,44 @@ mod group_tests {
 
     fn err_of_group(v: Value) -> String {
         parse_bundle_value(v).unwrap_err()
+    }
+
+    #[test]
+    fn import_error_never_echoes_forbidden_chars() {
+        let bad_name = "x\u{202E}y";
+        // 1) 개수 초과(R6 앞 개수 검사)
+        let panels: Vec<Value> = (0..10)
+            .map(|i| json!({"id": ulid_n(i), "title": "t", "scenario_id": MISSING}))
+            .collect();
+        let mut v1 = file(json!({ "panels": panels }));
+        v1["boards"][0]["name"] = json!(bad_name);
+        // 2) 검증 실패(빈 칸 제목)
+        let mut v2 = file(json!({
+            "panels": [{"id": PANEL, "title": " ", "scenario_id": SCEN, "environment_id": ENV}]
+        }));
+        v2["boards"][0]["name"] = json!(bad_name);
+        // 3) 칸의 시나리오 없음
+        let mut v3 = file(json!({
+            "panels": [{"id": PANEL, "title": "t", "scenario_id": MISSING}]
+        }));
+        v3["boards"][0]["name"] = json!(bad_name);
+        // 4) 칸의 환경 없음
+        let mut v4 = file(json!({
+            "panels": [{"id": PANEL, "title": "t", "scenario_id": SCEN, "environment_id": MISSING}]
+        }));
+        v4["boards"][0]["name"] = json!(bad_name);
+        for (i, v) in [v1, v2, v3, v4].into_iter().enumerate() {
+            let e = err_of_group(v);
+            assert!(!e.is_empty(), "case {}", i + 1);
+            assert!(e.contains("보드 'x"), "case {}: {e}", i + 1);
+            assert_eq!(
+                e.chars()
+                    .filter(|c| crate::monitor::config::is_forbidden_text_char(*c))
+                    .count(),
+                0,
+                "case {}: {e:?}",
+                i + 1
+            );
+        }
     }
 }

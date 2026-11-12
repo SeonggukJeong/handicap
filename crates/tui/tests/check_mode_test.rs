@@ -89,9 +89,10 @@ async fn check_output_has_no_escape_from_titles() {
     std::fs::write(&file, json).unwrap();
     let db = tempfile::tempdir().unwrap();
     let (code, out) = run_with_cap(&file, db.path(), None).await;
-    assert_eq!(code, 0, "{out}");
+    // tui-2b-secrets §4: 서버가 제어 글자가 든 칸 제목을 가져오기에서 거절한다 — 출력엔 날것 ESC가 없다.
+    assert_eq!(code, 1, "{out}");
     assert!(!out.contains('\u{1b}'), "{out:?}");
-    assert!(out.contains("핑 [2J"), "{out:?}");
+    assert!(out.contains("칸 제목에 쓸 수 없는 글자"), "{out:?}");
 }
 
 #[cfg(unix)]

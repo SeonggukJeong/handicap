@@ -347,6 +347,10 @@ fn validate_groups(cfg: &mut BoardConfig) -> Result<(), String> {
         if g.scenario_id.trim().is_empty() {
             return Err(format!("점검 묶음 {n}: 시나리오를 선택해야 합니다"));
         }
+        check_text("시나리오 id", &g.scenario_id).map_err(|e| format!("점검 묶음 {n}: {e}"))?;
+        if let Some(e) = &g.environment_id {
+            check_text("환경 id", e).map_err(|e| format!("점검 묶음 {n}: {e}"))?;
+        }
         if !in_range(g.interval_seconds, 1, 3600) {
             return Err(format!("점검 묶음 {n}: 점검 주기는 1~3600초여야 합니다"));
         }
@@ -393,6 +397,45 @@ fn is_hex_color(s: &str) -> bool {
     s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// 보드 글자 칸에 둘 수 없는 글자: 제어 문자(C0·DEL·C1)·줄/문단 구분(U+2028/2029)·
+/// 방향 제어(U+061C·200E/F·202A–202E·2066–2069). ZWJ·ZWNJ는 허용.
+/// TUI `input::accept_char`와 같은 집합(동기화 테스트가 전 글자를 대조한다).
+pub fn is_forbidden_text_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{2028}'
+                | '\u{2029}'
+                | '\u{061C}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
+}
+
+/// 금지 글자를 `\u{FFFD}`로 바꾼 사본 — 오류 문구에 이름을 되울릴 때 쓴다.
+pub fn replace_forbidden(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if is_forbidden_text_char(c) {
+                '\u{FFFD}'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+fn check_text(label: &str, s: &str) -> Result<(), String> {
+    if s.chars().any(is_forbidden_text_char) {
+        return Err(format!(
+            "{label}에 쓸 수 없는 글자(제어·방향 제어·줄 구분 문자)가 있습니다"
+        ));
+    }
+    Ok(())
+}
+
 fn check_name(label: &str, trimmed: &str) -> Result<(), String> {
     let n = trimmed.chars().count();
     if !(1..=NAME_MAX_CHARS).contains(&n) {
@@ -406,6 +449,7 @@ fn check_name(label: &str, trimmed: &str) -> Result<(), String> {
 pub fn validate_panel(p: &mut PanelConfig) -> Result<(), String> {
     p.title = p.title.trim().to_string();
     check_name("칸 제목", &p.title)?;
+    check_text("칸 제목", &p.title)?;
     if p.id.is_empty() {
         p.id = Ulid::new().to_string();
     } else if Ulid::from_string(&p.id).is_err() {
@@ -413,6 +457,13 @@ pub fn validate_panel(p: &mut PanelConfig) -> Result<(), String> {
     }
     if p.scenario_id.trim().is_empty() {
         return Err("시나리오를 선택해야 합니다".into());
+    }
+    check_text("시나리오 id", &p.scenario_id)?;
+    if let Some(e) = &p.environment_id {
+        check_text("환경 id", e)?;
+    }
+    if let LatencySource::Step { step_id } = &p.latency_source {
+        check_text("응답 시간 스텝 id", step_id)?;
     }
     if !in_range(p.interval_seconds, 1, 3600) {
         return Err("점검 주기는 1~3600초여야 합니다".into());
@@ -507,6 +558,13 @@ fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
         if c.op == ConditionOp::OneOf && one_of_candidates(&c.value).is_empty() {
             return Err("여러 값 중 하나(∈) 조건의 후보값을 하나 이상 입력해야 합니다".into());
         }
+        // 정규화(trim·비우기)와 기존 검사가 끝난 뒤의 값만 본다.
+        match c.source {
+            ConditionSource::Body => check_text("본문 경로", &c.path)?,
+            ConditionSource::Header => check_text("헤더 이름", &c.path)?,
+            ConditionSource::Status | ConditionSource::BodyText => {}
+        }
+        check_text("비교값", &c.value)?;
     }
     Ok(())
 }
@@ -552,6 +610,11 @@ fn validate_display_items(items: &mut [DisplayItem]) -> Result<(), String> {
             }
             DisplaySource::Status => it.path.clear(),
         }
+        match it.source {
+            DisplaySource::Body => check_text("화면 표시 항목 본문 경로", &it.path)?,
+            DisplaySource::Header => check_text("화면 표시 항목 헤더 이름", &it.path)?,
+            DisplaySource::Status => {}
+        }
     }
     Ok(())
 }
@@ -572,6 +635,7 @@ pub fn check_counts(cfg: &BoardConfig) -> Result<(), String> {
 pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<String, String> {
     let name = name.trim().to_string();
     check_name("보드 이름", &name)?;
+    check_text("보드 이름", &name)?;
     check_counts(cfg)?;
     validate_groups(cfg)?;
     for (i, p) in cfg.panels.iter().enumerate() {
@@ -1228,6 +1292,140 @@ mod tests {
         assert!(validate_panel(&mut p).is_ok());
         let mut p = with_items(vec![ditem(D::Header, &"h".repeat(200))]);
         assert!(validate_panel(&mut p).is_ok());
+    }
+
+    const FORBID: &str = "에 쓸 수 없는 글자(제어·방향 제어·줄 구분 문자)가 있습니다";
+
+    #[test]
+    fn forbidden_char_set_boundary() {
+        for c in [
+            '\t', '\n', '\u{7F}', '\u{85}', '\u{9F}', '\u{200E}', '\u{200F}', '\u{2028}',
+            '\u{2029}', '\u{202A}', '\u{202E}', '\u{2066}', '\u{2069}', '\u{061C}',
+        ] {
+            assert!(is_forbidden_text_char(c), "{c:?}");
+        }
+        for c in ['\u{200D}', '\u{200C}', 'a', '가', '❤'] {
+            assert!(!is_forbidden_text_char(c), "{c:?}");
+        }
+        assert_eq!(
+            replace_forbidden("a\u{202E}b\tc가"),
+            "a\u{FFFD}b\u{FFFD}c가"
+        );
+    }
+
+    fn run(mut b: BoardConfig, name: &str) -> Result<String, String> {
+        validate_and_normalize(name, &mut b)
+    }
+
+    fn run_panel(p: PanelConfig) -> Result<String, String> {
+        run(
+            BoardConfig {
+                panels: vec![p],
+                ..BoardConfig::default()
+            },
+            "보드",
+        )
+    }
+
+    #[test]
+    fn rejects_forbidden_chars_per_field() {
+        use ConditionOp as O;
+        use ConditionSource as S;
+        let mut rows: Vec<(&str, Result<String, String>)> = Vec::new();
+        rows.push(("보드 이름", run(board(), "a\u{202E}b")));
+        let mut p = panel();
+        p.title = "a\u{1}b".into();
+        rows.push(("칸 1: 칸 제목", run_panel(p)));
+        rows.push((
+            "칸 1: 비교값",
+            run_panel(with(cond(S::Status, O::Eq, "", "a\tb"))),
+        ));
+        rows.push((
+            "칸 1: 헤더 이름",
+            run_panel(with(cond(S::Header, O::Eq, "x\u{200F}y", "1"))),
+        ));
+        rows.push((
+            "칸 1: 본문 경로",
+            run_panel(with(cond(S::Body, O::Eq, "$['a\u{202E}b']", "1"))),
+        ));
+        rows.push((
+            "칸 1: 화면 표시 항목 헤더 이름",
+            run_panel(with_items(vec![ditem(DisplaySource::Header, "x\u{200F}y")])),
+        ));
+        rows.push((
+            "칸 1: 화면 표시 항목 본문 경로",
+            run_panel(with_items(vec![ditem(
+                DisplaySource::Body,
+                "$['a\u{202E}b']",
+            )])),
+        ));
+        let mut p = panel();
+        p.scenario_id = "S\u{2028}".into();
+        rows.push(("칸 1: 시나리오 id", run_panel(p)));
+        let mut p = panel();
+        p.environment_id = Some("E\u{7F}".into());
+        rows.push(("칸 1: 환경 id", run_panel(p)));
+        let mut p = panel();
+        p.latency_source = LatencySource::Step {
+            step_id: "x\u{202A}".into(),
+        };
+        rows.push(("칸 1: 응답 시간 스텝 id", run_panel(p)));
+        for (label, r) in rows {
+            assert_eq!(r, Err(format!("{label}{FORBID}")), "{label}");
+        }
+    }
+
+    #[test]
+    fn checks_after_normalization() {
+        use ConditionOp as O;
+        use ConditionSource as S;
+        // exists는 value를 안 쓴다 — 옛 value의 금지 글자는 비워진 뒤라 통과.
+        let mut b = BoardConfig {
+            panels: vec![with(cond(S::Header, O::Exists, "h", "a\u{202E}"))],
+            ..BoardConfig::default()
+        };
+        validate_and_normalize("보드", &mut b).unwrap();
+        assert_eq!(b.panels[0].conditions[0].value, "");
+
+        let mut b = BoardConfig {
+            panels: vec![with(cond(S::Status, O::Eq, "a\u{1}", "200"))],
+            ..BoardConfig::default()
+        };
+        validate_and_normalize("보드", &mut b).unwrap();
+        assert_eq!(b.panels[0].conditions[0].path, "");
+
+        let mut b = BoardConfig {
+            panels: vec![with(cond(S::Header, O::Eq, "\tx-a\u{2028}", "1"))],
+            ..BoardConfig::default()
+        };
+        validate_and_normalize("보드", &mut b).unwrap();
+        assert_eq!(b.panels[0].conditions[0].path, "x-a");
+
+        let mut p = panel();
+        p.title = "\t제목\u{2029}".into();
+        let mut b = BoardConfig {
+            panels: vec![p],
+            ..BoardConfig::default()
+        };
+        validate_and_normalize("보드", &mut b).unwrap();
+        assert_eq!(b.panels[0].title, "제목");
+
+        let mut p = panel();
+        p.title = "\u{1}제목".into();
+        assert_eq!(run_panel(p), Err(format!("칸 1: 칸 제목{FORBID}")));
+    }
+
+    #[test]
+    fn escaped_body_path_passes() {
+        let path = "$['a\\u202eb']";
+        run_panel(with(cond(
+            ConditionSource::Body,
+            ConditionOp::Eq,
+            path,
+            "1",
+        )))
+        .unwrap();
+        run_panel(with_items(vec![ditem(DisplaySource::Body, path)])).unwrap();
     }
 }
 #[cfg(test)]
