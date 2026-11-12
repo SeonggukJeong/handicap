@@ -1937,6 +1937,58 @@ fn render_missing_wraps_and_survives_small() {
     }
 }
 
+/// 안내 글자를 `w`칸으로 앞에서부터 채워 나눴을 때의 줄 수(공개 API만 — `Buffer::set_stringn`으로 글자 폭을 잰다).
+fn missing_rows_at(w: usize) -> usize {
+    let mut rows = 1usize;
+    let mut cur = 0usize;
+    for c in text::SUB_MISSING.chars() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 1));
+        let s = c.to_string();
+        let cw = usize::from(
+            buf.set_stringn(0, 0, &s, 8, ratatui::style::Style::default())
+                .0,
+        );
+        if cur > 0 && cur + cw > w {
+            rows += 1;
+            cur = 0;
+        }
+        cur += cw;
+    }
+    rows
+}
+
+#[test]
+fn render_missing_ellipsis_when_cut() {
+    use handicap_tui::view::inspect::render_missing;
+    let mut cut_seen = 0;
+    for w in [20u16, 40, 80] {
+        let need = missing_rows_at(usize::from(w) - 1);
+        for body in [1usize, 2, 12] {
+            let t = draw(w, (body + 2) as u16, |f| {
+                render_missing(f, &head(), &[text::KEYS_BACK])
+            });
+            let lines: Vec<&str> = t.lines().collect();
+            let body_lines = &lines[1..=body];
+            if need > body {
+                cut_seen += 1;
+                assert!(
+                    body_lines[body - 1].trim_end().ends_with('\u{2026}'),
+                    "폭 {w} 본문 {body}: {t}"
+                );
+            } else {
+                assert!(
+                    body_lines.iter().all(|l| !l.contains('\u{2026}')),
+                    "폭 {w} 본문 {body}: {t}"
+                );
+            }
+        }
+    }
+    assert!(
+        cut_seen >= 3,
+        "잘리는 조합이 충분해야 공허하지 않다: {cut_seen}"
+    );
+}
+
 #[test]
 fn body_lines_fit_width_with_emoji() {
     use ratatui::style::Style;

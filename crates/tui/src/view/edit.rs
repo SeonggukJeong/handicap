@@ -239,13 +239,23 @@ const TARGET_WRAP_MIN_W: usize = 8;
 /// 대상의 이어지는 줄은 위 목록에 이만큼이 남는 한도까지만 늘린다(spec §2.2-4).
 const FORM_LIST_KEEP: u16 = 3;
 
-/// `sanitize`한 대상 글자를 값 칸 폭 `fw`로 나눈 줄들(좁으면 한 줄).
-fn target_rows(target: &str, fw: usize) -> Vec<String> {
-    let s = sanitize(target);
+/// `sanitize`한 대상 글자를 값 칸 폭 `fw`로 나눈 줄들(좁으면 한 줄)과 대상을 잘랐는지.
+/// 앞 `max_rows`줄이 필요한 만큼(`(max_rows + 1) × max(fw, 1) × 4`글자 — 예산의 `+1`줄이 자른 자리가 든
+/// 줄을 화면 밖에 둔다)만 앞에서 잘라 줄바꿈한다(spec tui-2b-width-number §2.4).
+fn target_rows(target: &str, fw: usize, max_rows: usize) -> (Vec<String>, bool) {
+    let budget = max_rows
+        .saturating_add(1)
+        .saturating_mul(fw.max(1))
+        .saturating_mul(4);
+    let (head, cut) = match target.char_indices().nth(budget) {
+        Some((i, _)) => (&target[..i], true),
+        None => (target, false),
+    };
+    let s = sanitize(head);
     if fw < TARGET_WRAP_MIN_W {
-        return vec![s];
+        return (vec![s], cut);
     }
-    wrap_width(&s, fw)
+    (wrap_width(&s, fw), cut)
 }
 
 /// 조건 칸 높이(spec §2.2-4) — `body_w`·`body_h` = 화면 body 크기. 필수 줄 + 받은 값·안내 줄에
@@ -253,7 +263,10 @@ fn target_rows(target: &str, fw: usize) -> Vec<String> {
 pub fn cond_form_height(v: &CondFormView, body_w: u16, body_h: u16) -> u16 {
     let now = cond_form_lines(v);
     let fw = cond_form_value_width(body_w);
-    let more = target_rows(v.target, fw).len().saturating_sub(1);
+    let more = target_rows(v.target, fw, usize::from(body_h))
+        .0
+        .len()
+        .saturating_sub(1);
     let extra = u16::try_from(more).unwrap_or(u16::MAX);
     let room = body_h.saturating_sub(FORM_LIST_KEEP).saturating_sub(now);
     now.saturating_add(extra.min(room)).min(body_h)
@@ -455,12 +468,16 @@ pub fn render_cond_form(f: &mut Frame, area: Rect, v: &CondFormView) {
     let extras = usize::from(show_received) + usize::from(show_hint);
     let fixed = usize::from(cond_form_base(v)) + extras;
     let spare = usize::from(area.height).saturating_sub(fixed);
-    let rows = target_rows(v.target, fw);
+    let (rows, cut) = target_rows(v.target, fw, usize::from(area.height));
     let shown = 1 + rows.len().saturating_sub(1).min(spare);
     for (i, row) in rows.iter().take(shown).enumerate() {
         // 다 못 보이면 마지막 줄은 남은 글자 전체를 `fit` — `…`로 맺는다(spec §2.2-5).
-        let t = if i + 1 == shown && shown < rows.len() {
-            fit(&rows[i..].concat(), fw)
+        let t = if i + 1 == shown && (shown < rows.len() || cut) {
+            let mut rest = rows[i..].concat();
+            if cut {
+                rest.push('\u{2026}');
+            }
+            fit(&rest, fw)
         } else {
             fit(row, fw)
         };
@@ -686,5 +703,103 @@ pub fn render_vars(f: &mut Frame, head: &HeaderView, v: &VarsView, keys: &[&str]
     }) = &v.overlay
     {
         render_pick(f, body, sel_rows, title, options, *cursor);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ZWJ: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
+
+    fn reference(t: &str, fw: usize) -> Vec<String> {
+        wrap_width(&sanitize(t), fw)
+    }
+
+    fn assert_prefix(t: &str, fw: usize, max_rows: usize) {
+        let got = target_rows(t, fw, max_rows).0;
+        let want = reference(t, fw);
+        let n = max_rows.min(want.len());
+        assert!(
+            got.len() >= n,
+            "fw {fw} max {max_rows}: 줄이 모자람 {}",
+            got.len()
+        );
+        assert_eq!(got[..n], want[..n], "fw {fw} max {max_rows}");
+    }
+
+    #[test]
+    fn target_rows_prefix_equals_full() {
+        let targets = [
+            "a".repeat(60),
+            "b".repeat(500),
+            "c".repeat(100_000),
+            "x\u{2764}\u{FE0F}y".repeat(500),
+        ];
+        for t in &targets {
+            for fw in [8usize, 20, 69] {
+                for max_rows in [1usize, 3, 10] {
+                    assert_prefix(t, fw, max_rows);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn target_rows_cut_inside_cluster() {
+        for fw in [20usize, 69] {
+            for max_rows in [3usize, 10] {
+                let budget = (max_rows + 1) * fw * 4;
+                let mut t = ZWJ.repeat((budget - 1) / 7);
+                t.push_str(&"a".repeat((budget - 1) % 7));
+                t.push_str("\u{2764}\u{FE0F}");
+                t.push_str(&"tail".repeat(50));
+                assert_eq!(t.chars().nth(budget - 1), Some('\u{2764}'));
+                assert_eq!(t.chars().nth(budget), Some('\u{FE0F}'));
+                assert_prefix(&t, fw, max_rows);
+            }
+        }
+    }
+
+    #[test]
+    fn target_rows_does_not_scan_whole_target() {
+        let t = "a".repeat(1 << 20);
+        let (rows, cut) = target_rows(&t, 69, 24);
+        let chars: usize = rows.iter().map(|r| r.chars().count()).sum();
+        assert!(chars <= (24 + 1) * 69 * 4, "훑은 글자 {chars}");
+        assert!(cut);
+        let (_, cut) = target_rows("short", 69, 24);
+        assert!(!cut);
+    }
+
+    #[test]
+    fn target_rows_narrow_is_single_row() {
+        let (rows, _) = target_rows(&"a".repeat(100), TARGET_WRAP_MIN_W - 1, 10);
+        assert_eq!(rows.len(), 1);
+    }
+
+    /// 비용 측정(spec tui-2b-width-number §2.4) — 1 MiB 대상.
+    /// `cargo test -p handicap-tui --release --lib perf_cond_form -- --ignored --nocapture`
+    #[test]
+    #[ignore = "수동 측정"]
+    fn perf_cond_form() {
+        let unit = "abc \u{d55c}\u{ae00} \u{2764}\u{FE0F} key 12345.678 ";
+        let t = unit.repeat((1 << 20) / unit.len());
+        let t0 = std::time::Instant::now();
+        let mut n = 0usize;
+        for _ in 0..1000 {
+            n += target_rows(std::hint::black_box(&t), 69, 24).0.len();
+        }
+        let capped = t0.elapsed();
+        let t1 = std::time::Instant::now();
+        for _ in 0..10 {
+            n += wrap_width(&sanitize(std::hint::black_box(&t)), 69).len();
+        }
+        let full = t1.elapsed();
+        println!(
+            "target_rows x1000 = {capped:?} ({:?}/call) / old path x10 = {full:?} ({:?}/call) [{n}]",
+            capped / 1000,
+            full / 10
+        );
     }
 }

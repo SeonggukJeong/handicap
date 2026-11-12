@@ -95,11 +95,18 @@ pub fn render_missing(f: &mut Frame, head: &HeaderView, keys: &[&str]) {
         return;
     }
     let muted = Style::default().fg(color(C_MUTED));
-    for (i, l) in wrap_width(text::SUB_MISSING, w)
-        .into_iter()
-        .take(usize::from(body.height))
-        .enumerate()
-    {
+    let rows = wrap_width(text::SUB_MISSING, w);
+    let n = rows.len().min(usize::from(body.height));
+    if n == 0 {
+        return;
+    }
+    for (i, l) in rows.iter().take(n).enumerate() {
+        // 다 못 보이면 마지막 줄은 남은 글자 전체를 `fit` — `…`로 맺는다(spec §2.3).
+        let l = if i + 1 == n && n < rows.len() {
+            fit(&rows[i..].concat(), w)
+        } else {
+            l.clone()
+        };
         let row = Rect::new(body.x, body.y.saturating_add(i as u16), body.width, 1);
         put(f, row, Line::from(Span::styled(format!(" {l}"), muted)));
     }
