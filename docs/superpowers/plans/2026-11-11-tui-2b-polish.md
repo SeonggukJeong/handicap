@@ -8,6 +8,10 @@
 
 **Tech Stack:** Rust(edition 2024, `crates/tui`의 `rust-version` 1.88), ratatui `TestBackend`. 테스트는 `crates/tui/tests/*.rs`(통합 테스트 — 공개 API만 쓴다).
 
+REVIEW-GATE: APPROVED
+
+(`spec-plan-reviewer` — spec 3라운드·plan 2라운드 clean APPROVE, 2026-11-11. 리뷰어가 Task 1·2의 코드와 테스트를 저장소 사본에 적용해 `cargo test -p handicap-tui`·clippy 통과와 회귀 실증 변이의 RED를 확인했다.)
+
 **Spec:** `docs/superpowers/specs/2026-11-11-tui-2b-polish-design.md` — §2(동작 규칙)가 정본이다. 구현자는 맡은 task의 §2 절과 §6(테스트)을 반드시 읽는다. US 블록은 spec의 `## 사용자 스토리 (US)` 절(매 brief에 첨부).
 
 ## Global Constraints
@@ -269,7 +273,7 @@ for (i, row) in rows.iter().take(shown).enumerate() {
 3. `cond_form_keeps_selected_row_with_long_target`: 12줄 목록(커서 11)을 `render_list_with_form`으로, 높이 8..=24에서 대상이 짧은 조건 칸과 500자 조건 칸 각각 그린다 — 짧은 쪽에서 고른 줄(`▶`+`조건-12`)이 보이는 높이에서는 긴 쪽에서도 보이고 `대상` 줄보다 위다.
 4. `cond_form_width_sweep`: 폭 1..=120 × 높이 {6, 10, 24}에서 500자 대상·한글 경로 대상(`"$.가나다라마바사아자차".repeat(20)`) 패닉 없음(전 폭). 줄 위치 단언은 **라벨이 온전한 폭에서만**: 화면 폭 13..=18(값 칸 폭 `cond_form_value_width(w)`가 2..=7 — 8 미만)에서는 대상 줄이 1줄(`규칙` 줄이 `대상` 줄 바로 다음 — `받은 값` 없는 조건 칸으로), 폭 19(값 칸 8)에서는 대상이 2줄 이상. 폭 12 이하는 라벨 자체가 줄어 줄을 못 찾으므로 패닉 없음만 본다.
 5. `cond_form_wide_and_bidi`: 한글 경로가 화면 폭을 넘지 않는다(각 줄 `width(line) <= w` — 기존 `width` 도우미(37)) · 대상의 **둘째 줄 이후 자리**(값 칸 폭보다 뒤 — 예: 80열에서 100번째 글자)에 `\u{202E}`를 넣으면 `\u{FFFD}`가 `대상` 라벨 줄이 아닌 **이어지는 줄**에 보인다(긍정 단언 — 한 줄 대상의 같은 단언은 기존 `remote_strings_sanitized`가 이미 한다) · 한글 경로가 잘리는 높이에서 마지막 대상 줄이 `…`로 끝난다.
-6. `cond_form_height_matches_drawn`: 화면 80열 × 본문 높이 {5, 8, 12, 21} × 대상 길이 {10, 70, 200, 500} × (받은 값·안내 있음/없음)에서 `render_list_with_form`으로 그린 뒤 — body 높이는 `sub_layout(Rect::new(0,0,w,h)).body.height`. 조건 칸 영역 = body 맨 아래 `cond_form_height(v, body_w, body_h)`줄(조건 칸은 늘 그 자리에 놓이므로 **"`대상` 줄부터 body 끝까지 줄 수 == 높이"는 구조상 늘 참 — 그것만 재면 공허하다**). 그래서 그 영역 안에서: ⓐ **빈 줄이 없다**(모든 줄에 공백 아닌 글자 — 그리는 쪽이 줄을 덜 그리면 빈 줄이 남는다) ⓑ 영역의 첫 줄에 `대상` 라벨, 영역 안에 `규칙` 라벨 줄(높이가 모자라 필수 줄이 잘리면 여기서 걸린다) ⓒ 대상이 다 들어가는 조합(높이 21)에서는 `대상` 줄 수 == `wrap` 줄 수(값 칸 69칸 기준 `ceil(길이/69)`). body 높이가 필수 줄보다 낮은 조합은 표에서 뺀다(지금 동작 그대로 — 단언 2가 본다).
+6. `cond_form_height_matches_drawn`: 화면 80열 × 본문 높이 {5, 8, 12, 21}(화면 높이가 아니다 — 무입력 안내 줄 때문에 화면 높이 ↔ body 높이가 일정하지 않으니 `sub_layout`으로 그 body 높이가 되는 화면 높이를 찾아 쓴다. 리뷰어 실측: 7·11·15·24) × 대상 길이 {10, 70, 200, 500} × (받은 값·안내 있음/없음)에서 `render_list_with_form`으로 그린 뒤 — body 높이는 `sub_layout(Rect::new(0,0,w,h)).body.height`. 조건 칸 영역 = body 맨 아래 `cond_form_height(v, body_w, body_h)`줄(조건 칸은 늘 그 자리에 놓이므로 **"`대상` 줄부터 body 끝까지 줄 수 == 높이"는 구조상 늘 참 — 그것만 재면 공허하다**). 그래서 그 영역 안에서: ⓐ **빈 줄이 없다**(모든 줄에 공백 아닌 글자 — 그리는 쪽이 줄을 덜 그리면 빈 줄이 남는다) ⓑ 영역의 첫 줄에 `대상` 라벨, 영역 안에 `규칙` 라벨 줄(높이가 모자라 필수 줄이 잘리면 여기서 걸린다) ⓒ 대상이 다 들어가는 조합(높이 21)에서는 `대상` 줄 수 == `wrap` 줄 수(값 칸 69칸 기준 `ceil(길이/69)`). body 높이가 필수 줄보다 낮은 조합은 표에서 뺀다(지금 동작 그대로 — 단언 2가 본다).
 7. 짧은 대상(`"status"`)의 `cond_form_height` == 변경 전 값(필수 줄 + 받은 값·안내)임을 3~4가지 조합으로.
 
 `values_view_test.rs`: `values_form_long_target`: 값 목록 화면(`fix(...)` + `form: Some(&fv)`, `received`·`hint` 있는 조건 칸)에서 ASCII 500자 대상 → 80×24에서 `대상` 라벨 줄부터 `받은 값` 라벨 줄 전까지의 값 칸 글자를 이으면 원래 글자와 같고(spec §6 ① — 두 화면 각각) 고른 줄(커서 줄)이 보인다 · 높이 6..=24 스윕에서 패닉 없음, 제목 줄(`— 값 고르기`)이 조건 칸이 body 전체를 덮지 않는 높이에서 보인다.
@@ -420,5 +424,5 @@ Run: `cargo test -p handicap-tui 2>&1; echo exit=$?` → exit=0.
 
 - **최종 리뷰**: `handicap-reviewer`(BASE = Task 1 직전 커밋). 초점: Review Focus 6항 + "옛 숫자 글자에 기대던 소비자"(`grep -rn 'PickValue::Number' crates/tui`).
 - **보안 게이트**: `finish-slice` §0 grep을 직접 돌린다 + working-rules §3("값을 새 sink로 옮기는가").
-- **라이브 검증**: spec §7 표 전부(tmux — `crates/tui/CLAUDE.md` 라이브 함정). US3의 대체 화면 자체는 라이브 없음(사용자 승인) — 대신 "US3(정상 경로)" 행으로 하위 화면 8종에 안내가 **안** 뜨는 것을 본다. 모니터 화면 무변경 근거를 build-log에.
+- **라이브 검증**: spec §7 표 전부(tmux — `crates/tui/CLAUDE.md` 라이브 함정). US3의 대체 화면 자체는 라이브 없음(사용자 승인) — 대신 "US3(정상 경로)" 행으로 하위 화면 8종에 안내가 **안** 뜨는 것을 본다(환경 변수 화면 13번은 환경이 붙은 칸에서만 열린다 — 라이브 보드에 그런 칸을 하나 둔다). 모니터 화면 무변경 근거를 build-log에.
 - **마무리 기록**(`/finish-slice`): build-log 단락 · roadmap §B52 (2) 해소 3줄 취소선 · **새 §B 블록**(번호 = `grep -n '^### B' docs/roadmap.md` 마지막 + 1 — 머리에 로컬(맥) ff-merge 절차[선례 §B52 (0)], "선재 버그: `serde_json` 소수 읽기 → GUI에서 만든 `=`·`≠`·`∈` 숫자 조건 오판정"[spec §9 첫 항목 — 해소 경로 `float_roundtrip` 별도 슬라이스], 사용자 결정 줄[2026-11-11: B 묶음·빈 화면 포함·US3 단위 테스트만]) · 현황판 · 루트 상태 줄 · spec 상태 줄. cloud는 master에 합치지 않는다 — 지정 브랜치 push까지.
