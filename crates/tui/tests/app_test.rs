@@ -2947,10 +2947,12 @@ mod save {
         };
         use handicap_tui::text;
 
+        // `secret_name`은 경로에서 계산하지 않고 `false` 고정 — `$.token` 41자 행이 길이 갈래(`Volatile`)를 지키게.
         fn body_str(path: &str, v: &str) -> ValueRow {
             ValueRow {
                 kind: RowKind::Body { path: path.into() },
                 value: PickValue::Str(v.into()),
+                secret_name: false,
             }
         }
 
@@ -2958,6 +2960,7 @@ mod save {
             ValueRow {
                 kind: RowKind::BodyText,
                 value: PickValue::BodyText,
+                secret_name: false,
             }
         }
 
@@ -3270,6 +3273,7 @@ mod save {
                         name: "authorization".into(),
                     },
                     value: PickValue::Header("••••".into()),
+                    secret_name: false,
                 },
                 &bs,
             );

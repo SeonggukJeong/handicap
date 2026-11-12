@@ -12,7 +12,8 @@ use handicap_tui::names::Names;
 use handicap_tui::pick::{
     AUTH_HEADERS, Blocked, Draft, Hint, ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg,
     ValueList, ValueRow, ValuesState, auto_target, cond_block, default_condition, display_block,
-    display_full, display_item, is_auth_header, marks, open_values, segments_to_path, value_list,
+    display_full, display_item, is_auth_header, is_secret_name, marks, open_values,
+    segments_to_path, value_list,
 };
 use handicap_tui::text;
 
@@ -487,7 +488,11 @@ fn names() -> Names {
 }
 
 fn row(kind: RowKind, value: PickValue) -> ValueRow {
-    ValueRow { kind, value }
+    ValueRow {
+        kind,
+        value,
+        secret_name: false,
+    }
 }
 fn hdr(name: &str, v: &str) -> ValueRow {
     row(
@@ -1104,4 +1109,145 @@ fn number_text_is_short() {
     }
     assert_eq!(number_text(0.0), "0");
     assert_eq!(number_text(-0.0), "0");
+}
+
+/// Keep in sync: GUI `isSecretName` 표(Task 5)와 같은 행·같은 순서.
+#[test]
+fn secret_name_table() {
+    for n in [
+        "session_id",
+        "X-Api-Key",
+        "csrfToken",
+        "password",
+        "author",
+        "Set-Cookie",
+        "user_pwd",
+        "Authorization",
+        "refresh_token",
+    ] {
+        assert!(is_secret_name(n), "{n}");
+    }
+    for n in ["name", "id", "count", "status", "url", "message"] {
+        assert!(!is_secret_name(n), "{n}");
+    }
+}
+
+#[test]
+fn secret_name_from_value_list() {
+    let r = resp(
+        200,
+        &[("X-Api-Key", "k")],
+        r#"{"session_id":"s","items":[{"api_key":"k"}],"tokens":["t"],"name":"n","nested":{"session":{"id":"i"}}}"#,
+    );
+    let vl = value_list(&r, false, 64);
+    let flag = |t: &str| {
+        vl.rows
+            .iter()
+            .find(|x| match &x.kind {
+                RowKind::Header { name } => name == t,
+                RowKind::Body { path } => path == t,
+                _ => false,
+            })
+            .unwrap_or_else(|| panic!("no row {t}"))
+            .secret_name
+    };
+    for t in [
+        "X-Api-Key",
+        "$.session_id",
+        "$.items[0].api_key",
+        "$.tokens[0]",
+    ] {
+        assert!(flag(t), "{t}");
+    }
+    for t in ["$.name", "$.nested.session.id"] {
+        assert!(!flag(t), "{t}");
+    }
+    assert!(!vl.rows[0].secret_name);
+    let arr = value_list(&resp(200, &[], "[1]"), false, 64);
+    let r0 = arr
+        .rows
+        .iter()
+        .find(|x| matches!(&x.kind, RowKind::Body { path } if path == "$[0]"))
+        .unwrap();
+    assert!(!r0.secret_name);
+}
+
+/// Keep in sync: GUI 판정표(Task 5)와 같은 행.
+#[test]
+fn default_condition_prefill_parity() {
+    let a32 = "a".repeat(32);
+    let x41 = "x".repeat(41);
+    let mkrow = |name: &str, v: PickValue, header: bool| ValueRow {
+        kind: if header {
+            RowKind::Header { name: name.into() }
+        } else {
+            RowKind::Body {
+                path: format!("$.{name}"),
+            }
+        },
+        value: v,
+        secret_name: is_secret_name(name),
+    };
+    let cases: Vec<(ValueRow, ConditionOp, &str, Option<Hint>)> = vec![
+        (
+            mkrow("session_id", st(&a32), false),
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::SecretName),
+        ),
+        (
+            mkrow("session_id", st(""), false),
+            ConditionOp::Eq,
+            "",
+            None,
+        ),
+        (
+            mkrow("token", st(&x41), false),
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::SecretName),
+        ),
+        (
+            mkrow("name", st("web-1"), false),
+            ConditionOp::Eq,
+            "web-1",
+            None,
+        ),
+        (
+            mkrow("name", st(&x41), false),
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::Volatile),
+        ),
+        (
+            mkrow("name", st("a\tb"), false),
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::Volatile),
+        ),
+        (
+            mkrow("name", st("a\u{200F}b"), false),
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::Volatile),
+        ),
+        (
+            mkrow("session_count", PickValue::Number("5".into()), false),
+            ConditionOp::Eq,
+            "5",
+            None,
+        ),
+        (
+            mkrow("Authorization", PickValue::Header("Bearer x".into()), true),
+            ConditionOp::NotEmpty,
+            "",
+            Some(Hint::Masked),
+        ),
+    ];
+    for (r, op, val, hint) in cases {
+        let d = default_condition(A, &r);
+        assert_eq!(d.cond.op, op, "{:?}", r);
+        assert_eq!(d.cond.value, val, "{:?}", r);
+        assert_eq!(d.hint, hint, "{:?}", r);
+    }
 }

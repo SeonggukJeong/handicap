@@ -76,14 +76,27 @@ impl fmt::Debug for RowKind {
 pub struct ValueRow {
     pub kind: RowKind,
     pub value: PickValue,
+    /// 이름(헤더 이름·본문 경로의 마지막 키)이 비밀 값처럼 보이는가.
+    pub secret_name: bool,
+}
+
+/// 비밀 낱말(spec §2.2) — GUI `isSecretName` 표와 같은 글자.
+const SECRET_WORDS: [&str; 9] = [
+    "token", "secret", "pass", "pwd", "session", "key", "csrf", "auth", "cookie",
+];
+
+/// 이름이 비밀 값처럼 보이는가 — ASCII 소문자로 바꾼 뒤 비밀 낱말 부분문자열 포함.
+pub fn is_secret_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    SECRET_WORDS.iter().any(|w| n.contains(w))
 }
 
 impl fmt::Debug for ValueRow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ValueRow {{ kind: {:?}, value: {:?} }}",
-            self.kind, self.value
+            "ValueRow {{ kind: {:?}, value: {:?}, secret_name: {} }}",
+            self.kind, self.value, self.secret_name
         )
     }
 }
@@ -346,6 +359,16 @@ impl Walker {
                 path: segments_to_path(&self.segs),
             },
             value,
+            // 마지막 `Key` 마디(인덱스는 건너뜀) — 키가 없으면(루트 배열) `false`.
+            secret_name: self
+                .segs
+                .iter()
+                .rev()
+                .find_map(|s| match s {
+                    Seg::Key(k) => Some(is_secret_name(k)),
+                    Seg::Index(_) => None,
+                })
+                .unwrap_or(false),
         });
         Ok(())
     }
@@ -393,6 +416,7 @@ fn body_text_row() -> ValueRow {
     ValueRow {
         kind: RowKind::BodyText,
         value: PickValue::BodyText,
+        secret_name: false,
     }
 }
 
@@ -401,11 +425,13 @@ pub fn value_list(resp: &TracedResponse, clipped_resp: bool, limit_kb: u32) -> V
     let mut rows = vec![ValueRow {
         kind: RowKind::Status,
         value: PickValue::Status(resp.status),
+        secret_name: false,
     }];
     for (name, value) in &resp.headers {
         rows.push(ValueRow {
             kind: RowKind::Header { name: name.clone() },
             value: PickValue::Header(value.clone()),
+            secret_name: is_secret_name(name),
         });
     }
     let mut notes = Vec::new();
@@ -489,6 +515,7 @@ pub fn is_auth_header(name: &str) -> bool {
 pub enum Hint {
     Volatile,
     Masked,
+    SecretName,
 }
 
 impl Hint {
@@ -496,6 +523,7 @@ impl Hint {
         match self {
             Hint::Volatile => text::COND_VOLATILE_HINT,
             Hint::Masked => text::PICK_MASKED_HINT,
+            Hint::SecretName => text::PICK_SECRET_HINT,
         }
     }
 }
@@ -546,12 +574,18 @@ pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
         hint: None,
         focus_value: false,
     };
-    // 문자열(본문·헤더) — 인증 헤더 → 길이 → 입력줄 순(긴 값을 한 글자씩 입력줄에 넣지 않는다).
-    let string = |source, path: &str, v: &str, auth: bool| {
+    // 문자열(본문·헤더) — 인증 헤더 → 비밀 이름(빈 값 제외) → 길이·입력줄 순(spec §2.3).
+    let string = |source, path: &str, v: &str, auth: bool, secret: bool| {
         if auth {
             Draft {
                 cond: mk(source, path, ConditionOp::NotEmpty, ""),
                 hint: Some(Hint::Masked),
+                focus_value: false,
+            }
+        } else if secret && !v.is_empty() {
+            Draft {
+                cond: mk(source, path, ConditionOp::NotEmpty, ""),
+                hint: Some(Hint::SecretName),
                 focus_value: false,
             }
         } else if v.chars().count() > VOLATILE_LEN || !input_accepts(v) {
@@ -571,14 +605,18 @@ pub fn default_condition(step_id: &str, row: &ValueRow) -> Draft {
             ConditionOp::Eq,
             &c.to_string(),
         )),
-        (RowKind::Header { name }, PickValue::Header(v)) => {
-            string(ConditionSource::Header, name, v, is_auth_header(name))
-        }
+        (RowKind::Header { name }, PickValue::Header(v)) => string(
+            ConditionSource::Header,
+            name,
+            v,
+            is_auth_header(name),
+            row.secret_name,
+        ),
         (RowKind::Body { path }, PickValue::Null) => {
             plain(mk(ConditionSource::Body, path, ConditionOp::Exists, ""))
         }
         (RowKind::Body { path }, PickValue::Str(v)) => {
-            string(ConditionSource::Body, path, v, false)
+            string(ConditionSource::Body, path, v, false, row.secret_name)
         }
         (RowKind::Body { path }, PickValue::Bool(b)) => plain(mk(
             ConditionSource::Body,

@@ -433,12 +433,14 @@ fn remote_strings_sanitized() {
                     name: "a\u{1b}[31mb".into(),
                 },
                 value: PickValue::Header("x\u{202e}y".into()),
+                secret_name: false,
             },
             ValueRow {
                 kind: RowKind::Header {
                     name: "c\u{2028}d".into(),
                 },
                 value: PickValue::Header("z".into()),
+                secret_name: false,
             },
         ],
         notes: vec![],
