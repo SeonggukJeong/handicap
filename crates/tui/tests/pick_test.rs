@@ -1051,20 +1051,15 @@ const EXACT: &[(&str, &str)] = &[
     ("100.25", "100.25"),
     ("3.0e2", "300"),
     ("0.1", "0.1"),
+    ("1.5e-300", "1.5e-300"),
+    ("9.720979928970337e2", "972.0979928970337"),
+    ("4.5e250", "4.5e+250"),
     ("12345678901234567890", "12345678901234567890"),
-];
-
-/// spec §2.1-4 — `serde_json`(float_roundtrip 꺼짐)이 한 끝자리 다르게 읽는 글자: 서버가 읽은 값의 글자.
-/// 이 표가 RED가 되면 `serde_json` 읽기가 바뀐 것(spec §9 첫 항목의 해소 신호) — 표를 고치지 말고 보고.
-const MISREAD: &[(&str, &str)] = &[
-    ("1.5e-300", "1.4999999999999998e-300"),
-    ("9.720979928970337e2", "972.0979928970336"),
-    ("4.5e250", "4.4999999999999993e+250"),
 ];
 
 #[test]
 fn number_text_tables() {
-    for (lit, want) in EXACT.iter().chain(MISREAD) {
+    for (lit, want) in EXACT.iter() {
         let (shown, value) = number_of(lit);
         assert_eq!(shown, *want, "shown for {lit}");
         assert_eq!(value, *want, "condition value for {lit}");
@@ -1073,8 +1068,8 @@ fn number_text_tables() {
 
 #[test]
 fn number_text_reads_back_as_server_value() {
-    // 서버: 실제 값 = serde_json이 읽은 f64, 비교값 = str::parse(`parse_finite`) → `==`.
-    for (lit, text) in EXACT.iter().chain(MISREAD) {
+    // 서버: float_roundtrip이 켜져 있어 서버 값 = 정확한 값. 실제 값 = serde_json이 읽은 f64, 비교값 = str::parse(`parse_finite`) → `==`.
+    for (lit, text) in EXACT.iter() {
         let server: f64 = serde_json::from_str(lit).unwrap();
         let back: f64 = text
             .parse()

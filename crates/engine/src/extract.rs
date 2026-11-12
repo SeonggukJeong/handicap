@@ -409,6 +409,31 @@ mod tests {
     }
 
     #[test]
+    fn body_float_extract_exact() {
+        for (lit, want) in [
+            ("972.0979928970337", "972.0979928970337"),
+            ("1.5e-300", "1.5e-300"),
+            ("4.5e250", "4.5e+250"),
+        ] {
+            let body = format!(r#"{{"v":{lit}}}"#);
+            let facts = body_facts(&body);
+            let xs = vec![Extract::Body {
+                decode: None,
+                claim: None,
+                var: "v".into(),
+                path: "$.v".into(),
+            }];
+            let out = evaluate(&xs, &facts).unwrap();
+            assert_eq!(out["v"], want, "text for {lit}");
+            assert_eq!(
+                out["v"].parse::<f64>().unwrap(),
+                lit.parse::<f64>().unwrap(),
+                "value for {lit}"
+            );
+        }
+    }
+
+    #[test]
     fn body_jsonpath_string() {
         let body = r#"{"access_token":"T0K3N"}"#;
         let facts = body_facts(body);

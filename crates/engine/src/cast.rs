@@ -77,6 +77,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn coerce_num_float_exact() {
+        for lit in ["972.0979928970337", "1.5e-300", "4.5e250"] {
+            assert_eq!(
+                coerce_num(lit).unwrap().as_f64(),
+                Some(lit.parse::<f64>().unwrap()),
+                "{lit}"
+            );
+        }
+    }
+
+    #[test]
     fn parse_pure_num_bool_str() {
         assert_eq!(
             parse_cast_leaf("{{age:num}}"),

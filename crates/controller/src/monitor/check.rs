@@ -1287,6 +1287,33 @@ steps:
     }
 
     #[test]
+    fn cond_float_exact_read() {
+        // 값 묶음마다 (본문 글자, 서버 표기) — `shown`은 check.rs의 fn 이름이라 `want`
+        for (lit, want) in [
+            ("972.0979928970337", "972.0979928970337"),
+            ("1.5e-300", "1.5e-300"),
+            ("4.5e250", "4.5e+250"),
+        ] {
+            let body = format!(r#"{{"v":{lit}}}"#);
+            let t = t_body(&body);
+            let ok =
+                |op, val: &str| judge_c(&one_step(), vec![cond(A, Src::Body, "$.v", op, val)], &t);
+            assert_eq!(ok(Op::Eq, lit).verdict, Verdict::Ok, "= {lit}");
+            assert_eq!(
+                ok(Op::OneOf, &format!("1, {lit}")).verdict,
+                Verdict::Ok,
+                "∈ {lit}"
+            );
+            assert_eq!(ok(Op::Gte, lit).verdict, Verdict::Ok, "≥ {lit}");
+            // ≤는 RED가 아니다: 옛 오독은 실제보다 작아 지금도 통과 — 함께 단언만
+            assert_eq!(ok(Op::Lte, lit).verdict, Verdict::Ok, "≤ {lit}");
+            let ne = ok(Op::Ne, lit);
+            assert_eq!(ne.verdict, Verdict::Fail, "≠ {lit}");
+            assert_eq!(ne.reason.as_deref(), Some(want), "≠ 사유 {lit}");
+        }
+    }
+
+    #[test]
     fn cond_eq_pass_and_fail_detail_one_step() {
         let c = cond(A, Src::Body, "$.resultCode", Op::Eq, "0000");
         let r = judge_c(
