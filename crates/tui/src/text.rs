@@ -497,6 +497,8 @@ pub const COND_FORM_OP: &str = "규칙";
 pub const COND_FORM_VALUE: &str = "값";
 /// 하위 목록·변수 화면 키 줄 조각(TUI 전용).
 pub const KEYS_BACK: &str = "Esc 뒤로";
+/// 하위 화면이 그릴 칸·상태를 못 찾았을 때의 대체 화면 안내(tui-2b-polish §2.3).
+pub const SUB_MISSING: &str = "이 칸을 찾을 수 없습니다 — Esc로 돌아가세요";
 pub const KEYS_ADD: &str = "a 추가";
 pub const KEYS_DELETE: &str = "d 삭제";
 pub const KEYS_SWAP: &str = "s 자리 바꾸기";

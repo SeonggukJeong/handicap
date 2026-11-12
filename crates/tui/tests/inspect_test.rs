@@ -1870,3 +1870,69 @@ fn errors_empty_when_board_off() {
     }
     assert_eq!(text::ERRORS_EMPTY_OFF, "점검이 꺼져 있어 결과가 없습니다");
 }
+
+// ---- tui-2b-polish Task 3: 칸·상태를 못 찾은 하위 화면(spec §2.3) ----
+
+/// body 줄(머리 줄·키 줄 사이)을 공백 없이 이은 글자.
+fn joined_body(t: &str, rows: std::ops::Range<usize>) -> String {
+    t.lines()
+        .skip(rows.start)
+        .take(rows.end - rows.start)
+        .collect::<String>()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+fn no_space(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+#[test]
+fn render_missing_shows_guidance() {
+    use handicap_tui::view::inspect::render_missing;
+    let t = draw(80, 24, |f| render_missing(f, &head(), &[text::KEYS_BACK]));
+    let lines: Vec<&str> = t.lines().collect();
+    assert_eq!(lines.len(), 24, "{t}");
+    assert!(lines[0].contains("운영 API 보드"), "{t}");
+    // 본문 첫 줄 = 안내 한 줄.
+    assert!(lines[1].contains(text::SUB_MISSING), "{t}");
+    assert!(lines[23].contains(text::KEYS_BACK), "{t}");
+    assert_eq!(
+        text::SUB_MISSING,
+        "이 칸을 찾을 수 없습니다 — Esc로 돌아가세요"
+    );
+}
+
+#[test]
+fn render_missing_wraps_and_survives_small() {
+    use handicap_tui::view::inspect::render_missing;
+    let want = no_space(text::SUB_MISSING);
+    // 40×10: 안내(폭 43)가 39칸에 안 들어가 두 줄로 — 이으면 글자가 순서대로.
+    let t = draw(40, 10, |f| render_missing(f, &head(), &[text::KEYS_BACK]));
+    let lines: Vec<&str> = t.lines().collect();
+    assert!(lines[0].contains("운영 API 보드"), "{t}");
+    assert!(lines[9].contains(text::KEYS_BACK), "{t}");
+    assert!(joined_body(&t, 1..9).contains(&want), "{t}");
+    // 20×6: 줄바꿈 — body 4줄을 이으면 글자가 순서대로, 첫·끝 낱말은 서로 다른 줄.
+    let t = draw(20, 6, |f| render_missing(f, &head(), &[text::KEYS_BACK]));
+    assert!(joined_body(&t, 1..5).contains(&want), "{t}");
+    let lines: Vec<&str> = t.lines().collect();
+    let first = lines.iter().position(|l| l.contains("이 칸을"));
+    // `wrap_width`는 글자 단위로 끊는다 — 끝 낱말 `돌아가세요`도 갈릴 수 있어 끝 세 글자로.
+    let last = lines.iter().position(|l| l.contains("가세요"));
+    assert!(first.is_some() && last.is_some() && first != last, "{t}");
+    assert!(lines[5].contains(text::KEYS_BACK), "{t}");
+    // 폭 1..=30 × 높이 1..=8 — 패닉 없음.
+    for w in 1..=30 {
+        for h in 1..=8 {
+            let _ = draw(w, h, |f| {
+                render_missing(
+                    f,
+                    &head(),
+                    &[text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL],
+                )
+            });
+        }
+    }
+}

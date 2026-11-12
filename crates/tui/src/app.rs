@@ -56,7 +56,8 @@ use crate::view::edit::{
 };
 use crate::view::error::{render_error, render_usage};
 use crate::view::inspect::{
-    body_height, errors_list_height, render_body, render_errors, render_record, sub_layout,
+    body_height, errors_list_height, render_body, render_errors, render_missing, render_record,
+    sub_layout,
 };
 use crate::view::model::build_panels;
 use crate::view::monitor::{HeaderNotice, HeaderView};
@@ -2844,6 +2845,20 @@ pub fn edit_keys(
     }
 }
 
+/// 칸·상태를 못 찾은 하위 화면의 키 줄(tui-2b-polish §2.3-3).
+pub fn missing_keys(screen: &Screen, ui: Option<&EditUi>, quit_confirm: bool) -> Vec<&'static str> {
+    if quit_confirm {
+        return vec![text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL];
+    }
+    match ui {
+        // 편집 화면에서 창이 열려 있으면 키가 창으로 먼저 간다 — 그 창의 키 줄.
+        Some(ui) if is_edit_screen(screen) && ui.overlay.is_some() => {
+            edit_keys(screen, ui, None, false)
+        }
+        _ => vec![text::KEYS_BACK],
+    }
+}
+
 fn view_list_kind(k: edit::ListKind) -> crate::view::edit::ListKind {
     match k {
         edit::ListKind::Thresholds => crate::view::edit::ListKind::Thresholds,
@@ -3849,8 +3864,25 @@ impl App<'_> {
         let Some(head) = self.monitor_screen().map(|m| m.header()) else {
             return;
         };
-        let Some(r) = self.running.as_ref() else {
+        if self.running.is_none() {
             return;
+        }
+        if !self.draw_sub_screen(f, screen, &head, quit_confirm) {
+            let keys = missing_keys(screen, self.views.edit.as_ref(), quit_confirm);
+            render_missing(f, &head, &fit_keys(&keys, f.area().width));
+        }
+    }
+
+    /// 하위 화면 본문 — 그렸으면 `true`, 그릴 칸·상태를 못 찾았으면 `false`(대체 화면, tui-2b-polish §2.3).
+    fn draw_sub_screen(
+        &self,
+        f: &mut ratatui::Frame,
+        screen: &Screen,
+        head: &HeaderView,
+        quit_confirm: bool,
+    ) -> bool {
+        let Some(r) = self.running.as_ref() else {
+            return false;
         };
         let mut ctx = KeyCtx {
             quit_confirm,
@@ -3866,10 +3898,10 @@ impl App<'_> {
         match screen {
             Screen::Errors => {
                 let Some(st) = &self.views.errors else {
-                    return;
+                    return false;
                 };
                 let Some(panel) = self.panel(&st.board_id, &st.panel_id) else {
-                    return;
+                    return false;
                 };
                 let results = self.panel_results(&st.board_id, &st.panel_id);
                 // 꺼진 보드 = `/status`의 enabled(그 보드 스냅샷이 아직 없으면 켜진 것으로 — 기존 문구).
@@ -3889,21 +3921,23 @@ impl App<'_> {
                 };
                 let height = errors_list_height(sub_layout(f.area()).body);
                 let v = errors_view(&input, st, height);
-                render_errors(f, &head, &v, &sub_keys(screen, ctx));
+                render_errors(f, head, &v, &sub_keys(screen, ctx));
+                true
             }
             Screen::Record => {
                 let Some(st) = &self.views.record else {
-                    return;
+                    return false;
                 };
                 let Some(panel) = self.panel(&st.board_id, &st.panel_id) else {
-                    return;
+                    return false;
                 };
                 let v = record_view(panel, st, &r.session.names);
-                render_record(f, &head, &v, &sub_keys(screen, ctx));
+                render_record(f, head, &v, &sub_keys(screen, ctx));
+                true
             }
             Screen::Body => {
                 let Some(body) = &self.views.body else {
-                    return;
+                    return false;
                 };
                 let lines = self.record_lines();
                 if let Some(StepLine::Http { trace_idx, .. }) = lines.get(body.line_idx)
@@ -3920,26 +3954,33 @@ impl App<'_> {
                         .and_then(|q| q.body.as_deref())
                         .is_some_and(|b| !b.is_empty());
                 }
-                render_body(f, &head, body.lines(), body.scroll, &sub_keys(screen, ctx));
+                render_body(f, head, body.lines(), body.scroll, &sub_keys(screen, ctx));
+                true
             }
             Screen::Settings | Screen::EditList | Screen::EnvVars | Screen::ScenarioVars => {
-                self.draw_edit(f, screen, &head, quit_confirm)
+                self.draw_edit(f, screen, head, quit_confirm)
             }
-            Screen::Values => self.draw_values(f, screen, &head, quit_confirm),
-            _ => {}
+            Screen::Values => self.draw_values(f, screen, head, quit_confirm),
+            _ => false,
         }
     }
 
     /// 값 목록(tui-2b §3.1·§3.2): 줄 글자·대상 폭은 `values`에서 빌리고, 표지만 지금 칸 설정으로 보이는 줄에 계산한다.
-    fn draw_values(&self, f: &mut ratatui::Frame, screen: &Screen, head: &HeaderView, quit: bool) {
+    fn draw_values(
+        &self,
+        f: &mut ratatui::Frame,
+        screen: &Screen,
+        head: &HeaderView,
+        quit: bool,
+    ) -> bool {
         let (Some(r), Some(ui)) = (self.running.as_ref(), self.views.edit.as_ref()) else {
-            return;
+            return false;
         };
         let Some(values) = ui.values.as_ref() else {
-            return;
+            return false;
         };
         let Some((_, p)) = self.edit_target() else {
-            return;
+            return false;
         };
         let names = &r.session.names;
         let body = sub_layout(f.area()).body;
@@ -3990,13 +4031,20 @@ impl App<'_> {
         };
         let keys = fit_keys(&edit_keys(screen, ui, None, quit), f.area().width);
         render_values(f, head, &view, &keys);
+        true
     }
 
     /// 편집 메뉴·하위 목록·변수 화면(편집 상태가 없으면 고른 항목 없는 메뉴).
-    fn draw_edit(&self, f: &mut ratatui::Frame, screen: &Screen, head: &HeaderView, quit: bool) {
+    fn draw_edit(
+        &self,
+        f: &mut ratatui::Frame,
+        screen: &Screen,
+        head: &HeaderView,
+        quit: bool,
+    ) -> bool {
         self.menu_rows.borrow_mut().clear();
         let Some(r) = self.running.as_ref() else {
-            return;
+            return false;
         };
         let key_w = f.area().width;
         let names = &r.session.names;
@@ -4024,11 +4072,12 @@ impl App<'_> {
                     },
                 );
                 let _ = render_edit_menu(f, head, &view, &keys);
+                return true;
             }
-            return;
+            return false;
         };
         let Some((_, p)) = self.edit_target() else {
-            return;
+            return false;
         };
         let picks = pick_labels(ui);
         let overlay = ui
@@ -4038,7 +4087,7 @@ impl App<'_> {
         match screen {
             Screen::Settings => {
                 let Some((title, lines, note)) = self.settings_view(w) else {
-                    return;
+                    return false;
                 };
                 let view = EditMenuView {
                     title: &title,
@@ -4050,10 +4099,11 @@ impl App<'_> {
                 };
                 let keys = fit_keys(&edit_keys(screen, ui, None, quit), key_w);
                 *self.menu_rows.borrow_mut() = render_edit_menu(f, head, &view, &keys);
+                true
             }
             Screen::EditList => {
                 let Some(kind) = list_kind_at(ui.cursor) else {
-                    return;
+                    return false;
                 };
                 let rows = list_rows(kind, p, names);
                 let n = rows.len();
@@ -4083,6 +4133,7 @@ impl App<'_> {
                 };
                 let form = cond.as_ref().map(CondParts::view);
                 render_list_with_form(f, head, &view, &keys, form.as_ref());
+                true
             }
             Screen::EnvVars => {
                 let id = p.environment_id.as_deref().unwrap_or_default();
@@ -4112,6 +4163,7 @@ impl App<'_> {
                     &view,
                     &fit_keys(&edit_keys(screen, ui, None, quit), key_w),
                 );
+                true
             }
             Screen::ScenarioVars => {
                 let sc = p.scenario_id.as_str();
@@ -4141,8 +4193,9 @@ impl App<'_> {
                     &view,
                     &fit_keys(&edit_keys(screen, ui, None, quit), key_w),
                 );
+                true
             }
-            _ => {}
+            _ => false,
         }
     }
 

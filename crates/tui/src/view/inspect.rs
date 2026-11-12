@@ -11,7 +11,7 @@ use super::model::parse_hex;
 use super::monitor::{
     C_FAIL, C_GRAY, C_MUTED, C_OK, C_SLOW, C_TEXT, HeaderView, render_header_view,
 };
-use super::{fit, key_bar, text_width};
+use super::{fit, key_bar, text_width, wrap_width};
 use crate::inspect::{
     BodyLine, BodyLineKind, ErrorRow, ErrorsView, Note, Reason, RecordBody, RecordView, StepLine,
     sanitize, window_start,
@@ -85,6 +85,24 @@ pub fn render_frame(f: &mut Frame, head: &HeaderView, keys: &[&str]) -> Rect {
         );
     }
     l.body
+}
+
+/// 칸·상태를 못 찾은 하위 화면(tui-2b-polish §2.3): 틀(맨 위 줄·키 줄) + body 첫 줄부터 안내(흐리게, 좁으면 줄바꿈).
+pub fn render_missing(f: &mut Frame, head: &HeaderView, keys: &[&str]) {
+    let body = render_frame(f, head, keys);
+    let w = usize::from(body.width).saturating_sub(1);
+    if w == 0 {
+        return;
+    }
+    let muted = Style::default().fg(color(C_MUTED));
+    for (i, l) in wrap_width(text::SUB_MISSING, w)
+        .into_iter()
+        .take(usize::from(body.height))
+        .enumerate()
+    {
+        let row = Rect::new(body.x, body.y.saturating_add(i as u16), body.width, 1);
+        put(f, row, Line::from(Span::styled(format!(" {l}"), muted)));
+    }
 }
 
 /// body에서 제목 줄 1 + (body 높이 ≥ 4면) 열 이름 줄 1을 뺀 줄 수.

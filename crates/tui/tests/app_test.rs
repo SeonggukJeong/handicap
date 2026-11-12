@@ -4636,3 +4636,56 @@ fn take_auto_values_rules() {
     assert_eq!(v.take_auto_values(&Screen::Record, &step, true), None);
     assert!(v.body.is_none());
 }
+
+// ---- tui-2b-polish Task 3: 대체 화면 키 줄(spec §2.3-3) ----
+
+#[test]
+fn missing_keys_branches() {
+    use handicap_tui::app::{edit_keys, missing_keys};
+    use handicap_tui::text;
+    let open = ui_with(input_overlay("x"));
+    let closed = EditUi::default();
+    // ① 종료 확인창 — ui 유무·화면 무관.
+    for s in [Screen::Errors, Screen::Values] {
+        for ui in [None, Some(&open), Some(&closed)] {
+            assert_eq!(
+                missing_keys(&s, ui, true),
+                [text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL],
+                "{s:?}"
+            );
+        }
+    }
+    let edit_screens = [
+        Screen::Settings,
+        Screen::EditList,
+        Screen::EnvVars,
+        Screen::ScenarioVars,
+        Screen::Values,
+    ];
+    for s in &edit_screens {
+        // ② 편집 화면 + 창 열림 → 그 창의 키 줄(`Esc 뒤로`가 아니다).
+        let k = missing_keys(s, Some(&open), false);
+        assert_eq!(k, edit_keys(s, &open, None, false), "{s:?}");
+        assert_ne!(k, [text::KEYS_BACK], "{s:?}");
+        // ③ 편집 화면 + 창 없음 → `Esc 뒤로`.
+        assert_eq!(
+            missing_keys(s, Some(&closed), false),
+            [text::KEYS_BACK],
+            "{s:?}"
+        );
+        // ⑤ ui 없음 → `Esc 뒤로`.
+        assert_eq!(missing_keys(s, None, false), [text::KEYS_BACK], "{s:?}");
+        // ⑥ 저장 중 창 → 빈 목록(지금 `edit_keys`와 같다).
+        let saving = ui_with(Overlay::Saving { restore: None });
+        assert!(missing_keys(s, Some(&saving), false).is_empty(), "{s:?}");
+    }
+    // ④ 편집 화면 아님 + 창 열림 → `Esc 뒤로`.
+    for s in [Screen::Errors, Screen::Record, Screen::Body] {
+        assert_eq!(
+            missing_keys(&s, Some(&open), false),
+            [text::KEYS_BACK],
+            "{s:?}"
+        );
+        assert_eq!(missing_keys(&s, None, false), [text::KEYS_BACK], "{s:?}");
+    }
+}
