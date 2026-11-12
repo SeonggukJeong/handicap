@@ -294,6 +294,12 @@ fn fit_head_drops_leading_combining() {
         );
     }
     assert_eq!(fit_head(s, 3), "…bc");
+    // `e\u{301}`은 한 묶음이라 위 입력으로는 결합 문자가 홀로 남지 않는다. 제어 갈래 글자(soft hyphen) 뒤의
+    // 결합 문자는 홀로 선다 — 잘린 자리에 오면 버려야 한다(soft hyphen 자체도 0칸이라 같이 버려진다).
+    let lone = "xy\u{AD}\u{301}bc";
+    assert_eq!(fit_head(lone, 3), "…bc");
+    // 한 칸 넓으면 앞 글자가 남아 결합 문자가 `…` 바로 뒤가 아니다 — 그대로 둔다.
+    assert_eq!(fit_head(lone, 4), lone);
 }
 
 #[test]

@@ -194,3 +194,4 @@
 - **보드 파일 가져오기에서 R7 개수 상한 전에 도는 단계(거울 덮어쓰기 등)는 칸×묶음 이차** — `check_counts` 선검사 뒤에만, 조회는 `HashMap` (monitor-step-panels 보안).
 - **지금 점검 깨우기 = `notify_waiters`(허가 저장 없음), `Notified`는 결과 push *전에* 생성** — 순서를 바꾸면 깨우기가 사라지는 틈(테스트로 못 잡음). `check_now`는 버퍼 읽은 *뒤* 깨움 (tui-check-now)
 - **`serde_json`은 워크스페이스에서 `float_roundtrip`을 켠다 — 끄면 모니터 조건 비교(`op_passes`)가 일부 소수(`972.0979928970337`)를 1 ULP 다르게 읽어 GUI 조건이 틀리게 판정된다** (`cond_float_exact_read`가 RED로 알린다) (float-roundtrip)
+- **모니터가 숫자를 글자로 바꾸는 곳은 `monitor::number` 하나(서버 판정의 받은 값·화면 표시 값·TUI 값 고르기) — GUI `String(v)`와 같은 글자** (tui-2b-width-number): 기대 글자는 골든 픽스처 `testdata/number_text_golden.json`(`node testdata/number_text_golden.mjs`로 재생성). 엔진 `extract::stringify`는 다른 표기(`1.0`·`1e+16`) 그대로이고 배열·객체 안쪽 숫자도 그 표기다. 자릿수는 `serde_json` 글자에서 얻는다 — `serde_json`이 소수 생성기를 바꾸면(1.0.150은 `zmij`) 동률 반올림·모양이 달라질 수 있고 골든 테스트가 RED로 알린다. 받은 값 글자가 바뀌면 `포함` 조건의 판정이 바뀐다(다른 연산자는 수로 비교해 그대로).

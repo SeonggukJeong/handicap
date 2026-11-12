@@ -240,8 +240,9 @@ const TARGET_WRAP_MIN_W: usize = 8;
 const FORM_LIST_KEEP: u16 = 3;
 
 /// `sanitize`한 대상 글자를 값 칸 폭 `fw`로 나눈 줄들(좁으면 한 줄)과 대상을 잘랐는지.
-/// 앞 `max_rows`줄이 필요한 만큼(`(max_rows + 1) × max(fw, 1) × 4`글자 — 예산의 `+1`줄이 자른 자리가 든
-/// 줄을 화면 밖에 둔다)만 앞에서 잘라 줄바꿈한다(spec tui-2b-width-number §2.4).
+/// 앞 `max_rows`줄이 필요한 만큼(`(max_rows + 1) × max(fw, 1) × 4`글자)만 앞에서 잘라 줄바꿈한다
+/// (spec tui-2b-width-number §2.4). 1칸에 글자 4개 이하인 대상은 `max_rows × fw × 4`글자로도 앞 `max_rows`줄이
+/// 전체를 줄바꿈한 것과 같다 — `+1`줄은 여유다. 1칸에 글자가 4개보다 많은 대상은 덜 채운 줄에서 `…`로 끝난다.
 fn target_rows(target: &str, fw: usize, max_rows: usize) -> (Vec<String>, bool) {
     let budget = max_rows
         .saturating_add(1)
