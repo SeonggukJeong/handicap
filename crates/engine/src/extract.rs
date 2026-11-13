@@ -10,7 +10,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 
 use crate::error::{EngineError, Result};
-use crate::scenario::{Decode, Extract};
+use crate::scenario::{Decode, Extract, HttpStep};
 
 /// Captured response artifacts for a single step.
 pub struct ResponseFacts<'a> {
@@ -91,6 +91,98 @@ pub fn evaluate(
         }
     }
     Ok(out)
+}
+
+/// Lenient sibling of [`evaluate`]: each item is evaluated on its own; found
+/// values are kept and failed items (missing path/header/cookie, non-JSON body,
+/// decode/claim failure) are simply absent. Never errors.
+pub fn evaluate_lenient(
+    extracts: &[Extract],
+    facts: &ResponseFacts<'_>,
+) -> BTreeMap<String, String> {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    // Body JSON parse outcome, computed once and shared by every Body item.
+    let mut body_json: Option<Option<serde_json::Value>> = None;
+
+    for e in extracts {
+        match e {
+            Extract::Body {
+                var,
+                path,
+                decode,
+                claim,
+            } => {
+                let json = body_json
+                    .get_or_insert_with(|| serde_json::from_slice(facts.body).ok())
+                    .as_ref();
+                let Some(json) = json else { continue };
+                let Some(value) = jsonpath_first(json, path) else {
+                    continue;
+                };
+                if let Ok(v) = post_process(var, stringify(&value), *decode, claim.as_deref()) {
+                    out.insert(var.clone(), v);
+                }
+            }
+            Extract::Header {
+                var,
+                name,
+                decode,
+                claim,
+            } => {
+                let Some(value) = facts
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                    .map(|(_, v)| v.clone())
+                else {
+                    continue;
+                };
+                if let Ok(v) = post_process(var, value, *decode, claim.as_deref()) {
+                    out.insert(var.clone(), v);
+                }
+            }
+            Extract::Cookie {
+                var,
+                name,
+                decode,
+                claim,
+            } => {
+                let Some(value) = facts
+                    .set_cookies
+                    .iter()
+                    .find_map(|sc| parse_cookie_value(sc, name))
+                else {
+                    continue;
+                };
+                if let Ok(v) = post_process(var, value, *decode, claim.as_deref()) {
+                    out.insert(var.clone(), v);
+                }
+            }
+            Extract::Status { var } => {
+                out.insert(var.clone(), facts.status.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Names declared by `step.extract` that are absent from `extracted` get `""` in
+/// both `iter_vars` and `extracted`. Returns the names filled.
+pub fn blank_missing_extracts(
+    step: &HttpStep,
+    extracted: &mut BTreeMap<String, String>,
+    iter_vars: &mut BTreeMap<String, String>,
+) -> Vec<String> {
+    let mut blanked = Vec::new();
+    for e in &step.extract {
+        let var = e.var();
+        if !extracted.contains_key(var) {
+            extracted.insert(var.to_string(), String::new());
+            iter_vars.insert(var.to_string(), String::new());
+            blanked.push(var.to_string());
+        }
+    }
+    blanked
 }
 
 pub fn jsonpath_first(json: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
@@ -324,6 +416,115 @@ fn post_process(
 mod tests {
     use super::*;
     use crate::scenario::Decode;
+
+    fn lenient_facts<'a>(body: &'a [u8], headers: &'a [(String, String)]) -> ResponseFacts<'a> {
+        ResponseFacts {
+            status: 200,
+            headers,
+            set_cookies: &[],
+            body,
+        }
+    }
+
+    fn body_extract(var: &str, path: &str) -> Extract {
+        Extract::Body {
+            var: var.into(),
+            path: path.into(),
+            decode: None,
+            claim: None,
+        }
+    }
+
+    #[test]
+    fn lenient_keeps_found_and_drops_missing() {
+        let extracts = vec![
+            body_extract("code", "$.code"),
+            body_extract("orderId", "$.orderId"),
+        ];
+        let facts = lenient_facts(br#"{"code":"WAIT"}"#, &[]);
+        let out = evaluate_lenient(&extracts, &facts);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out.get("code").map(String::as_str), Some("WAIT"));
+    }
+
+    #[test]
+    fn lenient_non_json_body_drops_body_items_keeps_header() {
+        let extracts = vec![
+            body_extract("code", "$.code"),
+            Extract::Header {
+                var: "rid".into(),
+                name: "X-Rid".into(),
+                decode: None,
+                claim: None,
+            },
+        ];
+        let headers = vec![("x-rid".to_string(), "R1".to_string())];
+        let facts = lenient_facts(b"not json", &headers);
+        let out = evaluate_lenient(&extracts, &facts);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out.get("rid").map(String::as_str), Some("R1"));
+    }
+
+    #[test]
+    fn lenient_decode_failure_drops_item() {
+        let extracts = vec![
+            Extract::Body {
+                var: "t".into(),
+                path: "$.t".into(),
+                decode: Some(Decode::Jwt),
+                claim: Some("sub".into()),
+            },
+            body_extract("code", "$.code"),
+        ];
+        let facts = lenient_facts(br#"{"t":"not-a-jwt","code":"OK"}"#, &[]);
+        let out = evaluate_lenient(&extracts, &facts);
+        assert!(!out.contains_key("t"));
+        assert_eq!(out.get("code").map(String::as_str), Some("OK"));
+    }
+
+    #[test]
+    fn strict_evaluate_unchanged() {
+        let extracts = vec![
+            body_extract("code", "$.code"),
+            body_extract("orderId", "$.orderId"),
+        ];
+        let facts = lenient_facts(br#"{"code":"WAIT"}"#, &[]);
+        assert!(evaluate(&extracts, &facts).is_err());
+    }
+
+    #[test]
+    fn blank_missing_fills_only_declared_and_missing() {
+        use crate::scenario::{DisabledRows, HttpMethod, HttpStep, Request};
+        let step = HttpStep {
+            id: "01HX0000000000000000000001".into(),
+            name: "s".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: "http://x".into(),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![
+                body_extract("code", "$.code"),
+                body_extract("orderId", "$.orderId"),
+            ],
+            timeout_seconds: None,
+            think_time: None,
+        };
+        let mut extracted = BTreeMap::from([("code".to_string(), "WAIT".to_string())]);
+        let mut iter_vars = BTreeMap::from([
+            ("orderId".to_string(), "old".to_string()),
+            ("other".to_string(), "x".to_string()),
+        ]);
+        let blanked = blank_missing_extracts(&step, &mut extracted, &mut iter_vars);
+        assert_eq!(blanked, vec!["orderId".to_string()]);
+        assert_eq!(iter_vars.get("orderId").map(String::as_str), Some(""));
+        assert_eq!(iter_vars.get("other").map(String::as_str), Some("x"));
+        assert_eq!(extracted.get("orderId").map(String::as_str), Some(""));
+        assert_eq!(extracted.get("code").map(String::as_str), Some("WAIT"));
+    }
     use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 
     #[test]

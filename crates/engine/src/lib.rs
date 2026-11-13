@@ -24,8 +24,13 @@ pub use condition::{BranchEval, LeafEval, eval_condition, explain_branches};
 pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
 pub use error_kind::{ErrorKind, classify_send_error};
-pub use executor::{ExecOutcome, VuClient, execute_step, execute_step_traced};
-pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
+pub use executor::{
+    ExecOutcome, ExtractMode, VuClient, execute_step, execute_step_traced,
+    execute_step_traced_with, execute_step_with,
+};
+pub use extract::{
+    ResponseFacts, blank_missing_extracts, evaluate as evaluate_extracts, evaluate_lenient,
+};
 pub use genvars::{
     GenSpec, PICK_ARRAY_MAX_LEN, POSITIONS_MAX_CHARS, PickArrayGen, RandomIntGen, RandomStringGen,
     Refresh, VarDecl, parse_positions, seed_iter_vars,

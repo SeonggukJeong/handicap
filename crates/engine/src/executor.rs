@@ -7,7 +7,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::cast::{Cast, coerce_bool, coerce_json, coerce_num, parse_cast_leaf};
 use crate::error::{EngineError, Result};
-use crate::extract::{ResponseFacts, evaluate as evaluate_extracts};
+use crate::extract::{ResponseFacts, evaluate as evaluate_extracts, evaluate_lenient};
 use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
 use crate::template::{TemplateContext, render, render_collecting};
 use crate::trace::{HttpTrace, TracedRequest, TracedResponse};
@@ -142,10 +142,30 @@ fn render_json_value(
     })
 }
 
+/// How a step's `extract` list treats an item that cannot be extracted.
+/// `Strict` (default everywhere): the first failure errors the step.
+/// `Lenient` (conditional-loop bodies): failed items are simply absent from
+/// `extracted` and never become a step error. Neither mode extracts when an
+/// error already exists before extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtractMode {
+    Strict,
+    Lenient,
+}
+
 pub async fn execute_step(
     client: &VuClient,
     step: &HttpStep,
     ctx: &TemplateContext<'_>,
+) -> Result<ExecOutcome> {
+    execute_step_with(client, step, ctx, ExtractMode::Strict).await
+}
+
+pub async fn execute_step_with(
+    client: &VuClient,
+    step: &HttpStep,
+    ctx: &TemplateContext<'_>,
+    mode: ExtractMode,
 ) -> Result<ExecOutcome> {
     let url = render(&step.request.url, ctx)?;
     let mut headers = HeaderMap::new();
@@ -276,9 +296,12 @@ pub async fn execute_step(
                     set_cookies: &set_cookies,
                     body: &body_bytes,
                 };
-                match evaluate_extracts(&step.extract, &facts) {
-                    Ok(map) => extracted = map,
-                    Err(e) => error = Some(e.to_string()),
+                match mode {
+                    ExtractMode::Strict => match evaluate_extracts(&step.extract, &facts) {
+                        Ok(map) => extracted = map,
+                        Err(e) => error = Some(e.to_string()),
+                    },
+                    ExtractMode::Lenient => extracted = evaluate_lenient(&step.extract, &facts),
                 }
             }
 
@@ -424,6 +447,16 @@ pub async fn execute_step_traced(
     client: &VuClient,
     step: &HttpStep,
     ctx: &TemplateContext<'_>,
+) -> HttpTrace {
+    execute_step_traced_with(client, step, ctx, ExtractMode::Strict).await
+}
+
+/// [`execute_step_traced`] with an explicit [`ExtractMode`].
+pub async fn execute_step_traced_with(
+    client: &VuClient,
+    step: &HttpStep,
+    ctx: &TemplateContext<'_>,
+    mode: ExtractMode,
 ) -> HttpTrace {
     let mut unbound: Vec<String> = Vec::new();
     let url = render_collecting(&step.request.url, ctx, &mut unbound);
@@ -599,9 +632,12 @@ pub async fn execute_step_traced(
             set_cookies: &set_cookies,
             body: &body_bytes,
         };
-        match evaluate_extracts(&step.extract, &facts) {
-            Ok(map) => extracted = map,
-            Err(e) => error = Some(e.to_string()),
+        match mode {
+            ExtractMode::Strict => match evaluate_extracts(&step.extract, &facts) {
+                Ok(map) => extracted = map,
+                Err(e) => error = Some(e.to_string()),
+            },
+            ExtractMode::Lenient => extracted = evaluate_lenient(&step.extract, &facts),
         }
     }
 
@@ -630,6 +666,132 @@ mod tests {
     use std::collections::BTreeMap;
     use wiremock::matchers::{body_json, body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn lenient_step(url: String, assert: Vec<Assertion>) -> HttpStep {
+        let body_ex = |var: &str, path: &str| Extract::Body {
+            decode: None,
+            claim: None,
+            var: var.into(),
+            path: path.into(),
+        };
+        HttpStep {
+            id: "01HX0000000000000000000009".into(),
+            name: "poll".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url,
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert,
+            extract: vec![body_ex("code", "$.code"), body_ex("orderId", "$.orderId")],
+            timeout_seconds: None,
+            think_time: None,
+        }
+    }
+
+    async fn mock_poll(status: u16) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/poll"))
+            .respond_with(ResponseTemplate::new(status).set_body_string(r#"{"code":"WAIT"}"#))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    #[tokio::test]
+    async fn lenient_mode_missing_extract_is_not_error() {
+        let server = mock_poll(200).await;
+        let step = lenient_step(format!("{}/poll", server.uri()), vec![]);
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step_with(&client, &step, &ctx, ExtractMode::Lenient)
+            .await
+            .unwrap();
+        assert!(outcome.error.is_none(), "error: {:?}", outcome.error);
+        assert_eq!(
+            outcome.extracted,
+            BTreeMap::from([("code".to_string(), "WAIT".to_string())])
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_mode_same_response_errors() {
+        let server = mock_poll(200).await;
+        let step = lenient_step(format!("{}/poll", server.uri()), vec![]);
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        assert!(outcome.error.is_some());
+        assert!(outcome.extracted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn lenient_mode_assert_failure_skips_extract() {
+        let server = mock_poll(503).await;
+        let step = lenient_step(
+            format!("{}/poll", server.uri()),
+            vec![Assertion::Status(200)],
+        );
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step_with(&client, &step, &ctx, ExtractMode::Lenient)
+            .await
+            .unwrap();
+        assert!(outcome.error.is_some());
+        assert!(outcome.extracted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn lenient_traced_missing_extract_is_not_error() {
+        let server = mock_poll(200).await;
+        let step = lenient_step(format!("{}/poll", server.uri()), vec![]);
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let trace = execute_step_traced_with(&client, &step, &ctx, ExtractMode::Lenient).await;
+        assert!(trace.error.is_none(), "error: {:?}", trace.error);
+        assert_eq!(
+            trace.extracted,
+            BTreeMap::from([("code".to_string(), "WAIT".to_string())])
+        );
+        let strict = execute_step_traced(&client, &step, &ctx).await;
+        assert!(strict.error.is_some());
+        assert!(strict.extracted.is_empty());
+    }
 
     fn empty_env() -> BTreeMap<String, String> {
         BTreeMap::new()
