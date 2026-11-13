@@ -669,6 +669,31 @@ steps:
         assert!(l.while_.is_none());
         assert!(l.keep_think);
         let out = s.to_yaml().unwrap();
+        // 기존 loop의 직렬화 글자 고정(R0): 이 문자열은 이 task 이전 LoopStep
+        // (id, name, repeat: u32, do) 필드 순서가 낸 것과 같다 — repeat은 name 뒤·do 앞.
+        const EXPECTED: &str = "\
+version: 1
+name: loopy
+variables: {}
+cookie_jar: auto
+steps:
+- type: loop
+  id: 01HX0000000000000000000001
+  name: repeat-add
+  repeat: 3
+  do:
+  - type: http
+    id: 01HX0000000000000000000002
+    name: add
+    request:
+      method: GET
+      url: /x
+      headers: {}
+      body: null
+    assert: []
+    extract: []
+";
+        assert_eq!(out, EXPECTED);
         assert!(!out.contains("while"), "{out}");
         assert!(!out.contains("keep_think"), "{out}");
         let s2 = Scenario::from_yaml(&out).unwrap();
