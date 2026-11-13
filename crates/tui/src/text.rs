@@ -262,6 +262,11 @@ pub fn record_if_row(branch: &str) -> String {
     format!("조건 분기 → {branch}")
 }
 
+/// 조건 반복 판정 줄(`StepKind::Loop`) — 문구 정본 `2026-11-13-loop-do-while-copy.md`.
+pub const LOOP_AGAIN: &str = "조건 참 → 다시";
+pub const LOOP_DONE: &str = "조건 거짓 → 다음 스텝";
+pub const LOOP_EXHAUSTED: &str = "최대 횟수 → 반복 종료";
+
 /// `ui/src/scenario/chipResults.ts` `BRANCH_LABEL.none`
 pub const BRANCH_NONE: &str = "(미매치)";
 /// 기록 상세의 사유·판정 상세 칸 이름(TUI 전용, spec §5.3-2 용어).

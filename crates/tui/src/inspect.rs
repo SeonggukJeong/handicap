@@ -392,6 +392,14 @@ pub fn step_lines(
             StepKind::If => StepLine::If {
                 branch: branch_text(s.branch.as_deref().unwrap_or("none")),
             },
+            StepKind::Loop => StepLine::If {
+                branch: match s.branch.as_deref().unwrap_or("") {
+                    "again" => text::LOOP_AGAIN.to_string(),
+                    "done" => text::LOOP_DONE.to_string(),
+                    "exhausted" => text::LOOP_EXHAUSTED.to_string(),
+                    other => other.to_string(),
+                },
+            },
             StepKind::Http => {
                 no += 1;
                 StepLine::Http {
@@ -882,5 +890,66 @@ impl BodyState {
 
     pub fn scroll_to_end(&mut self, height: usize) {
         self.scroll = self.lines().len().saturating_sub(height);
+    }
+}
+
+#[cfg(test)]
+mod loop_judge_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn row(step: &str, kind: StepKind, branch: Option<&str>) -> StepTrace {
+        StepTrace {
+            step_id: step.into(),
+            kind,
+            loop_index: None,
+            branch: branch.map(str::to_string),
+            request: None,
+            response: None,
+            extracted: BTreeMap::new(),
+            unbound_vars: vec![],
+            error: None,
+            branch_eval: vec![],
+            timed_out: false,
+        }
+    }
+
+    /// 반복 판정 행 3종이 문구 정본 글자로 나오고 http 줄 순번은 건너뛰지 않는다.
+    #[test]
+    fn loop_judge_row_renders_as_if_line() {
+        let trace = ScenarioTrace {
+            ok: true,
+            total_ms: 0,
+            steps: vec![
+                row("h", StepKind::Http, None),
+                row("l", StepKind::Loop, Some("again")),
+                row("h", StepKind::Http, None),
+                row("l", StepKind::Loop, Some("done")),
+                row("h", StepKind::Http, None),
+                row("l", StepKind::Loop, Some("exhausted")),
+                row("l", StepKind::Loop, Some("뜻밖")),
+            ],
+            final_vars: BTreeMap::new(),
+            truncated: false,
+            error: None,
+            ended_by_loop: None,
+        };
+        let lines = step_lines(&trace, &Names::default(), "S", None);
+        let branch = |i: usize| match &lines[i] {
+            StepLine::If { branch } => branch.clone(),
+            other => panic!("if 줄이어야 함: {other:?}"),
+        };
+        assert_eq!(branch(1), "조건 참 → 다시");
+        assert_eq!(branch(3), "조건 거짓 → 다음 스텝");
+        assert_eq!(branch(5), "최대 횟수 → 반복 종료");
+        assert_eq!(branch(6), "뜻밖");
+        let nos: Vec<usize> = lines
+            .iter()
+            .filter_map(|l| match l {
+                StepLine::Http { no, .. } => Some(*no),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(nos, [1, 2, 3]);
     }
 }

@@ -356,6 +356,7 @@ mod tests {
             final_vars: BTreeMap::new(),
             truncated: false,
             error: None,
+            ended_by_loop: None,
         }
     }
 

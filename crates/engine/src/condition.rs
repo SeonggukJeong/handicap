@@ -111,6 +111,15 @@ pub fn explain_branches(if_step: &IfStep, ctx: &TemplateContext) -> Vec<BranchEv
     out
 }
 
+/// 조건 하나의 결과와 결정 잎(if 판정과 같은 가림 규칙). branch 라벨은 호출자가 준다.
+pub fn explain_condition(cond: &Condition, branch: &str, ctx: &TemplateContext) -> BranchEval {
+    BranchEval {
+        branch: branch.to_string(),
+        passed: eval_condition(cond, ctx),
+        leaf: deciding_leaf(cond, ctx),
+    }
+}
+
 fn eval_compare(left: &str, op: CompareOp, right: Option<&str>, ctx: &TemplateContext) -> bool {
     let l = render_lenient(left, ctx);
     match op {
@@ -556,6 +565,23 @@ mod tests {
         assert!(ev[0].passed);
         assert_eq!(ev[0].leaf, None);
         assert_eq!(ev[0].branch, "then");
+    }
+
+    #[test]
+    fn explain_condition_reports_leaf() {
+        let e = BTreeMap::new();
+        let v = vars(&[("code", "WAIT")]);
+        let ctx = ctx_with(&v, &e);
+        let ev = super::explain_condition(&eq("{{code}}", "WAIT"), "while", &ctx);
+        assert!(ev.passed);
+        assert_eq!(ev.branch, "while");
+        assert_eq!(
+            ev.leaf.as_ref().unwrap().left_value.as_deref(),
+            Some("WAIT")
+        );
+        // `${`가 든 쪽은 값을 저장하지 않는다(기존 가림).
+        let ev = super::explain_condition(&eq("${SECRET}", "x"), "while", &ctx);
+        assert_eq!(ev.leaf.as_ref().unwrap().left_value, None);
     }
 
     #[test]

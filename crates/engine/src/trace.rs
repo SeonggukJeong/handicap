@@ -34,7 +34,13 @@ pub enum StepKind {
     /// An `if` decision row (carries `branch`; no request/response). Loop nodes do
     /// not get their own row — their children carry `loop_index`.
     If,
+    /// 조건 반복(`while`) 한 회차 뒤의 판정 행(`branch` = "again"/"done"/"exhausted",
+    /// `branch_eval[0]` = 조건 판정). `while` 없는 loop은 행을 만들지 않는다.
+    Loop,
 }
+
+/// 조건 반복 판정 행의 전 행 공유 상한 (`max_requests`처럼 데이터 행 사이에 초기화하지 않는다).
+pub const MAX_LOOP_JUDGE_ROWS: u32 = 200;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TracedRequest {
@@ -103,12 +109,16 @@ pub struct ScenarioTrace {
     pub truncated: bool,
     /// Setup-level failure (e.g. HTTP client build) — distinct from per-step errors.
     pub error: Option<String>,
+    /// 조건 반복이 최대 횟수에 닿아 이번 반복을 끝냈다면 그 loop 스텝 id (없으면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_by_loop: Option<String>,
 }
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::executor::{VuClient, execute_step_traced};
+use crate::executor::{ExtractMode, VuClient, execute_step_traced_with};
+use crate::extract::blank_missing_extracts;
 use crate::pacing::ThinkTime;
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::runner::select_branch;
@@ -121,6 +131,10 @@ struct TraceState {
     truncated: bool,
     /// 이 패스의 `${iter_id}` 값 — 단발/시드 = 0, sequential = 반복 순번 (R4).
     iter_id: u32,
+    /// 지금까지 push한 조건 반복 판정 행 수 — 전 행 공유 예산(`MAX_LOOP_JUDGE_ROWS`).
+    judge_rows: u32,
+    /// 조건 반복이 최대 횟수로 끝났다면 그 loop id. 이 값이 있으면 바깥 재귀가 모두 빠져나온다.
+    ended_by_loop: Option<String>,
 }
 
 /// Run `scenario` once (1 VU, single pass) and capture a per-request trace.
@@ -173,6 +187,7 @@ pub async fn trace_scenario_with_seed(
                 final_vars: BTreeMap::new(),
                 truncated: false,
                 error: Some(format!("http client build: {e}")),
+                ended_by_loop: None,
             };
         }
     };
@@ -181,6 +196,8 @@ pub async fn trace_scenario_with_seed(
         requests: 0,
         truncated: false,
         iter_id: 0,
+        judge_rows: 0,
+        ended_by_loop: None,
     };
     trace_once(
         &client,
@@ -224,6 +241,8 @@ pub async fn trace_scenario_rows(
         requests: 0,
         truncated: false,
         iter_id: 0,
+        judge_rows: 0,
+        ended_by_loop: None,
     };
     let mut rows: Vec<RowTrace> = Vec::with_capacity(seeded_rows.len());
     let mut truncated = false;
@@ -306,6 +325,8 @@ async fn trace_once(
         state,
         scenario.default_think_time,
         &mut req,
+        false,
+        false,
     ))
     .await;
     let ok = state.steps.iter().all(|s| s.error.is_none());
@@ -316,6 +337,7 @@ async fn trace_once(
         final_vars: iter_vars,
         truncated: state.truncated,
         error: None,
+        ended_by_loop: state.ended_by_loop.take(),
     }
 }
 
@@ -372,9 +394,13 @@ async fn trace_steps(
     default_think: Option<ThinkTime>,
     // 요청 단위 재평가 상태(runner::execute_steps와 동일 규칙). None = refresh 변수 없음.
     req: &mut Option<ReqGen>,
+    // 조건 반복(while) 본문 안인지 — runner::execute_steps와 같은 규칙(if·parallel·중첩 loop로 상속).
+    in_cond_loop: bool,
+    // 조건 반복 본문의 think time을 `apply_think_time`과 무관하게 잘 것인가(keep_think).
+    force_think: bool,
 ) {
     for step in steps {
-        if state.truncated {
+        if state.truncated || state.ended_by_loop.is_some() {
             return;
         }
         if state.requests >= opts.max_requests || Instant::now() >= deadline {
@@ -393,9 +419,17 @@ async fn trace_steps(
                     iter_id: state.iter_id,
                     loop_index,
                 };
-                let t = execute_step_traced(client, http, &ctx).await;
+                let mode = if in_cond_loop {
+                    ExtractMode::Lenient
+                } else {
+                    ExtractMode::Strict
+                };
+                let mut t = execute_step_traced_with(client, http, &ctx, mode).await;
                 if let Some(rg) = req.as_mut() {
                     rg.mark_written(t.extracted.keys());
+                }
+                if in_cond_loop {
+                    blank_missing_extracts(http, &mut t.extracted, iter_vars);
                 }
                 iter_vars.extend(t.extracted.clone());
                 state.requests += 1;
@@ -412,7 +446,7 @@ async fn trace_steps(
                     branch_eval: Vec::new(),
                     timed_out: t.timed_out,
                 });
-                if opts.apply_think_time {
+                if opts.apply_think_time || force_think {
                     if let Some(tt) = http.think_time.or(default_think) {
                         let now = Instant::now();
                         if now < deadline {
@@ -426,29 +460,112 @@ async fn trace_steps(
                 }
             }
             Step::Loop(lp) => {
-                for i in 0..lp.plain_repeat() {
-                    if state.truncated
-                        || state.requests >= opts.max_requests
-                        || Instant::now() >= deadline
-                    {
-                        state.truncated = true;
-                        return;
+                if let Some(cond) = lp.while_.as_ref() {
+                    // do-while (runner::execute_steps와 같은 의미): 본문 → 조건. 최대 횟수에 닿으면
+                    // 이번 반복을 끝낸다(`ended_by_loop`).
+                    let max = lp.max_passes();
+                    let body_think = force_think || lp.keeps_think();
+                    let mut pass: u32 = 0;
+                    loop {
+                        if state.truncated
+                            || state.requests >= opts.max_requests
+                            || Instant::now() >= deadline
+                        {
+                            state.truncated = true;
+                            return;
+                        }
+                        Box::pin(trace_steps(
+                            client,
+                            &lp.do_,
+                            iter_vars,
+                            env,
+                            Some(pass),
+                            opts,
+                            deadline,
+                            state,
+                            default_think,
+                            req,
+                            true,
+                            body_think,
+                        ))
+                        .await;
+                        if state.truncated || state.ended_by_loop.is_some() {
+                            return;
+                        }
+                        pass = pass.saturating_add(1);
+                        let (eval, again) = {
+                            let ctx = TemplateContext {
+                                vars: iter_vars,
+                                env,
+                                vu_id: 0,
+                                iter_id: state.iter_id,
+                                loop_index: Some(pass - 1),
+                            };
+                            let eval = crate::condition::explain_condition(cond, "while", &ctx);
+                            let again = eval.passed;
+                            (eval, again)
+                        };
+                        let exhausted = again && max.is_some_and(|n| pass >= n);
+                        let verdict = if !again {
+                            "done"
+                        } else if exhausted {
+                            "exhausted"
+                        } else {
+                            "again"
+                        };
+                        state.steps.push(StepTrace {
+                            step_id: lp.id.clone(),
+                            kind: StepKind::Loop,
+                            loop_index: Some(pass - 1),
+                            branch: Some(verdict.to_string()),
+                            request: None,
+                            response: None,
+                            extracted: BTreeMap::new(),
+                            unbound_vars: Vec::new(),
+                            error: None,
+                            branch_eval: vec![eval],
+                            timed_out: false,
+                        });
+                        state.judge_rows += 1;
+                        if state.judge_rows > MAX_LOOP_JUDGE_ROWS {
+                            state.truncated = true;
+                            return;
+                        }
+                        if !again {
+                            break;
+                        }
+                        if exhausted {
+                            state.ended_by_loop = Some(lp.id.clone());
+                            return;
+                        }
                     }
-                    Box::pin(trace_steps(
-                        client,
-                        &lp.do_,
-                        iter_vars,
-                        env,
-                        Some(i),
-                        opts,
-                        deadline,
-                        state,
-                        default_think,
-                        req,
-                    ))
-                    .await;
-                    if state.truncated {
-                        return;
+                } else {
+                    for i in 0..lp.plain_repeat() {
+                        if state.truncated
+                            || state.requests >= opts.max_requests
+                            || Instant::now() >= deadline
+                        {
+                            state.truncated = true;
+                            return;
+                        }
+                        Box::pin(trace_steps(
+                            client,
+                            &lp.do_,
+                            iter_vars,
+                            env,
+                            Some(i),
+                            opts,
+                            deadline,
+                            state,
+                            default_think,
+                            req,
+                            in_cond_loop,
+                            force_think,
+                        ))
+                        .await;
+                        if state.truncated || state.ended_by_loop.is_some() {
+                            return;
+                        }
                     }
                 }
             }
@@ -499,6 +616,8 @@ async fn trace_steps(
                     state,
                     default_think,
                     req,
+                    in_cond_loop,
+                    force_think,
                 ))
                 .await;
             }
@@ -519,7 +638,7 @@ async fn trace_steps(
                     .map(|_| req.as_mut().map(ReqGen::fork))
                     .collect();
                 for (branch, mut branch_req) in par.branches.iter().zip(branch_reqs) {
-                    if state.truncated {
+                    if state.truncated || state.ended_by_loop.is_some() {
                         return;
                     }
                     // The merge-back below runs even if this branch's recursion
@@ -542,6 +661,8 @@ async fn trace_steps(
                         // Http arm에서 그대로 적용된다.
                         None,
                         &mut branch_req,
+                        in_cond_loop,
+                        force_think,
                     ))
                     .await;
                     for k in branch.output_var_names() {
@@ -597,6 +718,7 @@ mod tests {
             final_vars: BTreeMap::new(),
             truncated: false,
             error: None,
+            ended_by_loop: None,
         };
         let json = serde_json::to_value(&t).unwrap();
         let back: ScenarioTrace = serde_json::from_value(json).unwrap();
@@ -623,6 +745,7 @@ mod tests {
                     final_vars: BTreeMap::new(),
                     truncated: false,
                     error: None,
+                    ended_by_loop: None,
                 },
             }],
         };
@@ -631,5 +754,259 @@ mod tests {
         assert!(json.get("rows").unwrap()[0].get("row_index").is_some());
         let back: RowsTrace = serde_json::from_value(json).unwrap();
         assert_eq!(rt, back);
+    }
+
+    // ---------- 조건 반복(while) trace (loop-do-while T4) ----------
+    use std::time::Duration as StdDuration;
+    use wiremock::matchers::path as wm_path;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const LOOP_ID: &str = "01HX0000000000000000000001";
+    const ORDER_ID: &str = "01HX0000000000000000000002";
+    const AFTER_ID: &str = "01HX0000000000000000000003";
+
+    fn t_opts(apply_think_time: bool, max_requests: u32, max_wall: StdDuration) -> TraceOptions {
+        TraceOptions {
+            env: BTreeMap::new(),
+            max_requests,
+            max_wall,
+            apply_think_time,
+        }
+    }
+
+    /// loop(order) → after. `loop_head` = repeat/while/keep_think 줄들, `order_extra` = 본문 스텝 추가 줄.
+    fn loop_yaml(base: &str, root_extra: &str, loop_head: &str, order_extra: &str) -> String {
+        format!(
+            r#"version: 1
+name: while-trace
+{root_extra}variables:
+  base: "{base}"
+  code: ""
+steps:
+  - id: "{LOOP_ID}"
+    name: poll
+    type: loop
+{loop_head}
+    do:
+      - id: "{ORDER_ID}"
+        name: order
+        type: http
+        request: {{ method: GET, url: "{{{{base}}}}/order" }}
+        assert: []
+{order_extra}        extract:
+          - {{ var: code, from: body, path: "$.code" }}
+  - id: "{AFTER_ID}"
+    name: after
+    type: http
+    request: {{ method: GET, url: "{{{{base}}}}/after" }}
+    assert: []
+"#
+        )
+    }
+
+    const WHILE_WAIT: &str = r#"    while: { left: "{{code}}", op: eq, right: "WAIT" }"#;
+
+    async fn mount_wait_then_ok(server: &MockServer, waits: u64) {
+        if waits > 0 {
+            Mock::given(wm_path("/order"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"code":"WAIT"}"#))
+                .up_to_n_times(waits)
+                .mount(server)
+                .await;
+        }
+        Mock::given(wm_path("/order"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"code":"OK"}"#))
+            .mount(server)
+            .await;
+        Mock::given(wm_path("/after"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn trace_while_emits_judge_rows() {
+        let server = MockServer::start().await;
+        mount_wait_then_ok(&server, 2).await;
+        let sc = Scenario::from_yaml(&loop_yaml(&server.uri(), "", WHILE_WAIT, "")).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        let kinds: Vec<StepKind> = t.steps.iter().map(|s| s.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                StepKind::Http,
+                StepKind::Loop,
+                StepKind::Http,
+                StepKind::Loop,
+                StepKind::Http,
+                StepKind::Loop,
+                StepKind::Http,
+            ]
+        );
+        let judges: Vec<&StepTrace> = t
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Loop)
+            .collect();
+        let branches: Vec<&str> = judges
+            .iter()
+            .map(|s| s.branch.as_deref().unwrap())
+            .collect();
+        assert_eq!(branches, ["again", "again", "done"]);
+        let idx: Vec<Option<u32>> = judges.iter().map(|s| s.loop_index).collect();
+        assert_eq!(idx, [Some(0), Some(1), Some(2)]);
+        for j in &judges {
+            assert_eq!(j.step_id, LOOP_ID);
+            assert!(j.request.is_none() && j.response.is_none() && j.error.is_none());
+            assert!(j.extracted.is_empty() && j.unbound_vars.is_empty() && !j.timed_out);
+            assert_eq!(j.branch_eval.len(), 1);
+            assert_eq!(j.branch_eval[0].branch, "while");
+        }
+        assert_eq!(t.ended_by_loop, None);
+        assert!(t.ok && !t.truncated);
+    }
+
+    #[tokio::test]
+    async fn trace_while_exhausted_sets_ended_by_loop() {
+        let server = MockServer::start().await;
+        Mock::given(wm_path("/order"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"code":"WAIT"}"#))
+            .mount(&server)
+            .await;
+        Mock::given(wm_path("/after"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let head = format!("    repeat: 2\n{WHILE_WAIT}");
+        let sc = Scenario::from_yaml(&loop_yaml(&server.uri(), "", &head, "")).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        let last = t.steps.last().unwrap();
+        assert_eq!(last.kind, StepKind::Loop);
+        assert_eq!(last.branch.as_deref(), Some("exhausted"));
+        assert_eq!(t.ended_by_loop.as_deref(), Some(LOOP_ID));
+        assert!(t.steps.iter().all(|s| s.step_id != AFTER_ID));
+        assert!(!t.truncated);
+    }
+
+    /// 회귀 가드(R0): while 없는 loop의 trace JSON은 지금과 같다.
+    #[tokio::test]
+    async fn trace_plain_loop_has_no_judge_rows() {
+        let server = MockServer::start().await;
+        mount_wait_then_ok(&server, 0).await;
+        let sc = Scenario::from_yaml(&loop_yaml(&server.uri(), "", "    repeat: 3", "")).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert_eq!(t.steps.iter().filter(|s| s.step_id == ORDER_ID).count(), 3);
+        let json = serde_json::to_value(&t).unwrap();
+        assert!(json.get("ended_by_loop").is_none(), "{json}");
+        for s in json["steps"].as_array().unwrap() {
+            assert_ne!(s["kind"], "loop", "{s}");
+        }
+    }
+
+    #[tokio::test]
+    async fn trace_judge_rows_capped() {
+        // 요청 없는 본문(분기 안 타는 if) + 항상 참 + 최대 횟수 없음.
+        let yaml = r#"version: 1
+name: spin
+steps:
+  - id: "01HX0000000000000000000001"
+    name: spin
+    type: loop
+    while: { left: "1", op: eq, right: "1" }
+    do:
+      - id: "01HX0000000000000000000009"
+        name: never
+        type: if
+        cond: { left: "1", op: eq, right: "2" }
+        then: []
+"#;
+        let sc = Scenario::from_yaml(yaml).unwrap();
+        let started = std::time::Instant::now();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert!(started.elapsed() < StdDuration::from_secs(5));
+        assert!(t.truncated);
+        let n = t.steps.iter().filter(|s| s.kind == StepKind::Loop).count();
+        assert!((200..=201).contains(&n), "judge rows = {n}");
+    }
+
+    const THINK_200: &str = "        think_time: { min_ms: 200, max_ms: 200 }\n";
+
+    #[tokio::test]
+    async fn trace_keep_think_sleeps_when_think_disabled() {
+        let server = MockServer::start().await;
+        mount_wait_then_ok(&server, 2).await;
+        let o = t_opts(false, 50, StdDuration::from_secs(30));
+        let sc = Scenario::from_yaml(&loop_yaml(&server.uri(), "", WHILE_WAIT, THINK_200)).unwrap();
+        let t = trace_scenario(&sc, &o).await;
+        assert!(
+            t.total_ms >= 400,
+            "keep_think 기본: total_ms={}",
+            t.total_ms
+        );
+
+        let server2 = MockServer::start().await;
+        mount_wait_then_ok(&server2, 2).await;
+        let head = format!("{WHILE_WAIT}\n    keep_think: false");
+        let sc = Scenario::from_yaml(&loop_yaml(&server2.uri(), "", &head, THINK_200)).unwrap();
+        let t = trace_scenario(&sc, &o).await;
+        assert!(
+            t.total_ms < 300,
+            "keep_think: false: total_ms={}",
+            t.total_ms
+        );
+
+        // 루트 기본 think만 있는 변형.
+        let server3 = MockServer::start().await;
+        mount_wait_then_ok(&server3, 2).await;
+        let root = "default_think_time: { min_ms: 200, max_ms: 200 }\n";
+        let sc = Scenario::from_yaml(&loop_yaml(&server3.uri(), root, WHILE_WAIT, "")).unwrap();
+        let t = trace_scenario(&sc, &o).await;
+        assert!(
+            t.total_ms >= 400,
+            "루트 기본 think: total_ms={}",
+            t.total_ms
+        );
+    }
+
+    #[tokio::test]
+    async fn trace_cond_loop_lenient_extract() {
+        let server = MockServer::start().await;
+        mount_wait_then_ok(&server, 1).await;
+        let yaml = loop_yaml(&server.uri(), "", WHILE_WAIT, "").replace(
+            r#"          - { var: code, from: body, path: "$.code" }"#,
+            r#"          - { var: code, from: body, path: "$.code" }
+          - { var: orderId, from: body, path: "$.orderId" }"#,
+        );
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        let first = t.steps.iter().find(|s| s.step_id == ORDER_ID).unwrap();
+        assert_eq!(first.error, None);
+        let want: BTreeMap<String, String> = [("code", "WAIT"), ("orderId", "")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        assert_eq!(first.extracted, want);
+    }
+
+    #[tokio::test]
+    async fn trace_sequential_rows_continue_after_exhausted() {
+        let server = MockServer::start().await;
+        Mock::given(wm_path("/order"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"code":"WAIT"}"#))
+            .mount(&server)
+            .await;
+        Mock::given(wm_path("/after"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let head = format!("    repeat: 1\n{WHILE_WAIT}");
+        let sc = Scenario::from_yaml(&loop_yaml(&server.uri(), "", &head, "")).unwrap();
+        let seeds = vec![(0u64, BTreeMap::new()), (1u64, BTreeMap::new())];
+        let rt =
+            trace_scenario_rows(&sc, &t_opts(false, 50, StdDuration::from_secs(30)), &seeds).await;
+        assert_eq!(rt.rows.len(), 2);
+        for r in &rt.rows {
+            assert_eq!(r.trace.ended_by_loop.as_deref(), Some(LOOP_ID));
+        }
     }
 }
