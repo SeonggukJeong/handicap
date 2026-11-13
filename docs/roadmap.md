@@ -1149,6 +1149,27 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 **(3) 릴리즈 노트 한 줄**(다음 릴리즈 노트로 옮길 것): "숫자 값에 건 `포함` 조건은 판정이 바뀔 수 있다 — 서버가 숫자를 GUI에 보이는 글자로 적는다(`1.0`이 아니라 `1`, `1e+16`이 아니라 `10000000000000000`, `1e-6`이 아니라 `0.000001`). `포함 ".0"`처럼 통과하던 조건이 실패할 수 있고, 반대로 `포함 "0000"`처럼 실패하던 조건이 통과할 수 있다. 숫자 칸에는 `=`·`>` 같은 비교를 쓸 것. 화면 표시 값·실패 사유의 숫자도 같은 글자로 바뀐다."
 
+### B57. 외부 스크립트로 API를 직접 쓰며 드러난 것 (별도 벤치마크 프로젝트의 부하 도구로 사용, v0.13.0, 2026-11-14) 후보·미수정
+
+**성격**: 슬라이스의 연기 항목이 아니라 **사용 중 관찰**이다. 별도 리포의 측정 스크립트가 `POST /api/runs`(open-loop·`stages`)와 리포트 JSON을 직접 다루며 걸린 것만 적었다. 코드 수정 0건 — **사용자 결정(2026-11-14, 다시 묻지 않는다): 지금은 기록만 한다**(조건 반복 `loop-do-while` 작업 중이라 코드를 건드리지 않는다). 번호 주의: `worktree-loop-do-while`이 마무리 때 §B 블록을 더하면 이 블록 다음 번호(B58)를 쓴다(working-rules §2 — `grep -n '^### B'`).
+
+**(1) 고칠 가치가 큰 것**
+- **`stages`를 쓸 때 `duration_seconds`를 빼도 넣어도 거절된다**: 빼면 422 `missing field duration_seconds`, 양수면 400 "stages 사용 시 duration_seconds를 비워야 합니다". 통과하는 값은 `0`뿐이다. 원인: `store::Profile.duration_seconds`에 `#[serde(default)]`가 없다(`crates/controller/src/store/runs.rs`, 같은 구조체의 `vus`는 같은 이유로 이미 default). `vu_stages`도 같다. cost-if-left: API를 직접 쓰는 쪽이 "비워야 한다"는 안내대로 필드를 빼면 실패한다(실제로 측정이 두 번 실패했다). 해소: `#[serde(default)]` 한 줄 + 422가 아니라 통과하는지 보는 통합 테스트 1건(소형 수정 경로). 확인할 것: UI는 stages일 때 `0`을 보내는지 생략하는지, 프리셋(`api/presets.rs`의 `duration_seconds`)도 같은 모양인지.
+- **버린 요청(`dropped`)이 초 단위로 없다**: 워커는 실행 중 `dropped: 0`을 보내고 마지막 flush에만 합계를 싣는다(`crates/engine/src/runner.rs` open-loop 종료부 주석, `runs.dropped` 단일 UPDATE). 리포트 `windows`에도 없다. cost-if-left: 급증(조용하다 뛰는) 시험에서 "언제부터 몇 초 동안 버렸나"를 볼 수 없고, 실행 중 진행 차트(ADR-0051)에서 버림이 끝나야 보인다. 해소: 초별 dropped 델타를 MetricBatch에 싣고 `run_metrics` 또는 별도 scalar 테이블로 — proto·migration이 드는 정식 슬라이스 크기. `load_gen_saturated`의 `onset_second`도 처리량 추정 대신 이 값으로 정확해진다.
+- **초별 창의 지연 시간이 ms 정수다**: `windows[].p50_ms/p95_ms/p99_ms`가 `u64` ms라 빠른 대상에서는 `0`·`1`만 찍힌다(전체 구간 `latency.percentile_curve`는 µs). `summary`에 p99가 없어 곡선에서 `quantile≈0.99`를 찾아 꺼내야 했다. cost-if-left: sub-ms 대상의 초별 변화를 읽을 수 없다(localhost p95=0 함정과 같은 뿌리 — controller CLAUDE.md). 해소 후보: `*_us` 필드를 나란히 추가(additive, UI Zod `.optional()`), `summary.p99_ms` 추가는 `ReportSummary` 비-optional 필드 함정(골든 픽스처·`.strict()`)을 그대로 밟는다.
+- **`load_gen_saturated`가 간헐적 대상 멈춤을 `slots`로 분류한다**: 대상이 수백 ms씩 가끔 멈추는(초별 p95가 평소 2 ms, 멈춘 초 300–900 ms, 60초 중 약 20초) 실행에서 `cause: slots, recommended: 2507`이 나왔다(당시 `max_in_flight` 2500, 5xx 0.02 %). `sut_stress`의 두 조건(5xx률 ≥ 1 % 또는 late/early p95 ≥ 1.5×) 어느 쪽에도 안 걸린다 — 멈춤이 실행 내내 고르게 흩어져 있어 앞·뒤 p95가 같다. cost-if-left: "슬롯을 7개 늘리라"는 권고가 틀린 방향을 가리킨다. 해소 후보: 초별 p95의 흩어짐(예: 상위 초들의 p95가 중앙값의 N배)을 세 번째 sut 조건으로 — 임계는 재현 픽스처로 정할 것(slots/sut 경계가 본래 borderline이라는 controller CLAUDE.md 노트 참조). 재현 자료는 별도 리포에 있어 여기서는 못 돌린다 — 지연이 간헐적으로 튀는 responder로 다시 만들어야 한다.
+
+**(2) 기능 후보**
+- **반복(도착) 사이에 값을 기억하는 변수**: open-loop 도착은 서로 독립이라 "받은 `ETag`를 다음 요청의 `If-None-Match`로" 같은 조건부 요청·폴링·페이지 커서를 만들 수 없었다(측정 전용 표기로 흉내 냈다). closed-loop에서 흐름 변수가 반복을 넘어 유지되는지는 **확인하지 않았다**. 해소 후보: VU 범위 변수(쿠키 jar처럼 VU에 붙는 저장소) — open-loop는 VU 개념이 약하므로 설계가 필요하다(§A 후보로 올릴지 판단).
+- **단계 곡선의 시작 속도**: `stages`는 항상 0에서 올라간다. "초당 800건으로 시작해 유지하다 뛰기"를 하려면 앞에 짧은 올림 단계를 끼워야 했다. 해소 후보: 첫 stage에 `from` 또는 profile에 `start_rps`.
+
+**(3) 설계대로지만 걸린 것(문서·안내 후보)**
+- **5xx는 `errors`에 안 들어간다**: `summary.errors`·`windows[].error_count`는 0인데 500이 있었다. 리포트가 `validity.silent_http_errors`로 알리므로 의도된 동작이지만, API로 쓰는 쪽은 `errors`만 보고 "오류 없음"으로 읽기 쉽다. 해소 후보: `docs/dev/live-verify-backend.md`의 summary 키 설명에 한 줄.
+- **open-loop 지연 시간의 시작점이 리포트에 없다**: "보내려던 시각"부터인지 "실제 보낸 시각"부터인지 — 코드로 확인하지 않았다. 느린 곳이 부하 도구인지 대상인지 가를 때 이것을 몰라 대상 쪽 지표로 돌아가야 했다. 해소: 확인 후 리포트 JSON 또는 문서에 명시.
+- **`GET /api/runs` 목록 없음**: 이미 문서화된 제한(루트 CLAUDE.md). 스크립트가 run id를 스스로 기억해야 한다.
+
+**(4) 확인하지 못한 것**: 위 관찰은 v0.13.0 바이너리 기준이고 master에서 다시 돌려 보지 않았다 — (1)의 첫 항목만 master 코드(`store/runs.rs`·`api/runs.rs`)로 확인했다. 측정 스크립트가 쓴 `max_in_flight` 상한 2500이 도구 제한 때문인지 스크립트 쪽 선택인지 모른다(`api/runs.rs`의 validate 상한은 10_000).
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
