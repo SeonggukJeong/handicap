@@ -1,0 +1,143 @@
+<title>조건 반복 리포트 목업</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 배치: 한 열 문서. 위에서부터 '지금 리포트' → 안 A·B·C. 각 안은 실제 리포트 조각을 본뜬 패널 + 아래 한 줄 비용 설명. */
+:root {
+  --bg: #f8fafc; --panel: #ffffff; --fg: #0f172a; --muted: #5b6678; --line: #dfe5ee; --soft: #f1f5f9;
+  --accent: #4f46e5; --accent-soft: #eef2ff;
+  --warn: #b45309; --warn-soft: #fef3c7; --warn-line: #f2cf7a;
+  --ok: #0f766e; --retry: #c2710c; --stop: #be123c;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1220; --panel: #151b2c; --fg: #e6eaf2; --muted: #9aa6ba; --line: #2a3349; --soft: #1b2236;
+  --accent: #a5b4fc; --accent-soft: #252c55;
+  --warn: #fbbf24; --warn-soft: #3a2d0c; --warn-line: #6b5216;
+  --ok: #5eead4; --retry: #fbbf24; --stop: #fb7185; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0d1220; --panel: #151b2c; --fg: #e6eaf2; --muted: #9aa6ba; --line: #2a3349; --soft: #1b2236;
+  --accent: #a5b4fc; --accent-soft: #252c55;
+  --warn: #fbbf24; --warn-soft: #3a2d0c; --warn-line: #6b5216;
+  --ok: #5eead4; --retry: #fbbf24; --stop: #fb7185; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.6;
+  padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1 { font-size: 24px; line-height: 1.3; margin: 0; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 12px; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 4px; margin-right: 8px; vertical-align: 2px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel-title { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--line); padding: 8px 16px 8px 0; white-space: nowrap; }
+td { padding: 8px 16px 8px 0; border-bottom: 1px solid var(--soft); white-space: nowrap; }
+td.name { font-weight: 600; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); padding: 0 6px; border-radius: 4px; margin-left: 6px; }
+.note { font-size: 13px; color: var(--muted); }
+.sub { background: var(--soft); border-radius: 6px; padding: 10px 12px; font-size: 13px; }
+.sub b { font-weight: 600; }
+.callout { background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+.callout strong { color: var(--warn); }
+.cost { font-size: 13px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+.cost b { color: var(--fg); }
+/* 분포 막대 */
+.dist { display: grid; grid-template-columns: max-content 1fr max-content; gap: 6px 12px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.bar { height: 14px; border-radius: 3px; background: var(--ok); min-width: 2px; }
+.bar.retry { background: var(--retry); }
+.bar.stop { background: var(--stop); }
+.track { background: var(--soft); border-radius: 3px; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.split-row td { background: var(--soft); font-size: 13px; }
+.split-row td:first-child { padding-left: 20px; }
+.ex { font-size: 12px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:10px">
+    <h1>조건 반복이 있는 run의 리포트, 어떻게 보여 줄까</h1>
+    <p class="lede">대기 응답도 200이라 성공 응답과 같은 스텝 행에 섞입니다. 아래 세 안은 그 섞임을 리포트에서 알아보게 하는 방법입니다. 서로 배타적이지 않아 A+B처럼 묶을 수 있습니다.</p>
+    <p class="ex">숫자는 전부 예시입니다. 가정: 시나리오 반복 1,200회, 스텝 「주문 요청」을 최대 5번까지 재시도, 대기 응답은 약 12ms·성공 응답은 약 180ms.</p>
+  </header>
+
+  <section>
+    <h2>지금 리포트라면 이렇게 보입니다</h2>
+    <div class="panel">
+      <div class="panel-title">스텝별 통계</div>
+      <div class="scroll"><table>
+        <thead><tr><th>스텝</th><th>메서드</th><th>요청</th><th>에러</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th></tr></thead>
+        <tbody>
+          <tr><td class="name">로그인</td><td class="mono">POST</td><td>1,200</td><td>0</td><td>64</td><td>120</td><td>188</td></tr>
+          <tr><td class="name">주문 요청</td><td class="mono">POST</td><td>1,812</td><td>0</td><td>121</td><td>395</td><td>470</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <p class="note">「주문 요청」이 1,812건인 이유(재시도 612건)도, p50 121ms가 빠른 대기 응답 때문에 낮아진 값이라는 것도 화면에서 알 수 없습니다. 상한에 걸려 중단된 반복 12건은 어디에도 없습니다.</p>
+  </section>
+
+  <section>
+    <h2><span class="tag">A</span>스텝 행에 표시 + 한 줄 풀이</h2>
+    <div class="panel">
+      <div class="panel-title">스텝별 통계</div>
+      <div class="scroll"><table>
+        <thead><tr><th>스텝</th><th>메서드</th><th>요청</th><th>에러</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th></tr></thead>
+        <tbody>
+          <tr><td class="name">로그인</td><td class="mono">POST</td><td>1,200</td><td>0</td><td>64</td><td>120</td><td>188</td></tr>
+          <tr><td class="name">주문 요청<span class="chip">재시도 포함</span></td><td class="mono">POST</td><td>1,812</td><td>0</td><td>121</td><td>395</td><td>470</td></tr>
+        </tbody>
+      </table></div>
+      <div class="sub">「주문 요청」 1,812건 = <b>첫 시도 1,200</b> + <b>재시도 612</b> (34%). 응답 시간에는 재시도된 응답이 함께 들어 있습니다. 최대 횟수에 걸려 중단된 반복 <b>12건</b>.</div>
+    </div>
+    <p class="cost"><b>알려 주는 것:</b> 이 행의 숫자를 그대로 믿으면 안 된다는 사실과 재시도 규모. <b>못 하는 것:</b> 성공 응답만의 응답 시간. <b>작업량:</b> 작음 — 중단 건수 하나만 새로 세면 되고 나머지는 이미 모으는 회차별 요청 수로 계산됩니다.</p>
+  </section>
+
+  <section>
+    <h2><span class="tag">B</span>몇 번 만에 끝났는지 분포</h2>
+    <div class="panel">
+      <div class="panel-title">조건 반복 · 「주문 재시도」 — 반복 1,200회가 몇 번째 시도에서 끝났나</div>
+      <div class="dist">
+        <span>1번째</span><div class="track"><div class="bar" style="width:68%"></div></div><span>816 · 68%</span>
+        <span>2번째</span><div class="track"><div class="bar retry" style="width:20%"></div></div><span>240 · 20%</span>
+        <span>3번째</span><div class="track"><div class="bar retry" style="width:7%"></div></div><span>84 · 7%</span>
+        <span>4번째</span><div class="track"><div class="bar retry" style="width:3%"></div></div><span>36 · 3%</span>
+        <span>5번째</span><div class="track"><div class="bar retry" style="width:1%"></div></div><span>12 · 1%</span>
+        <span>중단</span><div class="track"><div class="bar stop" style="width:1%"></div></div><span>12 · 1%</span>
+      </div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--ok)"></span>재시도 없이 끝남</span>
+        <span><span class="dot" style="background:var(--retry)"></span>재시도 후 끝남</span>
+        <span><span class="dot" style="background:var(--stop)"></span>최대 5번까지도 조건이 풀리지 않아 이번 반복을 끝냄</span>
+      </div>
+    </div>
+    <p class="cost"><b>알려 주는 것:</b> 계정 경합이 얼마나 심했는지 한눈에. 32%가 한 번 이상 기다렸고 1%는 끝내 못 했다는 것. <b>못 하는 것:</b> 응답 시간 분리. <b>작업량:</b> 작음~중간 — A와 같은 데이터, 새 패널 하나. 무제한 반복이면 뒤쪽 회차는 「N번째 이후」 한 줄로 합칩니다.</p>
+  </section>
+
+  <section>
+    <h2><span class="tag">C</span>응답 시간을 둘로 나눠 표시</h2>
+    <div class="panel">
+      <div class="panel-title">스텝별 통계</div>
+      <div class="scroll"><table>
+        <thead><tr><th>스텝</th><th>메서드</th><th>요청</th><th>에러</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th></tr></thead>
+        <tbody>
+          <tr><td class="name">로그인</td><td class="mono">POST</td><td>1,200</td><td>0</td><td>64</td><td>120</td><td>188</td></tr>
+          <tr><td class="name">주문 요청<span class="chip">재시도 포함</span></td><td class="mono">POST</td><td>1,812</td><td>0</td><td>121</td><td>395</td><td>470</td></tr>
+          <tr class="split-row"><td>└ 반복을 끝낸 응답</td><td></td><td>1,200</td><td>0</td><td>182</td><td>420</td><td>488</td></tr>
+          <tr class="split-row"><td>└ 재시도로 이어진 응답</td><td></td><td>612</td><td>0</td><td>12</td><td>31</td><td>44</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <p class="cost"><b>알려 주는 것:</b> 진짜 성공 호출이 얼마나 빨랐는지(p50 182ms)를 직접. <b>주의:</b> 본문에 스텝이 여럿이면 「마지막 회차의 응답 / 그 전 회차의 응답」으로 나뉩니다. <b>작업량:</b> 큼 — 워커가 응답 시간을 두 갈래로 따로 모아야 해서 엔진·워커 통신·저장·리포트를 모두 건드립니다. 이번 작업과 분리해 후속으로 두는 것도 방법입니다.</p>
+  </section>
+
+  <section>
+    <h2>덧붙일 수 있는 것: 맨 위 안내 한 줄</h2>
+    <div class="callout"><strong>해석 주의</strong> · 스텝 「주문 요청」은 조건 반복 안에 있어 요청의 34%가 재시도입니다. 이 스텝과 전체 응답 시간·초당 요청 수에는 재시도가 포함돼 있습니다.</div>
+    <p class="note">기존 리포트의 유효성 안내 자리에 넣습니다. 재시도 비율이 일정 수준(예: 10%)을 넘을 때만 띄우면 평소에는 조용합니다.</p>
+  </section>
+</div>
