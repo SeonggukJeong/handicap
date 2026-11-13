@@ -605,7 +605,7 @@ async fn execute_steps(
                 }
             }
             Step::Loop(lp) => {
-                for i in 0..lp.repeat {
+                for i in 0..lp.plain_repeat() {
                     if Instant::now() >= deadline {
                         return Ok(StepFlow::DeadlineReached);
                     }

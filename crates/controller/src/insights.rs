@@ -592,7 +592,7 @@ pub(crate) fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut
                 }
             }
             Step::Loop(l) => {
-                let cond = conditional || l.repeat == 0;
+                let cond = conditional || (l.while_.is_none() && l.repeat == Some(0));
                 collect_unconditional(&l.do_, cond, out);
             }
             Step::If(i) => {
@@ -1584,6 +1584,29 @@ steps:
             .map(|i| i.step_id.as_deref().unwrap())
             .collect();
         assert_eq!(flagged, vec!["in_live_loop"]);
+    }
+
+    #[test]
+    fn while_loop_body_counts_as_unconditional() {
+        let yaml = r#"
+version: 1
+name: t
+steps:
+  - type: loop
+    id: lp
+    name: lp
+    repeat: 0
+    while: { left: "{{c}}", op: eq, right: "WAIT" }
+    do:
+      - type: http
+        id: in_while_loop
+        name: in_while_loop
+        request: { method: GET, url: "http://x/1" }
+"#;
+        let sc = handicap_engine::Scenario::from_yaml(yaml).unwrap();
+        let mut out = Vec::new();
+        collect_unconditional(&sc.steps, false, &mut out);
+        assert_eq!(out, vec!["in_while_loop".to_string()]);
     }
 
     #[test]

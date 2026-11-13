@@ -426,7 +426,7 @@ async fn trace_steps(
                 }
             }
             Step::Loop(lp) => {
-                for i in 0..lp.repeat {
+                for i in 0..lp.plain_repeat() {
                     if state.truncated
                         || state.requests >= opts.max_requests
                         || Instant::now() >= deadline

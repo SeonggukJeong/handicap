@@ -196,8 +196,26 @@ fn arb_step() -> impl Strategy<Value = Step> {
             arb_ident(),
             1u32..4u32,
             vec(arb_http_step().prop_map(Step::Http), 1..3),
+            proptest::option::of(arb_compare()),
+            any::<bool>(),
+            any::<bool>(),
         )
-            .prop_map(|(id, name, repeat, do_)| Step::Loop(LoopStep { id, name, repeat, do_ })),
+            .prop_map(|(id, name, repeat, do_, while_, keep_think, no_repeat)| {
+                // repeat 없음은 while이 있을 때만(while 없는 loop은 repeat이 의미).
+                let repeat = if while_.is_some() && no_repeat {
+                    None
+                } else {
+                    Some(repeat)
+                };
+                Step::Loop(LoopStep {
+                    id,
+                    name,
+                    repeat,
+                    do_,
+                    while_,
+                    keep_think,
+                })
+            }),
         1 => arb_if_step(),
     ]
 }

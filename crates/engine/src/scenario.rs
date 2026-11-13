@@ -107,9 +107,39 @@ pub struct HttpStep {
 pub struct LoopStep {
     pub id: String,
     pub name: String,
-    pub repeat: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<u32>,
     #[serde(rename = "do")]
     pub do_: Vec<Step>,
+    #[serde(rename = "while", default, skip_serializing_if = "Option::is_none")]
+    pub while_: Option<Condition>,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub keep_think: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+impl LoopStep {
+    /// while 없는 loop의 반복 횟수: repeat.unwrap_or(1)
+    pub fn plain_repeat(&self) -> u32 {
+        self.repeat.unwrap_or(1)
+    }
+
+    /// while 있는 loop의 최대 회차: repeat.map(|n| n.max(1)). None = 무제한
+    pub fn max_passes(&self) -> Option<u32> {
+        self.repeat.map(|n| n.max(1))
+    }
+
+    /// while이 있고 keep_think가 true
+    pub fn keeps_think(&self) -> bool {
+        self.while_.is_some() && self.keep_think
+    }
 }
 
 /// Branch control-flow node. `then` runs when `cond` is true; otherwise the first
@@ -609,6 +639,102 @@ mod tests {
     const FIXTURE: &str = include_str!("../tests/fixtures/single_step.yaml");
     const TWO_STEP_FIXTURE: &str = include_str!("../tests/fixtures/two_step.yaml");
 
+    const LOOP_LEGACY_YAML: &str = r#"
+version: 1
+name: loopy
+steps:
+  - id: "01HX0000000000000000000001"
+    name: repeat-add
+    type: loop
+    repeat: 3
+    do:
+      - id: "01HX0000000000000000000002"
+        name: add
+        type: http
+        request: { method: GET, url: "/x" }
+"#;
+
+    fn first_loop(s: &Scenario) -> &LoopStep {
+        match &s.steps[0] {
+            Step::Loop(l) => l,
+            other => panic!("expected loop, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn loop_legacy_yaml_roundtrips_byte_identical() {
+        let s = Scenario::from_yaml(LOOP_LEGACY_YAML).unwrap();
+        let l = first_loop(&s);
+        assert_eq!(l.repeat, Some(3));
+        assert!(l.while_.is_none());
+        assert!(l.keep_think);
+        let out = s.to_yaml().unwrap();
+        assert!(!out.contains("while"), "{out}");
+        assert!(!out.contains("keep_think"), "{out}");
+        let s2 = Scenario::from_yaml(&out).unwrap();
+        assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn loop_while_parses_and_roundtrips() {
+        let y = r#"
+version: 1
+name: loopy
+steps:
+  - id: "01HX0000000000000000000001"
+    name: poll
+    type: loop
+    while: { left: "{{code}}", op: eq, right: "WAIT" }
+    keep_think: false
+    do:
+      - id: "01HX0000000000000000000002"
+        name: add
+        type: http
+        request: { method: GET, url: "/x" }
+"#;
+        let s = Scenario::from_yaml(y).unwrap();
+        let l = first_loop(&s);
+        assert_eq!(l.repeat, None);
+        assert!(matches!(l.while_, Some(Condition::Compare { .. })));
+        assert!(!l.keep_think);
+        let out = s.to_yaml().unwrap();
+        assert!(out.contains("keep_think: false"), "{out}");
+        assert!(!out.contains("repeat"), "{out}");
+        assert_eq!(Scenario::from_yaml(&out).unwrap(), s);
+    }
+
+    #[test]
+    fn loop_helpers() {
+        let mk = |repeat, while_: Option<Condition>, keep_think| LoopStep {
+            id: "a".into(),
+            name: "a".into(),
+            repeat,
+            do_: vec![],
+            while_,
+            keep_think,
+        };
+        assert_eq!(mk(Some(0), None, true).plain_repeat(), 0);
+        assert_eq!(mk(None, None, true).plain_repeat(), 1);
+        assert_eq!(mk(Some(0), None, true).max_passes(), Some(1));
+        assert_eq!(mk(Some(5), None, true).max_passes(), Some(5));
+        assert_eq!(mk(None, None, true).max_passes(), None);
+        assert!(!mk(None, None, true).keeps_think());
+        let c = Condition::Compare {
+            left: "a".into(),
+            op: CompareOp::Eq,
+            right: Some("b".into()),
+        };
+        assert!(mk(None, Some(c.clone()), true).keeps_think());
+        assert!(!mk(None, Some(c), false).keeps_think());
+    }
+
+    #[test]
+    fn loop_unknown_field_rejected() {
+        let y = LOOP_LEGACY_YAML.replace("    repeat: 3\n", "    repeat: 3\n    until: x\n");
+        assert!(y.contains("until"));
+        assert!(Scenario::from_yaml(&y).is_err());
+    }
+
     #[test]
     fn parses_loop_step() {
         let y = r#"
@@ -632,7 +758,7 @@ steps:
         match &s.steps[0] {
             Step::Loop(l) => {
                 assert_eq!(l.id, "01HX0000000000000000000001");
-                assert_eq!(l.repeat, 3);
+                assert_eq!(l.repeat, Some(3));
                 assert_eq!(l.do_.len(), 1);
                 assert!(matches!(l.do_[0], Step::Http(_)));
             }
@@ -1488,8 +1614,10 @@ steps:
             steps: vec![Step::Loop(LoopStep {
                 id: "01HX0000000000000000000020".into(),
                 name: "lp".into(),
-                repeat: 1,
+                repeat: Some(1),
                 do_: vec![mk_extract_http("01HX0000000000000000000021", "v")],
+                while_: None,
+                keep_think: true,
             })],
         };
         assert_eq!(b.output_var_names(), vec!["v"]);
