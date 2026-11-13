@@ -348,6 +348,8 @@ pub fn branch_text(branch: &str) -> String {
 pub enum StepLine {
     /// `branch_text` 적용본
     If { branch: String },
+    /// 조건 반복 판정 줄 — `text`가 화면에 보이는 글자 전부(`조건 분기 →` 머리말 없음)
+    LoopJudge { text: String },
     Http {
         /// trace.steps 인덱스(= `Clipped.step`)
         trace_idx: usize,
@@ -392,8 +394,8 @@ pub fn step_lines(
             StepKind::If => StepLine::If {
                 branch: branch_text(s.branch.as_deref().unwrap_or("none")),
             },
-            StepKind::Loop => StepLine::If {
-                branch: match s.branch.as_deref().unwrap_or("") {
+            StepKind::Loop => StepLine::LoopJudge {
+                text: match s.branch.as_deref().unwrap_or("") {
                     "again" => text::LOOP_AGAIN.to_string(),
                     "done" => text::LOOP_DONE.to_string(),
                     "exhausted" => text::LOOP_EXHAUSTED.to_string(),
@@ -914,9 +916,9 @@ mod loop_judge_tests {
         }
     }
 
-    /// 반복 판정 행 3종이 문구 정본 글자로 나오고 http 줄 순번은 건너뛰지 않는다.
+    /// 반복 판정 행 3종이 문구 정본 글자의 `LoopJudge` 줄로 나오고 http 줄 순번은 건너뛰지 않는다.
     #[test]
-    fn loop_judge_row_renders_as_if_line() {
+    fn loop_judge_row_becomes_loop_judge_line() {
         let trace = ScenarioTrace {
             ok: true,
             total_ms: 0,
@@ -936,8 +938,8 @@ mod loop_judge_tests {
         };
         let lines = step_lines(&trace, &Names::default(), "S", None);
         let branch = |i: usize| match &lines[i] {
-            StepLine::If { branch } => branch.clone(),
-            other => panic!("if 줄이어야 함: {other:?}"),
+            StepLine::LoopJudge { text } => text.clone(),
+            other => panic!("반복 판정 줄이어야 함: {other:?}"),
         };
         assert_eq!(branch(1), "조건 참 → 다시");
         assert_eq!(branch(3), "조건 거짓 → 다음 스텝");

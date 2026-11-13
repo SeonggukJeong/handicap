@@ -1007,6 +1007,12 @@ steps:
         assert_eq!(rt.rows.len(), 2);
         for r in &rt.rows {
             assert_eq!(r.trace.ended_by_loop.as_deref(), Some(LOOP_ID));
+            // 둘째 행도 실제로 돌았다(take가 아니라 clone이면 즉시 반환해 스텝 0개).
+            assert!(
+                r.trace.steps.iter().any(|s| s.step_id == ORDER_ID),
+                "행 {} 본문 스텝 없음",
+                r.row_index
+            );
         }
     }
 }

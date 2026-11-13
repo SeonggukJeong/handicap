@@ -767,7 +767,7 @@ fn http_line(l: &StepLine) -> (usize, usize, &str, bool) {
             focus,
             ..
         } => (*trace_idx, *no, name.as_str(), *focus),
-        StepLine::If { .. } => panic!("if 줄: {l:?}"),
+        StepLine::If { .. } | StepLine::LoopJudge { .. } => panic!("http 아닌 줄: {l:?}"),
     }
 }
 
@@ -1129,6 +1129,39 @@ fn render_record_loaded() {
     let lines: Vec<&str> = t.lines().collect();
     let i = lines.iter().position(|l| l.contains(" e ")).unwrap();
     assert!(lines[i + 1].contains("boom"), "{t}");
+}
+
+/// 조건 반복 판정 줄은 문구 정본 글자만 보인다 — if 줄의 `조건 분기 →` 머리말이 붙지 않는다.
+#[test]
+fn render_record_loop_judge_rows_show_copy_text_only() {
+    let loop_row = |branch: &str| StepTrace {
+        kind: StepKind::Loop,
+        ..if_row("L01", branch)
+    };
+    let rec = record(
+        Some(trace(vec![
+            http("A01", None, Some(200), None),
+            loop_row("again"),
+            http("A01", None, Some(200), None),
+            loop_row("done"),
+            loop_row("exhausted"),
+            loop_row("뜻밖\x1b"),
+        ])),
+        None,
+        None,
+    );
+    let st = rstate(RecordLoad::Loaded(Box::new(rec)), 0);
+    let v = record_view(&panel(None, None), &st, &names());
+    let t = render_rec(110, 22, &v);
+    for s in [
+        "조건 참 → 다시",
+        "조건 거짓 → 다음 스텝",
+        "최대 횟수 → 반복 종료",
+        "뜻밖\u{FFFD}",
+    ] {
+        assert!(t.contains(s), "{s} 없음:\n{t}");
+    }
+    assert!(!t.contains("조건 분기"), "{t}");
 }
 
 #[test]

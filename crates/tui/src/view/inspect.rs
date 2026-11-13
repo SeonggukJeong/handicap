@@ -583,6 +583,10 @@ fn vis_line(lines: &[StepLine], r: VisRow, cursor: usize, c: &StepCols, w: usize
             ),
             muted(),
         )),
+        (StepLine::LoopJudge { text }, _) => Line::from(Span::styled(
+            fit(&format!("{indent}{}", sanitize(text)), w),
+            muted(),
+        )),
         (StepLine::Http { error, .. }, true) => Line::from(Span::styled(
             fit(
                 &format!("{indent}{}", sanitize(error.as_deref().unwrap_or_default())),
