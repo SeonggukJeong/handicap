@@ -19,7 +19,8 @@ use crate::aggregator::{
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result, safe_cause};
-use crate::executor::{VuClient, execute_step};
+use crate::executor::{ExtractMode, VuClient, execute_step_with};
+use crate::extract::blank_missing_extracts;
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::scenario::{Scenario, Step};
@@ -477,10 +478,11 @@ async fn run_vu(
             measure_phases,
             scenario.default_think_time,
             &mut req,
+            false,
         )
         .await?;
         match flow {
-            StepFlow::Continue => {}
+            StepFlow::Continue | StepFlow::EndIteration => {}
             StepFlow::DeadlineReached => return Ok(()),
             StepFlow::Aborted => return Err(EngineError::Aborted),
         }
@@ -500,6 +502,9 @@ enum StepFlow {
     Continue,
     DeadlineReached,
     Aborted,
+    /// 조건 반복이 최대 횟수까지 조건을 만족해 이번 반복(시나리오 한 바퀴)을 여기서 끝낸다.
+    /// deadline/abort가 아니므로 VU는 다음 반복을 계속한다.
+    EndIteration,
 }
 
 /// Recursively execute a slice of steps for one VU iteration. Http leaves run a
@@ -528,6 +533,8 @@ async fn execute_steps(
     default_think: Option<ThinkTime>,
     // 요청 단위 재평가 상태(spec 2026-10-17-genvar-per-request §4.4). None = refresh 변수 없음.
     req: &mut Option<ReqGen>,
+    // 조건 반복(while) 본문 안인지. 본문 http 스텝은 너그러운 추출을 쓰고 빠진 값은 빈 문자열로 채운다.
+    in_cond_loop: bool,
 ) -> Result<StepFlow> {
     for step in steps {
         if Instant::now() >= deadline {
@@ -548,9 +555,17 @@ async fn execute_steps(
                     iter_id,
                     loop_index,
                 };
-                let outcome = execute_step(client, http, &ctx).await?;
+                let mode = if in_cond_loop {
+                    ExtractMode::Lenient
+                } else {
+                    ExtractMode::Strict
+                };
+                let mut outcome = execute_step_with(client, http, &ctx, mode).await?;
                 if let Some(rg) = req.as_mut() {
                     rg.mark_written(outcome.extracted.keys());
+                }
+                if in_cond_loop {
+                    blank_missing_extracts(http, &mut outcome.extracted, iter_vars);
                 }
                 iter_vars.extend(outcome.extracted.clone());
                 {
@@ -605,33 +620,92 @@ async fn execute_steps(
                 }
             }
             Step::Loop(lp) => {
-                for i in 0..lp.plain_repeat() {
-                    if Instant::now() >= deadline {
-                        return Ok(StepFlow::DeadlineReached);
+                if let Some(cond) = lp.while_.as_ref() {
+                    // do-while: 본문을 먼저 돌리고 조건을 본다. 최대 횟수(repeat)에 닿으면
+                    // 이번 반복을 끝낸다(EndIteration) — deadline/abort가 아니다.
+                    let max = lp.max_passes();
+                    let mut pass: u32 = 0;
+                    loop {
+                        if Instant::now() >= deadline {
+                            return Ok(StepFlow::DeadlineReached);
+                        }
+                        if cancel.is_cancelled() {
+                            return Ok(StepFlow::Aborted);
+                        }
+                        let flow = Box::pin(execute_steps(
+                            client,
+                            &lp.do_,
+                            iter_vars,
+                            agg,
+                            deadline,
+                            env,
+                            vu_id,
+                            iter_id,
+                            Some(pass),
+                            cancel,
+                            rng,
+                            measure_phases,
+                            default_think,
+                            req,
+                            true,
+                        ))
+                        .await?;
+                        match flow {
+                            StepFlow::Continue => {}
+                            other => return Ok(other),
+                        }
+                        pass = pass.saturating_add(1);
+                        let again = {
+                            let ctx = TemplateContext {
+                                vars: iter_vars,
+                                env: env.as_ref(),
+                                vu_id,
+                                iter_id,
+                                loop_index: Some(pass - 1),
+                            };
+                            eval_condition(cond, &ctx)
+                        };
+                        if !again {
+                            break;
+                        }
+                        if let Some(n) = max {
+                            if pass >= n {
+                                return Ok(StepFlow::EndIteration);
+                            }
+                        }
+                        // 요청 없는 본문이어도 같은 실행기의 다른 task가 굶지 않게 한다.
+                        tokio::task::yield_now().await;
                     }
-                    if cancel.is_cancelled() {
-                        return Ok(StepFlow::Aborted);
-                    }
-                    let flow = Box::pin(execute_steps(
-                        client,
-                        &lp.do_,
-                        iter_vars,
-                        agg,
-                        deadline,
-                        env,
-                        vu_id,
-                        iter_id,
-                        Some(i),
-                        cancel,
-                        rng,
-                        measure_phases,
-                        default_think,
-                        req,
-                    ))
-                    .await?;
-                    match flow {
-                        StepFlow::Continue => {}
-                        other => return Ok(other),
+                } else {
+                    for i in 0..lp.plain_repeat() {
+                        if Instant::now() >= deadline {
+                            return Ok(StepFlow::DeadlineReached);
+                        }
+                        if cancel.is_cancelled() {
+                            return Ok(StepFlow::Aborted);
+                        }
+                        let flow = Box::pin(execute_steps(
+                            client,
+                            &lp.do_,
+                            iter_vars,
+                            agg,
+                            deadline,
+                            env,
+                            vu_id,
+                            iter_id,
+                            Some(i),
+                            cancel,
+                            rng,
+                            measure_phases,
+                            default_think,
+                            req,
+                            in_cond_loop,
+                        ))
+                        .await?;
+                        match flow {
+                            StepFlow::Continue => {}
+                            other => return Ok(other),
+                        }
                     }
                 }
             }
@@ -674,6 +748,7 @@ async fn execute_steps(
                     measure_phases,
                     default_think,
                     req,
+                    in_cond_loop,
                 ))
                 .await?;
                 match flow {
@@ -723,6 +798,7 @@ async fn execute_steps(
                                 // 분기 스텝에 명시된 think_time은 위 Http arm에서 그대로 적용된다.
                                 None,
                                 &mut branch_req,
+                                in_cond_loop,
                             ))
                             .await;
                             let branch_us = bt0.elapsed().as_micros() as u64;
@@ -742,12 +818,14 @@ async fn execute_steps(
                 // (Aborted > DeadlineReached > Continue).
                 let mut aborted = false;
                 let mut deadline_hit = false;
+                let mut end_iteration = false;
                 let mut branch_samples: Vec<(&str, u64)> = Vec::new();
                 for (branch, branch_vars, flow, branch_us) in results {
                     match flow? {
                         StepFlow::Continue => {}
                         StepFlow::DeadlineReached => deadline_hit = true,
                         StepFlow::Aborted => aborted = true,
+                        StepFlow::EndIteration => end_iteration = true,
                     }
                     for k in branch.output_var_names() {
                         if let Some(v) = branch_vars.get(k) {
@@ -765,7 +843,7 @@ async fn execute_steps(
                 // distribution low. Same caution as loop partial-iteration counting.
                 // Page (branch="") + every branch recorded together under the same gate so
                 // each branch row's count == the page row's count.
-                if !aborted && !deadline_hit {
+                if !aborted && !deadline_hit && !end_iteration {
                     let mut a = agg.lock().await;
                     a.record_group(&par.id, "", elapsed_us);
                     for (name, us) in &branch_samples {
@@ -777,6 +855,9 @@ async fn execute_steps(
                 }
                 if deadline_hit {
                     return Ok(StepFlow::DeadlineReached);
+                }
+                if end_iteration {
+                    return Ok(StepFlow::EndIteration);
                 }
             }
         }
@@ -1376,6 +1457,7 @@ async fn run_vu_curve(
                 measure_phases,
                 scenario.default_think_time,
                 &mut req,
+                false,
             )
             .await
             {
@@ -1386,7 +1468,7 @@ async fn run_vu_curve(
                 }
             };
             match flow {
-                StepFlow::Continue => {
+                StepFlow::Continue | StepFlow::EndIteration => {
                     // run_vu increments at the loop tail; doing it on Continue is
                     // equivalent (the non-Continue paths there return entirely).
                     iter_id = iter_id.wrapping_add(1);
@@ -1747,6 +1829,7 @@ async fn run_arrival(
         measure_phases,
         scenario.default_think_time,
         &mut req,
+        false,
     )
     .await?;
     Ok(())
