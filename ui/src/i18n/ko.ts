@@ -1014,6 +1014,55 @@ export const ko = {
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   report: {
+    // 조건 반복 리포트 표시 (loop-while-report) — 보간 인자는 이미 형식화된 문자열
+    loopExit: {
+      badge: "재시도 포함",
+      summaryLabel: "조건 반복 풀이",
+      summaryLine: (
+        name: string,
+        entered: string,
+        retries: string,
+        pct: string,
+        exhausted: string,
+      ) =>
+        `조건 반복 「${name}」 — 진입 ${entered} · 재시도 ${retries} (본문 실행의 ${pct}) · 중단 ${exhausted}`,
+      summaryTruncated: (n: string) => ` · 마치지 못함 ${n}`,
+      summaryHelpLabel: "조건 반복 풀이 도움말",
+      summaryHelpEntered: "진입 = 이 조건 반복에 들어간 횟수.",
+      summaryHelpRetries: "재시도 = 2번째 이후 본문 실행을 시작한 횟수.",
+      summaryHelpExhausted:
+        "중단 = 최대 횟수까지 조건이 풀리지 않아 이번 시나리오 반복을 끝낸 횟수.",
+      summaryHelpTruncated:
+        "마치지 못함 = run이 끝나거나 중지되어, 또는 오류로 조건 반복 도중에 끊긴 횟수.",
+      panelTitle: "조건 반복",
+      panelLabel: "조건 반복 회차 분포",
+      panelHeading: (name: string, entered: string) =>
+        `「${name}」 — 진입 ${entered}회가 몇 번째 시도에서 끝났나`,
+      rowNth: (n: number) => `${n}번째`,
+      rowOver: "21번째 이후",
+      rowExhausted: "중단",
+      rowTruncated: "마치지 못함",
+      rowValue: (count: string, pct: string) => `${count} · ${pct}`,
+      kindFirst: "재시도 없이 끝남",
+      kindRetried: "재시도 후 끝남",
+      exhaustedNote: (n: string) => `최대 ${n}번까지 조건이 풀리지 않아 이번 반복을 끝냄`,
+      exhaustedNoteNoMax: "최대 횟수까지 조건이 풀리지 않아 이번 반복을 끝냄",
+      truncatedNote: "run이 끝나거나 중지되어, 또는 오류로 조건 반복 도중에 끊김",
+      legendFirst: "1번째 = 재시도 없이 끝남",
+      legendRetried: "2번째 이후 = 재시도 후 끝남",
+      barLabel: (row: string, kind: string, count: string, pct: string) =>
+        kind === "" ? `${row}, ${count}건, ${pct}` : `${row}, ${kind}, ${count}건, ${pct}`,
+      noticeLabel: "조건 반복 해석 주의",
+      noticeHeadRetry: "해석 주의 · 조건 반복의 재시도가 섞여 있습니다",
+      noticeHeadExhausted: "해석 주의 · 최대 횟수에서 중단된 조건 반복이 있습니다",
+      noticeRetryLine: (name: string, passes: string, retries: string, pct: string) =>
+        `「${name}」: 본문 실행 ${passes}회 중 ${retries}회(${pct})가 재시도`,
+      noticeExhaustedSuffix: (n: string) => ` · 최대 횟수에 걸려 중단된 반복 ${n}건`,
+      noticeExhaustedOnly: (name: string, n: string) =>
+        `「${name}」: 최대 횟수에 걸려 중단된 반복 ${n}건`,
+      noticeMore: (n: string) => `외 ${n}개 조건 반복`,
+      noticeTail: "해당 스텝과 전체 응답 시간·초당 요청 수에는 재시도 응답이 포함돼 있습니다.",
+    },
     // §7.0 리포트 공통 UI 표면 (R2: 도메인 라벨은 여기)
     // ── 섹션 제목/aria-label ──
     summaryLabel: "리포트 요약",

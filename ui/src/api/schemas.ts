@@ -319,6 +319,28 @@ export const IfBreakdownSchema = z
 export const ErrorKindCountSchema = z.object({ kind: z.string(), count: z.number() }).strict();
 export type ErrorKindCount = z.infer<typeof ErrorKindCountSchema>;
 
+// 조건 반복 진입 종료 집계 (loop-while-report). 서버 skip_serializing_if = Vec::is_empty
+// → 조건 반복 집계가 없으면 키 부재 → .optional(). pass는 1부터, null = 21번째 이후.
+export const LoopExitBucketSchema = z
+  .object({
+    pass: z.number().int().nullable(),
+    completed: z.number().int().nonnegative(),
+    exhausted: z.number().int().nonnegative(),
+    truncated: z.number().int().nonnegative(),
+  })
+  .strict();
+export const LoopExitSchema = z
+  .object({
+    step_id: z.string(),
+    entered: z.number().int().nonnegative(),
+    passes: z.number().int().nonnegative(),
+    exhausted: z.number().int().nonnegative(),
+    truncated: z.number().int().nonnegative(),
+    buckets: z.array(LoopExitBucketSchema),
+  })
+  .strict();
+export type LoopExit = z.infer<typeof LoopExitSchema>;
+
 export const BranchLatencySchema = z
   .object({
     branch: z.string(),
@@ -486,6 +508,7 @@ export const ReportSchema = z
     // E1: server skip_serializing_if = Vec::is_empty → absent when no transport
     // errors → .optional() (never null, per schemas.ts:98-106 convention).
     error_kinds: z.array(ErrorKindCountSchema).optional(),
+    loop_exits: z.array(LoopExitSchema).optional(),
     group_latency: z.array(GroupLatencySchema).optional(),
     active_vu_series: z.array(ActiveVuSampleSchema).optional(),
     active_vu_by_worker: z.array(WorkerActiveVuSeriesSchema).optional(),
