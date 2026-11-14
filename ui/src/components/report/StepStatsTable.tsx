@@ -76,6 +76,7 @@ export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
             const m = meta.get(s.step_id);
             const breakdown = s.loop_breakdown ?? [];
             const hasBreakdown = breakdown.length > 0;
+            const ls = s.loop_split;
             const isOpen = open.has(s.step_id);
             return (
               <Fragment key={s.step_id}>
@@ -111,9 +112,9 @@ export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
                     </>
                   )}
                 </tr>
-                {s.loop_split &&
+                {ls &&
                   (["final", "retry"] as const).map((k) => {
-                    const part = s.loop_split![k];
+                    const part = ls[k];
                     const label =
                       k === "final" ? ko.report.loopExit.splitFinal : ko.report.loopExit.splitRetry;
                     const pct = (v: number) => (part.count === 0 ? "—" : v);

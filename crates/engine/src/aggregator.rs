@@ -418,7 +418,9 @@ impl Aggregator {
     }
 
     /// Record one latency-phase sample (µs) for (step_id, phase). HDR-accumulating,
-    /// unconditional (no cap) — the caller (runner) gates on `measure_phases`.
+    /// unconditional (no cap). The runner gates the download/wait/dns/connect calls
+    /// on `measure_phases`; the loop-split classes (`record_loop_split`) are recorded
+    /// regardless of that switch.
     pub fn record_phase(&mut self, step_id: &str, phase: &str, latency_us: u64) {
         let v = latency_us.clamp(1, 60_000_000);
         let e = self

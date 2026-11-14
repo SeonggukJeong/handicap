@@ -340,6 +340,19 @@ describe("StepStatsTable", () => {
       expect(rows.map((r) => r.querySelectorAll("td").length)).toEqual([12, 12, 12]);
     });
 
+    it("대기만 있어도 칸 수가 같다", () => {
+      const ph = { count: 1, p50_ms: 1, p95_ms: 2, p99_ms: 3, max_ms: 3 };
+      const { container } = render(
+        <StepStatsTable
+          steps={[{ ...base, step_id: "a", count: 1812, loop_split: split, wait: ph }]}
+          meta={meta2}
+        />,
+      );
+      const rows = rowsOf(container);
+      expect(rows).toHaveLength(3);
+      expect(rows.map((r) => r.querySelectorAll("td").length)).toEqual([9, 9, 9]);
+    });
+
     it("도움말 이름이 스텝마다 다르다", () => {
       render(
         <StepStatsTable
@@ -373,10 +386,13 @@ describe("StepStatsTable", () => {
         expect(marks).toHaveLength(1);
         expect(marks[0]).toHaveAttribute("aria-hidden", "true");
       }
-      const nameCell = rows[1].querySelector("td") as HTMLElement;
-      const clone = nameCell.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("[aria-hidden]").forEach((el) => el.remove());
-      expect((clone.textContent ?? "").trim().startsWith("반복을 끝낸 응답")).toBe(true);
+      const spoken = (r: Element) => {
+        const clone = (r.querySelector("td") as HTMLElement).cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("[aria-hidden]").forEach((el) => el.remove());
+        return (clone.textContent ?? "").trim();
+      };
+      expect(spoken(rows[1]).startsWith("반복을 끝낸 응답")).toBe(true);
+      expect(spoken(rows[2]).startsWith("재시도로 이어진 응답")).toBe(true);
     });
 
     it("표지 없이도 두 줄이 보인다", () => {

@@ -545,6 +545,10 @@ type PassSamples = std::sync::Mutex<Vec<PassSample>>;
 
 /// 회차 버퍼를 `scratch`와 맞바꿔 가져온다(새 `Vec` 할당 없음). 오염된 잠금은 그대로 쓴다.
 fn take_pass(samples: &PassSamples, scratch: &mut Vec<PassSample>) {
+    debug_assert!(
+        scratch.is_empty(),
+        "take_pass: the receiving scratch Vec must be empty before the swap"
+    );
     let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
     std::mem::swap(&mut *g, scratch);
 }
