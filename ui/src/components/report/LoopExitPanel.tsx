@@ -3,11 +3,12 @@ import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
 import type { LoopExitRow, LoopExitRowKind, LoopExitView } from "./loopExitView";
 
+// 막대 바탕(slate-100) 대비 3:1 이상 — 라이브 실측으로 정함(2026-11-14). 바꿀 때는 테스트의 대비 단언을 함께 본다.
 const FILL: Record<LoopExitRowKind, string> = {
-  first: "#64748b", // slate-500 — 차분한 색
-  retried: "#f59e0b", // amber-500 — 주의
-  exhausted: "#dc2626", // red-600 — 경고
-  truncated: "#94a3b8", // slate-400 — 회색(막대 바탕 slate-100과 구분되게)
+  first: "#475569", // slate-600 — 차분한 색
+  retried: "#ea580c", // orange-600 — 주의
+  exhausted: "#b91c1c", // red-700 — 경고
+  truncated: "#7f8ea3", // slate-400과 500 사이 — 바탕 대비 3:1
 };
 
 function rowLabel(r: LoopExitRow): string {

@@ -110,6 +110,32 @@ describe("LoopExitPanel", () => {
     expect(color(0)).not.toBe("");
   });
 
+  it("막대 색은 막대 바탕(slate-100) 대비 3:1 이상이고 분류끼리 서로 다르다", () => {
+    const lum = (rgb: number[]) => {
+      const [r, g, b] = rgb.map((v) => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const parse = (s: string) => (s.match(/\d+/g) ?? []).map(Number);
+    const track = lum([241, 245, 249]);
+    const contrast = (rgb: number[]) => {
+      const l = lum(rgb);
+      return (Math.max(l, track) + 0.05) / (Math.min(l, track) + 0.05);
+    };
+    render(<LoopExitPanel views={[view()]} />);
+    const bars = screen.getAllByRole("img");
+    const fills = [0, 1, 5, 6].map(
+      (i) => (bars[i].firstElementChild as HTMLElement).style.backgroundColor,
+    );
+    for (const f of fills) {
+      expect(parse(f)).toHaveLength(3);
+      expect(contrast(parse(f))).toBeGreaterThanOrEqual(3);
+    }
+    expect(new Set(fills).size).toBe(4);
+  });
+
   it("빈 views는 아무것도 안 그린다", () => {
     const { container } = render(<LoopExitPanel views={[]} />);
     expect(container).toBeEmptyDOMElement();
