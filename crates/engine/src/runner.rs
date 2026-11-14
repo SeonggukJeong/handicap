@@ -13,8 +13,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{
-    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LoopExitStat, LoopStat,
-    PhaseStat, StepWindow,
+    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LoopExitOutcome,
+    LoopExitStat, LoopStat, PhaseStat, StepWindow,
 };
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
@@ -650,16 +650,32 @@ async fn execute_steps(
                 if let Some(cond) = lp.while_.as_ref() {
                     // do-while: 본문을 먼저 돌리고 조건을 본다. 최대 횟수(repeat)에 닿으면
                     // 이번 반복을 끝낸다(EndIteration) — deadline/abort가 아니다.
+                    // 진입이 끝나는 다섯 지점에서 리포트 집계만 남긴다(흐름 불변,
+                    // spec 2026-11-14-loop-while-report §3.1).
                     let max = lp.max_passes();
                     let mut pass: u32 = 0;
                     loop {
                         if Instant::now() >= deadline {
+                            if pass > 0 {
+                                agg.lock().await.record_loop_exit(
+                                    &lp.id,
+                                    pass,
+                                    LoopExitOutcome::Truncated,
+                                );
+                            }
                             return Ok(StepFlow::DeadlineReached);
                         }
                         if cancel.is_cancelled() {
+                            if pass > 0 {
+                                agg.lock().await.record_loop_exit(
+                                    &lp.id,
+                                    pass,
+                                    LoopExitOutcome::Truncated,
+                                );
+                            }
                             return Ok(StepFlow::Aborted);
                         }
-                        let flow = Box::pin(execute_steps(
+                        let res = Box::pin(execute_steps(
                             client,
                             &lp.do_,
                             iter_vars,
@@ -676,10 +692,18 @@ async fn execute_steps(
                             req,
                             true,
                         ))
-                        .await?;
-                        match flow {
-                            StepFlow::Continue => {}
-                            other => return Ok(other),
+                        .await;
+                        match res {
+                            Ok(StepFlow::Continue) => {}
+                            other => {
+                                // 본문이 끊겼다(비-Continue 흐름 또는 Err) — 끊긴 회차까지 센다.
+                                agg.lock().await.record_loop_exit(
+                                    &lp.id,
+                                    pass.saturating_add(1),
+                                    LoopExitOutcome::Truncated,
+                                );
+                                return other;
+                            }
                         }
                         pass = pass.saturating_add(1);
                         let again = {
@@ -693,10 +717,20 @@ async fn execute_steps(
                             eval_condition(cond, &ctx)
                         };
                         if !again {
+                            agg.lock().await.record_loop_exit(
+                                &lp.id,
+                                pass,
+                                LoopExitOutcome::Completed,
+                            );
                             break;
                         }
                         if let Some(n) = max {
                             if pass >= n {
+                                agg.lock().await.record_loop_exit(
+                                    &lp.id,
+                                    pass,
+                                    LoopExitOutcome::Exhausted,
+                                );
                                 return Ok(StepFlow::EndIteration);
                             }
                         }
