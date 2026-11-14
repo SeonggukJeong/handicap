@@ -1,4 +1,5 @@
 import { findStepById, summarizeCondition, type Step } from "../../scenario/model";
+import { ko } from "../../i18n/ko";
 import { METHOD_BADGE } from "./methodBadge";
 
 /** 사용처 목록 한 항목의 표시 정보. */
@@ -32,6 +33,8 @@ export function describeStepRef(steps: Step[], id: string): StepRefDesc {
       badge: { text: "IF", colorClass: "bg-slate-100 text-slate-500" },
       label: summarizeCondition(s.cond),
     };
+  if (s.type === "loop" && s.while)
+    return { badge: null, label: `${s.name} · ${ko.editor.varRefLoopCond}` };
   // loop/parallel — buildVarRefIndex가 http/if의 id만 기록하므로 현재 도달 불가하지만,
   // 이 헬퍼가 두 표면의 정본이므로 id 노출 대신 이름을 쓰는 규칙을 명시해 둔다.
   return { badge: null, label: s.name };

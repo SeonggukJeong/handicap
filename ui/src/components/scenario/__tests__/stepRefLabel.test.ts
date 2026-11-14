@@ -50,6 +50,17 @@ describe("describeStepRef", () => {
     expect(describeStepRef([loop], "l1")).toEqual({ badge: null, label: "반복" });
   });
 
+  it("조건 반복(while)의 loop id는 반복 조건 라벨을 쓴다", () => {
+    const wl: Step = {
+      id: "l2",
+      type: "loop",
+      name: "반복",
+      while: { left: "{{code}}", op: "ne", right: "done" },
+      do: [child],
+    };
+    expect(describeStepRef([wl], "l2").label).toContain("반복 조건");
+  });
+
   it("못 찾으면 배지 없이 raw id", () => {
     expect(describeStepRef([http], "ghost")).toEqual({ badge: null, label: "ghost" });
   });

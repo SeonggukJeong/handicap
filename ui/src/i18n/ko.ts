@@ -456,6 +456,7 @@ export const ko = {
       `시나리오가 저장 한도(2MB)를 초과했습니다 (현재 ${mb}MB) — 공유 메모나 스텝 수를 줄여주세요.`,
   },
   editor: {
+    varRefLoopCond: "반복 조건",
     // ── 스텝 설정 패널(구 Inspector) ──
     inspectorAria: "스텝 설정",
     inspectorEmpty: "아웃라인에서 스텝을 선택하면 여기서 설정합니다.",

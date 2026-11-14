@@ -1493,3 +1493,63 @@ steps:
     expect(jsonCastVarNames(parsed.model)).toEqual(new Set(["seats", "nested", "inloop"]));
   });
 });
+
+describe("조건 반복(loop while)의 변수 참조 (loop-do-while T7)", () => {
+  const bodyStep = {
+    id: "01HX0000000000000000000091",
+    name: "poll",
+    type: "http" as const,
+    request: { method: "GET" as const, url: "/job", headers: {} },
+    assert: [],
+    extract: [{ from: "body" as const, path: "$.code", var: "code" }],
+  };
+  const whileScen = (left: string) =>
+    scenario([
+      {
+        id: "01HX0000000000000000000090",
+        name: "loop",
+        type: "loop",
+        repeat: 5,
+        while: { left, op: "ne", right: "done" },
+        do: [bodyStep],
+      } as Scenario["steps"][number],
+    ]);
+
+  it("while_var_counts_as_used", () => {
+    const idx = buildVarRefIndex(whileScen("{{code}}"));
+    expect(idx.get("code")).toEqual(["01HX0000000000000000000090"]);
+  });
+
+  it("while_ref_to_body_extract_is_not_undefined", () => {
+    expect(undefinedVarRefs(whileScen("{{code}}")).has("code")).toBe(false);
+    const ghost = undefinedVarRefs(whileScen("{{ghost}}"));
+    expect(ghost.get("ghost")?.stepIds).toEqual(["01HX0000000000000000000090"]);
+    expect(ghost.get("ghost")?.hasStrictRef).toBe(false);
+  });
+
+  it("while_does_not_pollute_extract_names", () => {
+    const s = whileScen("{{ghost}}");
+    expect(flatExtractNames(s).has("ghost")).toBe(false);
+    expect(flatExtractNames(s).has("code")).toBe(true);
+  });
+
+  it("while recurses all/any operands", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000090",
+        name: "loop",
+        type: "loop",
+        while: {
+          all: [
+            { left: "{{a}}", op: "eq", right: "1" },
+            { any: [{ left: "x", op: "eq", right: "{{b}}" }] },
+          ],
+        },
+        do: [bodyStep],
+      } as Scenario["steps"][number],
+    ]);
+    const idx = buildVarRefIndex(s);
+    expect(idx.get("a")).toEqual(["01HX0000000000000000000090"]);
+    expect(idx.get("b")).toEqual(["01HX0000000000000000000090"]);
+  });
+});

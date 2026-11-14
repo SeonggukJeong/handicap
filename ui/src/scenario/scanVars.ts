@@ -119,6 +119,12 @@ export function buildVarRefIndex(scenario: Scenario): Map<string, string[]> {
         record(s.id, refs);
       } else if (s.type === "loop") {
         walk(s.do);
+        // 조건 반복: 본문을 먼저 훑은 뒤 `while` 조건의 `{{…}}`를 이 loop 스텝의 참조로 센다.
+        if (s.while) {
+          const refs = new Set<string>();
+          collectCondRefs(s.while, refs);
+          record(s.id, refs);
+        }
       } else if (s.type === "parallel") {
         for (const b of s.branches) walk(b.steps);
       } else {
@@ -405,6 +411,12 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
         judge(refs, s.id, own, true);
       } else if (s.type === "loop") {
         walk(s.do, own);
+        // 조건 반복: 본문 뒤에 `while` 조건을 판정(lenient 평가 → strict=false).
+        if (s.while) {
+          const refs = new Set<string>();
+          collectCondRefs(s.while, refs);
+          judge(refs, s.id, own, false);
+        }
       } else if (s.type === "parallel") {
         // `collectSubtreeExtractNames` re-derived here (no shared memo with the
         // `branchOwn` precompute above) — this call sees *whatever* parallel
