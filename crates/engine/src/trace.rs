@@ -18,8 +18,10 @@ pub struct TraceOptions {
     /// `${ENV}` values (already merged from the environment overlay client-side).
     pub env: BTreeMap<String, String>,
     /// Max HTTP leaf calls before the trace stops with `truncated = true`.
+    /// if 판정 줄 상한과 판정 줄 바이트 예산도 이 값에 비례한다.
     pub max_requests: u32,
     /// Wall-clock ceiling; on reaching it the trace stops with `truncated = true`.
+    /// 판정 줄 상한에 먼저 닿으면 그 전에 끊긴다.
     pub max_wall: Duration,
     /// When true, the trace HONORS per-step `think_time` (actually sleeps) — for
     /// throttled previews (e.g. firewall). Default false = instant preview. Only
@@ -47,6 +49,53 @@ pub const MAX_LOOP_JUDGE_ROWS: u32 = 200;
 /// 곱은 포화). 배수 10·바닥 1000의 근거는 spec §2.1.
 pub fn if_judge_row_cap(max_requests: u32) -> u32 {
     max_requests.saturating_mul(10).max(1000)
+}
+
+/// 판정 줄(If·Loop) 한 줄의 메모리 어림(바이트) — 가변 글자 `str::len` 합 + 줄당 64 +
+/// `BranchEval`당 32. 요청·응답·추출·오류는 판정 줄에 없으므로 세지 않는다.
+pub fn judge_row_bytes(row: &StepTrace) -> u64 {
+    let mut n: u64 = 64 + row.step_id.len() as u64;
+    if let Some(b) = &row.branch {
+        n += b.len() as u64;
+    }
+    for v in &row.unbound_vars {
+        n += v.len() as u64;
+    }
+    for be in &row.branch_eval {
+        n += 32 + be.branch.len() as u64;
+        if let Some(leaf) = &be.leaf {
+            n += leaf.left.len() as u64;
+            n += leaf.right.as_ref().map_or(0, |v| v.len() as u64);
+            n += leaf.left_value.as_ref().map_or(0, |v| v.len() as u64);
+            n += leaf.right_value.as_ref().map_or(0, |v| v.len() as u64);
+        }
+    }
+    n
+}
+
+/// 판정 줄 전체(If + Loop)의 바이트 예산 — 줄 수 상한 두 개에 줄당 4096 바이트를 곱한 값.
+/// u64에서 계산해 `max_requests = u32::MAX`에서도 넘치지 않는다.
+pub fn judge_byte_budget(max_requests: u32) -> u64 {
+    (if_judge_row_cap(max_requests) as u64 + MAX_LOOP_JUDGE_ROWS as u64) * 4096
+}
+
+/// trace가 판정 줄 상한(If 줄 수 · Loop 줄 수 · 바이트 예산 중 하나)에 닿아 끊겼는지.
+/// 컨트롤러·모니터가 잘린 사유를 가릴 때 쓴다.
+pub fn judge_rows_exhausted(steps: &[StepTrace], max_requests: u32) -> bool {
+    let mut if_n: u64 = 0;
+    let mut loop_n: u64 = 0;
+    let mut bytes: u64 = 0;
+    for s in steps {
+        match s.kind {
+            StepKind::If => if_n += 1,
+            StepKind::Loop => loop_n += 1,
+            StepKind::Http => continue,
+        }
+        bytes = bytes.saturating_add(judge_row_bytes(s));
+    }
+    if_n >= if_judge_row_cap(max_requests) as u64
+        || loop_n >= MAX_LOOP_JUDGE_ROWS as u64
+        || bytes > judge_byte_budget(max_requests)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,7 +161,7 @@ pub struct ScenarioTrace {
     pub steps: Vec<StepTrace>,
     /// Flow vars at end of the pass (scenario.variables + all extracts).
     pub final_vars: BTreeMap<String, String>,
-    /// True when `max_requests` or the wall-clock ceiling cut the pass short.
+    /// `max_requests`·판정 줄 상한(줄 수·바이트) 또는 시간 상한이 패스를 끊었을 때 true.
     pub truncated: bool,
     /// Setup-level failure (e.g. HTTP client build) — distinct from per-step errors.
     pub error: Option<String>,
@@ -142,6 +191,8 @@ struct TraceState {
     judge_rows: u32,
     /// 지금까지 넣은 if 판정 줄 수 — 전 행 공유 예산(`if_judge_row_cap`).
     if_rows: u32,
+    /// 지금까지 넣은 판정 줄(If·Loop)의 바이트 어림 합 — 전 행 공유 예산(`judge_byte_budget`).
+    judge_bytes: u64,
     /// 조건 반복이 최대 횟수로 끝났다면 그 loop id. 이 값이 있으면 바깥 재귀가 모두 빠져나온다.
     ended_by_loop: Option<String>,
 }
@@ -207,6 +258,7 @@ pub async fn trace_scenario_with_seed(
         iter_id: 0,
         judge_rows: 0,
         if_rows: 0,
+        judge_bytes: 0,
         ended_by_loop: None,
     };
     trace_once(
@@ -253,6 +305,7 @@ pub async fn trace_scenario_rows(
         iter_id: 0,
         judge_rows: 0,
         if_rows: 0,
+        judge_bytes: 0,
         ended_by_loop: None,
     };
     let mut rows: Vec<RowTrace> = Vec::with_capacity(seeded_rows.len());
@@ -299,8 +352,16 @@ pub async fn trace_scenario_rows(
     }
 }
 
+/// 방금 push한 판정 줄(`state.steps`의 마지막)의 어림을 `judge_bytes`에 더하고,
+/// 바이트 예산을 넘겼는지 돌려준다(넘긴 줄 자체는 trace에 남는다).
+fn charge_judge_row(state: &mut TraceState, opts: &TraceOptions) -> bool {
+    let add = state.steps.last().map_or(0, judge_row_bytes);
+    state.judge_bytes = state.judge_bytes.saturating_add(add);
+    state.judge_bytes > judge_byte_budget(opts.max_requests)
+}
+
 /// 클라이언트 하나로 시나리오를 1패스 실행하는 내부 코어. `state.requests`
-/// (공유 요청 예산)는 호출 간 이월되고 `steps`/`truncated`/`iter_id`는 진입 시
+/// (공유 요청 예산)와 `if_rows`·`judge_rows`·`judge_bytes`(판정 줄 예산)는 호출 간 이월되고 `steps`/`truncated`/`iter_id`는 진입 시
 /// 리셋된다 — `trace_scenario_rows`(Task 2)가 행 루프에서 재사용 (R6).
 #[allow(clippy::too_many_arguments)]
 async fn trace_once(
@@ -546,6 +607,10 @@ async fn trace_steps(
                             timed_out: false,
                         });
                         state.judge_rows += 1;
+                        if charge_judge_row(state, opts) {
+                            state.truncated = true;
+                            return;
+                        }
                         if !again {
                             break;
                         }
@@ -625,6 +690,10 @@ async fn trace_steps(
                     timed_out: false,
                 });
                 state.if_rows += 1;
+                if charge_judge_row(state, opts) {
+                    state.truncated = true;
+                    return;
+                }
                 Box::pin(trace_steps(
                     client,
                     taken,
@@ -1275,5 +1344,127 @@ steps:
         assert_eq!(loops.last().unwrap().branch.as_deref(), Some("done"));
         assert!(rt.truncated);
         assert_eq!(sent, 1);
+    }
+    // ---------- 판정 줄 바이트 예산 ----------
+    fn judge_row(kind: StepKind, left: &str) -> StepTrace {
+        StepTrace {
+            step_id: "ab".into(),
+            kind,
+            loop_index: None,
+            branch: Some("none".into()),
+            request: None,
+            response: None,
+            extracted: BTreeMap::new(),
+            unbound_vars: vec!["x".into(), "yz".into()],
+            error: None,
+            branch_eval: vec![BranchEval {
+                branch: "then".into(),
+                passed: false,
+                leaf: Some(crate::condition::LeafEval {
+                    left: left.into(),
+                    op: CompareOp::Eq,
+                    right: Some("r".into()),
+                    left_value: Some("lv".into()),
+                    right_value: None,
+                    left_unbound: false,
+                }),
+            }],
+            timed_out: false,
+        }
+    }
+
+    fn judge_bytes_sum(t: &ScenarioTrace) -> u64 {
+        t.steps
+            .iter()
+            .filter(|s| matches!(s.kind, StepKind::If | StepKind::Loop))
+            .map(judge_row_bytes)
+            .sum()
+    }
+
+    #[test]
+    fn judge_row_bytes_counts_variable_text() {
+        // 64 + step_id 2 + branch 4 + unbound 1+2 + (32 + "then" 4 + "한" 3 + "r" 1 + "lv" 2)
+        assert_eq!(judge_row_bytes(&judge_row(StepKind::If, "한")), 115);
+    }
+
+    #[test]
+    fn judge_byte_budget_scales_without_overflow() {
+        assert_eq!(judge_byte_budget(50), 1200 * 4096);
+        assert_eq!(judge_byte_budget(10_000), 100_200 * 4096);
+        assert_eq!(judge_byte_budget(u32::MAX), (u32::MAX as u64 + 200) * 4096);
+    }
+
+    #[test]
+    fn judge_rows_exhausted_cases() {
+        let small_if = || judge_row(StepKind::If, "1");
+        let small_loop = || judge_row(StepKind::Loop, "1");
+        let n = |k: usize, f: &dyn Fn() -> StepTrace| (0..k).map(|_| f()).collect::<Vec<_>>();
+        assert!(judge_rows_exhausted(&n(1000, &small_if), 50));
+        assert!(
+            !judge_rows_exhausted(&n(1000, &small_if), 200),
+            "상한 2,000"
+        );
+        assert!(!judge_rows_exhausted(&n(999, &small_if), 50));
+        assert!(judge_rows_exhausted(&n(200, &small_loop), 50));
+        assert!(
+            judge_rows_exhausted(&n(200, &small_loop), 10_000),
+            "조건 반복 상한은 비례 안 함"
+        );
+        let mut mixed = n(999, &small_if);
+        mixed.extend(n(199, &small_loop));
+        assert!(!judge_rows_exhausted(&mixed, 50), "두 예산은 합치지 않는다");
+        let big = "a".repeat(1_300_000);
+        let huge = (0..4)
+            .map(|_| judge_row(StepKind::If, &big))
+            .collect::<Vec<_>>();
+        assert!(judge_rows_exhausted(&huge, 50), "5.2 MB > 예산 4.9 MB");
+        assert!(!judge_rows_exhausted(&huge[..3], 50));
+        assert!(!judge_rows_exhausted(&[], 50));
+    }
+
+    #[tokio::test]
+    async fn trace_if_rows_byte_budget() {
+        let big = "a".repeat(40_000);
+        let yaml = spin_if_yaml(1_000_000).replace(r#"left: "1""#, &format!(r#"left: "{big}""#));
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert!(t.truncated);
+        assert!(
+            if_rows(&t) < 1000,
+            "줄 수 상한보다 먼저 닿는다: {}",
+            if_rows(&t)
+        );
+        let budget = judge_byte_budget(50);
+        let sum = judge_bytes_sum(&t);
+        let last = judge_row_bytes(t.steps.last().unwrap());
+        assert!(sum > budget, "넘긴 줄이 trace에 남는다");
+        assert!(sum - last <= budget, "초과분은 줄 하나");
+        assert!(judge_rows_exhausted(&t.steps, 50));
+    }
+
+    #[tokio::test]
+    async fn trace_while_rows_byte_budget() {
+        let big = "a".repeat(40_000);
+        let yaml = format!(
+            r#"version: 1
+name: bigwhile
+steps:
+  - id: "{LOOP_ID}"
+    name: spin
+    type: loop
+    while: {{ left: "{big}", op: ne, right: "x" }}
+    do: []
+"#
+        );
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert!(t.truncated);
+        assert!(t.ended_by_loop.is_none());
+        let n = t.steps.iter().filter(|s| s.kind == StepKind::Loop).count();
+        assert!(
+            n < MAX_LOOP_JUDGE_ROWS as usize,
+            "줄 수 상한보다 먼저 닿는다: {n}"
+        );
+        assert!(judge_bytes_sum(&t) > judge_byte_budget(50));
     }
 }
