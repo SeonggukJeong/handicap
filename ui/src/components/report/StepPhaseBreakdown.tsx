@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ReportStep } from "../../api/schemas";
+import type { LoopSplit, ReportStep } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { RetryBadge } from "./LoopExitSummary";
@@ -15,6 +15,25 @@ type View = "waterfall" | "chips";
 
 const WAIT = "#f59e0b";
 const DL = "#22c55e";
+
+const fmt = (n: number) => n.toLocaleString("en-US");
+
+function SplitLine({ label, stats }: { label: string; stats: LoopSplit["final"] }) {
+  const pct = (v: number) => (stats.count === 0 ? "—" : fmt(v));
+  return (
+    <div className="break-words text-xs text-slate-600">
+      <span aria-hidden="true">└ </span>
+      {ko.report.loopExit.splitBarLine(
+        label,
+        fmt(stats.count),
+        fmt(stats.error_count),
+        pct(stats.p50_ms),
+        pct(stats.p95_ms),
+        pct(stats.p99_ms),
+      )}
+    </div>
+  );
+}
 
 export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
   const [view, setView] = useState<View>("waterfall");
@@ -64,34 +83,41 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
             const dl = s.download?.p50_ms ?? 0;
             const total = wait + dl || 1;
             return (
-              <div
-                key={s.step_id}
-                className="flex items-center gap-3 border-t border-slate-100 py-2"
-              >
-                {retriedStepIds?.has(s.step_id) ? (
-                  <div className="flex w-40 shrink-0 items-center text-sm font-medium">
-                    <span className="min-w-0 truncate" title={m?.name ?? s.step_id}>
+              <div key={s.step_id} className="border-t border-slate-100">
+                <div className="flex items-center gap-3 py-2">
+                  {retriedStepIds?.has(s.step_id) ? (
+                    <div className="flex w-40 shrink-0 items-center text-sm font-medium">
+                      <span className="min-w-0 truncate" title={m?.name ?? s.step_id}>
+                        {m?.name ?? s.step_id}
+                      </span>
+                      <RetryBadge />
+                    </div>
+                  ) : (
+                    <div
+                      className="w-40 shrink-0 truncate text-sm font-medium"
+                      title={m?.name ?? s.step_id}
+                    >
                       {m?.name ?? s.step_id}
-                    </span>
-                    <RetryBadge />
-                  </div>
-                ) : (
+                    </div>
+                  )}
                   <div
-                    className="w-40 shrink-0 truncate text-sm font-medium"
-                    title={m?.name ?? s.step_id}
+                    role="img"
+                    aria-label={`${m?.name ?? s.step_id} ${ko.report.phaseWait} ${wait}ms ${ko.report.phaseDownload} ${dl}ms`}
+                    className="flex h-5 flex-1 overflow-hidden rounded bg-slate-100"
                   >
-                    {m?.name ?? s.step_id}
+                    <span style={{ width: `${(wait / total) * 100}%`, background: WAIT }} />
+                    <span style={{ width: `${(dl / total) * 100}%`, background: DL }} />
                   </div>
-                )}
-                <div
-                  role="img"
-                  aria-label={`${m?.name ?? s.step_id} ${ko.report.phaseWait} ${wait}ms ${ko.report.phaseDownload} ${dl}ms`}
-                  className="flex h-5 flex-1 overflow-hidden rounded bg-slate-100"
-                >
-                  <span style={{ width: `${(wait / total) * 100}%`, background: WAIT }} />
-                  <span style={{ width: `${(dl / total) * 100}%`, background: DL }} />
+                  <div className="w-16 text-right text-sm font-bold tabular-nums">
+                    {wait + dl}ms
+                  </div>
                 </div>
-                <div className="w-16 text-right text-sm font-bold tabular-nums">{wait + dl}ms</div>
+                {s.loop_split ? (
+                  <div className="pb-2">
+                    <SplitLine label={ko.report.loopExit.splitFinal} stats={s.loop_split.final} />
+                    <SplitLine label={ko.report.loopExit.splitRetry} stats={s.loop_split.retry} />
+                  </div>
+                ) : null}
               </div>
             );
           })}

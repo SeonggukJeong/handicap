@@ -96,4 +96,75 @@ describe("StepPhaseBreakdown", () => {
       expect(b.container.innerHTML).toBe(htmlNone);
     });
   });
+  describe("loop_split 두 줄 (막대 보기)", () => {
+    const split = {
+      final: { count: 1200, error_count: 0, p50_ms: 182, p95_ms: 420, p99_ms: 488 },
+      retry: { count: 612, error_count: 0, p50_ms: 12, p95_ms: 31, p99_ms: 44 },
+    };
+    const withSplit = [{ ...steps[0], loop_split: split }];
+    const FINAL = "반복을 끝낸 응답 · 1,200건 · 에러 0 · p50 182 · p95 420 · p99 488 ms";
+    const RETRY = "재시도로 이어진 응답 · 612건 · 에러 0 · p50 12 · p95 31 · p99 44 ms";
+    const lineText = (el: HTMLElement) => el.textContent ?? "";
+
+    it("막대 보기에 글자 두 줄, loop_split 없는 스텝에는 없다", () => {
+      const two = [...withSplit, { ...stepsLong[0], step_id: "s3" }];
+      const m2 = new Map([...meta, ["s3", { id: "s3", name: "plain", method: "GET", url: "/p" }]]);
+      render(<StepPhaseBreakdown steps={two as never} meta={m2} />);
+      const finals = screen.getAllByText(
+        (_, el) => el?.tagName === "DIV" && lineText(el as HTMLElement) === "└ " + FINAL,
+      );
+      expect(finals).toHaveLength(1);
+      expect(
+        screen.getAllByText(
+          (_, el) => el?.tagName === "DIV" && lineText(el as HTMLElement) === "└ " + RETRY,
+        ),
+      ).toHaveLength(1);
+      expect(screen.getAllByText(/반복을 끝낸 응답/)).toHaveLength(1);
+      expect(screen.getAllByText(/재시도로 이어진 응답/)).toHaveLength(1);
+    });
+
+    it("끝낸 응답 0건이면 백분위 자리에 —", () => {
+      const zero = [
+        {
+          ...steps[0],
+          loop_split: {
+            ...split,
+            final: { count: 0, error_count: 0, p50_ms: 0, p95_ms: 0, p99_ms: 0 },
+          },
+        },
+      ];
+      render(<StepPhaseBreakdown steps={zero as never} meta={meta} />);
+      expect(
+        screen.getByText(/반복을 끝낸 응답 · 0건 · 에러 0 · p50 — · p95 — · p99 — ms/),
+      ).toBeInTheDocument();
+    });
+
+    it("막대 줄 구조는 loop_split 유무와 무관하다", () => {
+      const a = render(<StepPhaseBreakdown steps={steps as never} meta={meta} />);
+      const rowA = screen.getByRole("img").parentElement as HTMLElement;
+      const sigA = [rowA.className, rowA.children.length];
+      a.unmount();
+      render(<StepPhaseBreakdown steps={withSplit as never} meta={meta} />);
+      const rowB = screen.getByRole("img").parentElement as HTMLElement;
+      expect([rowB.className, rowB.children.length]).toEqual(sigA);
+      // 두 줄은 막대 줄 밖 형제
+      expect(within(rowB).queryByText(/반복을 끝낸 응답/)).toBeNull();
+    });
+
+    it("「칩」으로 바꾸면 표에 두 줄", async () => {
+      const user = userEvent.setup();
+      render(<StepPhaseBreakdown steps={withSplit as never} meta={meta} />);
+      await user.click(screen.getByRole("button", { name: "칩" }));
+      expect(screen.getByRole("table")).toHaveTextContent("반복을 끝낸 응답");
+    });
+
+    it("└는 aria-hidden 요소 안", () => {
+      render(<StepPhaseBreakdown steps={withSplit as never} meta={meta} />);
+      const marks = screen
+        .getAllByText("└", { exact: false, ignore: "" })
+        .filter((e) => e.tagName === "SPAN");
+      expect(marks).toHaveLength(2);
+      for (const mk of marks) expect(mk).toHaveAttribute("aria-hidden", "true");
+    });
+  });
 });
