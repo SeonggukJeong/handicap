@@ -225,6 +225,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0053** 운영 모니터 모드: trace 재사용 주기 점검 보드 + 메모리 링버퍼 + 느림은 화면 계산 (0009 번복 아님)
 - **0054** 보드 파일 형식: `handicap-bundle` v1(보드·시나리오·환경) + ID 보존·내용 비교 + 모르는 키 거부
 - **0055** 터미널 운영 모니터 `handicap-tui`: 컨트롤러 in-process 임베드 + 루프백 REST 클라이언트 + glibc 2.27 zigbuild
+- **0056** 조건 반복: loop + `while`(do-while) + `keep_think` + 본문 너그러운 추출 + `EndIteration`
 
 ## 코딩 컨벤션
 
