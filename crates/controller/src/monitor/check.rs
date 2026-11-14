@@ -30,6 +30,7 @@ pub const REASON_SCENARIO_INVALID: &str = "시나리오 오류";
 pub const REASON_LATENCY_STEP_MISSING: &str = "응답 시간 기준 스텝 없음";
 pub const REASON_REQUEST_CAP: &str = "요청 수 상한(50) 초과";
 pub const REASON_TRACE_ERROR: &str = "시나리오 실행 오류";
+pub const REASON_LOOP_EXHAUSTED: &str = "조건 반복이 최대 횟수까지 풀리지 않음";
 pub const REASON_BAD_REQUEST_BUILD: &str = "요청 구성 오류";
 pub const REASON_READ_BODY: &str = "응답 본문 읽기 실패";
 pub const REASON_EXTRACT: &str = "값 추출 실패";
@@ -634,6 +635,9 @@ pub fn judge(
     if trace.error.is_some() {
         return CheckResult::with_reason(at_ms, Verdict::Fail, REASON_TRACE_ERROR);
     }
+    if trace.ended_by_loop.is_some() {
+        return CheckResult::with_reason(at_ms, Verdict::Fail, REASON_LOOP_EXHAUSTED);
+    }
 
     let mut all = Vec::new();
     collect_http_steps(&scenario.steps, &mut all);
@@ -942,6 +946,42 @@ steps:
                 display: vec![]
             }
         );
+    }
+
+    #[test]
+    fn ended_by_loop_fails_with_reason() {
+        let mut t = tr(vec![st(A, Some(resp(200, 10)), None)]);
+        t.ended_by_loop = Some("01HX0000000000000000000009".into());
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some(REASON_LOOP_EXHAUSTED));
+    }
+
+    #[test]
+    fn truncated_reason_wins_over_ended_by_loop() {
+        let mut t = tr(vec![st(A, Some(resp(200, 10)), None)]);
+        t.ended_by_loop = Some("01HX0000000000000000000009".into());
+        t.truncated = true;
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason, Some(reason_timeout(5)));
+    }
+
+    #[test]
+    fn loop_judge_rows_ignored_by_judging() {
+        let mut judge_row = st("01HX0000000000000000000009", None, None);
+        judge_row.kind = StepKind::Loop;
+        judge_row.request = None;
+        let t = tr(vec![
+            st(A, Some(resp(200, 10)), None),
+            judge_row.clone(),
+            st(A, Some(resp(200, 55)), None),
+            judge_row,
+        ]);
+        let p = panel(LatencySource::Step { step_id: A.into() });
+        let r = judge(&one_step(), &p, &t, 1);
+        assert_eq!(r.verdict, Verdict::Ok);
+        assert_eq!(r.latency_ms, Some(55));
     }
 
     #[test]

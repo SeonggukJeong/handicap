@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use handicap_engine::{Scenario, Step};
+use handicap_engine::{Scenario, Step, ThinkTime};
 use handicap_proto::v1 as pb;
 use serde::{Deserialize, Serialize};
 
@@ -641,44 +641,56 @@ fn maybe_strip_think(yaml: &str, profile: &Profile) -> String {
 }
 
 /// 루트 default + 모든 스텝 think를 None으로. 하나라도 바꿨으면 true.
+/// 단, 조건 반복(`while` + keep_think) 본문의 스텝은 think를 지우지 않고(루트 기본값으로 채워)
+/// 남긴다 — 폴링 대기 간격이 사라지면 대기 서버를 두드리게 된다.
 fn strip_scenario_think(sc: &mut Scenario) -> bool {
-    let mut changed = sc.default_think_time.take().is_some();
-    if strip_steps_think(&mut sc.steps) {
+    let root_default = sc.default_think_time.take();
+    let mut changed = root_default.is_some();
+    if strip_steps_think(&mut sc.steps, root_default.as_ref(), false) {
         changed = true;
     }
     changed
 }
 
-fn strip_steps_think(steps: &mut [Step]) -> bool {
+fn strip_steps_think(steps: &mut [Step], root_default: Option<&ThinkTime>, keep: bool) -> bool {
     let mut changed = false;
     for step in steps.iter_mut() {
         match step {
             Step::Http(h) => {
-                if h.think_time.take().is_some() {
+                if keep {
+                    if h.think_time.is_none()
+                        && let Some(d) = root_default
+                    {
+                        h.think_time = Some(*d);
+                        changed = true;
+                    }
+                } else if h.think_time.take().is_some() {
                     changed = true;
                 }
             }
             Step::Loop(l) => {
-                if strip_steps_think(&mut l.do_) {
+                let k = keep || l.keeps_think();
+                if strip_steps_think(&mut l.do_, root_default, k) {
                     changed = true;
                 }
             }
             Step::If(i) => {
-                if strip_steps_think(&mut i.then_) {
+                if strip_steps_think(&mut i.then_, root_default, keep) {
                     changed = true;
                 }
                 for e in &mut i.elif {
-                    if strip_steps_think(&mut e.then_) {
+                    if strip_steps_think(&mut e.then_, root_default, keep) {
                         changed = true;
                     }
                 }
-                if strip_steps_think(&mut i.else_) {
+                if strip_steps_think(&mut i.else_, root_default, keep) {
                     changed = true;
                 }
             }
             Step::Parallel(p) => {
+                // 엔진은 parallel 분기에 시나리오 기본 think를 적용하지 않는다 — 복사 금지.
                 for b in &mut p.branches {
-                    if strip_steps_think(&mut b.steps) {
+                    if strip_steps_think(&mut b.steps, None, keep) {
                         changed = true;
                     }
                 }
@@ -2942,5 +2954,154 @@ steps:
         } else {
             panic!("expected http step inside parallel branch");
         }
+    }
+
+    fn http_think(st: &Step) -> Option<(u32, u32)> {
+        let Step::Http(h) = st else {
+            panic!("expected http step");
+        };
+        h.think_time.as_ref().map(|t| (t.min_ms, t.max_ms))
+    }
+
+    const YAML_KEEP: &str = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 100, max_ms: 100 }
+steps:
+  - id: 01HX0000000000000000000AAA
+    type: http
+    name: a
+    request: { method: GET, url: http://x/ }
+  - id: 01HX0000000000000000000BBB
+    type: loop
+    name: keep
+    while: { left: "{{code}}", op: eq, right: WAIT }
+    do:
+      - id: 01HX0000000000000000000CCC
+        type: http
+        name: b
+        request: { method: GET, url: http://x/ }
+        think_time: { min_ms: 50, max_ms: 50 }
+      - id: 01HX0000000000000000000DDD
+        type: http
+        name: c
+        request: { method: GET, url: http://x/ }
+  - id: 01HX0000000000000000000EEE
+    type: loop
+    name: nokeep
+    while: { left: "{{code}}", op: eq, right: WAIT }
+    keep_think: false
+    do:
+      - id: 01HX0000000000000000000FFF
+        type: http
+        name: d
+        request: { method: GET, url: http://x/ }
+        think_time: { min_ms: 50, max_ms: 50 }
+"#;
+
+    #[test]
+    fn strip_keeps_think_inside_keep_think_loop() {
+        let out = maybe_strip_think(YAML_KEEP, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        assert!(sc.default_think_time.is_none());
+        assert_eq!(http_think(&sc.steps[0]), None, "A");
+        let Step::Loop(l1) = &sc.steps[1] else {
+            panic!("loop")
+        };
+        assert_eq!(http_think(&l1.do_[0]), Some((50, 50)), "B");
+        assert_eq!(http_think(&l1.do_[1]), Some((100, 100)), "C root copy");
+        let Step::Loop(l2) = &sc.steps[2] else {
+            panic!("loop")
+        };
+        assert_eq!(http_think(&l2.do_[0]), None, "D");
+    }
+
+    #[test]
+    fn strip_output_unchanged_without_cond_loops() {
+        // R0 회귀 가드: while 없는 loop은 keep 대상이 아니다 — 전부 제거.
+        let y = YAML_NESTED_THINK;
+        let out = maybe_strip_think(y, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        assert!(sc.default_think_time.is_none());
+        let Step::Loop(l) = &sc.steps[0] else {
+            panic!("loop")
+        };
+        assert_eq!(http_think(&l.do_[0]), None);
+        let Step::Parallel(p) = &sc.steps[1] else {
+            panic!("par")
+        };
+        assert_eq!(http_think(&p.branches[0].steps[0]), None);
+    }
+
+    #[test]
+    fn strip_if_inside_keep_loop_keeps_think() {
+        let y = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 100, max_ms: 100 }
+steps:
+  - id: 01HX0000000000000000000BBB
+    type: loop
+    name: keep
+    while: { left: "{{code}}", op: eq, right: WAIT }
+    do:
+      - id: 01HX0000000000000000000GGG
+        type: if
+        name: iff
+        cond: { left: "1", op: eq, right: "1" }
+        then:
+          - id: 01HX0000000000000000000CCC
+            type: http
+            name: b
+            request: { method: GET, url: http://x/ }
+            think_time: { min_ms: 50, max_ms: 50 }
+"#;
+        let out = maybe_strip_think(y, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        let Step::Loop(l) = &sc.steps[0] else {
+            panic!("loop")
+        };
+        let Step::If(i) = &l.do_[0] else { panic!("if") };
+        assert_eq!(http_think(&i.then_[0]), Some((50, 50)));
+    }
+
+    #[test]
+    fn strip_parallel_inside_keep_loop_does_not_copy_root_default() {
+        let y = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 100, max_ms: 100 }
+steps:
+  - id: 01HX0000000000000000000BBB
+    type: loop
+    name: keep
+    while: { left: "{{code}}", op: eq, right: WAIT }
+    do:
+      - id: 01HX0000000000000000000DDD
+        type: parallel
+        name: par
+        branches:
+          - name: br
+            steps:
+              - id: 01HX0000000000000000000CCC
+                type: http
+                name: own
+                request: { method: GET, url: http://x/ }
+                think_time: { min_ms: 50, max_ms: 50 }
+              - id: 01HX0000000000000000000EEE
+                type: http
+                name: none
+                request: { method: GET, url: http://x/ }
+"#;
+        let out = maybe_strip_think(y, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        let Step::Loop(l) = &sc.steps[0] else {
+            panic!("loop")
+        };
+        let Step::Parallel(p) = &l.do_[0] else {
+            panic!("par")
+        };
+        assert_eq!(http_think(&p.branches[0].steps[0]), Some((50, 50)));
+        assert_eq!(http_think(&p.branches[0].steps[1]), None);
     }
 }
