@@ -15,7 +15,7 @@ plan `docs/superpowers/plans/2026-11-13-loop-do-while.md`의 task들이 공유�
 | `loopKeepThink` | `이 반복 안의 think time은 항상 적용` |
 | `loopKeepThinkHelpLabel` | `think time 항상 적용 도움말` |
 | `loopKeepThinkHelp` | `도착률 기준 실행·시험 실행·운영 모니터처럼 think time을 무시하는 실행에서도 이 반복 안에서는 쉽니다. 운영 모니터에서는 재시도와 대기 시간만큼 점검 제한 시간을 넉넉히 잡으세요.` |
-| `loopLenientExtractHelp` | `이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다.` |
+| `loopLenientExtractHelp` | `이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 빈 값은 뒤 스텝의 요청 주소에도 그대로 들어가므로(예: /orders/{{orderId}} → /orders/), 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.` |
 | `loopCondLabelMax(n)` | `조건 반복 · 최대 ${n}` |
 | `loopCondLabelUnlimited` | `조건 반복 · 무제한` |
 | `loopWarnNoThink` | `대기 없이 재시도합니다. 응답이 빠르면 초당 수백 번 다시 요청할 수 있습니다. 반복 안 스텝에 think time을 넣으세요.` |

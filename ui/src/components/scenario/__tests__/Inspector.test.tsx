@@ -2011,8 +2011,39 @@ ${loopExtra}
     render(<Inspector />);
     expect(screen.getByText("조건 반복 · 최대 5")).toBeInTheDocument();
   });
-});
 
+  it("반복 조건 구역에 빈 값이 뒤 요청 주소에 실리는 위험 안내가 보인다", () => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000060"
+    name: "poll"
+    type: loop
+    repeat: 5
+    while:
+      left: "{{code}}"
+      op: eq
+      right: "WAIT"
+    do:
+      - id: "01HX0000000000000000000061"
+        name: "ping"
+        type: http
+        request:
+          method: GET
+          url: "/ping"
+`);
+    useScenarioEditor.getState().select("01HX0000000000000000000060");
+    render(<Inspector />);
+    expect(
+      screen.getByText(
+        "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 빈 값은 뒤 스텝의 요청 주소에도 그대로 들어가므로(예: /orders/{{orderId}} → /orders/), 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
 
 const warnYaml = (think: string, right: string, op = "ne") => `version: 1
 name: "demo"
@@ -2063,9 +2094,7 @@ describe("Inspector — 조건 반복 경고 (US3)", () => {
   it("think를 넣고 eq WAIT로 바꾸면 경고 Callout이 없다", () => {
     useScenarioEditor
       .getState()
-      .loadFromString(
-        warnYaml("        think_time: { min_ms: 500, max_ms: 500 }\n", "WAIT", "eq"),
-      );
+      .loadFromString(warnYaml("        think_time: { min_ms: 500, max_ms: 500 }\n", "WAIT", "eq"));
     useScenarioEditor.getState().select("01HX0000000000000000000070");
     render(<Inspector />);
     const text = document.body.textContent ?? "";
