@@ -674,3 +674,50 @@ ${extra}
     expect(screen.getByText("× 3")).toBeInTheDocument();
   });
 });
+
+
+const warnOutlineYaml = (think: string) => `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000070"
+    name: "주문 재시도"
+    type: loop
+    while:
+      left: "{{code}}"
+      op: ne
+      right: "OK"
+    do:
+      - id: "01HX0000000000000000000071"
+        name: "poll"
+        type: http
+        request:
+          method: GET
+          url: "/poll"
+${think}        extract:
+          - var: code
+            from: body
+            path: "$.code"
+`;
+
+describe("FlowOutline — 조건 반복 주의 아이콘 (US3)", () => {
+  beforeEach(reset);
+
+  it("경고 있는 loop 행에는 아이콘, 없는 행에는 없음", () => {
+    useScenarioEditor.getState().loadFromString(warnOutlineYaml(""));
+    const { unmount } = render(<FlowOutline />);
+    expect(screen.getByLabelText("주문 재시도 반복 조건 주의")).toBeInTheDocument();
+    unmount();
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        warnOutlineYaml("        think_time: { min_ms: 500, max_ms: 500 }\n").replace(
+          'op: ne\n      right: "OK"',
+          'op: eq\n      right: "WAIT"',
+        ),
+      );
+    render(<FlowOutline />);
+    expect(screen.queryByLabelText("주문 재시도 반복 조건 주의")).toBeNull();
+  });
+});

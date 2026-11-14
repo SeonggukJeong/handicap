@@ -29,11 +29,13 @@ import {
   isParallelStep,
   summarizeCondition,
   findStepById,
+  type LoopStep,
   type Step,
 } from "../../scenario/model";
 import { resolveDrop } from "../../scenario/reorder";
 import { formatThink } from "../../scenario/thinkTime";
 import { loopCountLabel } from "../../scenario/loopLabel";
+import { loopWarnings } from "../../scenario/loopWarnings";
 import {
   bandIndex,
   bandKey,
@@ -99,6 +101,18 @@ function CondSummary({ text }: { text: string }) {
   );
 }
 
+function LoopWarnIcon({ step }: { step: LoopStep }) {
+  const defaultThink = useScenarioEditor((s) => s.model?.default_think_time);
+  const w = loopWarnings(step, defaultThink);
+  if (!(w.noThink || w.thinkNotKept || w.retryOnFailure)) return null;
+  const label = ko.editor.loopWarnIconAria(step.name);
+  return (
+    <span role="img" aria-label={label} title={label} className="shrink-0 text-amber-500">
+      ⚠
+    </span>
+  );
+}
+
 // 한 행 헤더의 "드래그 핸들 이후" 내용. 대화형 OutlineRow와 오버레이용
 // OutlineRowPreview가 공유 — 시각 드리프트 방지(spec §3.3).
 function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
@@ -111,6 +125,7 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
         </span>
         <span className="shrink-0 text-xs text-slate-500">{loopCountLabel(step)}</span>
         {step.while !== undefined && <CondSummary text={summarizeCondition(step.while)} />}
+        {step.while !== undefined && <LoopWarnIcon step={step} />}
       </>
     );
   }

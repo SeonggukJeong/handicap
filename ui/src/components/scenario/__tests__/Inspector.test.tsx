@@ -5,6 +5,7 @@ import { Inspector } from "../Inspector";
 import { useScenarioEditor } from "../../../scenario/store";
 import { parseScenarioDoc } from "../../../scenario/yamlDoc";
 import { ko } from "../../../i18n/ko";
+import { ScenarioModel } from "../../../scenario/model";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -2009,5 +2010,67 @@ ${loopExtra}
     useScenarioEditor.getState().select("01HX0000000000000000000050");
     render(<Inspector />);
     expect(screen.getByText("조건 반복 · 최대 5")).toBeInTheDocument();
+  });
+});
+
+
+const warnYaml = (think: string, right: string, op = "ne") => `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000070"
+    name: "주문 재시도"
+    type: loop
+    while:
+      left: "{{code}}"
+      op: ${op}
+      right: "${right}"
+    do:
+      - id: "01HX0000000000000000000071"
+        name: "poll"
+        type: http
+        request:
+          method: GET
+          url: "/poll"
+${think}        extract:
+          - var: code
+            from: body
+            path: "$.code"
+`;
+
+describe("Inspector — 조건 반복 경고 (US3)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("ne OK + think 없음 + 횟수 비움 → 두 경고와 접미 문장", () => {
+    useScenarioEditor.getState().loadFromString(warnYaml("", "OK"));
+    useScenarioEditor.getState().select("01HX0000000000000000000070");
+    render(<Inspector />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain(
+      "대기 없이 재시도합니다. 응답이 빠르면 초당 수백 번 다시 요청할 수 있습니다. 반복 안 스텝에 think time을 넣으세요.",
+    );
+    expect(text).toContain(
+      "요청이 실패해 값을 못 뽑아도 조건이 참이라 계속 반복합니다. '대기 값과 같다'처럼 값을 받았을 때만 참이 되는 조건을 권합니다.",
+    );
+    expect(text).toContain("최대 횟수도 없어 run이 끝날 때까지 이어집니다.");
+    const parsed = ScenarioModel.safeParse(useScenarioEditor.getState().model);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("think를 넣고 eq WAIT로 바꾸면 경고 Callout이 없다", () => {
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        warnYaml("        think_time: { min_ms: 500, max_ms: 500 }\n", "WAIT", "eq"),
+      );
+    useScenarioEditor.getState().select("01HX0000000000000000000070");
+    render(<Inspector />);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("대기 없이 재시도합니다");
+    expect(text).not.toContain("계속 반복합니다");
+    expect(text).not.toContain("최대 횟수도 없어");
   });
 });

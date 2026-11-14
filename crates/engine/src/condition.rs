@@ -396,6 +396,37 @@ mod tests {
     }
 
     #[test]
+    fn empty_left_operator_table() {
+        // 왼쪽이 빈 값({{x}} 미설정)일 때의 연산자 표 — UI `condEmptyEval`과 같은 값(양쪽 테스트가 고정).
+        let v = BTreeMap::new();
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let table: &[(CompareOp, Option<&str>, bool)] = &[
+            (CompareOp::Eq, Some("WAIT"), false),
+            (CompareOp::Ne, Some("WAIT"), true),
+            (CompareOp::Contains, Some("WAIT"), false),
+            (CompareOp::Matches, Some("^$"), true),
+            (CompareOp::Matches, Some("WAIT"), false),
+            (CompareOp::Lt, Some("WAIT"), false),
+            (CompareOp::Gt, Some("WAIT"), false),
+            (CompareOp::Lte, Some("WAIT"), false),
+            (CompareOp::Gte, Some("WAIT"), false),
+            (CompareOp::Lt, Some("5"), false),
+            (CompareOp::Gte, Some("0"), false),
+            (CompareOp::Lte, Some("0"), false),
+            (CompareOp::Exists, None, false),
+            (CompareOp::Empty, None, true),
+        ];
+        for (op, right, want) in table {
+            assert_eq!(
+                eval_condition(&cmp("{{x}}", *op, *right), &ctx),
+                *want,
+                "{op:?} {right:?}"
+            );
+        }
+    }
+
+    #[test]
     fn right_operand_is_templated() {
         // The right operand is rendered too: a ${ENV} pattern resolves before matching.
         let v = vars(&[("s", "abc123")]);

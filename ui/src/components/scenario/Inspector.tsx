@@ -36,6 +36,8 @@ import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { Textarea } from "../ui/Textarea";
 import { Section } from "../ui/Section";
+import { Callout } from "../ui/Callout";
+import { loopWarnings } from "../../scenario/loopWarnings";
 import {
   loadSectionPrefs,
   saveSectionPrefs,
@@ -1087,6 +1089,9 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
   }, [step.id, step.repeat, repeatText]);
 
   const setLoopWhile = useScenarioEditor((s) => s.setLoopWhile);
+  const defaultThink = useScenarioEditor((s) => s.model?.default_think_time);
+  const warn = loopWarnings(step, defaultThink);
+  const hasWarn = warn.noThink || warn.thinkNotKept || warn.retryOnFailure;
   const setLoopKeepThink = useScenarioEditor((s) => s.setLoopKeepThink);
   const [condOpen, setCondOpen] = useState(hasWhile);
   useEffect(() => {
@@ -1168,6 +1173,16 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
         ) : (
           <>
             <ConditionEditor cond={step.while} onCommit={(c) => setLoopWhile(step.id, c)} />
+            {hasWarn && (
+              <Callout variant="warn" role="note">
+                <ul className="flex flex-col gap-1">
+                  {warn.noThink && <li>{ko.editor.loopWarnNoThink}</li>}
+                  {warn.thinkNotKept && <li>{ko.editor.loopWarnThinkNotKept}</li>}
+                  {warn.retryOnFailure && <li>{ko.editor.loopWarnRetryOnFailure}</li>}
+                  {warn.unlimited && <li>{ko.editor.loopWarnUnlimitedSuffix}</li>}
+                </ul>
+              </Callout>
+            )}
             <div className="flex items-center gap-1">
               <label className="flex items-center gap-1.5 text-xs text-slate-700">
                 <input

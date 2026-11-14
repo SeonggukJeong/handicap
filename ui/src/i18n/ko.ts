@@ -244,7 +244,7 @@ export const ko = {
       `최고 단계 기준 ≈ 초당 요청 ${lo}~${hi}건`,
     applyScenarioThinkLabel: "시나리오 think time 적용",
     applyScenarioThinkIgnoreNote:
-      "think time 무시 중 (open-loop 기본) — 도착률로만 부하를 제어합니다. 적용하려면 켜세요.",
+      "think time 무시 중 (open-loop 기본) — 도착률로만 부하를 제어합니다. 적용하려면 켜세요. 조건 반복 안의 think time은 반복 설정에 따라 그대로 적용됩니다.",
     applyScenarioThinkApplyNote:
       "think time이 슬롯을 점유합니다 — 아래 슬롯 사이징 도우미로 max_in_flight를 확인하세요.",
     observedRpsAnchor: (n: number) => `직전 실행 관측 ≈ ${n} RPS`,
@@ -744,6 +744,14 @@ export const ko = {
       "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다.",
     loopCondLabelMax: (n: number) => `조건 반복 · 최대 ${n}`,
     loopCondLabelUnlimited: "조건 반복 · 무제한",
+    loopWarnNoThink:
+      "대기 없이 재시도합니다. 응답이 빠르면 초당 수백 번 다시 요청할 수 있습니다. 반복 안 스텝에 think time을 넣으세요.",
+    loopWarnThinkNotKept:
+      "think time을 무시하는 실행(도착률 기준·시험 실행·운영 모니터)에서는 대기 없이 재시도합니다.",
+    loopWarnRetryOnFailure:
+      "요청이 실패해 값을 못 뽑아도 조건이 참이라 계속 반복합니다. '대기 값과 같다'처럼 값을 받았을 때만 참이 되는 조건을 권합니다.",
+    loopWarnUnlimitedSuffix: "최대 횟수도 없어 run이 끝날 때까지 이어집니다.",
+    loopWarnIconAria: (name: string) => `${name} 반복 조건 주의`,
     // ── Inspector 섹션 범례·라벨 ──
     requestLegend: "요청",
     headersLabel: "헤더",
