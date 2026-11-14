@@ -18,7 +18,9 @@ pub mod trace;
 
 pub use aggregator::{
     ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LOOP_EXIT_PASS_CAP,
-    LoopExitOutcome, LoopExitStat, LoopStat, PhaseStat, StepWindow,
+    LOOP_SPLIT_PASS_SAMPLE_CAP, LoopExitOutcome, LoopExitStat, LoopSplitClass, LoopStat,
+    PHASE_LOOP_CUT, PHASE_LOOP_CUT_ERR, PHASE_LOOP_FINAL, PHASE_LOOP_FINAL_ERR, PHASE_LOOP_RETRY,
+    PHASE_LOOP_RETRY_ERR, PhaseStat, StepWindow,
 };
 pub use condition::{BranchEval, LeafEval, eval_condition, explain_branches};
 pub use dataset::{BindingPolicy, DataSet};

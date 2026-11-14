@@ -51,6 +51,41 @@ pub struct ErrorKindStat {
 /// (`LOOP_EXIT_PASS_CAP + 1`)으로 합친다. run 설정 `loop_breakdown_cap`과 무관한 고정 상수.
 pub const LOOP_EXIT_PASS_CAP: u32 = 20;
 
+/// 조건 반복 응답 시간 분리: 갈래별 "통과 표본" 상한(리포트 쪽 표본 수 한도).
+pub const LOOP_SPLIT_PASS_SAMPLE_CAP: usize = 1024;
+pub const PHASE_LOOP_FINAL: &str = "loop_final";
+pub const PHASE_LOOP_RETRY: &str = "loop_retry";
+pub const PHASE_LOOP_CUT: &str = "loop_cut";
+pub const PHASE_LOOP_FINAL_ERR: &str = "loop_final_err";
+pub const PHASE_LOOP_RETRY_ERR: &str = "loop_retry_err";
+pub const PHASE_LOOP_CUT_ERR: &str = "loop_cut_err";
+
+/// 조건 반복 본문 응답이 속한 갈래.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopSplitClass {
+    Ended,
+    Continued,
+    Cut,
+}
+
+impl LoopSplitClass {
+    pub fn phase(self) -> &'static str {
+        match self {
+            Self::Ended => PHASE_LOOP_FINAL,
+            Self::Continued => PHASE_LOOP_RETRY,
+            Self::Cut => PHASE_LOOP_CUT,
+        }
+    }
+
+    pub fn err_phase(self) -> &'static str {
+        match self {
+            Self::Ended => PHASE_LOOP_FINAL_ERR,
+            Self::Continued => PHASE_LOOP_RETRY_ERR,
+            Self::Cut => PHASE_LOOP_CUT_ERR,
+        }
+    }
+}
+
 /// 조건 반복 진입이 끝난 방식 (spec 2026-11-14-loop-while-report §2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoopExitOutcome {
@@ -366,6 +401,20 @@ impl Aggregator {
                 count,
             })
             .collect()
+    }
+
+    /// 조건 반복 본문 응답 한 건을 갈래 구간에 기록한다. 에러면 *_err 구간에도 한 번 더.
+    pub fn record_loop_split(
+        &mut self,
+        step_id: &str,
+        class: LoopSplitClass,
+        latency_us: u64,
+        is_error: bool,
+    ) {
+        self.record_phase(step_id, class.phase(), latency_us);
+        if is_error {
+            self.record_phase(step_id, class.err_phase(), latency_us);
+        }
     }
 
     /// Record one latency-phase sample (µs) for (step_id, phase). HDR-accumulating,
@@ -697,6 +746,37 @@ mod tests {
         let g = a.drain_group_deltas().pop().expect("one group stat");
         let bytes = g.serialize_histogram().expect("serializes");
         assert!(!bytes.is_empty(), "group histogram bytes non-empty");
+    }
+
+    #[test]
+    fn loop_split_records_class_and_error_phases() {
+        let mut a = Aggregator::new(0);
+        a.record_loop_split("s1", LoopSplitClass::Ended, 180_000, false);
+        a.record_loop_split("s1", LoopSplitClass::Continued, 12_000, false);
+        a.record_loop_split("s1", LoopSplitClass::Continued, 13_000, true);
+        a.record_loop_split("s1", LoopSplitClass::Cut, 14_000, true);
+        let got: std::collections::BTreeMap<String, u64> = a
+            .drain_phase_deltas()
+            .into_iter()
+            .map(|p| {
+                assert_eq!(p.step_id, "s1");
+                assert_eq!(p.histogram.len(), p.count);
+                (p.phase, p.count)
+            })
+            .collect();
+        let want: std::collections::BTreeMap<String, u64> = [
+            ("loop_final", 1),
+            ("loop_retry", 2),
+            ("loop_retry_err", 1),
+            ("loop_cut", 1),
+            ("loop_cut_err", 1),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        assert_eq!(got, want);
+        assert_eq!(LOOP_SPLIT_PASS_SAMPLE_CAP, 1024);
+        assert_eq!(LoopSplitClass::Ended.err_phase(), "loop_final_err");
     }
 
     #[test]
