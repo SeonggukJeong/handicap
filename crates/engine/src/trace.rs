@@ -80,7 +80,8 @@ pub fn judge_byte_budget(max_requests: u32) -> u64 {
 }
 
 /// trace가 판정 줄 상한(If 줄 수 · Loop 줄 수 · 바이트 예산 중 하나)에 닿아 끊겼는지.
-/// 컨트롤러·모니터가 잘린 사유를 가릴 때 쓴다.
+/// 컨트롤러·모니터가 잘린 사유를 가릴 때 쓴다. 단일 패스(`trace_scenario`) trace 전용 —
+/// 순차 행 trace는 예산을 행 사이에 이월하므로 한 행의 줄만으로는 판정할 수 없다.
 pub fn judge_rows_exhausted(steps: &[StepTrace], max_requests: u32) -> bool {
     let mut if_n: u64 = 0;
     let mut loop_n: u64 = 0;
@@ -276,7 +277,7 @@ pub async fn trace_scenario_with_seed(
 
 /// 시나리오를 시드 행마다 1회씩 순차 실행 (1 VU iter_sequential 미러 — ADR-0047).
 /// 클라이언트(cookie jar)는 1회 빌드해 행 간 공유(R5), `max_requests`·wall-clock
-/// deadline·if 판정 줄 수·조건 반복 판정 줄 수는 전 행 공유 단일 예산(R6). 실패 행에서도
+/// deadline·if 판정 줄 수·조건 반복 판정 줄 수·판정 줄 바이트는 전 행 공유 단일 예산(R6). 실패 행에서도
 /// 계속(R10). 예산이 행 시작 전에 소진되면 그 행부터 `rows`에 없다(R6). Never returns `Err` — 극히 드문
 /// 클라이언트 빌드 실패는 `ok=false`·빈 `rows`로 축약(R8 와이어에 error 채널 없음).
 pub async fn trace_scenario_rows(

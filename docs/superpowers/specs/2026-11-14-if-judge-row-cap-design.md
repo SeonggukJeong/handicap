@@ -1,6 +1,6 @@
 # if 판정 줄 상한 — 요청 없이 판정만 도는 시나리오가 컨트롤러를 잡아먹지 않게 (if-judge-row-cap)
 
-- 상태: 설계
+- 상태: 완료 (2026-11-14, 코드 `183b0d3d`..`3a89aa33`; 판단·연기 → roadmap §B59)
 - 날짜: 2026-11-14 · 유형: `correctness-bug`(선재, 보안 리뷰 P1) · 출처: roadmap §B58 (0)·(2) "if 판정 행 무제한"
 - 범위: 엔진 `crates/engine/src/trace.rs`(시험 실행·모니터가 쓰는 단일 패스 trace) + 컨트롤러 모니터 사유 2곳 + UI 문구·사유 표. 부하 run 경로(`runner.rs`)·proto·마이그레이션·trace 와이어 모양 무변경.
 

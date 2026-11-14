@@ -50,6 +50,8 @@ QA·개발자가 에디터에서 시나리오를 편집하는 동안, **부하 r
 - 응답 200: `ScenarioTrace`(아래). 의미 검증 실패 422.
 - 상한: `max_requests`(기본 50, 1~10000 — 벗어나면 422) + wall-clock 천장 120s. 둘 중 먼저
   닿으면 `truncated = true` + 부분 trace. **요청 카운터는 http leaf에서만 증가**(if/loop 구조 행은 미카운트).
+  (이후 추가: 조건 반복 판정 줄 200 — ADR-0056, if 판정 줄 수 `max(1000, max_requests×10)`·판정 줄
+  바이트 예산 — if-judge-row-cap 2026-11-14. 이 판정 줄 상한에 닿아도 `truncated = true`.)
 
 ### `ScenarioTrace` 데이터 모델 (UI JSON 계약)
 
