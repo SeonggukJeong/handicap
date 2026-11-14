@@ -24,6 +24,10 @@ import { HelpTip } from "../HelpTip";
 import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
 import { ValidityBanner } from "./ValidityBanner";
+import { LoopRetryNotice } from "./LoopRetryNotice";
+import { LoopExitSummary } from "./LoopExitSummary";
+import { LoopExitPanel } from "./LoopExitPanel";
+import { buildLoopExitViews, retriedStepIdSet } from "./loopExitView";
 import { WorkerBreakdownTable } from "./WorkerBreakdownTable";
 import { PercentileCurveChart } from "./PercentileCurveChart";
 import { LatencyHistogramChart } from "./LatencyHistogramChart";
@@ -88,6 +92,16 @@ export function ReportView({ report, profile }: Props) {
     }
     return m;
   }, [report.scenario_yaml, report.group_latency]);
+
+  const loopExitViews = useMemo(() => {
+    const parsed = parseScenarioDoc(report.scenario_yaml);
+    return buildLoopExitViews(
+      report.loop_exits,
+      report.steps,
+      "model" in parsed ? parsed.model.steps : null,
+    );
+  }, [report.scenario_yaml, report.loop_exits, report.steps]);
+  const retriedStepIds = useMemo(() => retriedStepIdSet(loopExitViews), [loopExitViews]);
 
   const hasStepTimeoutOverride = useMemo(() => {
     const parsed = parseScenarioDoc(report.scenario_yaml);
@@ -175,6 +189,7 @@ export function ReportView({ report, profile }: Props) {
       )}
       {/* spec §5.1: 유효성+해석 병합 → Verdict → Insight */}
       <ValidityBanner validity={report.validity} narrative={report.narrative} />
+      <LoopRetryNotice views={loopExitViews} />
       {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       <AppliedTimeouts profile={profile} hasStepTimeoutOverride={hasStepTimeoutOverride} />
@@ -219,8 +234,10 @@ export function ReportView({ report, profile }: Props) {
       <StatusDistribution distribution={report.status_distribution} />
       <ErrorKindTable kinds={report.error_kinds ?? []} />
       {report.connection && <ConnectionCostCard stats={report.connection} />}
-      <StepPhaseBreakdown steps={report.steps} meta={stepMeta} />
+      <StepPhaseBreakdown steps={report.steps} meta={stepMeta} retriedStepIds={retriedStepIds} />
+      <LoopExitSummary views={loopExitViews} />
       <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />
+      <LoopExitPanel views={loopExitViews} />
       <GroupLatencyTable breakdown={report.group_latency ?? []} meta={groupMeta} />
       <ScenarioSnapshot yaml={report.scenario_yaml} />
     </div>

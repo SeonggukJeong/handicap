@@ -438,4 +438,101 @@ describe("ReportView", () => {
       expect(screen.queryByText(ko.validity.level.ok)).toBeNull();
     });
   });
+  describe("조건 반복 리포트 표시 (loop-while-report)", () => {
+    const LOOP_ID = "01HX0000000000000000000009";
+    const LOOP_YAML = [
+      "version: 1",
+      "name: x",
+      "cookie_jar: auto",
+      "variables: {}",
+      "steps:",
+      `  - id: ${LOOP_ID}`,
+      "    name: 주문 재시도",
+      "    type: loop",
+      "    repeat: 5",
+      '    while: { left: "{{s}}", op: eq, right: wait }',
+      "    do:",
+      `      - id: ${STEP_ID}`,
+      "        name: login",
+      "        type: http",
+      "        request:",
+      "          method: POST",
+      "          url: ${BASE_URL}/login",
+      "        assert: []",
+      "        extract: []",
+      "",
+    ].join("\n");
+    const LOOP_REPORT: Report = {
+      ...FIXTURE,
+      scenario_yaml: LOOP_YAML,
+      steps: [
+        {
+          ...FIXTURE.steps[0],
+          loop_breakdown: [
+            { loop_index: 0, count: 10, error_count: 0 },
+            { loop_index: 1, count: 5, error_count: 1 },
+          ],
+        },
+      ],
+      validity: {
+        level: "limited",
+        reasons: [{ kind: "transport_heavy", severity: "warning", pct: 0.2, count: 3 }],
+      },
+      verdict: { passed: true, criteria: [] },
+      loop_exits: [
+        {
+          step_id: LOOP_ID,
+          entered: 10,
+          passes: 15,
+          exhausted: 1,
+          truncated: 0,
+          buckets: [
+            { pass: 1, completed: 9, exhausted: 0, truncated: 0 },
+            { pass: 5, completed: 1, exhausted: 1, truncated: 0 },
+          ],
+        },
+      ],
+    };
+    const q = {
+      badge: () => screen.queryByText(ko.report.loopExit.badge),
+      summary: () => screen.queryByRole("list", { name: "조건 반복 풀이" }),
+      panel: () => screen.queryByRole("region", { name: "조건 반복 회차 분포" }),
+      notice: () => screen.queryByRole("region", { name: "조건 반복 해석 주의" }),
+    };
+
+    it("문서 순서: 배너 < 안내 < 판정 < 스텝 제목 < 풀이 줄 < 분포 패널", () => {
+      render(<ReportView report={LOOP_REPORT} profile={TEST_PROFILE} />);
+      const banner = screen.getByRole("region", { name: ko.validity.bannerAria });
+      const notice = screen.getByRole("region", { name: "조건 반복 해석 주의" });
+      const verdict = screen.getByRole("region", { name: ko.report.verdictSectionLabel });
+      const heading = screen.getByRole("heading", { name: ko.report.stepsHeading });
+      const summary = screen.getByRole("list", { name: "조건 반복 풀이" });
+      const panel = screen.getByRole("region", { name: "조건 반복 회차 분포" });
+      const order = [banner, notice, verdict, heading, summary, panel];
+      for (let i = 0; i < order.length - 1; i++) {
+        expect(
+          order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+      expect(q.badge()).not.toBeNull();
+    });
+
+    it("loop_exits 없으면 새 요소가 전혀 없다", () => {
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+      expect(q.badge()).toBeNull();
+      expect(q.summary()).toBeNull();
+      expect(q.panel()).toBeNull();
+      expect(q.notice()).toBeNull();
+    });
+
+    it("scenario_yaml이 깨져도 loop id로 그린다", () => {
+      render(
+        <ReportView
+          report={{ ...LOOP_REPORT, scenario_yaml: ": : not yaml [" }}
+          profile={TEST_PROFILE}
+        />,
+      );
+      expect(screen.getByText(new RegExp(`「${LOOP_ID}」 — 진입 10회`))).toBeInTheDocument();
+    });
+  });
 });
