@@ -1,3 +1,4 @@
+import type { FocusEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
@@ -1092,7 +1093,12 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
     setCondOpen(step.while !== undefined);
   }, [step.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const commitRepeat = () => {
+  const commitRepeat = (e: FocusEvent<HTMLInputElement>) => {
+    // 브라우저 number 입력은 잘못된 글자(`1e`, `-`, `abc`)도 value === ""로 보고한다 — 빈 칸(무제한)과 구분.
+    if (e.currentTarget.validity.badInput) {
+      setRepeatDraft(repeatText);
+      return;
+    }
     // 조건 있을 때만 빈 값 = 무제한(undefined). 조건 없는 loop은 repeat이 필수라 되돌린다.
     if (repeatDraft.trim() === "" && hasWhile) {
       setLoopRepeat(step.id, undefined);
@@ -1171,7 +1177,7 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
                 />
                 {ko.editor.loopKeepThink}
               </label>
-              <HelpTip label={ko.editor.loopKeepThink}>
+              <HelpTip label={ko.editor.loopKeepThinkHelpLabel}>
                 <span className="block">{ko.editor.loopKeepThinkHelp}</span>
               </HelpTip>
             </div>

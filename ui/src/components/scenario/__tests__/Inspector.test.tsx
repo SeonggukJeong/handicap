@@ -1833,8 +1833,10 @@ describe("Inspector — 반복 조건 (loop-do-while)", () => {
       "true",
     );
     expect(screen.getByLabelText(ko.editor.fieldRepeatMax)).toHaveValue(5);
-    const keep = screen.getByRole("checkbox", { name: ko.editor.loopKeepThink });
+    const keep = screen.getByLabelText(ko.editor.loopKeepThink);
+    expect(screen.getAllByLabelText(ko.editor.loopKeepThink)).toHaveLength(1);
     expect(keep).toBeChecked();
+    expect(screen.getByRole("button", { name: "think time 항상 적용 도움말" })).toBeInTheDocument();
     await user.click(keep);
     expect(useScenarioEditor.getState().yamlText).toContain("keep_think: false");
   });
@@ -1852,6 +1854,91 @@ describe("Inspector — 반복 조건 (loop-do-while)", () => {
     await user.click(document.body);
     expect(useScenarioEditor.getState().yamlText).toContain("repeat: 4");
     expect(screen.queryByText(ko.editor.loopRepeatUnlimitedHint)).toBeNull();
+  });
+
+  it("잘못된 숫자 입력(badInput)으로 blur → 이전 값 복원, repeat 유지", async () => {
+    const user = userEvent.setup();
+    loadLoop(WHILE_BLOCK);
+    render(<Inspector />);
+    const before = useScenarioEditor.getState().yamlText;
+    const repeat = screen.getByLabelText(ko.editor.fieldRepeatMax);
+    Object.defineProperty(repeat, "validity", { value: { badInput: true }, configurable: true });
+    await user.clear(repeat); // 브라우저는 잘못된 입력도 value === "" 로 보고한다
+    await user.click(document.body);
+    expect(useScenarioEditor.getState().yamlText).toBe(before);
+    expect(useScenarioEditor.getState().yamlText).toContain("repeat: 5");
+    expect(screen.getByLabelText(ko.editor.fieldRepeatMax)).toHaveValue(5);
+  });
+
+  it("구역 열림은 선택이 바뀔 때 다시 시드된다", async () => {
+    const user = userEvent.setup();
+    const yaml = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000060"
+    name: "cond"
+    type: loop
+    repeat: 5
+    while:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    do:
+      - id: "01HX0000000000000000000061"
+        name: "a"
+        type: http
+        request:
+          method: GET
+          url: "/a"
+  - id: "01HX0000000000000000000062"
+    name: "plain"
+    type: loop
+    repeat: 3
+    do:
+      - id: "01HX0000000000000000000063"
+        name: "b"
+        type: http
+        request:
+          method: GET
+          url: "/b"
+  - id: "01HX0000000000000000000064"
+    name: "gate"
+    type: if
+    cond:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    then:
+      - id: "01HX0000000000000000000065"
+        name: "nested"
+        type: loop
+        repeat: 2
+        do:
+          - id: "01HX0000000000000000000066"
+            name: "c"
+            type: http
+            request:
+              method: GET
+              url: "/c"
+`;
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(yaml);
+    const select = (id: string) => act(() => useScenarioEditor.getState().select(id));
+    select("01HX0000000000000000000060");
+    render(<Inspector />);
+    const toggle = () => screen.getByRole("button", { name: ko.editor.loopCondSection });
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    select("01HX0000000000000000000062");
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: ko.editor.loopCondAdd })).toBeNull();
+    select("01HX0000000000000000000060");
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    // if 분기 안 loop에서도 구역이 보인다
+    select("01HX0000000000000000000065");
+    await user.click(toggle());
+    expect(screen.getByRole("button", { name: ko.editor.loopCondAdd })).toBeInTheDocument();
   });
 
   it("회귀 가드: 조건 없는 loop에서 횟수를 비우고 blur → 이전 값 복원, YAML 불변", async () => {

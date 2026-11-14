@@ -737,6 +737,7 @@ export const ko = {
     loopRepeatUnlimitedHint:
       "비우면 run이 끝날 때까지 반복합니다. 그동안 이 가상 사용자는 천천히 줄이는(graceful) 감소 구간에서 상한 시간이 없으면 빠지지 않고, 도착률 기준에서는 자리를 계속 차지합니다.",
     loopKeepThink: "이 반복 안의 think time은 항상 적용",
+    loopKeepThinkHelpLabel: "think time 항상 적용 도움말",
     loopKeepThinkHelp:
       "도착률 기준 실행·시험 실행·운영 모니터처럼 think time을 무시하는 실행에서도 이 반복 안에서는 쉽니다. 운영 모니터에서는 재시도와 대기 시간만큼 점검 제한 시간을 넉넉히 잡으세요.",
     loopLenientExtractHelp:
