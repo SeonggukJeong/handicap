@@ -47,6 +47,43 @@ pub struct ErrorKindStat {
     pub count: u64,
 }
 
+/// 조건 반복(`while` loop) 진입 한 번이 끝난 회차 칸의 상한. 21 이상은 한 칸
+/// (`LOOP_EXIT_PASS_CAP + 1`)으로 합친다. run 설정 `loop_breakdown_cap`과 무관한 고정 상수.
+pub const LOOP_EXIT_PASS_CAP: u32 = 20;
+
+/// 조건 반복 진입이 끝난 방식 (spec 2026-11-14-loop-while-report §2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LoopExitOutcome {
+    /// 조건이 거짓이 되어 끝남.
+    Completed,
+    /// 최대 횟수까지 조건이 참 — `EndIteration`.
+    Exhausted,
+    /// 스스로 끝나기 전에 밖에서 끊김(deadline·취소·본문의 비-`Continue` 흐름·`Err`).
+    Truncated,
+}
+
+impl LoopExitOutcome {
+    /// proto·DB 와이어 값. 0 완료 · 1 중단 · 2 마치지 못함.
+    pub fn as_wire(self) -> u32 {
+        match self {
+            LoopExitOutcome::Completed => 0,
+            LoopExitOutcome::Exhausted => 1,
+            LoopExitOutcome::Truncated => 2,
+        }
+    }
+}
+
+/// A per-(loop_id, pass_bucket, outcome) delta since the last drain. counts-only.
+/// `pass_sum`은 칸으로 합치기 전의 실제 회차 수 합이다(재시도 = pass_sum − count).
+#[derive(Debug, Clone)]
+pub struct LoopExitStat {
+    pub step_id: String,
+    pub pass_bucket: u32, // 1..=LOOP_EXIT_PASS_CAP, 또는 LOOP_EXIT_PASS_CAP + 1 = "그 이상"
+    pub outcome: LoopExitOutcome,
+    pub count: u64,
+    pub pass_sum: u64,
+}
+
 /// One per-second active-VU gauge sample (ADR-0037 follow-up). `desired` = the VU
 /// curve's commanded count for that second; `actual` = VUs in their active loop at
 /// the sample instant. Run-level (not per-step), curve-only.
@@ -157,6 +194,8 @@ pub struct Aggregator {
     branch_counts: HashMap<(String, String), u64>,
     /// per-(step_id, kind) transport-send-failure count deltas (spec 2026-08-01 §3.3).
     error_kind_counts: HashMap<(String, ErrorKind), u64>,
+    /// per-(loop_id, pass_bucket, outcome) 조건 반복 진입 종료 델타: (건수, 회차 합).
+    loop_exit_counts: HashMap<(String, u32, LoopExitOutcome), (u64, u64)>,
     /// per-parallel-node accumulating page-load latency + sample count (A2-2);
     /// keyed by (step_id, branch) — branch = "" is the page (whole concurrent block),
     /// branch = <name> is one parallel branch's wall-clock (per-branch breakdown).
@@ -176,6 +215,7 @@ impl Aggregator {
             loop_cap: loop_breakdown_cap,
             branch_counts: HashMap::new(),
             error_kind_counts: HashMap::new(),
+            loop_exit_counts: HashMap::new(),
             group_hists: HashMap::new(),
             phase_hists: HashMap::new(),
             active_vu: BTreeMap::new(),
@@ -263,6 +303,36 @@ impl Aggregator {
                 kind,
                 count,
             })
+            .collect()
+    }
+
+    /// 조건 반복 진입 한 번의 종료를 센다. `passes` = 시작한 본문 회차 수.
+    /// 0이면(본문 시작 전에 끊김) 아무것도 세지 않는다.
+    pub fn record_loop_exit(&mut self, loop_id: &str, passes: u32, outcome: LoopExitOutcome) {
+        if passes == 0 {
+            return;
+        }
+        let bucket = passes.min(LOOP_EXIT_PASS_CAP + 1);
+        let e = self
+            .loop_exit_counts
+            .entry((loop_id.to_string(), bucket, outcome))
+            .or_default();
+        e.0 += 1;
+        e.1 += u64::from(passes);
+    }
+
+    pub fn drain_loop_exit_deltas(&mut self) -> Vec<LoopExitStat> {
+        std::mem::take(&mut self.loop_exit_counts)
+            .into_iter()
+            .map(
+                |((step_id, pass_bucket, outcome), (count, pass_sum))| LoopExitStat {
+                    step_id,
+                    pass_bucket,
+                    outcome,
+                    count,
+                    pass_sum,
+                },
+            )
             .collect()
     }
 
@@ -543,6 +613,42 @@ mod tests {
             ("s2", ErrorKind::Timeout, 1)
         );
         assert!(a.drain_error_kind_deltas().is_empty(), "drain resets");
+    }
+
+    #[test]
+    fn loop_exit_buckets_cap_at_21_and_keep_real_pass_sum() {
+        let mut a = Aggregator::new(0); // loop_breakdown_cap과 무관함을 0으로 보인다
+        a.record_loop_exit("l1", 20, LoopExitOutcome::Completed);
+        a.record_loop_exit("l1", 21, LoopExitOutcome::Completed);
+        a.record_loop_exit("l1", 500, LoopExitOutcome::Completed);
+        a.record_loop_exit("l1", 3, LoopExitOutcome::Exhausted);
+        a.record_loop_exit("l1", 3, LoopExitOutcome::Exhausted);
+        a.record_loop_exit("l1", 2, LoopExitOutcome::Truncated);
+        a.record_loop_exit("l1", 0, LoopExitOutcome::Truncated); // 본문 시작 전 — 기록 없음
+        let mut v: Vec<_> = a
+            .drain_loop_exit_deltas()
+            .into_iter()
+            .map(|s| {
+                (
+                    s.step_id,
+                    s.pass_bucket,
+                    s.outcome.as_wire(),
+                    s.count,
+                    s.pass_sum,
+                )
+            })
+            .collect();
+        v.sort();
+        assert_eq!(
+            v,
+            vec![
+                ("l1".to_string(), 2, 2, 1, 2),
+                ("l1".to_string(), 3, 1, 2, 6),
+                ("l1".to_string(), 20, 0, 1, 20),
+                ("l1".to_string(), 21, 0, 2, 521),
+            ]
+        );
+        assert!(a.drain_loop_exit_deltas().is_empty(), "drain resets");
     }
 
     #[test]

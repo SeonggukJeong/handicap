@@ -17,8 +17,8 @@ pub mod template;
 pub mod trace;
 
 pub use aggregator::{
-    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LoopStat, PhaseStat,
-    StepWindow,
+    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LOOP_EXIT_PASS_CAP,
+    LoopExitOutcome, LoopExitStat, LoopStat, PhaseStat, StepWindow,
 };
 pub use condition::{BranchEval, LeafEval, eval_condition, explain_branches};
 pub use dataset::{BindingPolicy, DataSet};
