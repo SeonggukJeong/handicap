@@ -58,7 +58,7 @@ function leafWhenEmpty(
       if (/\(\?<?[=!]|\\[1-9]/.test(r)) return "unknown";
       // 이 평가는 렌더 경로에서 사용자 정규식을 돌린다 — 파국적 역추적으로 에디터가 멈추지 않게:
       // 왼쪽이 빈 문자열일 때(재시도 실패 경우)만 돌리고, 긴 패턴·묶음에 반복이 붙은 패턴은 보류.
-      if (l !== "" || r.length > 200 || /\)[*+?{]/.test(r)) return "unknown";
+      if (l !== "" || r.length > 200 || /\)[*+?{]|\|/.test(r)) return "unknown";
       try {
         return new RegExp(r).test(l);
       } catch {

@@ -372,6 +372,22 @@ describe("MonitorDisplayPage", () => {
     expect(slow.style.color).toBe("rgb(251, 146, 60)");
   });
 
+  it("fail_reason_line_has_full_text_title", async () => {
+    const fail = {
+      at_ms: T,
+      verdict: "fail",
+      latency_ms: null,
+      reason: "조건 반복이 최대 횟수까지 풀리지 않음",
+      detail: null,
+      display: [],
+    };
+    boardHandler = () => res(board({}, [panelCfg()]));
+    statusHandler = () => res(status([panelStatus(P1, [fail], { consecutive_fail: 1 })]));
+    await renderPage();
+    const line = within(panelEl("결제")).getByText("조건 반복이 최대 횟수까지 풀리지 않음");
+    expect(line).toHaveAttribute("title", "조건 반복이 최대 횟수까지 풀리지 않음");
+  });
+
   it("fail_shows_reason_and_consecutive", async () => {
     const fail = {
       at_ms: T,

@@ -123,6 +123,15 @@ describe("condWhenBodyVarsEmpty — 사용자 정규식 안전 (렌더 경로에
     expect(condWhenBodyVarsEmpty(leaf("matches", "(?:a*|b*){30}x", "{{x}}"), X)).toBe("unknown");
     expect(condWhenBodyVarsEmpty(leaf("matches", "(a+)+$", "{{x}}"), X)).toBe("unknown");
   });
+  it("대안(|)이 든 패턴은 unknown — 빈 값에서도 경로가 폭발한다", () => {
+    expect(condWhenBodyVarsEmpty(leaf("matches", "(|)".repeat(3) + "x", "{{x}}"), X)).toBe(
+      "unknown",
+    );
+    // 90자 안팎이라도 2^30 경로 — 가드가 있어야 즉시 돌아온다(결과만 단언).
+    expect(condWhenBodyVarsEmpty(leaf("matches", "(|)".repeat(30) + "x", "{{x}}"), X)).toBe(
+      "unknown",
+    );
+  });
   it("200자를 넘는 패턴은 unknown, 200자는 평가", () => {
     expect(condWhenBodyVarsEmpty(leaf("matches", "a".repeat(201), "{{x}}"), X)).toBe("unknown");
     expect(condWhenBodyVarsEmpty(leaf("matches", "a".repeat(200), "{{x}}"), X)).toBe(false);

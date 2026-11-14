@@ -468,8 +468,11 @@ async fn trace_steps(
                     let body_think = force_think || lp.keeps_think();
                     let mut pass: u32 = 0;
                     loop {
+                        // 판정 행 상한은 회차 시작에서 본다 — 반복이 끝난 회차(done/exhausted)는
+                        // 상한과 무관하지만, 조건 반복에 자주 들어가는 경우도 총량이 묶인다.
                         if state.truncated
                             || state.requests >= opts.max_requests
+                            || state.judge_rows >= MAX_LOOP_JUDGE_ROWS
                             || Instant::now() >= deadline
                         {
                             state.truncated = true;
@@ -533,11 +536,6 @@ async fn trace_steps(
                         }
                         if exhausted {
                             state.ended_by_loop = Some(lp.id.clone());
-                            return;
-                        }
-                        // 끝난 반복(done/exhausted)은 상한과 무관 — 한 번 더 돌 때만 자른다.
-                        if state.judge_rows >= MAX_LOOP_JUDGE_ROWS {
-                            state.truncated = true;
                             return;
                         }
                     }
@@ -959,6 +957,37 @@ steps:
         assert_eq!(loops.last().unwrap().branch.as_deref(), Some("done"));
         assert!(!t.truncated);
         assert!(t.ended_by_loop.is_none());
+    }
+
+    #[tokio::test]
+    async fn trace_judge_rows_capped_across_loop_reentry() {
+        // 조건 반복이 자주 "들어가지고" 첫 회차에 끝나도(done 행 1개씩) 판정 행 총량은 상한을 넘지 않는다.
+        let yaml = r#"version: 1
+name: reenter
+steps:
+  - id: "01HX0000000000000000000001"
+    name: outer
+    type: loop
+    repeat: 1000
+    do:
+      - id: "01HX0000000000000000000002"
+        name: inner
+        type: loop
+        while: { left: "1", op: eq, right: "2" }
+        do:
+          - id: "01HX0000000000000000000009"
+            name: never
+            type: if
+            cond: { left: "1", op: eq, right: "2" }
+            then: []
+"#;
+        let sc = Scenario::from_yaml(yaml).unwrap();
+        let started = std::time::Instant::now();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert!(started.elapsed() < StdDuration::from_secs(5));
+        assert!(t.truncated);
+        let n = t.steps.iter().filter(|s| s.kind == StepKind::Loop).count();
+        assert!(n <= MAX_LOOP_JUDGE_ROWS as usize, "judge rows = {n}");
     }
 
     const THINK_200: &str = "        think_time: { min_ms: 200, max_ms: 200 }\n";

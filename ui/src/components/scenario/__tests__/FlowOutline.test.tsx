@@ -668,13 +668,39 @@ ${extra}
     expect(screen.getByText(/\{\{code\}\} eq 200/)).toBeInTheDocument();
   });
 
+  it("조건 loop 행: 이름은 최소 폭을 지키고 조건 요약이 먼저 줄어든다 (클래스 계약 — 실제 폭은 라이브 실측)", () => {
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        Y(`    repeat: 5\n    while:\n      left: "{{code}}"\n      op: eq\n      right: "200"`),
+      );
+    render(<FlowOutline />);
+    const name = screen.getByText("poll");
+    expect(name).toHaveAttribute("title", "poll");
+    const nameTokens = name.className.split(/\s+/);
+    expect(nameTokens).toContain("min-w-[6ch]");
+    expect(nameTokens).toContain("truncate");
+    const summary = screen.getByText(/\{\{code\}\} eq 200/);
+    const sumTokens = summary.className.split(/\s+/);
+    expect(sumTokens).toContain("truncate");
+    expect(sumTokens).toContain("shrink-[999]");
+    expect(summary).toHaveAttribute("title");
+  });
+
+  it("while 없는 loop 이름 클래스는 그대로(min-w-0)", () => {
+    useScenarioEditor.getState().loadFromString(Y("    repeat: 3"));
+    render(<FlowOutline />);
+    const tokens = screen.getByText("poll").className.split(/\s+/);
+    expect(tokens).toContain("min-w-0");
+    expect(tokens).not.toContain("min-w-[6ch]");
+  });
+
   it("while 없는 loop은 × 3 그대로", () => {
     useScenarioEditor.getState().loadFromString(Y("    repeat: 3"));
     render(<FlowOutline />);
     expect(screen.getByText("× 3")).toBeInTheDocument();
   });
 });
-
 
 const warnOutlineYaml = (think: string) => `version: 1
 name: "demo"

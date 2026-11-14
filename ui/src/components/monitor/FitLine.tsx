@@ -11,15 +11,19 @@ export function FitLine({
   fontSize,
   className = "",
   style,
+  title,
 }: {
   text: string;
   fontSize: string;
   className?: string;
   style?: CSSProperties;
+  /** 잘렸을 때 전체 글자를 볼 수 있는 툴팁(선택). */
+  title?: string;
 }) {
   return (
     <div
       data-fit-line=""
+      title={title}
       className={`overflow-hidden text-ellipsis whitespace-nowrap ${className}`}
       style={{ ...style, fontSize }}
     >

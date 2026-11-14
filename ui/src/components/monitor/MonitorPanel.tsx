@@ -606,6 +606,7 @@ export function MonitorPanel({
               ) : (
                 <FitLine
                   text={reason.kind === "detail" ? reason.big : reason.fixed}
+                  title={reason.kind === "detail" ? reason.big : reason.fixed}
                   // the reason's own settings scale (R18): the widest fixed
                   // reason always fits on one line, no "…"
                   fontSize={`calc(${panelFont(PANEL_TEXT.reason, fontScale)} * var(--reason-fit, 1))`}

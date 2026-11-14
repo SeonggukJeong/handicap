@@ -93,9 +93,13 @@ function EmptyBandDrop({ parentId, band }: { parentId: string; band: string }) {
 type RowView = { wide: boolean; onActivate?: (id: string) => void };
 
 // 조건 요약은 변수명이 길면 한없이 길어진다 — 이름과 함께 줄어들며 말줄임, 전체는 툴팁.
-function CondSummary({ text }: { text: string }) {
+// `shrinkFirst`(조건 반복 행): 이름이 최소 폭을 지키도록 요약이 먼저 줄어든다.
+function CondSummary({ text, shrinkFirst = false }: { text: string; shrinkFirst?: boolean }) {
   return (
-    <span className="min-w-0 truncate text-xs text-slate-500" title={text}>
+    <span
+      className={`min-w-0 truncate text-xs text-slate-500${shrinkFirst ? " shrink-[999]" : ""}`}
+      title={text}
+    >
       {text}
     </span>
   );
@@ -121,11 +125,16 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
     return (
       <>
         <ContainerTag glyph="⟳" label={ko.editor.containerLoop} />
-        <span className="min-w-0 truncate font-medium" title={step.name}>
+        <span
+          className={`${step.while !== undefined ? "min-w-[6ch]" : "min-w-0"} truncate font-medium`}
+          title={step.name}
+        >
           {step.name}
         </span>
         <span className="shrink-0 text-xs text-slate-500">{loopCountLabel(step)}</span>
-        {step.while !== undefined && <CondSummary text={summarizeCondition(step.while)} />}
+        {step.while !== undefined && (
+          <CondSummary text={summarizeCondition(step.while)} shrinkFirst />
+        )}
         {step.while !== undefined && <LoopWarnIcon step={step} />}
       </>
     );
