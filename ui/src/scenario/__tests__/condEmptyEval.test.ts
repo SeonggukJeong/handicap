@@ -87,3 +87,21 @@ describe("directBodyExtractVars", () => {
     expect([...directBodyExtractVars(loop)]).toEqual(["code"]);
   });
 });
+
+describe("condWhenBodyVarsEmpty — 엔진과 어긋날 수 있는 입력은 판단 보류", () => {
+  it.each(["^(?!OK)", "(?<=a)b", "(?=a)", "(?<!a)b", "(a)\\1"])(
+    "matches %s → unknown (Rust regex가 못 여는 문법)",
+    (pat) => {
+      expect(condWhenBodyVarsEmpty(leaf("matches", pat), X)).toBe("unknown");
+    },
+  );
+  it("평범한 패턴은 그대로", () => {
+    expect(condWhenBodyVarsEmpty(leaf("matches", "^$"), X)).toBe(true);
+    expect(condWhenBodyVarsEmpty(leaf("matches", "WAIT"), X)).toBe(false);
+  });
+  it("깨진 토큰은 unknown", () => {
+    expect(condWhenBodyVarsEmpty(leaf("eq", "x", "{{{x}}}"), X)).toBe("unknown");
+    expect(condWhenBodyVarsEmpty(leaf("eq", "x", "{{a}b}}"), X)).toBe("unknown");
+    expect(condWhenBodyVarsEmpty(leaf("eq", "{{{x}}}"), X)).toBe("unknown");
+  });
+});

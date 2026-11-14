@@ -21,7 +21,9 @@ function render(s: string, bodyVars: Set<string>): string | null {
     unknown = true;
     return "";
   });
-  if (unknown || out.includes("${")) return null;
+  // 깨진 토큰({{a}b}}·{{{code}}})은 엔진이 다르게 렌더하므로 판단 보류.
+  if (unknown || out.includes("${") || out.includes("{{") || out.includes("}}")) return null;
+  if (s.includes("{{{") || s.includes("}}}")) return null;
   return out;
 }
 
@@ -52,6 +54,8 @@ function leafWhenEmpty(
     case "contains":
       return l.includes(r);
     case "matches":
+      // Rust regex는 lookaround·역참조를 못 연다 — JS가 열어도 엔진 결과(조건 거짓)와 달라질 수 있다.
+      if (/\(\?<?[=!]|\\[1-9]/.test(r)) return "unknown";
       try {
         return new RegExp(r).test(l);
       } catch {
