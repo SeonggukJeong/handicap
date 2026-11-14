@@ -43,6 +43,12 @@ pub enum StepKind {
 /// 조건 반복 판정 행의 전 행 공유 상한 (`max_requests`처럼 데이터 행 사이에 초기화하지 않는다).
 pub const MAX_LOOP_JUDGE_ROWS: u32 = 200;
 
+/// `if` 판정 줄의 전 행 공유 상한 — 요청 상한에 비례한다(`max(1000, max_requests × 10)`,
+/// 곱은 포화). 배수 10·바닥 1000의 근거는 spec §2.1.
+pub fn if_judge_row_cap(max_requests: u32) -> u32 {
+    max_requests.saturating_mul(10).max(1000)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TracedRequest {
     pub method: String,
@@ -134,6 +140,8 @@ struct TraceState {
     iter_id: u32,
     /// 지금까지 push한 조건 반복 판정 행 수 — 전 행 공유 예산(`MAX_LOOP_JUDGE_ROWS`).
     judge_rows: u32,
+    /// 지금까지 넣은 if 판정 줄 수 — 전 행 공유 예산(`if_judge_row_cap`).
+    if_rows: u32,
     /// 조건 반복이 최대 횟수로 끝났다면 그 loop id. 이 값이 있으면 바깥 재귀가 모두 빠져나온다.
     ended_by_loop: Option<String>,
 }
@@ -198,6 +206,7 @@ pub async fn trace_scenario_with_seed(
         truncated: false,
         iter_id: 0,
         judge_rows: 0,
+        if_rows: 0,
         ended_by_loop: None,
     };
     trace_once(
@@ -215,8 +224,8 @@ pub async fn trace_scenario_with_seed(
 
 /// 시나리오를 시드 행마다 1회씩 순차 실행 (1 VU iter_sequential 미러 — ADR-0047).
 /// 클라이언트(cookie jar)는 1회 빌드해 행 간 공유(R5), `max_requests`·wall-clock
-/// deadline은 전 행 공유 단일 예산(R6). 실패 행에서도 계속(R10). 예산이 행 시작
-/// 전에 소진되면 그 행부터 `rows`에 없다(R6). Never returns `Err` — 극히 드문
+/// deadline·if 판정 줄 수·조건 반복 판정 줄 수는 전 행 공유 단일 예산(R6). 실패 행에서도
+/// 계속(R10). 예산이 행 시작 전에 소진되면 그 행부터 `rows`에 없다(R6). Never returns `Err` — 극히 드문
 /// 클라이언트 빌드 실패는 `ok=false`·빈 `rows`로 축약(R8 와이어에 error 채널 없음).
 pub async fn trace_scenario_rows(
     scenario: &Scenario,
@@ -243,13 +252,19 @@ pub async fn trace_scenario_rows(
         truncated: false,
         iter_id: 0,
         judge_rows: 0,
+        if_rows: 0,
         ended_by_loop: None,
     };
     let mut rows: Vec<RowTrace> = Vec::with_capacity(seeded_rows.len());
     let mut truncated = false;
     for (i, (row_index, seed)) in seeded_rows.iter().enumerate() {
-        // 행 시작 전 예산 소진 → 이 행부터 미실행 (rows에 없음 — R6).
-        if state.requests >= opts.max_requests || Instant::now() >= deadline {
+        // 행 시작 전 예산 소진(요청 수·시간·if 판정 줄 수·조건 반복 판정 줄 수) → 이 행부터
+        // 미실행 (rows에 없음 — R6).
+        if state.requests >= opts.max_requests
+            || Instant::now() >= deadline
+            || state.if_rows >= if_judge_row_cap(opts.max_requests)
+            || state.judge_rows >= MAX_LOOP_JUDGE_ROWS
+        {
             truncated = true;
             break;
         }
@@ -570,6 +585,10 @@ async fn trace_steps(
                 }
             }
             Step::If(if_step) => {
+                if state.if_rows >= if_judge_row_cap(opts.max_requests) {
+                    state.truncated = true;
+                    return;
+                }
                 let (taken, branch, cond_unbound, branch_eval): (
                     &[Step],
                     String,
@@ -605,6 +624,7 @@ async fn trace_steps(
                     branch_eval,
                     timed_out: false,
                 });
+                state.if_rows += 1;
                 Box::pin(trace_steps(
                     client,
                     taken,
@@ -1075,5 +1095,185 @@ steps:
                 r.row_index
             );
         }
+    }
+
+    // ---------- if 판정 줄 상한 (if-judge-row-cap) ----------
+    const IF_ID: &str = "01HX0000000000000000000009";
+
+    /// loop(repeat) → 항상 거짓 if. spec §1.1.
+    fn spin_if_yaml(repeat: u64) -> String {
+        format!(
+            r#"version: 1
+name: ifspin
+steps:
+  - id: "{LOOP_ID}"
+    name: spin
+    type: loop
+    repeat: {repeat}
+    do:
+      - id: "{IF_ID}"
+        name: never
+        type: if
+        cond: {{ left: "1", op: eq, right: "2" }}
+        then: []
+"#
+        )
+    }
+
+    fn if_rows(t: &ScenarioTrace) -> usize {
+        t.steps.iter().filter(|s| s.kind == StepKind::If).count()
+    }
+
+    #[test]
+    fn if_judge_row_cap_scales_with_max_requests() {
+        assert_eq!(if_judge_row_cap(0), 1000);
+        assert_eq!(if_judge_row_cap(50), 1000);
+        assert_eq!(if_judge_row_cap(100), 1000);
+        assert_eq!(if_judge_row_cap(200), 2000);
+        assert_eq!(if_judge_row_cap(10_000), 100_000);
+        assert_eq!(if_judge_row_cap(u32::MAX), u32::MAX);
+    }
+
+    #[tokio::test]
+    async fn trace_if_rows_capped() {
+        let sc = Scenario::from_yaml(&spin_if_yaml(1_000_000)).unwrap();
+        let started = std::time::Instant::now();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert!(started.elapsed() < StdDuration::from_secs(5));
+        assert_eq!(if_rows(&t), 1000);
+        assert_eq!(t.steps.len(), 1000);
+        assert!(t.truncated);
+    }
+
+    #[tokio::test]
+    async fn trace_if_row_cap_boundary() {
+        let o = t_opts(false, 50, StdDuration::from_secs(30));
+        let t = trace_scenario(&Scenario::from_yaml(&spin_if_yaml(1000)).unwrap(), &o).await;
+        assert_eq!(if_rows(&t), 1000);
+        assert!(
+            !t.truncated,
+            "정확히 상한 번째 줄에서 끝난 시나리오는 잘림이 아니다"
+        );
+        let t = trace_scenario(&Scenario::from_yaml(&spin_if_yaml(1001)).unwrap(), &o).await;
+        assert_eq!(if_rows(&t), 1000);
+        assert!(t.truncated);
+    }
+
+    #[tokio::test]
+    async fn trace_if_row_cap_proportional() {
+        let sc = Scenario::from_yaml(&spin_if_yaml(1500)).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 200, StdDuration::from_secs(30))).await;
+        assert_eq!(if_rows(&t), 1500);
+        assert!(!t.truncated);
+    }
+
+    #[tokio::test]
+    async fn trace_if_rows_capped_inside_parallel() {
+        let yaml = format!(
+            r#"version: 1
+name: par-if
+steps:
+  - id: "{LOOP_ID}"
+    name: spin
+    type: loop
+    repeat: 2000
+    do:
+      - id: "{ORDER_ID}"
+        name: par
+        type: parallel
+        branches:
+          - name: A
+            steps:
+              - id: "{IF_ID}"
+                name: never
+                type: if
+                cond: {{ left: "1", op: eq, right: "2" }}
+                then: []
+"#
+        );
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert_eq!(if_rows(&t), 1000);
+        assert!(t.truncated);
+    }
+
+    /// http(/first) → `tail`. 순차 2행 — 1행이 판정 줄 예산을 정확히 바닥내면 2행은 시작하지 않는다.
+    async fn rows_after_exact_budget(tail: &str) -> (RowsTrace, usize) {
+        let server = MockServer::start().await;
+        Mock::given(wm_path("/first"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let yaml = format!(
+            r#"version: 1
+name: seq-edge
+steps:
+  - id: "{AFTER_ID}"
+    name: first
+    type: http
+    request: {{ method: GET, url: "{}/first" }}
+    assert: []
+{tail}"#,
+            server.uri()
+        );
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let seeds = vec![(0u64, BTreeMap::new()), (1u64, BTreeMap::new())];
+        let rt =
+            trace_scenario_rows(&sc, &t_opts(false, 50, StdDuration::from_secs(30)), &seeds).await;
+        let sent = server.received_requests().await.unwrap().len();
+        (rt, sent)
+    }
+
+    #[tokio::test]
+    async fn trace_rows_stop_before_row_when_if_budget_exhausted() {
+        let tail = format!(
+            r#"  - id: "{LOOP_ID}"
+    name: spin
+    type: loop
+    repeat: 1000
+    do:
+      - id: "{IF_ID}"
+        name: never
+        type: if
+        cond: {{ left: "1", op: eq, right: "2" }}
+        then: []
+"#
+        );
+        let (rt, sent) = rows_after_exact_budget(&tail).await;
+        assert_eq!(rt.rows.len(), 1, "2행은 미실행");
+        assert!(!rt.rows[0].trace.truncated, "1행은 잘리지 않고 끝났다");
+        assert_eq!(if_rows(&rt.rows[0].trace), 1000);
+        assert!(rt.truncated);
+        assert_eq!(sent, 1, "2행의 요청이 나가지 않았다");
+    }
+
+    #[tokio::test]
+    async fn trace_rows_stop_before_row_when_loop_judge_budget_exhausted() {
+        let tail = format!(
+            r#"  - id: "{LOOP_ID}"
+    name: edge
+    type: loop
+    while: {{ left: "${{loop_index}}", op: lt, right: "199" }}
+    do:
+      - id: "{IF_ID}"
+        name: never
+        type: if
+        cond: {{ left: "1", op: eq, right: "2" }}
+        then: []
+"#
+        );
+        let (rt, sent) = rows_after_exact_budget(&tail).await;
+        assert_eq!(rt.rows.len(), 1, "2행은 미실행");
+        let t = &rt.rows[0].trace;
+        assert!(!t.truncated);
+        let loops: Vec<_> = t
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Loop)
+            .collect();
+        assert_eq!(loops.len(), MAX_LOOP_JUDGE_ROWS as usize);
+        assert_eq!(loops.last().unwrap().branch.as_deref(), Some("done"));
+        assert!(rt.truncated);
+        assert_eq!(sent, 1);
     }
 }
