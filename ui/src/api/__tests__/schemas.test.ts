@@ -5,6 +5,7 @@ import {
   InsightSchema,
   NarrativeSchema,
   ProfileSchema,
+  ReportStepSchema,
   ReportRunSchema,
   ReportSchema,
   ReportSummarySchema,
@@ -588,5 +589,33 @@ describe("ReportSchema.validity / narrative (A11)", () => {
         count: -1,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("ReportStepSchema.loop_split", () => {
+  const st = { count: 1, error_count: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 };
+  const step = {
+    step_id: "a",
+    count: 2,
+    error_count: 0,
+    status_counts: { "200": 2 },
+    p50_ms: 1,
+    p95_ms: 2,
+    p99_ms: 3,
+  };
+  it("loop_split 없는 스텝과 있는 스텝 모두 통과", () => {
+    expect(ReportStepSchema.safeParse(step).success).toBe(true);
+    const r = ReportStepSchema.safeParse({ ...step, loop_split: { final: st, retry: st } });
+    expect(r.success).toBe(true);
+  });
+  it("final에 모르는 키는 실패", () => {
+    const r = ReportStepSchema.safeParse({
+      ...step,
+      loop_split: { final: { ...st, extra: 1 }, retry: st },
+    });
+    expect(r.success).toBe(false);
+  });
+  it("loop_split: null은 실패(서버는 키를 생략한다)", () => {
+    expect(ReportStepSchema.safeParse({ ...step, loop_split: null }).success).toBe(false);
   });
 });

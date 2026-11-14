@@ -277,6 +277,20 @@ export const ConnectionStatsSchema = z
   .strict();
 export type ConnectionStats = z.infer<typeof ConnectionStatsSchema>;
 
+export const LoopSplitStatsSchema = z
+  .object({
+    count: z.number().int().nonnegative(),
+    error_count: z.number().int().nonnegative(),
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export const LoopSplitSchema = z
+  .object({ final: LoopSplitStatsSchema, retry: LoopSplitStatsSchema })
+  .strict();
+export type LoopSplit = z.infer<typeof LoopSplitSchema>;
+
 export const ReportStepSchema = z
   .object({
     step_id: z.string(),
@@ -297,6 +311,7 @@ export const ReportStepSchema = z
       .optional(),
     download: PhaseStatsSchema.optional(),
     wait: PhaseStatsSchema.optional(),
+    loop_split: LoopSplitSchema.optional(),
   })
   .strict();
 

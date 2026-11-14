@@ -204,4 +204,192 @@ describe("StepStatsTable", () => {
       expect(nameCell.children).toHaveLength(0);
     });
   });
+
+  describe("loop_split 두 줄", () => {
+    const base = {
+      status_counts: { "200": 10 },
+      error_count: 0,
+      p50_ms: 1,
+      p95_ms: 2,
+      p99_ms: 3,
+    };
+    it("loop_split이 없으면 DOM이 작업 전과 같다", () => {
+      const meta = new Map([
+        ["a", { id: "a", name: "주문", method: "GET", url: "/a" }],
+        ["b", { id: "b", name: "결제", method: "POST", url: "/b" }],
+      ]);
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...base,
+              step_id: "a",
+              count: 10,
+              loop_breakdown: [
+                { loop_index: 0, count: 6, error_count: 0 },
+                { loop_index: 1, count: 4, error_count: 0 },
+              ],
+            },
+            { ...base, step_id: "b", count: 5, loop_breakdown: [] },
+          ]}
+          meta={meta}
+          retriedStepIds={new Set(["a"])}
+        />,
+      );
+      expect(container.innerHTML).toMatchInlineSnapshot(
+        `"<section aria-label="스텝별 통계" class="mb-6"><h3 class="text-lg font-semibold mb-2">스텝</h3><table class="min-w-full text-sm"><thead class="border-b border-slate-200 text-left text-slate-600"><tr><th class="py-2 pr-4 font-medium">스텝</th><th class="py-2 pr-4 font-medium">메서드</th><th class="py-2 pr-4 font-medium">URL</th><th class="py-2 pr-4 font-medium">요청 수</th><th class="py-2 pr-4 font-medium">에러</th><th class="py-2 pr-4 font-medium">p50 ms<span class="inline-block"><button type="button" aria-label="p50 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th><th class="py-2 pr-4 font-medium">p95 ms<span class="inline-block"><button type="button" aria-label="p95 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th><th class="py-2 pr-4 font-medium">p99 ms<span class="inline-block"><button type="button" aria-label="p99 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th></tr></thead><tbody><tr class="border-b border-slate-100"><td class="py-2 pr-4 font-medium"><button type="button" aria-expanded="false" aria-label="주문 루프 분해 표시 전환" class="mr-1 text-slate-500">▸</button>주문<span class="ml-2 inline-block shrink-0 whitespace-nowrap rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 align-middle text-xs font-medium text-amber-800">재시도 포함</span></td><td class="py-2 pr-4 font-mono text-xs">GET</td><td class="py-2 pr-4 font-mono text-xs break-all">/a</td><td class="py-2 pr-4">10</td><td class="py-2 pr-4">0</td><td class="py-2 pr-4">1</td><td class="py-2 pr-4">2</td><td class="py-2 pr-4">3</td></tr><tr class="border-b border-slate-100"><td class="py-2 pr-4 font-medium">결제</td><td class="py-2 pr-4 font-mono text-xs">POST</td><td class="py-2 pr-4 font-mono text-xs break-all">/b</td><td class="py-2 pr-4">5</td><td class="py-2 pr-4">0</td><td class="py-2 pr-4">1</td><td class="py-2 pr-4">2</td><td class="py-2 pr-4">3</td></tr></tbody></table></section>"`,
+      );
+    });
+
+    const stats = (count: number, e: number, a: number, b: number, c: number) => ({
+      count,
+      error_count: e,
+      p50_ms: a,
+      p95_ms: b,
+      p99_ms: c,
+    });
+    const split = {
+      final: stats(1200, 0, 182, 420, 488),
+      retry: stats(612, 0, 12, 31, 44),
+    };
+    const meta2 = new Map([
+      ["a", { id: "a", name: "주문", method: "GET", url: "/a" }],
+      ["b", { id: "b", name: "결제", method: "POST", url: "/b" }],
+    ]);
+    const cells = (tr: Element) =>
+      Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? "");
+    const rowsOf = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll(":scope > section > table > tbody > tr"));
+
+    it("두 줄이 스텝 행 바로 아래에 순서대로", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            { ...base, step_id: "a", count: 1812, loop_split: split },
+            { ...base, step_id: "b", count: 5 },
+          ]}
+          meta={meta2}
+        />,
+      );
+      const rows = rowsOf(container);
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toHaveTextContent("주문");
+      expect(rows[1]).toHaveTextContent("반복을 끝낸 응답");
+      expect(rows[2]).toHaveTextContent("재시도로 이어진 응답");
+      expect(rows[3]).toHaveTextContent("결제");
+      expect(cells(rows[1]).slice(3, 8)).toEqual(["1200", "0", "182", "420", "488"]);
+      expect(cells(rows[2]).slice(3, 8)).toEqual(["612", "0", "12", "31", "44"]);
+    });
+
+    it("끝낸 응답 0건이면 백분위가 —", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...base,
+              step_id: "a",
+              count: 612,
+              loop_split: { final: stats(0, 0, 0, 0, 0), retry: split.retry },
+            },
+          ]}
+          meta={meta2}
+        />,
+      );
+      const rows = rowsOf(container);
+      expect(cells(rows[1]).slice(3, 8)).toEqual(["0", "0", "—", "—", "—"]);
+      expect(cells(rows[2]).slice(3, 8)).toEqual(["612", "0", "12", "31", "44"]);
+    });
+
+    it("토글을 열면 두 줄 아래에 회차별 표", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...base,
+              step_id: "a",
+              count: 1812,
+              loop_split: split,
+              loop_breakdown: [{ loop_index: 0, count: 3, error_count: 0 }],
+            },
+          ]}
+          meta={meta2}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: ko.report.toggleLoopBreakdown("주문") }));
+      const rows = rowsOf(container);
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toHaveTextContent("주문");
+      expect(rows[1]).toHaveTextContent("반복을 끝낸 응답");
+      expect(rows[2]).toHaveTextContent("재시도로 이어진 응답");
+      expect(rows[3]).toHaveTextContent("loop_index");
+    });
+
+    it("대기·다운로드 칸이 있어도 칸 수가 같다", () => {
+      const ph = { count: 1, p50_ms: 1, p95_ms: 2, p99_ms: 3, max_ms: 3 };
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            { ...base, step_id: "a", count: 1812, loop_split: split, wait: ph, download: ph },
+          ]}
+          meta={meta2}
+        />,
+      );
+      const rows = rowsOf(container);
+      expect(rows).toHaveLength(3);
+      expect(rows.map((r) => r.querySelectorAll("td").length)).toEqual([12, 12, 12]);
+    });
+
+    it("도움말 이름이 스텝마다 다르다", () => {
+      render(
+        <StepStatsTable
+          steps={[
+            { ...base, step_id: "a", count: 1812, loop_split: split },
+            { ...base, step_id: "b", count: 1812, loop_split: split },
+          ]}
+          meta={meta2}
+        />,
+      );
+      expect(screen.getAllByRole("button", { name: "「주문」 나뉜 응답 시간 설명" })).toHaveLength(
+        1,
+      );
+      expect(screen.getAllByRole("button", { name: "「결제」 나뉜 응답 시간 설명" })).toHaveLength(
+        1,
+      );
+    });
+
+    it("└는 낭독되지 않는다", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[{ ...base, step_id: "a", count: 1812, loop_split: split }]}
+          meta={meta2}
+        />,
+      );
+      const rows = rowsOf(container);
+      for (const r of [rows[1], rows[2]]) {
+        const marks = Array.from(r.querySelectorAll("td:first-child *")).filter(
+          (el) => el.textContent === "└ ",
+        );
+        expect(marks).toHaveLength(1);
+        expect(marks[0]).toHaveAttribute("aria-hidden", "true");
+      }
+      const nameCell = rows[1].querySelector("td") as HTMLElement;
+      const clone = nameCell.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[aria-hidden]").forEach((el) => el.remove());
+      expect((clone.textContent ?? "").trim().startsWith("반복을 끝낸 응답")).toBe(true);
+    });
+
+    it("표지 없이도 두 줄이 보인다", () => {
+      render(
+        <StepStatsTable
+          steps={[{ ...base, step_id: "a", count: 1812, loop_split: split }]}
+          meta={meta2}
+          retriedStepIds={new Set()}
+        />,
+      );
+      expect(screen.queryByText("재시도 포함")).not.toBeInTheDocument();
+      expect(screen.getByText("반복을 끝낸 응답")).toBeInTheDocument();
+      expect(screen.getByText("재시도로 이어진 응답")).toBeInTheDocument();
+    });
+  });
 });

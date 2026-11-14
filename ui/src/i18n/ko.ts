@@ -1017,6 +1017,20 @@ export const ko = {
     // 조건 반복 리포트 표시 (loop-while-report) — 보간 인자는 이미 형식화된 문자열
     loopExit: {
       badge: "재시도 포함",
+      splitFinal: "반복을 끝낸 응답",
+      splitRetry: "재시도로 이어진 응답",
+      splitHelpLabel: (name: string) => `「${name}」 나뉜 응답 시간 설명`,
+      splitHelpFinal: "반복을 끝낸 응답 = 조건이 풀려 반복이 끝난 회차에서 받은 응답.",
+      splitHelpRetry:
+        "재시도로 이어진 응답 = 그 밖의 회차에서 받은 응답. 최대 횟수에 걸려 중단된 회차와 run 종료·중지·오류로 끊긴 회차도 여기에 들어갑니다.",
+      splitBarLine: (
+        label: string,
+        count: string,
+        errors: string,
+        p50: string,
+        p95: string,
+        p99: string,
+      ) => `${label} · ${count}건 · 에러 ${errors} · p50 ${p50} · p95 ${p95} · p99 ${p99} ms`,
       summaryLabel: "조건 반복 풀이",
       summaryLine: (
         name: string,

@@ -111,6 +111,44 @@ export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
                     </>
                   )}
                 </tr>
+                {s.loop_split &&
+                  (["final", "retry"] as const).map((k) => {
+                    const part = s.loop_split![k];
+                    const label =
+                      k === "final" ? ko.report.loopExit.splitFinal : ko.report.loopExit.splitRetry;
+                    const pct = (v: number) => (part.count === 0 ? "—" : v);
+                    return (
+                      <tr key={k} className="border-b border-slate-100 text-slate-600">
+                        <td className="py-2 pr-4 pl-6">
+                          <span aria-hidden="true">└ </span>
+                          {label}
+                          {k === "final" && (
+                            <HelpTip
+                              label={ko.report.loopExit.splitHelpLabel(m?.name ?? s.step_id)}
+                            >
+                              <span className="block">{ko.report.loopExit.splitHelpFinal}</span>
+                              <span className="block">{ko.report.loopExit.splitHelpRetry}</span>
+                            </HelpTip>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4" />
+                        <td className="py-2 pr-4" />
+                        <td className="py-2 pr-4">{part.count}</td>
+                        <td className="py-2 pr-4">{part.error_count}</td>
+                        <td className="py-2 pr-4">{pct(part.p50_ms)}</td>
+                        <td className="py-2 pr-4">{pct(part.p95_ms)}</td>
+                        <td className="py-2 pr-4">{pct(part.p99_ms)}</td>
+                        {anyWait && <td className="py-2 pr-4" />}
+                        {anyDownload && (
+                          <>
+                            <td className="py-2 pr-4" />
+                            <td className="py-2 pr-4" />
+                            <td className="py-2 pr-4" />
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
                 {hasBreakdown && isOpen && (
                   <tr className="bg-slate-50">
                     <td colSpan={colSpan} className="px-6 py-2">
