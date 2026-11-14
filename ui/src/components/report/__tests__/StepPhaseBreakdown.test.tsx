@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { StepPhaseBreakdown } from "../StepPhaseBreakdown";
@@ -61,5 +61,39 @@ describe("StepPhaseBreakdown", () => {
     const labelEl = screen.getByText(longName);
     expect(labelEl).toHaveClass("truncate");
     expect(labelEl).toHaveAttribute("title", longName);
+  });
+
+  describe("retriedStepIds 표지", () => {
+    it("막대 보기: 이름 칸 안에 표지, 이름은 truncate+title 유지", () => {
+      render(
+        <StepPhaseBreakdown steps={steps as never} meta={meta} retriedStepIds={new Set(["s1"])} />,
+      );
+      const name = screen.getByTitle("login");
+      expect(name).toHaveClass("truncate");
+      expect(name).not.toHaveClass("w-40");
+      const cell = name.closest(".w-40") as HTMLElement;
+      expect(cell).not.toBeNull();
+      expect(within(cell).getByText("재시도 포함")).toHaveClass("shrink-0");
+    });
+    it("표 보기로 전환해도 표지가 보인다", async () => {
+      const user = userEvent.setup();
+      render(
+        <StepPhaseBreakdown steps={steps as never} meta={meta} retriedStepIds={new Set(["s1"])} />,
+      );
+      await user.click(screen.getByRole("button", { name: "칩" }));
+      expect(screen.getByText("재시도 포함")).toBeInTheDocument();
+    });
+    it("표지 없는 행은 기존 DOM 그대로, prop 없음 = 빈 Set", () => {
+      const a = render(<StepPhaseBreakdown steps={steps as never} meta={meta} />);
+      const cell = screen.getByTitle("login");
+      expect(cell).toHaveClass("w-40");
+      expect(cell).toHaveClass("truncate");
+      const htmlNone = a.container.innerHTML;
+      a.unmount();
+      const b = render(
+        <StepPhaseBreakdown steps={steps as never} meta={meta} retriedStepIds={new Set()} />,
+      );
+      expect(b.container.innerHTML).toBe(htmlNone);
+    });
   });
 });

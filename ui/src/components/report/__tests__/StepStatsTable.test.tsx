@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect } from "vitest";
 import { StepStatsTable } from "../StepStatsTable";
@@ -163,5 +163,41 @@ describe("StepStatsTable", () => {
     expect(screen.getByText("에러")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "p95 설명" }));
     expect(screen.getByRole("note")).toHaveTextContent("95%");
+  });
+
+  describe("retriedStepIds 표지", () => {
+    const mk = (id: string) => ({
+      step_id: id,
+      count: 10,
+      error_count: 0,
+      status_counts: { "200": 10 },
+      p50_ms: 1,
+      p95_ms: 2,
+      p99_ms: 3,
+      loop_breakdown: [],
+    });
+    const meta2 = new Map([
+      ["a", { id: "a", name: "stepAname", method: "GET", url: "/a" }],
+      ["b", { id: "b", name: "stepBname", method: "GET", url: "/b" }],
+    ]);
+    it("든 스텝 행에만 표지가 보인다", () => {
+      render(
+        <StepStatsTable steps={[mk("a"), mk("b")]} meta={meta2} retriedStepIds={new Set(["a"])} />,
+      );
+      const rowA = screen.getByText("stepAname").closest("tr") as HTMLElement;
+      const rowB = screen.getByText("stepBname").closest("tr") as HTMLElement;
+      expect(within(rowA).getByText("재시도 포함")).toBeInTheDocument();
+      expect(within(rowB).queryByText("재시도 포함")).not.toBeInTheDocument();
+    });
+    it("prop 없음과 빈 Set의 DOM이 같고 표지가 없다", () => {
+      const a = render(<StepStatsTable steps={[mk("a")]} meta={meta2} />);
+      const htmlNone = a.container.innerHTML;
+      a.unmount();
+      const b = render(
+        <StepStatsTable steps={[mk("a")]} meta={meta2} retriedStepIds={new Set()} />,
+      );
+      expect(b.container.innerHTML).toBe(htmlNone);
+      expect(htmlNone).not.toContain("재시도 포함");
+    });
   });
 });

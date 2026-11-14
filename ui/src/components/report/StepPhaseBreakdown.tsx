@@ -2,21 +2,26 @@ import { useState } from "react";
 import type { ReportStep } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { RetryBadge } from "./LoopExitSummary";
 import { StepStatsTable } from "./StepStatsTable";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
-type Props = { steps: ReportStep[]; meta: Map<string, StepMeta> };
+type Props = {
+  steps: ReportStep[];
+  meta: Map<string, StepMeta>;
+  retriedStepIds?: ReadonlySet<string>;
+};
 type View = "waterfall" | "chips";
 
 const WAIT = "#f59e0b";
 const DL = "#22c55e";
 
-export function StepPhaseBreakdown({ steps, meta }: Props) {
+export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
   const [view, setView] = useState<View>("waterfall");
   const anyPhase = steps.some((s) => s.wait != null || s.download != null);
   if (!anyPhase) {
     // no phase data (measure_phases off) → fall back to the plain table
-    return <StepStatsTable steps={steps} meta={meta} />;
+    return <StepStatsTable steps={steps} meta={meta} retriedStepIds={retriedStepIds} />;
   }
   return (
     <section aria-label={ko.report.perStepStatsLabel} className="mb-6">
@@ -50,7 +55,7 @@ export function StepPhaseBreakdown({ steps, meta }: Props) {
         </div>
       </div>
       {view === "chips" ? (
-        <StepStatsTable steps={steps} meta={meta} />
+        <StepStatsTable steps={steps} meta={meta} retriedStepIds={retriedStepIds} />
       ) : (
         <div>
           {steps.map((s) => {
@@ -63,12 +68,21 @@ export function StepPhaseBreakdown({ steps, meta }: Props) {
                 key={s.step_id}
                 className="flex items-center gap-3 border-t border-slate-100 py-2"
               >
-                <div
-                  className="w-40 shrink-0 truncate text-sm font-medium"
-                  title={m?.name ?? s.step_id}
-                >
-                  {m?.name ?? s.step_id}
-                </div>
+                {retriedStepIds?.has(s.step_id) ? (
+                  <div className="flex w-40 shrink-0 items-center text-sm font-medium">
+                    <span className="min-w-0 truncate" title={m?.name ?? s.step_id}>
+                      {m?.name ?? s.step_id}
+                    </span>
+                    <RetryBadge />
+                  </div>
+                ) : (
+                  <div
+                    className="w-40 shrink-0 truncate text-sm font-medium"
+                    title={m?.name ?? s.step_id}
+                  >
+                    {m?.name ?? s.step_id}
+                  </div>
+                )}
                 <div
                   role="img"
                   aria-label={`${m?.name ?? s.step_id} ${ko.report.phaseWait} ${wait}ms ${ko.report.phaseDownload} ${dl}ms`}

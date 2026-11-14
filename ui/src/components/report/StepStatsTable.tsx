@@ -3,12 +3,17 @@ import type { ReportStep } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
+import { RetryBadge } from "./LoopExitSummary";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
 
-type Props = { steps: ReportStep[]; meta: Map<string, StepMeta> };
+type Props = {
+  steps: ReportStep[];
+  meta: Map<string, StepMeta>;
+  retriedStepIds?: ReadonlySet<string>;
+};
 
-export function StepStatsTable({ steps, meta }: Props) {
+export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
@@ -88,6 +93,7 @@ export function StepStatsTable({ steps, meta }: Props) {
                       </button>
                     )}
                     {m?.name ?? s.step_id}
+                    {retriedStepIds?.has(s.step_id) && <RetryBadge />}
                   </td>
                   <td className="py-2 pr-4 font-mono text-xs">{m?.method ?? ""}</td>
                   <td className="py-2 pr-4 font-mono text-xs break-all">{m?.url ?? ""}</td>
