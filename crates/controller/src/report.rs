@@ -843,19 +843,19 @@ pub fn build_report(
                 if let Some(h) = decoded() {
                     merge_into(e.final_h.get_or_insert_with(fresh_hist), &h);
                 }
-                e.final_n += n;
+                e.final_n = e.final_n.saturating_add(n);
             }
             PHASE_LOOP_RETRY | PHASE_LOOP_CUT => {
                 if let Some(h) = decoded() {
                     merge_into(e.retry_h.get_or_insert_with(fresh_hist), &h);
                 }
-                e.retry_n += n;
+                e.retry_n = e.retry_n.saturating_add(n);
                 if name == PHASE_LOOP_RETRY {
-                    e.cont_n += n;
+                    e.cont_n = e.cont_n.saturating_add(n);
                 }
             }
-            PHASE_LOOP_FINAL_ERR => e.final_err += n,
-            _ => e.retry_err += n, // PHASE_LOOP_RETRY_ERR | PHASE_LOOP_CUT_ERR
+            PHASE_LOOP_FINAL_ERR => e.final_err = e.final_err.saturating_add(n),
+            _ => e.retry_err = e.retry_err.saturating_add(n), // PHASE_LOOP_RETRY_ERR | PHASE_LOOP_CUT_ERR
         }
     }
     let mut split_by_step: BTreeMap<String, LoopSplit> = split_acc
@@ -863,8 +863,10 @@ pub fn build_report(
         .filter(|(_, a)| a.cont_n >= 1)
         .map(|(step_id, a)| {
             let side = |h: Option<Histogram<u64>>, count: u64, err: u64| {
+                // 건수 0인 갈래는 샘플이 있어도 백분위 0.
                 let pc = h
                     .as_ref()
+                    .filter(|_| count > 0)
                     .map(percentiles_of)
                     .unwrap_or_else(Percentiles::empty);
                 LoopSplitStats {
@@ -2280,6 +2282,16 @@ mod tests {
         assert_eq!(ls.retry.p50_ms, 12);
         let v = serde_json::to_value(&rep).unwrap();
         assert_eq!(v["steps"][0]["loop_split"]["final"]["count"], 4);
+        let keys = |o: &serde_json::Value| {
+            let mut k: Vec<String> = o.as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(&v["steps"][0]["loop_split"]), vec!["final", "retry"]);
+        assert_eq!(
+            keys(&v["steps"][0]["loop_split"]["retry"]),
+            vec!["count", "error_count", "p50_ms", "p95_ms", "p99_ms"]
+        );
         let _back: ReportJson = serde_json::from_value(v).unwrap();
     }
 
@@ -2349,6 +2361,25 @@ mod tests {
         assert_eq!(ls.retry.count, 6);
         assert_eq!(ls.retry.error_count, 6);
         assert_eq!(ls.ended.count, 0);
+        // 건수 0인 갈래는 샘플이 있어도 백분위 0.
+        assert_eq!(ls.ended.p50_ms, 0);
+        assert_eq!(ls.ended.p95_ms, 0);
+        assert_eq!(ls.ended.p99_ms, 0);
+        // 깨진 BLOB 행은 히스토그램에서만 빠지고 백분위는 유효 행 샘플(1ms)에서 나온다.
+        assert_eq!(ls.retry.p50_ms, 1);
+    }
+
+    #[test]
+    fn loop_split_count_sums_saturate() {
+        use handicap_engine::PHASE_LOOP_RETRY;
+        let phases = vec![
+            ph("s1", PHASE_LOOP_RETRY, &[1_000], i64::MAX),
+            ph("s1", PHASE_LOOP_RETRY, &[1_000], i64::MAX),
+            ph("s1", PHASE_LOOP_RETRY, &[1_000], i64::MAX),
+        ];
+        let rep = split_report(&phases);
+        let ls = rep.steps[0].loop_split.as_ref().unwrap();
+        assert_eq!(ls.retry.count, u64::MAX);
     }
 
     #[test]
@@ -2380,6 +2411,11 @@ mod tests {
         assert_eq!(a.steps[0].wait, b.steps[0].wait);
         assert_eq!(a.connection, b.connection);
         assert!(a.steps[0].download.is_some() && a.connection.is_some());
+        assert!(
+            !serde_json::to_string(&a)
+                .unwrap()
+                .contains("\"loop_split\"")
+        );
     }
 
     #[test]
