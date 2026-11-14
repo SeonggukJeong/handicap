@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { LoopSplit, ReportStep } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
@@ -83,8 +83,8 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
             const dl = s.download?.p50_ms ?? 0;
             const total = wait + dl || 1;
             return (
-              <div key={s.step_id} className="border-t border-slate-100">
-                <div className="flex items-center gap-3 py-2">
+              <Fragment key={s.step_id}>
+                <div className="flex items-center gap-3 border-t border-slate-100 py-2">
                   {retriedStepIds?.has(s.step_id) ? (
                     <div className="flex w-40 shrink-0 items-center text-sm font-medium">
                       <span className="min-w-0 truncate" title={m?.name ?? s.step_id}>
@@ -118,7 +118,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
                     <SplitLine label={ko.report.loopExit.splitRetry} stats={s.loop_split.retry} />
                   </div>
                 ) : null}
-              </div>
+              </Fragment>
             );
           })}
           <div className="mt-2 flex gap-4 text-xs text-slate-500">

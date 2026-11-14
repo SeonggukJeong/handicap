@@ -151,6 +151,21 @@ describe("StepPhaseBreakdown", () => {
       expect(within(rowB).queryByText(/반복을 끝낸 응답/)).toBeNull();
     });
 
+    it("loop_split 없는 스텝의 막대 줄은 작업 전 DOM 그대로(wrapper 없음)", () => {
+      const two = [steps[0], { ...stepsLong[0], step_id: "s3" }];
+      const m2 = new Map([...meta, ["s3", { id: "s3", name: "plain", method: "GET", url: "/p" }]]);
+      render(<StepPhaseBreakdown steps={two as never} meta={m2} />);
+      const rows = screen.getAllByRole("img").map((i) => i.parentElement as HTMLElement);
+      expect(rows).toHaveLength(2);
+      for (const r of rows) {
+        // git show 504350bb 의 막대 줄 className 그대로
+        expect(r.className).toBe("flex items-center gap-3 border-t border-slate-100 py-2");
+      }
+      expect(rows[0].parentElement).toBe(rows[1].parentElement);
+      // 스텝 2개 + 범례 1개, 그 사이 wrapper 없음
+      expect(rows[0].parentElement?.children).toHaveLength(3);
+    });
+
     it("「칩」으로 바꾸면 표에 두 줄", async () => {
       const user = userEvent.setup();
       render(<StepPhaseBreakdown steps={withSplit as never} meta={meta} />);
