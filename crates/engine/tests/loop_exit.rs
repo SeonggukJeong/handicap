@@ -260,7 +260,9 @@ async fn site3_deadline_at_pass_head_records_truncated() {
     assert!(reqs >= 2, "reqs={reqs}");
     assert_eq!(outcome_count(&out, 2), 1, "{:?}", exits(&out));
     assert_eq!(outcome_count(&out, 0) + outcome_count(&out, 1), 0);
-    assert_eq!(total_pass_sum(&out), reqs);
+    // spec §2: 끊긴 회차는 요청을 보내기 전에 끊겼을 수 있다 → 회차 합이 요청 수보다 최대 1 크다.
+    let sum = total_pass_sum(&out);
+    assert!(sum >= reqs && sum - reqs <= 1, "pass_sum={sum} reqs={reqs}");
 }
 
 /// 지점 4: 요청이 진행 중일 때 취소 → 그 요청이 끝난 뒤 회차 머리의 취소 검사에서 끊긴다.
@@ -276,7 +278,9 @@ async fn site4_cancel_at_pass_head_records_truncated() {
     assert!(!out.ok, "취소된 run은 Err(Aborted)");
     let reqs = count(&paths(&server).await, "/order") as u64;
     assert_eq!(outcome_count(&out, 2), 1, "{:?}", exits(&out));
-    assert_eq!(total_pass_sum(&out), reqs);
+    // spec §2: 끊긴 회차는 요청을 보내기 전에 끊겼을 수 있다 → 회차 합이 요청 수보다 최대 1 크다.
+    let sum = total_pass_sum(&out);
+    assert!(sum >= reqs && sum - reqs <= 1, "pass_sum={sum} reqs={reqs}");
 }
 
 /// 지점 5(비-Continue): 본문 think time 도중 deadline → 끊긴 회차 포함 1회, 요청 1건.
@@ -349,6 +353,26 @@ async fn plain_loop_and_flat_scenarios_record_nothing() {
     let y = scenario_yaml(&server.uri(), "    repeat: 2", "", false);
     let out = run_mode(&y, 300, Mode::Closed, None).await;
     assert!(out.ok);
+    assert!(out.flushes.iter().all(|f| f.loop_exit_stats.is_empty()));
+
+    // loop이 전혀 없는 평평한 시나리오도 배치 층에서 비어 있다(R0, spec §5).
+    let flat = format!(
+        r#"version: 1
+name: flat
+variables:
+  base: "{base}"
+steps:
+  - id: "01HX0000000000000000000003"
+    name: after
+    type: http
+    request: {{ method: GET, url: "{{{{base}}}}/after" }}
+    assert: []
+"#,
+        base = server.uri()
+    );
+    let out = run_mode(&flat, 300, Mode::Closed, None).await;
+    assert!(out.ok);
+    assert!(count(&paths(&server).await, "/after") >= 1);
     assert!(out.flushes.iter().all(|f| f.loop_exit_stats.is_empty()));
 }
 

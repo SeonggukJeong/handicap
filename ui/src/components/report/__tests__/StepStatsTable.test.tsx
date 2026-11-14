@@ -198,6 +198,10 @@ describe("StepStatsTable", () => {
       );
       expect(b.container.innerHTML).toBe(htmlNone);
       expect(htmlNone).not.toContain("재시도 포함");
+      // 표지 없는 행의 이름 칸은 슬라이스 이전과 같은 리터럴 구조(감싸는 요소 없음).
+      const nameCell = screen.getByText("stepAname").closest("td") as HTMLElement;
+      expect(nameCell.innerHTML).toBe("stepAname");
+      expect(nameCell.children).toHaveLength(0);
     });
   });
 });

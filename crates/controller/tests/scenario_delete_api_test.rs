@@ -70,7 +70,7 @@ async fn seed_run(db: &store::Db, scenario_id: &str, run_id: &str, status: &str)
     .unwrap();
 }
 
-/// run 산하 메트릭 7테이블에 각 1행 시드 (cascade 전수 삭제 검증용).
+/// run 산하 메트릭 8테이블에 각 1행 시드 (cascade 전수 삭제 검증용).
 async fn seed_metric_rows(db: &store::Db, run_id: &str) {
     for sql in [
         "INSERT INTO run_metrics(run_id,ts_second,step_id,worker_id,count,error_count,hdr_histogram,status_counts) VALUES(?,0,'S','',1,0,x'00','{}')",

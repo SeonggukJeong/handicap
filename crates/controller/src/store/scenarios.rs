@@ -177,7 +177,7 @@ pub enum DeleteOutcome {
     ActiveRuns,
 }
 
-/// 시나리오와 참조 그래프 전체(run 이력+메트릭 7테이블·프리셋·스케줄)를 단일
+/// 시나리오와 참조 그래프 전체(run 이력+메트릭 8테이블·프리셋·스케줄)를 단일
 /// 트랜잭션으로 삭제한다 (ADR-0045). 권위 hard 가드는 트랜잭션 *안*의 재확인 —
 /// 핸들러의 advisory 체크와 이 트랜잭션 사이에 커밋된 run도 여기서 잡힌다.
 /// EXISTS와 첫 DELETE 사이에 끼어드는 동시 쓰기는 WAL busy/snapshot으로 tx가
