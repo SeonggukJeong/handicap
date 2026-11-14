@@ -3055,6 +3055,10 @@ steps:
             name: b
             request: { method: GET, url: http://x/ }
             think_time: { min_ms: 50, max_ms: 50 }
+          - id: 01HX0000000000000000000HHH
+            type: http
+            name: nothink
+            request: { method: GET, url: http://x/ }
 "#;
         let out = maybe_strip_think(y, &open_profile(false));
         let sc = Scenario::from_yaml(&out).unwrap();
@@ -3063,6 +3067,56 @@ steps:
         };
         let Step::If(i) = &l.do_[0] else { panic!("if") };
         assert_eq!(http_think(&i.then_[0]), Some((50, 50)));
+        assert_eq!(http_think(&i.then_[1]), Some((100, 100)), "root default");
+    }
+
+    #[test]
+    fn strip_nested_loops_inside_keep_loop_keep_think() {
+        let y = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 100, max_ms: 100 }
+steps:
+  - id: 01HX0000000000000000000BBB
+    type: loop
+    name: keep
+    while: { left: "{{code}}", op: eq, right: WAIT }
+    do:
+      - id: 01HX0000000000000000000III
+        type: loop
+        name: inner-nokeep
+        while: { left: "{{code}}", op: eq, right: WAIT }
+        keep_think: false
+        do:
+          - id: 01HX0000000000000000000CCC
+            type: http
+            name: b
+            request: { method: GET, url: http://x/ }
+            think_time: { min_ms: 50, max_ms: 50 }
+      - id: 01HX0000000000000000000JJJ
+        type: loop
+        name: inner-plain
+        repeat: 2
+        do:
+          - id: 01HX0000000000000000000DDD
+            type: http
+            name: c
+            request: { method: GET, url: http://x/ }
+            think_time: { min_ms: 60, max_ms: 60 }
+"#;
+        let out = maybe_strip_think(y, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        let Step::Loop(l) = &sc.steps[0] else {
+            panic!("loop")
+        };
+        let Step::Loop(a) = &l.do_[0] else {
+            panic!("loop")
+        };
+        let Step::Loop(b) = &l.do_[1] else {
+            panic!("loop")
+        };
+        assert_eq!(http_think(&a.do_[0]), Some((50, 50)));
+        assert_eq!(http_think(&b.do_[0]), Some((60, 60)));
     }
 
     #[test]

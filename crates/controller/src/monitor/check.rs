@@ -968,6 +968,36 @@ steps:
     }
 
     #[test]
+    fn error_reason_wins_over_ended_by_loop() {
+        let mut t = tr(vec![st(A, Some(resp(200, 10)), None)]);
+        t.ended_by_loop = Some("01HX0000000000000000000009".into());
+        t.error = Some("boom".into());
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some(REASON_TRACE_ERROR));
+    }
+
+    #[test]
+    fn loop_judge_rows_use_last_http_row_for_conditions() {
+        let mut judge_row = st("01HX0000000000000000000009", None, None);
+        judge_row.kind = StepKind::Loop;
+        judge_row.request = None;
+        let rows = |first: &str, last: &str| {
+            tr(vec![
+                st(A, Some(resp_with(200, first, &[])), None),
+                judge_row.clone(),
+                st(A, Some(resp_with(200, last, &[])), None),
+                judge_row.clone(),
+            ])
+        };
+        let c = || vec![cond(A, Src::Body, "$.s", Op::Eq, "ok")];
+        let pass = judge_c(&one_step(), c(), &rows(r#"{"s":"wait"}"#, r#"{"s":"ok"}"#));
+        assert_eq!(pass.verdict, Verdict::Ok, "{pass:?}");
+        let fail = judge_c(&one_step(), c(), &rows(r#"{"s":"ok"}"#, r#"{"s":"wait"}"#));
+        assert_eq!(fail.verdict, Verdict::Fail, "{fail:?}");
+    }
+
+    #[test]
     fn loop_judge_rows_ignored_by_judging() {
         let mut judge_row = st("01HX0000000000000000000009", None, None);
         judge_row.kind = StepKind::Loop;
