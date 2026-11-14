@@ -51,7 +51,7 @@ pub struct ErrorKindStat {
 /// (`LOOP_EXIT_PASS_CAP + 1`)으로 합친다. run 설정 `loop_breakdown_cap`과 무관한 고정 상수.
 pub const LOOP_EXIT_PASS_CAP: u32 = 20;
 
-/// 조건 반복 응답 시간 분리: 갈래별 "통과 표본" 상한(리포트 쪽 표본 수 한도).
+/// 조건 반복 회차 하나에서 갈래 판정 전까지 쥐고 있을 응답 표본 상한(엔진 메모리 한도). 넘는 응답은 갈래에 넣지 않는다(스텝 행 숫자는 그대로).
 pub const LOOP_SPLIT_PASS_SAMPLE_CAP: usize = 1024;
 pub const PHASE_LOOP_FINAL: &str = "loop_final";
 pub const PHASE_LOOP_RETRY: &str = "loop_retry";

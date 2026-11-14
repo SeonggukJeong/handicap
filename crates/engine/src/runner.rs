@@ -13,8 +13,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{
-    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LoopExitOutcome,
-    LoopExitStat, LoopStat, PhaseStat, StepWindow,
+    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LOOP_SPLIT_PASS_SAMPLE_CAP,
+    LoopExitOutcome, LoopExitStat, LoopSplitClass, LoopStat, PhaseStat, StepWindow,
 };
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
@@ -503,7 +503,7 @@ async fn run_vu(
             measure_phases,
             scenario.default_think_time,
             &mut req,
-            false,
+            None,
         )
         .await?;
         match flow {
@@ -530,6 +530,30 @@ enum StepFlow {
     /// 조건 반복이 최대 횟수까지 조건을 만족해 이번 반복(시나리오 한 바퀴)을 여기서 끝낸다.
     /// deadline/abort가 아니므로 VU는 다음 반복을 계속한다.
     EndIteration,
+}
+
+/// 조건 반복 회차 하나에서 기록한 응답 한 건. 회차가 끝나야 갈래를 알 수 있어 그때까지 쥔다.
+struct PassSample {
+    step_id: String,
+    latency_us: u64,
+    is_error: bool,
+}
+
+/// 조건 반복 진입마다 하나. parallel 분기가 `join_all`로 같은 참조를 함께 쓰므로 잠금이다
+/// (std 잠금 — `await`를 넘겨 쥐지 않는다).
+type PassSamples = std::sync::Mutex<Vec<PassSample>>;
+
+/// 회차 버퍼를 `scratch`와 맞바꿔 가져온다(새 `Vec` 할당 없음). 오염된 잠금은 그대로 쓴다.
+fn take_pass(samples: &PassSamples, scratch: &mut Vec<PassSample>) {
+    let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
+    std::mem::swap(&mut *g, scratch);
+}
+
+/// `scratch`의 표본을 전부 `class`로 기록하고 비운다.
+fn flush_pass(a: &mut Aggregator, scratch: &mut Vec<PassSample>, class: LoopSplitClass) {
+    for s in scratch.drain(..) {
+        a.record_loop_split(&s.step_id, class, s.latency_us, s.is_error);
+    }
 }
 
 /// Recursively execute a slice of steps for one VU iteration. Http leaves run a
@@ -560,8 +584,9 @@ async fn execute_steps(
     default_think: Option<ThinkTime>,
     // 요청 단위 재평가 상태(spec 2026-10-17-genvar-per-request §4.4). None = refresh 변수 없음.
     req: &mut Option<ReqGen>,
-    // 조건 반복(while) 본문 안인지. 본문 http 스텝은 너그러운 추출을 쓰고 빠진 값은 빈 문자열로 채운다.
-    in_cond_loop: bool,
+    // 조건 반복(while) 본문 안이면 Some: 본문 http 스텝은 너그러운 추출을 쓰고 빠진 값은 빈 문자열로
+    // 채운다. 가리키는 버퍼는 그 회차의 응답 표본 — 회차가 끝날 때 조건 반복 가지가 갈래를 정한다.
+    cond_pass: Option<&PassSamples>,
 ) -> Result<StepFlow> {
     for step in steps {
         if Instant::now() >= deadline {
@@ -582,7 +607,7 @@ async fn execute_steps(
                     iter_id,
                     loop_index,
                 };
-                let mode = if in_cond_loop {
+                let mode = if cond_pass.is_some() {
                     ExtractMode::Lenient
                 } else {
                     ExtractMode::Strict
@@ -591,7 +616,7 @@ async fn execute_steps(
                 if let Some(rg) = req.as_mut() {
                     rg.mark_written(outcome.extracted.keys());
                 }
-                if in_cond_loop {
+                if cond_pass.is_some() {
                     blank_missing_extracts(http, &mut outcome.extracted, iter_vars);
                 }
                 iter_vars.extend(outcome.extracted.clone());
@@ -638,6 +663,16 @@ async fn execute_steps(
                         }
                     }
                 } // drop the aggregator guard before the (possibly long) think-time sleep
+                if let Some(samples) = cond_pass {
+                    let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
+                    if g.len() < LOOP_SPLIT_PASS_SAMPLE_CAP {
+                        g.push(PassSample {
+                            step_id: std::mem::take(&mut outcome.step_id),
+                            latency_us: outcome.latency.as_micros().min(u64::MAX as u128) as u64,
+                            is_error: outcome.error.is_some(),
+                        });
+                    }
+                }
                 if let Some(tt) = http.think_time.or(default_think) {
                     match pace(tt.sample(rng), deadline, cancel).await {
                         PaceOutcome::Slept => {}
@@ -654,6 +689,9 @@ async fn execute_steps(
                     // spec 2026-11-14-loop-while-report §3.1).
                     let max = lp.max_passes();
                     let mut pass: u32 = 0;
+                    // 이 진입의 회차 표본 버퍼(본문이 `Some(&samples)`로 받는다)와 비우기용 빈 `Vec`.
+                    let samples: PassSamples = std::sync::Mutex::new(Vec::new());
+                    let mut scratch: Vec<PassSample> = Vec::new();
                     loop {
                         if Instant::now() >= deadline {
                             if pass > 0 {
@@ -690,18 +728,23 @@ async fn execute_steps(
                             measure_phases,
                             default_think,
                             req,
-                            true,
+                            Some(&samples),
                         ))
                         .await;
                         match res {
                             Ok(StepFlow::Continue) => {}
                             other => {
                                 // 본문이 끊겼다(비-Continue 흐름 또는 Err) — 끊긴 회차까지 센다.
-                                agg.lock().await.record_loop_exit(
-                                    &lp.id,
-                                    pass.saturating_add(1),
-                                    LoopExitOutcome::Truncated,
-                                );
+                                take_pass(&samples, &mut scratch);
+                                {
+                                    let mut a = agg.lock().await;
+                                    flush_pass(&mut a, &mut scratch, LoopSplitClass::Cut);
+                                    a.record_loop_exit(
+                                        &lp.id,
+                                        pass.saturating_add(1),
+                                        LoopExitOutcome::Truncated,
+                                    );
+                                }
                                 return other;
                             }
                         }
@@ -716,23 +759,27 @@ async fn execute_steps(
                             };
                             eval_condition(cond, &ctx)
                         };
+                        take_pass(&samples, &mut scratch);
                         if !again {
-                            agg.lock().await.record_loop_exit(
-                                &lp.id,
-                                pass,
-                                LoopExitOutcome::Completed,
-                            );
+                            let mut a = agg.lock().await;
+                            flush_pass(&mut a, &mut scratch, LoopSplitClass::Ended);
+                            a.record_loop_exit(&lp.id, pass, LoopExitOutcome::Completed);
                             break;
                         }
                         if let Some(n) = max {
                             if pass >= n {
-                                agg.lock().await.record_loop_exit(
-                                    &lp.id,
-                                    pass,
-                                    LoopExitOutcome::Exhausted,
-                                );
+                                let mut a = agg.lock().await;
+                                flush_pass(&mut a, &mut scratch, LoopSplitClass::Cut);
+                                a.record_loop_exit(&lp.id, pass, LoopExitOutcome::Exhausted);
                                 return Ok(StepFlow::EndIteration);
                             }
+                        }
+                        if !scratch.is_empty() {
+                            flush_pass(
+                                &mut *agg.lock().await,
+                                &mut scratch,
+                                LoopSplitClass::Continued,
+                            );
                         }
                         // 요청 없는 본문이어도 같은 실행기의 다른 task가 굶지 않게 한다.
                         tokio::task::yield_now().await;
@@ -760,7 +807,7 @@ async fn execute_steps(
                             measure_phases,
                             default_think,
                             req,
-                            in_cond_loop,
+                            cond_pass,
                         ))
                         .await?;
                         match flow {
@@ -809,7 +856,7 @@ async fn execute_steps(
                     measure_phases,
                     default_think,
                     req,
-                    in_cond_loop,
+                    cond_pass,
                 ))
                 .await?;
                 match flow {
@@ -859,7 +906,7 @@ async fn execute_steps(
                                 // 분기 스텝에 명시된 think_time은 위 Http arm에서 그대로 적용된다.
                                 None,
                                 &mut branch_req,
-                                in_cond_loop,
+                                cond_pass,
                             ))
                             .await;
                             let branch_us = bt0.elapsed().as_micros() as u64;
@@ -1526,7 +1573,7 @@ async fn run_vu_curve(
                 measure_phases,
                 scenario.default_think_time,
                 &mut req,
-                false,
+                None,
             )
             .await
             {
@@ -1920,7 +1967,7 @@ async fn run_arrival(
         measure_phases,
         scenario.default_think_time,
         &mut req,
-        false,
+        None,
     )
     .await?;
     Ok(())
