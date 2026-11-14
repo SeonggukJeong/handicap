@@ -6,7 +6,8 @@ use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::report::ReportJson;
 use handicap_controller::store::metrics::{
-    ErrorKindRow, MetricRow, insert_batch, insert_error_kind_batch,
+    ErrorKindRow, LoopExitRow, MetricRow, insert_batch, insert_error_kind_batch,
+    insert_loop_exit_batch,
 };
 use handicap_controller::store::runs::{Profile, RunStatus};
 use handicap_controller::{app, store};
@@ -186,6 +187,50 @@ async fn report_endpoint_returns_bundle_for_seeded_run() {
 
     // Also typed-decode it to catch shape regressions
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
+}
+
+/// store → report → HTTP 다리: `build_report_for_run`이 loop_exit 행을 읽어 넘긴다.
+#[tokio::test]
+async fn report_endpoint_includes_loop_exits() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (run_id, _scenario_yaml) = seed_run_with_metrics(&db).await;
+    let row = |bucket: i64, outcome: i64, count: i64, sum: i64| LoopExitRow {
+        run_id: run_id.clone(),
+        step_id: "loopA".to_string(),
+        pass_bucket: bucket,
+        outcome,
+        count,
+        pass_sum: sum,
+    };
+    insert_loop_exit_batch(&db, &[row(1, 0, 5, 5), row(21, 2, 1, 40)])
+        .await
+        .unwrap();
+    let app = make_app(db);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["loop_exits"],
+        serde_json::json!([{
+            "step_id": "loopA", "entered": 6, "passes": 45, "exhausted": 0, "truncated": 1,
+            "buckets": [
+                {"pass": 1, "completed": 5, "exhausted": 0, "truncated": 0},
+                {"pass": null, "completed": 0, "exhausted": 0, "truncated": 1}
+            ]
+        }])
+    );
 }
 
 /// E1 Task 5 e2e smoke: run-level `error_kinds` rollup surfaces on the report

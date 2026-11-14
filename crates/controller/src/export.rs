@@ -636,6 +636,7 @@ mod tests {
             status_distribution: BTreeMap::new(),
             if_breakdown: vec![],
             error_kinds: vec![],
+            loop_exits: vec![],
             verdict: None,
             insights: vec![],
             dropped: 0,

@@ -24,6 +24,10 @@ pub struct ReportJson {
     /// with no transport errors).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub error_kinds: Vec<ErrorKindCount>,
+    /// 조건 반복(while loop) 진입 종료 집계 (loop-while-report). 조건 반복 집계가 없으면
+    /// 키 자체를 내지 않는다(기존 리포트 byte-identical).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loop_exits: Vec<LoopExit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<Verdict>,
     #[serde(default)]
@@ -114,6 +118,28 @@ pub struct IfBreakdown {
 pub struct ErrorKindCount {
     pub kind: String,
     pub count: u64,
+}
+
+/// 조건 반복 하나의 진입 종료 집계. `entered` = 진입 건수(세 방식 합),
+/// `passes` = 시작한 본문 회차 합(재시도 = passes − entered).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoopExit {
+    pub step_id: String,
+    pub entered: u64,
+    pub passes: u64,
+    pub exhausted: u64,
+    pub truncated: u64,
+    pub buckets: Vec<LoopExitBucket>,
+}
+
+/// `pass`는 1부터 센 회차(`loop_index`는 0부터 — 다르다). `None` = 21번째 이후.
+/// `null`을 그대로 직렬화한다(skip 없음).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoopExitBucket {
+    pub pass: Option<u32>,
+    pub completed: u64,
+    pub exhausted: u64,
+    pub truncated: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -462,6 +488,7 @@ pub fn build_report(
     active_vu: &[crate::store::metrics::ActiveVuRow],
     active_vu_by_worker: &[crate::store::metrics::ActiveVuRow],
     error_kinds: &[crate::store::metrics::ErrorKindRow],
+    loop_exits: &[crate::store::metrics::LoopExitRow],
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -507,6 +534,53 @@ pub fn build_report(
         .map(|(kind, count)| ErrorKindCount { kind, count })
         .collect();
     error_kinds_rolled.sort_by(|a, b| b.count.cmp(&a.count).then(a.kind.cmp(&b.kind)));
+
+    // 조건 반복 진입 종료(loop-while-report): (step_id, pass_bucket)별로 세 방식을 한 칸에 모은다.
+    // BTreeMap 키 순서 = step_id 오름차순, 칸 오름차순(21 = "21번째 이후"가 맨 끝).
+    let mut exit_acc: BTreeMap<String, (u64, BTreeMap<i64, [u64; 3]>)> = BTreeMap::new();
+    for r in loop_exits {
+        let Ok(o) = usize::try_from(r.outcome) else {
+            continue;
+        };
+        if o > 2 {
+            continue;
+        }
+        let e = exit_acc.entry(r.step_id.clone()).or_default();
+        e.0 += r.pass_sum.max(0) as u64;
+        e.1.entry(r.pass_bucket).or_insert([0; 3])[o] += r.count.max(0) as u64;
+    }
+    let cap = i64::from(handicap_engine::LOOP_EXIT_PASS_CAP);
+    let loop_exits_rolled: Vec<LoopExit> = exit_acc
+        .into_iter()
+        .map(|(step_id, (passes, by_bucket))| {
+            let buckets: Vec<LoopExitBucket> = by_bucket
+                .into_iter()
+                .filter(|(_, c)| c.iter().sum::<u64>() > 0)
+                .map(|(bucket, c)| LoopExitBucket {
+                    pass: if bucket > cap {
+                        None
+                    } else {
+                        Some(bucket.max(1) as u32)
+                    },
+                    completed: c[0],
+                    exhausted: c[1],
+                    truncated: c[2],
+                })
+                .collect();
+            LoopExit {
+                step_id,
+                entered: buckets
+                    .iter()
+                    .map(|b| b.completed + b.exhausted + b.truncated)
+                    .sum(),
+                passes,
+                exhausted: buckets.iter().map(|b| b.exhausted).sum(),
+                truncated: buckets.iter().map(|b| b.truncated).sum(),
+                buckets,
+            }
+        })
+        .filter(|l| l.entered > 0)
+        .collect();
 
     // Per-(ts_second, step_id) accumulator merging all workers sharing the window.
     struct WindowAcc {
@@ -966,6 +1040,7 @@ pub fn build_report(
         status_distribution: status_dist,
         if_breakdown,
         error_kinds: error_kinds_rolled,
+        loop_exits: loop_exits_rolled,
         verdict,
         insights,
         dropped: run.dropped as u64,
@@ -1081,7 +1156,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
 
         // One collapsed window per (ts_second, step_id), counts summed.
         assert_eq!(rep.windows.len(), 1, "worker rows collapse to one window");
@@ -1129,7 +1204,7 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -1154,7 +1229,7 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[], &[], &[], &[], &[]);
+        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
@@ -1197,7 +1272,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[], &[], &[], &[], &[], &[]);
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
         assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
@@ -1241,7 +1316,19 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &branches, &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &branches,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+        );
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
             .if_breakdown
@@ -1489,7 +1576,7 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
         assert!(v.passed); // 빈 윈도 → p95 0 <= 1000
@@ -1504,7 +1591,7 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[])
+            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
                 .verdict
                 .is_none()
         );
@@ -1515,7 +1602,7 @@ mod tests {
         let mut run = run_row();
         run.profile.criteria = Some(Criteria::default()); // 활성 0개
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[])
+            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
                 .verdict
                 .is_none()
         );
@@ -1525,7 +1612,7 @@ mod tests {
     fn build_report_surfaces_dropped() {
         let mut run = run_row();
         run.dropped = 7;
-        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
@@ -1540,7 +1627,7 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[40_000, 50_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
         assert_eq!(latency.percentile_curve.len(), CURVE_QUANTILES.len());
@@ -1563,7 +1650,7 @@ mod tests {
     fn build_report_no_latency_without_samples() {
         let r = run_row();
         assert!(
-            build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[])
+            build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
                 .latency
                 .is_none()
         );
@@ -1720,7 +1807,7 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[])
+            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
                 .verdict
                 .is_none()
         );
@@ -1749,7 +1836,7 @@ mod tests {
         }];
         let yaml = r.scenario_yaml.clone();
 
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[], &[], &[], &[]);
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
         assert_eq!(
@@ -1809,7 +1896,7 @@ mod tests {
                 worker_id: "".into(),
             },
         ];
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &active, &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &active, &[], &[], &[]);
         assert_eq!(rep.active_vu_series.len(), 2);
         assert_eq!(
             (
@@ -1819,7 +1906,7 @@ mod tests {
             ),
             (100, 3, 2)
         );
-        let baseline = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let baseline = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(rep.summary.count, baseline.summary.count);
         assert_eq!(rep.summary.rps, baseline.summary.rps);
         assert_eq!(rep.windows.len(), baseline.windows.len());
@@ -1855,7 +1942,19 @@ mod tests {
                 worker_id: "w-0".into(),
             },
         ];
-        let rep = build_report(&r, &yaml, &[], &[], &[], &[], &[], &[], &by_worker, &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &by_worker,
+            &[],
+            &[],
+        );
         assert_eq!(rep.active_vu_by_worker.len(), 2);
         assert_eq!(rep.active_vu_by_worker[0].worker_id, "w-0"); // sorted
         assert_eq!(rep.active_vu_by_worker[0].samples.len(), 2);
@@ -1881,17 +1980,17 @@ mod tests {
             actual: 1,
             worker_id: "w-0".into(),
         }];
-        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[], &one, &[]);
+        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[], &one, &[], &[]);
         assert!(rep.active_vu_by_worker.is_empty());
         // No rows (non-curve caller passes &[]) -> empty (byte-identical default).
-        let none = build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[]);
+        let none = build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
         assert!(none.active_vu_by_worker.is_empty());
     }
 
     #[test]
     fn build_report_empty_groups_yields_empty_group_latency() {
         let r = run_row();
-        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
         assert!(rep.group_latency.is_empty());
     }
 
@@ -1932,7 +2031,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[], &[], &[], &[]);
 
         assert_eq!(
             rep.group_latency.len(),
@@ -1985,7 +2084,7 @@ mod tests {
             hdr_histogram: make_hdr_bytes(&[5_000, 9_000]),
             count: 2,
         }];
-        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[], &[], &[]);
+        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[], &[], &[], &[]);
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
         assert_eq!(
@@ -2007,6 +2106,7 @@ mod tests {
             &r,
             "version: 1\nname: t\nsteps: []\n",
             &rows,
+            &[],
             &[],
             &[],
             &[],
@@ -2037,7 +2137,7 @@ mod tests {
             ),
             win(101, "s", 9, 0, r#"{"200":9}"#, &[10_000; 9]),
         ];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         let sat = rep
             .insights
             .iter()
@@ -2051,7 +2151,7 @@ mod tests {
     fn build_report_no_saturation_when_not_dropped() {
         let run = run_row(); // dropped: 0
         let rows = vec![win(100, "s", 5, 0, r#"{"200":5}"#, &[10_000; 5])];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
     }
 
@@ -2066,7 +2166,7 @@ mod tests {
         run.dropped = 200;
         // 50ms(=50_000µs) 샘플 100개 → overall p50_ms ≈ 50.
         let rows = vec![win(100, "s", 100, 0, r#"{"200":100}"#, &[50_000; 100])];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         let ins = rep
             .insights
             .iter()
@@ -2099,7 +2199,7 @@ mod tests {
         run.profile.max_in_flight = Some(100);
         run.dropped = 50;
         let rows = vec![win(100, "s", 100, 0, r#"{"200":100}"#, &[50_000; 100])];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         let ins = rep
             .insights
             .iter()
@@ -2147,7 +2247,7 @@ mod tests {
             r#"{"200":4}"#,
             &[10_000, 20_000, 30_000, 40_000],
         )];
-        let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(rep.summary.mean_ms, 25);
     }
 
@@ -2181,7 +2281,7 @@ mod tests {
                 count: 2,
             },
         ];
-        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[], &[], &[]);
+        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[], &[], &[], &[]);
         // wait attaches per-step
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
         assert!(s.wait.is_some(), "wait phase attaches to step");
@@ -2192,7 +2292,7 @@ mod tests {
         assert!((c.reuse_ratio - 0.8).abs() < 1e-9, "1 - 2/10 = 0.8");
         assert!(c.dns.p50_ms <= 3 && c.connect.p50_ms >= 14);
         // no connection rows → None (byte-identical)
-        let rep2 = build_report(&r, yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep2 = build_report(&r, yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert!(rep2.connection.is_none());
     }
 
@@ -2221,7 +2321,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(rep.worker_breakdown.len(), 2);
         // sorted by worker_id ascending
         assert_eq!(rep.worker_breakdown[0].worker_id, "w-0");
@@ -2249,7 +2349,7 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[20_000, 20_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert!(rep.worker_breakdown.is_empty());
         // skip_serializing_if -> field absent (byte-identical)
         let v = serde_json::to_value(&rep).unwrap();
@@ -2270,7 +2370,7 @@ mod tests {
             hdr_histogram: make_hdr_bytes(&[15_000, 15_000, 15_000, 15_000]),
         }];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert!(rep.worker_breakdown.is_empty());
     }
 
@@ -2298,7 +2398,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
         assert_eq!(rep.worker_breakdown.len(), 2);
         // w-0: count counted despite bad blob, latency falls back to 0 (fail-soft)
         assert_eq!(rep.worker_breakdown[0].worker_id, "w-0");
@@ -2356,6 +2456,7 @@ steps:
             &[],
             &[],
             &[],
+            &[],
         );
         assert_eq!(rep.validity.level, "suspect");
         assert!(
@@ -2389,6 +2490,7 @@ steps:
             &run,
             YAML_NO_ASSERT,
             &rows,
+            &[],
             &[],
             &[],
             &[],
@@ -2435,6 +2537,7 @@ steps:
             &[],
             &[],
             &[],
+            &[],
         );
         assert_eq!(rep.validity.level, "ok");
         assert!(
@@ -2455,7 +2558,7 @@ steps:
     /// slices) but plugs `rows` into the new `error_kinds` argument.
     fn minimal_report_with_error_kinds(rows: &[crate::store::metrics::ErrorKindRow]) -> ReportJson {
         let run = run_row();
-        build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], rows)
+        build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], rows, &[])
     }
 
     #[test]
@@ -2493,6 +2596,70 @@ steps:
             !json.contains("error_kinds"),
             "empty must be omitted: {json}"
         );
+    }
+
+    fn minimal_report_with_loop_exits(rows: &[crate::store::metrics::LoopExitRow]) -> ReportJson {
+        let run = run_row();
+        build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], rows)
+    }
+
+    #[test]
+    fn loop_exits_rollup_buckets_totals_and_omits_when_empty() {
+        let row = |step: &str, bucket: i64, outcome: i64, count: i64, sum: i64| {
+            crate::store::metrics::LoopExitRow {
+                run_id: "r1".into(),
+                step_id: step.into(),
+                pass_bucket: bucket,
+                outcome,
+                count,
+                pass_sum: sum,
+            }
+        };
+        // SQL 순서(step_id, pass_bucket, outcome)대로.
+        let rows = vec![
+            row("la", 1, 0, 816, 816),
+            row("la", 1, 2, 1, 1),
+            row("la", 5, 0, 12, 60),
+            row("la", 5, 1, 12, 60),
+            row("la", 21, 0, 3, 90),
+            row("la", 21, 2, 2, 80),
+            row("lb", 1, 0, 4, 4),
+        ];
+        let rep = minimal_report_with_loop_exits(&rows);
+        assert_eq!(rep.loop_exits.len(), 2);
+        let la = &rep.loop_exits[0];
+        assert_eq!(
+            (
+                la.step_id.as_str(),
+                la.entered,
+                la.passes,
+                la.exhausted,
+                la.truncated
+            ),
+            ("la", 846, 1107, 12, 3)
+        );
+        assert_eq!(
+            la.buckets
+                .iter()
+                .map(|b| (b.pass, b.completed, b.exhausted, b.truncated))
+                .collect::<Vec<_>>(),
+            vec![(Some(1), 816, 0, 1), (Some(5), 12, 12, 0), (None, 3, 0, 2)]
+        );
+        assert_eq!(rep.loop_exits[1].step_id, "lb");
+
+        let json = serde_json::to_value(&rep).unwrap();
+        let last = &json["loop_exits"][0]["buckets"][2];
+        assert!(
+            last.as_object().unwrap().contains_key("pass") && last["pass"].is_null(),
+            "21번째 이후는 pass: null로 직렬화: {last}"
+        );
+
+        let empty = minimal_report_with_loop_exits(&[]);
+        let s = serde_json::to_string(&empty).unwrap();
+        assert!(!s.contains("loop_exits"), "empty must be omitted: {s}");
+        // typed round-trip: 키가 없어도 역직렬화된다.
+        let back: ReportJson = serde_json::from_str(&s).unwrap();
+        assert!(back.loop_exits.is_empty());
     }
 
     #[test]
