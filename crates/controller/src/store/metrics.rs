@@ -297,6 +297,63 @@ pub async fn error_kind_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<Err
 }
 
 #[derive(Debug, Clone)]
+pub struct LoopExitRow {
+    pub run_id: String,
+    pub step_id: String,  // loop 스텝 id
+    pub pass_bucket: i64, // 1..=20, 21 = "21번째 이후"
+    pub outcome: i64,     // 0 완료 · 1 중단 · 2 마치지 못함
+    pub count: i64,
+    pub pass_sum: i64,
+}
+
+pub async fn insert_loop_exit_batch(db: &Db, rows: &[LoopExitRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // 델타 누적(run_error_kind_metrics 동형) — 워커·flush마다의 증분을 더한다.
+    let mut tx = db.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_loop_exit_metrics(run_id,step_id,pass_bucket,outcome,count,pass_sum) \
+             VALUES(?,?,?,?,?,?) \
+             ON CONFLICT(run_id,step_id,pass_bucket,outcome) DO UPDATE SET \
+               count = count + excluded.count, \
+               pass_sum = pass_sum + excluded.pass_sum",
+        )
+        .bind(&r.run_id)
+        .bind(&r.step_id)
+        .bind(r.pass_bucket)
+        .bind(r.outcome)
+        .bind(r.count)
+        .bind(r.pass_sum)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+pub async fn loop_exit_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<LoopExitRow>> {
+    let rows = sqlx::query(
+        "SELECT step_id, pass_bucket, outcome, count, pass_sum FROM run_loop_exit_metrics \
+         WHERE run_id = ? ORDER BY step_id, pass_bucket, outcome",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| LoopExitRow {
+            run_id: run_id.to_string(),
+            step_id: r.get("step_id"),
+            pass_bucket: r.get("pass_bucket"),
+            outcome: r.get("outcome"),
+            count: r.get("count"),
+            pass_sum: r.get("pass_sum"),
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone)]
 pub struct GroupMetricRow {
     pub run_id: String,
     pub step_id: String, // the `parallel` node's id
@@ -1227,5 +1284,29 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].count, 5, "delta must accumulate on conflict");
         assert!(error_kind_breakdown(&db, "r2").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn loop_exit_upsert_accumulates_count_and_pass_sum() {
+        let db = pool().await;
+        let r = |bucket: i64, outcome: i64, c: i64, s: i64| LoopExitRow {
+            run_id: "r1".into(),
+            step_id: "l1".into(),
+            pass_bucket: bucket,
+            outcome,
+            count: c,
+            pass_sum: s,
+        };
+        insert_loop_exit_batch(&db, &[r(2, 0, 3, 6), r(21, 2, 1, 40)])
+            .await
+            .unwrap();
+        insert_loop_exit_batch(&db, &[r(2, 0, 2, 4)]).await.unwrap(); // 다른 flush·다른 워커의 델타
+        let rows = loop_exit_breakdown(&db, "r1").await.unwrap();
+        let got: Vec<_> = rows
+            .iter()
+            .map(|x| (x.pass_bucket, x.outcome, x.count, x.pass_sum))
+            .collect();
+        assert_eq!(got, vec![(2, 0, 5, 10), (21, 2, 1, 40)]);
+        assert!(loop_exit_breakdown(&db, "r2").await.unwrap().is_empty());
     }
 }

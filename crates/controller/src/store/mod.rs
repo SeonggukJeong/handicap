@@ -42,6 +42,7 @@ const MIGRATION_SQL_0016: &str = include_str!("migrations/0016_run_active_vu_met
 const MIGRATION_SQL_0019: &str = include_str!("migrations/0019_pool_worker_overrides.sql");
 const MIGRATION_SQL_0020: &str = include_str!("migrations/0020_run_error_kind_metrics.sql");
 const MIGRATION_SQL_0022: &str = include_str!("migrations/0022_monitor_boards.sql");
+const MIGRATION_SQL_0023: &str = include_str!("migrations/0023_run_loop_exit_metrics.sql");
 // Inline literal (no migrations/*.sql file) — single trivial statement; grep MIGRATION_SQL_0017 to find it.
 const MIGRATION_SQL_0017: &str = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)";
 
@@ -87,6 +88,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0020).execute(&pool).await?; // migration 0020: run_error_kind_metrics
     ensure_runs_label(&pool).await?; // migration 0021 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0022).execute(&pool).await?; // migration 0022: monitor_boards
+    sqlx::query(MIGRATION_SQL_0023).execute(&pool).await?; // migration 0023: run_loop_exit_metrics
     Ok(pool)
 }
 

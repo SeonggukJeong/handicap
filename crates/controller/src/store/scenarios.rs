@@ -195,7 +195,7 @@ pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
         return Ok(DeleteOutcome::ActiveRuns);
     }
     // 자식 → 부모 순서 (foreign_keys=ON이 순서 오류를 즉시 거부).
-    // 메트릭 테이블 일부는 FK 없이 run_id만 가지므로 7테이블 전수 명시 삭제.
+    // 메트릭 테이블 일부는 FK 없이 run_id만 가지므로 8테이블 전수 명시 삭제.
     for table in [
         "run_metrics",
         "run_loop_metrics",
@@ -204,6 +204,7 @@ pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
         "run_phase_metrics",
         "run_active_vu_metrics",
         "run_error_kind_metrics",
+        "run_loop_exit_metrics",
     ] {
         sqlx::query(&format!(
             "DELETE FROM {table} WHERE run_id IN (SELECT id FROM runs WHERE scenario_id = ?)"

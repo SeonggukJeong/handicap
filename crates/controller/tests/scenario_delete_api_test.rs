@@ -80,6 +80,7 @@ async fn seed_metric_rows(db: &store::Db, run_id: &str) {
         "INSERT INTO run_phase_metrics(run_id,step_id,phase,hdr_histogram,count) VALUES(?,'S','wait',x'00',1)",
         "INSERT INTO run_active_vu_metrics(run_id,ts_second,worker_id,desired,actual) VALUES(?,0,'',1,1)",
         "INSERT INTO run_error_kind_metrics(run_id,step_id,kind,count) VALUES(?,'S','connect_refused',1)",
+        "INSERT INTO run_loop_exit_metrics(run_id,step_id,pass_bucket,outcome,count,pass_sum) VALUES(?,'S',1,0,1,1)",
     ] {
         sqlx::query(sql).bind(run_id).execute(db).await.unwrap();
     }
@@ -165,6 +166,7 @@ async fn delete_cascade_removes_full_graph_and_spares_other_scenarios() {
         "run_phase_metrics",
         "run_active_vu_metrics",
         "run_error_kind_metrics",
+        "run_loop_exit_metrics",
     ] {
         assert_eq!(count(&db, t, "run_id", "R1").await, 0, "{t} orphan");
     }
