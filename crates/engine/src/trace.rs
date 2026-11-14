@@ -611,6 +611,7 @@ async fn trace_steps(
                             state.truncated = true;
                             return;
                         }
+                        tokio::task::yield_now().await;
                         if !again {
                             break;
                         }
@@ -628,6 +629,7 @@ async fn trace_steps(
                             state.truncated = true;
                             return;
                         }
+                        let before = (state.steps.len(), state.requests);
                         Box::pin(trace_steps(
                             client,
                             &lp.do_,
@@ -646,6 +648,12 @@ async fn trace_steps(
                         if state.truncated || state.ended_by_loop.is_some() {
                             return;
                         }
+                        // 줄도 요청도 안 만든 회차는 다음 회차도 같다 — 남은 회차를 돌지 않는다(잘림 아님).
+                        if (state.steps.len(), state.requests) == before {
+                            break;
+                        }
+                        // 보내기 전에 실패하는 http만 든 본문은 줄을 만들면서도 멈추지 않는다.
+                        tokio::task::yield_now().await;
                     }
                 }
             }
@@ -654,6 +662,8 @@ async fn trace_steps(
                     state.truncated = true;
                     return;
                 }
+                // 큰 조건·비싼 `matches`가 줄 수만큼 실행기 스레드를 쥐지 않게.
+                tokio::task::yield_now().await;
                 let (taken, branch, cond_unbound, branch_eval): (
                     &[Step],
                     String,
@@ -1466,5 +1476,173 @@ steps:
             "줄 수 상한보다 먼저 닿는다: {n}"
         );
         assert!(judge_bytes_sum(&t) > judge_byte_budget(50));
+    }
+
+    // ---------- 진행 없는 반복 끊기 + 양보 ----------
+    const EMPTY_SPIN: &str = r#"version: 1
+name: emptyspin
+steps:
+  - id: "01HX0000000000000000000001"
+    name: spin
+    type: loop
+    repeat: 4000000000
+    do: []
+"#;
+
+    const NESTED_EMPTY_SPIN: &str = r#"version: 1
+name: nested
+steps:
+  - id: "01HX0000000000000000000001"
+    name: outer
+    type: loop
+    repeat: 4000000000
+    do:
+      - id: "01HX0000000000000000000002"
+        name: inner
+        type: loop
+        repeat: 4000000000
+        do: []
+"#;
+
+    #[tokio::test]
+    async fn trace_no_progress_loop_ends_at_once() {
+        for y in [EMPTY_SPIN, NESTED_EMPTY_SPIN] {
+            let sc = Scenario::from_yaml(y).unwrap();
+            let started = std::time::Instant::now();
+            let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(2))).await;
+            assert!(
+                started.elapsed() < StdDuration::from_secs(1),
+                "{:?}",
+                started.elapsed()
+            );
+            assert!(t.steps.is_empty());
+            assert!(!t.truncated);
+            assert!(t.ok);
+        }
+    }
+
+    #[tokio::test]
+    async fn trace_no_progress_loop_keeps_parallel_merge() {
+        let yaml = r#"version: 1
+name: par-merge
+variables:
+  x: "v"
+steps:
+  - id: "01HX0000000000000000000001"
+    name: spin
+    type: loop
+    repeat: 4000000000
+    do:
+      - id: "01HX0000000000000000000002"
+        name: par
+        type: parallel
+        branches:
+          - name: A
+            steps:
+              - id: "01HX0000000000000000000003"
+                name: zero
+                type: loop
+                repeat: 0
+                do:
+                  - id: "01HX0000000000000000000004"
+                    name: never
+                    type: http
+                    request: { method: GET, url: "http://127.0.0.1:1/never" }
+                    extract:
+                      - { var: x, from: body, path: "$.x" }
+"#;
+        let sc = Scenario::from_yaml(yaml).unwrap();
+        let started = std::time::Instant::now();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(2))).await;
+        assert!(
+            started.elapsed() < StdDuration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!t.truncated);
+        assert!(t.steps.is_empty());
+        assert_eq!(t.final_vars.get("A.x").map(String::as_str), Some("v"));
+    }
+
+    #[tokio::test]
+    async fn trace_progress_loop_runs_every_iteration() {
+        let sc = Scenario::from_yaml(&spin_if_yaml(7)).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        assert_eq!(if_rows(&t), 7);
+        let idx: Vec<_> = t.steps.iter().map(|s| s.loop_index).collect();
+        assert_eq!(idx, (0..7).map(Some).collect::<Vec<_>>());
+        assert!(!t.truncated);
+    }
+
+    /// 단일 스레드 런타임에서 trace가 도는 동안 옆 task가 몇 번 돌았는지.
+    async fn side_ticks_during_trace(yaml: &str) -> (ScenarioTrace, u64) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let counter = Arc::new(AtomicU64::new(0));
+        let c = counter.clone();
+        let side = tokio::spawn(async move {
+            loop {
+                c.fetch_add(1, Ordering::Relaxed);
+                tokio::task::yield_now().await;
+            }
+        });
+        let sc = Scenario::from_yaml(yaml).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        side.abort();
+        (t, counter.load(Ordering::Relaxed))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn trace_if_rows_yield_to_other_tasks() {
+        // loop 없이 최상위 if 300개 — If 가지의 양보만 관찰된다.
+        let mut y = String::from("version: 1\nname: flat-ifs\nsteps:\n");
+        for i in 0..300 {
+            y += &format!(
+                "  - id: \"01HX00000000000000000{i:05}\"\n    name: n{i}\n    type: if\n    cond: {{ left: \"1\", op: eq, right: \"2\" }}\n    then: []\n"
+            );
+        }
+        let (t, n) = side_ticks_during_trace(&y).await;
+        assert_eq!(if_rows(&t), 300);
+        assert!(n > 100, "옆 task가 굶었다: counter={n}");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn trace_plain_loop_iterations_yield_to_other_tasks() {
+        // 보내기 전에 실패하는 http(상대 주소) — 회차마다 줄은 생기지만 send가 멈추지 않는다.
+        let y = r#"version: 1
+name: failing-http
+steps:
+  - id: "01HX0000000000000000000001"
+    name: spin
+    type: loop
+    repeat: 40
+    do:
+      - id: "01HX0000000000000000000002"
+        name: bad
+        type: http
+        request: { method: GET, url: "/x" }
+        assert: []
+"#;
+        let (t, n) = side_ticks_during_trace(y).await;
+        assert_eq!(t.steps.len(), 40);
+        assert!(t.steps.iter().all(|s| s.error.is_some()));
+        assert!(n >= 30, "옆 task가 굶었다: counter={n}");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn trace_while_passes_yield_to_other_tasks() {
+        let y = r#"version: 1
+name: empty-while
+steps:
+  - id: "01HX0000000000000000000001"
+    name: spin
+    type: loop
+    while: { left: "1", op: eq, right: "1" }
+    do: []
+"#;
+        let (t, n) = side_ticks_during_trace(y).await;
+        let rows = t.steps.iter().filter(|s| s.kind == StepKind::Loop).count();
+        assert_eq!(rows, MAX_LOOP_JUDGE_ROWS as usize);
+        assert!(t.truncated, "기존 동작 그대로");
+        assert!(n > 100, "옆 task가 굶었다: counter={n}");
     }
 }
