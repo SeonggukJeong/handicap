@@ -88,7 +88,7 @@ function ChipNode({ step, results, selectedStepId, onSelect }: NodeProps) {
           <span className="max-w-[8rem] truncate" title={step.name}>
             {step.name}
           </span>
-          {isLoopStep(step) && <span className="shrink-0">× {step.repeat}</span>}
+          {isLoopStep(step) && <span className="shrink-0">× {step.repeat ?? 1}</span>}
           {taken.includes("none") && (
             <span className="shrink-0 text-violet-700">{branchText("none")}</span>
           )}

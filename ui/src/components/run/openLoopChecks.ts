@@ -1,4 +1,9 @@
-import type { Scenario, Step, ThinkTime } from "../../scenario/model";
+import {
+  loopPassesForEstimate,
+  type Scenario,
+  type Step,
+  type ThinkTime,
+} from "../../scenario/model";
 import { peakStageTarget, targetRpsValid } from "./sizing";
 
 /** create-time open-loop 구조 경고(순수·결정적·측정 없음). spec 2026-06-25-open-loop-misconfig-warning.
@@ -37,7 +42,7 @@ export function iterationTimeUpperBoundSeconds(
       const thinkMs = (s.think_time ?? defaultThink)?.max_ms ?? 0;
       total += stepTimeout + thinkMs / 1000;
     } else if (s.type === "loop") {
-      total += s.repeat * iterationTimeUpperBoundSeconds(s.do, httpTimeoutSec, defaultThink);
+      total += loopPassesForEstimate(s, "upper") * iterationTimeUpperBoundSeconds(s.do, httpTimeoutSec, defaultThink);
     } else if (s.type === "parallel") {
       let mx = 0;
       for (const b of s.branches) {

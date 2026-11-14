@@ -1,5 +1,5 @@
 import type { Run } from "../../api/schemas";
-import type { Step, ThinkTime } from "../../scenario/model";
+import { loopPassesForEstimate, type Step, type ThinkTime } from "../../scenario/model";
 import { formatDurationKo } from "../../i18n/duration";
 import { ko } from "../../i18n/ko";
 
@@ -102,7 +102,7 @@ export function iterationHoldMs(
       const think = tt ? (tt.min_ms + tt.max_ms) / 2 : 0;
       total += lat + think;
     } else if (s.type === "loop") {
-      total += s.repeat * iterationHoldMs(s.do, perStepP50, fallbackMs, defaultThink);
+      total += loopPassesForEstimate(s, "lower") * iterationHoldMs(s.do, perStepP50, fallbackMs, defaultThink);
     } else if (s.type === "parallel") {
       // 시나리오 기본값은 분기 서브트리에 적용되지 않는다(엔진 runner/trace의 Parallel arm이
       // 분기 재귀에 None을 넘김 — spec R4). 분기 스텝의 명시 think_time은 위 http arm이 반영.
@@ -140,8 +140,8 @@ export function iterationRequestRange(steps: ReadonlyArray<Step>): RequestRange 
       max += 1;
     } else if (s.type === "loop") {
       const r = iterationRequestRange(s.do);
-      min += s.repeat * r.min;
-      max += s.repeat * r.max;
+      min += loopPassesForEstimate(s, "lower") * r.min;
+      max += loopPassesForEstimate(s, "upper") * r.max;
     } else if (s.type === "parallel") {
       for (const b of s.branches) {
         const r = iterationRequestRange(b.steps);

@@ -1360,3 +1360,123 @@ describe("pick_array YAML 왕복", () => {
     });
   });
 });
+
+describe("yamlDoc conditional loop edits (loop-do-while)", () => {
+  const LID = "01HX0000000000000000000010";
+  const COND = { left: "{{code}}", op: "eq" as const, right: "200" };
+  function withLoop() {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "addLoopStep",
+      id: LID,
+      name: "Loop",
+      childId: "01HX000000000000000000000C",
+    });
+    return doc;
+  }
+  const loopOf = (doc: ReturnType<typeof withLoop>) => {
+    const r = parseLoop(serializeDoc(doc));
+    const l = r.model.steps[1];
+    if (l.type !== "loop") throw new Error("not a loop");
+    return l;
+  };
+
+  it("setLoopWhile writes while after do", () => {
+    const doc = withLoop();
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: COND });
+    const text = serializeDoc(doc);
+    expect(text.indexOf("while:")).toBeGreaterThan(text.indexOf("do:"));
+    expect(loopOf(doc).while).toEqual(COND);
+  });
+  it("setLoopRepeat(undefined) removes the key (with while present)", () => {
+    const doc = withLoop();
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: COND });
+    applyEdit(doc, { type: "setLoopRepeat", loopId: LID, repeat: undefined });
+    expect(serializeDoc(doc)).not.toMatch(/repeat:/);
+    expect(loopOf(doc).repeat).toBeUndefined();
+  });
+  it("setLoopWhile(undefined) drops while+keep_think and restores repeat: 1 when absent", () => {
+    const doc = withLoop();
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: COND });
+    applyEdit(doc, { type: "setLoopKeepThink", loopId: LID, keep: false });
+    applyEdit(doc, { type: "setLoopRepeat", loopId: LID, repeat: undefined });
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: undefined });
+    const text = serializeDoc(doc);
+    expect(text).not.toMatch(/while:|keep_think:/);
+    const l = loopOf(doc);
+    expect(l.repeat).toBe(1);
+    expect(l.while).toBeUndefined();
+  });
+  it("setLoopWhile(undefined) keeps an existing repeat", () => {
+    const doc = withLoop();
+    applyEdit(doc, { type: "setLoopRepeat", loopId: LID, repeat: 5 });
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: COND });
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: undefined });
+    expect(loopOf(doc).repeat).toBe(5);
+  });
+  it("setLoopKeepThink(false) writes keep_think: false, true removes the key", () => {
+    const doc = withLoop();
+    applyEdit(doc, { type: "setLoopWhile", loopId: LID, cond: COND });
+    applyEdit(doc, { type: "setLoopKeepThink", loopId: LID, keep: false });
+    expect(serializeDoc(doc)).toMatch(/keep_think: false/);
+    expect(loopOf(doc).keep_think).toBe(false);
+    applyEdit(doc, { type: "setLoopKeepThink", loopId: LID, keep: true });
+    expect(serializeDoc(doc)).not.toMatch(/keep_think/);
+  });
+  it("YAML -> model keeps while and keep_think: false", () => {
+    const y = `version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "${LID}"
+    name: L
+    type: loop
+    do:
+      - id: "01HX000000000000000000000C"
+        name: s
+        type: http
+        request:
+          method: GET
+          url: "/"
+    while:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    keep_think: false
+`;
+    const l = parseLoop(y).model.steps[0];
+    if (l.type !== "loop") throw new Error("not a loop");
+    expect(l.while).toEqual(COND);
+    expect(l.keep_think).toBe(false);
+    expect(l.repeat).toBeUndefined();
+  });
+  it("a loop without while normalizes with no new keys", () => {
+    const l = loopOf(withLoop());
+    expect(Object.keys(l).sort()).toEqual(["do", "id", "name", "repeat", "type"]);
+  });
+  it("a conditional loop inserted via insertSteps (copy path) keeps while", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    const frag = `- id: "01HX0000000000000000000020"
+  name: L2
+  type: loop
+  do:
+    - id: "01HX0000000000000000000021"
+      name: s
+      type: http
+      request:
+        method: GET
+        url: "/"
+  while:
+    left: "{{code}}"
+    op: eq
+    right: "200"
+  keep_think: false
+`;
+    applyEdit(doc, { type: "insertSteps", afterTopIndex: 0, stepsYaml: frag });
+    const l = parseLoop(serializeDoc(doc)).model.steps[1];
+    if (l.type !== "loop") throw new Error("not a loop");
+    expect(l.while).toEqual(COND);
+    expect(l.keep_think).toBe(false);
+  });
+});

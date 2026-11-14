@@ -62,7 +62,13 @@ function canonStep(s: Step): string {
       s.assert,
     )}|${canonJson(s.extract)})`;
   }
-  if (s.type === "loop") return `loop(${s.repeat}|do:${canonSteps(s.do)})`;
+  if (s.type === "loop") {
+    // while이 없으면 옛 글자 그대로(R0) — 조건 반복만 while·keep을 덧붙인다.
+    if (s.while === undefined) return `loop(${s.repeat}|do:${canonSteps(s.do)})`;
+    return `loop(${s.repeat ?? "inf"}|do:${canonSteps(s.do)}|while:${JSON.stringify(s.while)}|keep:${
+      s.keep_think === false ? 0 : 1
+    })`;
+  }
   if (s.type === "parallel")
     // 분기 name은 {{분기.변수}} 네임스페이스의 일부라 실행 의미를 바꾼다(ADR-0033).
     return `par(${s.branches

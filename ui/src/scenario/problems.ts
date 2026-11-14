@@ -81,6 +81,10 @@ function formatSegment(seg: string): string {
   if (m) return ko.editor.gateBranchStepsMin(m[1]);
   m = /^(.+): repeat must be >= 1$/.exec(seg);
   if (m) return ko.editor.gateRepeatMin(m[1]);
+  m = /^(.+): repeat required when loop has no while$/.exec(seg);
+  if (m) return ko.editor.gateLoopRepeatRequired(m[1]);
+  m = /^(.+): keep_think needs while$/.exec(seg);
+  if (m) return ko.editor.gateLoopKeepThinkNeedsWhile(m[1]);
   m = /^(.+): claim requires decode$/.exec(seg);
   if (m) return ko.editor.gateExtractClaimNeedsDecode(m[1]);
   return seg;

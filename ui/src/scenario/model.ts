@@ -162,7 +162,9 @@ export const NestedLoopStepModel = z
     id: z.string().regex(ULID_RE, "step id must be a ULID"),
     name: z.string().min(1, "step name required"),
     type: z.literal("loop"),
-    repeat: z.number().int().min(1, "repeat must be >= 1"),
+    repeat: z.number().int().min(1, "repeat must be >= 1").optional(),
+    while: ConditionModel.optional(),
+    keep_think: z.boolean().optional(),
     do: z.array(HttpStepModel).min(1, "loop body needs at least one step"),
   })
   .strict();
@@ -200,7 +202,9 @@ export const LoopStepModel = z
     id: z.string().regex(ULID_RE, "step id must be a ULID"),
     name: z.string().min(1, "step name required"),
     type: z.literal("loop"),
-    repeat: z.number().int().min(1, "repeat must be >= 1"),
+    repeat: z.number().int().min(1, "repeat must be >= 1").optional(),
+    while: ConditionModel.optional(),
+    keep_think: z.boolean().optional(),
     // do: http | if (single-level mutual nesting, Slice 9c). Loop-in-loop rejected.
     do: z.array(LoopBodyStep).min(1, "loop body needs at least one step"),
   })
@@ -252,9 +256,47 @@ export const ParallelStepModel = z
   .strict();
 export type ParallelStep = z.infer<typeof ParallelStepModel>;
 
+// repeat 없는 무조건 loop과 while 없는 keep_think는 엔진이 거절하는 조합 — 같은 규칙을 UI가 먼저 건다.
+function checkLoop(
+  l: { repeat?: number; while?: Condition; keep_think?: boolean },
+  path: Array<string | number>,
+  ctx: z.RefinementCtx,
+): void {
+  if (l.while === undefined && l.repeat === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "repeat required when loop has no while",
+      path: [...path, "repeat"],
+    });
+  }
+  if (l.while === undefined && l.keep_think !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "keep_think needs while",
+      path: [...path, "keep_think"],
+    });
+  }
+}
+
 export const StepModel = z
   .discriminatedUnion("type", [HttpStepModel, LoopStepModel, IfStepModel, ParallelStepModel])
   .superRefine((s, ctx) => {
+    if (s.type === "loop") checkLoop(s, [], ctx);
+    if (s.type === "if") {
+      const branches: Array<[ReadonlyArray<{ type: string }>, Array<string | number>]> = [
+        [s.then, ["then"]],
+        ...s.elif.map((e, i): [ReadonlyArray<{ type: string }>, Array<string | number>] => [
+          e.then,
+          ["elif", i, "then"],
+        ]),
+        [s.else, ["else"]],
+      ];
+      for (const [steps, base] of branches) {
+        steps.forEach((c, i) => {
+          if (c.type === "loop") checkLoop(c as NestedLoopStep, [...base, i], ctx);
+        });
+      }
+    }
     // Branch names must be unique within a parallel node — they are the namespace
     // keys for {{branch.var}}; duplicates would silently collapse downstream vars.
     if (s.type !== "parallel") return;
@@ -271,6 +313,19 @@ export const StepModel = z
     });
   });
 export type Step = z.infer<typeof StepModel>;
+
+export function isConditionalLoop(s: { while?: Condition }): boolean {
+  return s.while !== undefined;
+}
+
+/** 추정용 회차: 조건 반복이면 upper ? (repeat ?? 1) : 1, 아니면 repeat ?? 1 */
+export function loopPassesForEstimate(
+  s: LoopStep | NestedLoopStep,
+  bound: "lower" | "upper",
+): number {
+  if (isConditionalLoop(s)) return bound === "upper" ? (s.repeat ?? 1) : 1;
+  return s.repeat ?? 1;
+}
 
 export function isLoopStep(s: Step): s is LoopStep {
   return s.type === "loop";

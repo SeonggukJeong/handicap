@@ -739,3 +739,58 @@ describe("scenarioHasThink", () => {
     expect(scenarioHasThink(s)).toBe(true);
   });
 });
+
+describe("loop while / keep_think (loop-do-while)", () => {
+  const HTTP = {
+    id: "01HX0000000000000000000002",
+    name: "h",
+    type: "http",
+    request: { method: "GET", url: "/" },
+  };
+  const COND = { left: "{{code}}", op: "eq", right: "200" };
+  const loop = (over: Record<string, unknown>) => ({
+    id: "01HX0000000000000000000001",
+    name: "L",
+    type: "loop",
+    do: [HTTP],
+    ...over,
+  });
+  const messages = (step: unknown) => {
+    const r = StepModel.safeParse(step);
+    return r.success ? [] : r.error.issues.map((i) => i.message);
+  };
+
+  it("repeat만 / repeat+while / while만 통과", () => {
+    expect(StepModel.safeParse(loop({ repeat: 3 })).success).toBe(true);
+    expect(StepModel.safeParse(loop({ repeat: 3, while: COND })).success).toBe(true);
+    expect(StepModel.safeParse(loop({ while: COND })).success).toBe(true);
+  });
+  it("repeat도 while도 없으면 거절", () => {
+    expect(messages(loop({}))).toContain("repeat required when loop has no while");
+  });
+  it("while + repeat 0 → repeat must be >= 1", () => {
+    expect(messages(loop({ repeat: 0, while: COND }))).toContain("repeat must be >= 1");
+  });
+  it("keep_think는 while 없이 거절", () => {
+    expect(messages(loop({ repeat: 2, keep_think: false }))).toContain("keep_think needs while");
+    expect(StepModel.safeParse(loop({ while: COND, keep_think: false })).success).toBe(true);
+  });
+  it("if 분기 안 loop도 검사한다", () => {
+    const ifStep = {
+      id: "01HX0000000000000000000009",
+      name: "I",
+      type: "if",
+      cond: COND,
+      then: [loop({ id: "01HX0000000000000000000003" })],
+    };
+    const r = StepModel.safeParse(ifStep);
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const hit = r.error.issues.find((i) => i.message === "repeat required when loop has no while");
+      expect(hit?.path).toEqual(["then", 0, "repeat"]);
+    }
+  });
+  it("until 키는 거절(.strict)", () => {
+    expect(StepModel.safeParse(loop({ repeat: 1, until: COND })).success).toBe(false);
+  });
+});

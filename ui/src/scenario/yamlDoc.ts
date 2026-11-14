@@ -45,7 +45,9 @@ export type Edit =
   | { type: "addStep"; id: string; name: string }
   | { type: "addLoopStep"; id: string; name: string; childId: string }
   | { type: "addStepInLoop"; loopId: string; id: string; name: string }
-  | { type: "setLoopRepeat"; loopId: string; repeat: number }
+  | { type: "setLoopRepeat"; loopId: string; repeat: number | undefined }
+  | { type: "setLoopWhile"; loopId: string; cond: Condition | undefined }
+  | { type: "setLoopKeepThink"; loopId: string; keep: boolean }
   | { type: "addIfStep"; id: string; name: string; childId: string }
   | { type: "setIfCond"; ifId: string; cond: Condition }
   | { type: "setElifCond"; ifId: string; index: number; cond: Condition }
@@ -248,7 +250,28 @@ export function applyEdit(doc: Document, edit: Edit): void {
     case "setLoopRepeat": {
       const loopPath = findStepPath(doc, edit.loopId);
       if (loopPath === null) return;
-      doc.setIn([...loopPath, "repeat"], edit.repeat);
+      if (edit.repeat === undefined) doc.deleteIn([...loopPath, "repeat"]);
+      else doc.setIn([...loopPath, "repeat"], edit.repeat);
+      return;
+    }
+    case "setLoopWhile": {
+      const loopPath = findStepPath(doc, edit.loopId);
+      if (loopPath === null) return;
+      if (edit.cond === undefined) {
+        doc.deleteIn([...loopPath, "while"]);
+        doc.deleteIn([...loopPath, "keep_think"]);
+        // repeat 없는 무조건 loop은 엔진이 거절 — 조건을 지우면 한 번 도는 loop으로 남긴다.
+        if (!doc.hasIn([...loopPath, "repeat"])) doc.setIn([...loopPath, "repeat"], 1);
+      } else {
+        doc.setIn([...loopPath, "while"], doc.createNode(edit.cond));
+      }
+      return;
+    }
+    case "setLoopKeepThink": {
+      const loopPath = findStepPath(doc, edit.loopId);
+      if (loopPath === null) return;
+      if (edit.keep) doc.deleteIn([...loopPath, "keep_think"]);
+      else doc.setIn([...loopPath, "keep_think"], false);
       return;
     }
     case "addIfStep": {
@@ -801,6 +824,8 @@ function normalizeStep(s: unknown): unknown {
       type: "loop",
       repeat: src.repeat,
       do: Array.isArray(src.do) ? src.do.map(normalizeStep) : [],
+      ...(src.while !== undefined ? { while: src.while } : {}),
+      ...(src.keep_think !== undefined ? { keep_think: src.keep_think } : {}),
     };
   }
   if (src.type === "if") {

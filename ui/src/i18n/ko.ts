@@ -716,6 +716,9 @@ export const ko = {
       `${path}: parallel 노드에 분기가 최소 1개 필요합니다`,
     gateBranchStepsMin: (path: string) => `${path}: 분기에 스텝이 최소 1개 필요합니다`,
     gateRepeatMin: (path: string) => `${path}: 반복 횟수는 1 이상이어야 합니다`,
+    gateLoopRepeatRequired: (path: string) => `${path}: 반복 조건이 없으면 반복 횟수가 필요합니다`,
+    gateLoopKeepThinkNeedsWhile: (path: string) =>
+      `${path}: keep_think는 반복 조건(while)이 있을 때만 쓸 수 있습니다`,
     gateExtractClaimNeedsDecode: (path: string) =>
       `${path}: claim 경로를 쓰려면 디코딩(base64/JWT)을 먼저 선택해야 합니다`,
     // ── Inspector 필드 라벨 ──

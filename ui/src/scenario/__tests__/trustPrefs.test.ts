@@ -170,6 +170,40 @@ describe("executionFingerprint — 무효화해야 하는 변경", () => {
       );
     expect(mk(2)).not.toBe(mk(3));
   });
+  describe("loop while / keep_think (loop-do-while)", () => {
+    const COND = { left: "{{code}}", op: "eq", right: "200" };
+    const mkLoop = (over: Record<string, unknown>) =>
+      sc({
+        steps: [
+          {
+            id: A,
+            name: "l",
+            type: "loop",
+            do: [step(B, { request: { method: "GET", url: "https://e.test/b", headers: {} } })],
+            ...over,
+          },
+        ],
+      });
+    it("while 없는 loop은 지문이 옛 글자 그대로다 (회귀 가드, R0)", () => {
+      const fp = executionFingerprint(mkLoop({ repeat: 3 }));
+      expect(fp).toContain("steps:[loop(3|do:[http(GET|");
+      expect(fp).toMatch(/\)\]\)\]$/);
+      expect(fp).not.toContain("while");
+      expect(fp).not.toContain("keep:");
+    });
+    it("while 변경 → 지문 변경", () => {
+      const a = executionFingerprint(mkLoop({ repeat: 3, while: COND }));
+      const b = executionFingerprint(mkLoop({ repeat: 3, while: { ...COND, right: "201" } }));
+      expect(a).not.toBe(b);
+      expect(a).not.toBe(executionFingerprint(mkLoop({ repeat: 3 })));
+    });
+    it("keep_think 변경 → 지문 변경, repeat 부재는 inf", () => {
+      const a = executionFingerprint(mkLoop({ while: COND }));
+      const b = executionFingerprint(mkLoop({ while: COND, keep_think: false }));
+      expect(a).not.toBe(b);
+      expect(a).toContain("loop(inf|do:");
+    });
+  });
   it("http body 값 변경 (키 순서가 아니라 값 자체)", () => {
     const mk = (p: number) =>
       executionFingerprint(
@@ -429,12 +463,12 @@ const FINGERPRINT_SHAPES: Array<{ model: string; shape: object; keys: string[] }
   {
     model: "LoopStepModel",
     shape: LoopStepModel.shape,
-    keys: ["do", "id", "name", "repeat", "type"],
+    keys: ["do", "id", "keep_think", "name", "repeat", "type", "while"],
   },
   {
     model: "NestedLoopStepModel",
     shape: NestedLoopStepModel.shape,
-    keys: ["do", "id", "name", "repeat", "type"],
+    keys: ["do", "id", "keep_think", "name", "repeat", "type", "while"],
   },
   {
     model: "IfStepModel",

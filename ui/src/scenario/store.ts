@@ -76,7 +76,9 @@ export interface ScenarioEditorState {
   addStep(name: string): string | null; // returns new id (null when yamlError)
   addLoopStep(name: string): string | null; // returns new loop id
   addStepInLoop(loopId: string, name: string): string | null; // returns new child id
-  setLoopRepeat(loopId: string, repeat: number): void;
+  setLoopRepeat(loopId: string, repeat: number | undefined): void;
+  setLoopWhile(loopId: string, cond: Condition | undefined): void;
+  setLoopKeepThink(loopId: string, keep: boolean): void;
   addIfStep(name: string): string | null; // returns new if id
   setIfCond(ifId: string, cond: Condition): void;
   setElifCond(ifId: string, index: number, cond: Condition): void;
@@ -281,6 +283,12 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   setLoopRepeat(loopId, repeat) {
     dispatch(set, get, { type: "setLoopRepeat", loopId, repeat });
+  },
+  setLoopWhile(loopId, cond) {
+    dispatch(set, get, { type: "setLoopWhile", loopId, cond });
+  },
+  setLoopKeepThink(loopId, keep) {
+    dispatch(set, get, { type: "setLoopKeepThink", loopId, keep });
   },
   addIfStep(name) {
     if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
@@ -504,6 +512,8 @@ const actions = (() => {
     addLoopStep: s.addLoopStep,
     addStepInLoop: s.addStepInLoop,
     setLoopRepeat: s.setLoopRepeat,
+    setLoopWhile: s.setLoopWhile,
+    setLoopKeepThink: s.setLoopKeepThink,
     addIfStep: s.addIfStep,
     setIfCond: s.setIfCond,
     setElifCond: s.setElifCond,

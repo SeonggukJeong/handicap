@@ -318,6 +318,19 @@ describe("iterationHoldMs (R7)", () => {
     ];
     expect(iterationHoldMs(steps, p50, 50)).toBe(300);
   });
+  it("조건 loop: 기대 점유는 1회차 기준", () => {
+    const steps = [
+      {
+        type: "loop",
+        id: "L",
+        name: "L",
+        repeat: 5,
+        while: { left: "a", op: "eq", right: "b" },
+        do: [http("a")],
+      } as unknown as Step,
+    ];
+    expect(iterationHoldMs(steps, p50, 50)).toBe(100);
+  });
   it("if/parallel: 분기 max", () => {
     const ifStep = {
       type: "if",
@@ -383,6 +396,14 @@ describe("iterationRequestRange (ADR-0046 ②)", () => {
       } as unknown as Step,
     ];
     expect(iterationRequestRange(steps)).toEqual({ min: 6, max: 6 });
+  });
+  it("조건 loop(repeat 5, http 1개) → {1,5}, repeat 없는 조건 loop → {1,1}, while 없는 repeat 3 그대로", () => {
+    const cond = { left: "a", op: "eq", right: "b" };
+    const mk = (over: Record<string, unknown>) =>
+      [{ type: "loop", id: "L", name: "L", do: [http("a")], ...over }] as unknown as Step[];
+    expect(iterationRequestRange(mk({ repeat: 5, while: cond }))).toEqual({ min: 1, max: 5 });
+    expect(iterationRequestRange(mk({ while: cond }))).toEqual({ min: 1, max: 1 });
+    expect(iterationRequestRange(mk({ repeat: 3 }))).toEqual({ min: 3, max: 3 });
   });
   it("if(then 2건·elif 1건·else 빈 배열) → {0,2} — else 무요청이 min", () => {
     const ifStep = {

@@ -307,6 +307,17 @@ describe("formatGateMessages — 신규 게이트 클래스 (손-세그먼트)",
   });
 });
 
+describe("loop-do-while gate messages", () => {
+  it("한국어 정본 문구", () => {
+    expect(formatGateMessages("steps.0.repeat: repeat required when loop has no while")).toEqual([
+      "steps.0.repeat: 반복 조건이 없으면 반복 횟수가 필요합니다",
+    ]);
+    expect(formatGateMessages("steps.0.keep_think: keep_think needs while")).toEqual([
+      "steps.0.keep_think: keep_think는 반복 조건(while)이 있을 때만 쓸 수 있습니다",
+    ]);
+  });
+});
+
 describe("normalizeList", () => {
   it("따옴표 제거 + 파이프→콤마", () => {
     expect(normalizeList("'http' | 'loop' | 'if'")).toBe("http, loop, if");

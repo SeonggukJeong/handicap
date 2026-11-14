@@ -41,6 +41,22 @@ describe("iterationTimeUpperBoundSeconds", () => {
     ).toBe(5);
   });
 
+  it("조건 loop = upper 회차(repeat) × body, repeat 없으면 1회차", () => {
+    const cond = { left: "a", op: "eq", right: "b" };
+    const withMax = {
+      type: "loop",
+      repeat: 4,
+      while: cond,
+      do: [http({ timeout_seconds: 2 })],
+    } as unknown as Step;
+    const noMax = {
+      type: "loop",
+      while: cond,
+      do: [http({ timeout_seconds: 2 })],
+    } as unknown as Step;
+    expect(iterationTimeUpperBoundSeconds([withMax], 30)).toBe(8);
+    expect(iterationTimeUpperBoundSeconds([noMax], 30)).toBe(2);
+  });
   it("loop = repeat × body", () => {
     const loop = { type: "loop", repeat: 4, do: [http({ timeout_seconds: 2 })] } as unknown as Step;
     expect(iterationTimeUpperBoundSeconds([loop], 30)).toBe(8);

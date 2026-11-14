@@ -194,6 +194,35 @@ describe("store loop actions", () => {
   });
 });
 
+describe("conditional loop store actions (loop-do-while)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+  const COND = { left: "{{code}}", op: "eq" as const, right: "200" };
+  const getLoop = (id: string) => {
+    const l = useScenarioEditor.getState().model!.steps.find((s) => s.id === id)!;
+    if (l.type !== "loop") throw new Error("not a loop");
+    return l;
+  };
+
+  it("setLoopWhile / setLoopRepeat(undefined) / setLoopKeepThink", () => {
+    const id = useScenarioEditor.getState().addLoopStep("Loop")!;
+    useScenarioEditor.getState().setLoopWhile(id, COND);
+    useScenarioEditor.getState().setLoopRepeat(id, undefined);
+    expect(getLoop(id).while).toEqual(COND);
+    expect(getLoop(id).repeat).toBeUndefined();
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    useScenarioEditor.getState().setLoopKeepThink(id, false);
+    expect(getLoop(id).keep_think).toBe(false);
+    useScenarioEditor.getState().setLoopKeepThink(id, true);
+    expect(getLoop(id).keep_think).toBeUndefined();
+    useScenarioEditor.getState().setLoopWhile(id, undefined);
+    expect(getLoop(id).while).toBeUndefined();
+    expect(getLoop(id).repeat).toBe(1);
+  });
+});
+
 describe("setStepExtract", () => {
   beforeEach(() => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());

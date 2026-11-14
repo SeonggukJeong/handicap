@@ -1046,7 +1046,7 @@ function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void })
     step.type === "http"
       ? `${step.request.method} ${step.request.url}`
       : step.type === "loop"
-        ? `loop ×${step.repeat}`
+        ? `loop ×${step.repeat ?? 1}`
         : step.type === "parallel"
           ? `parallel ×${step.branches.length}`
           : "if";
@@ -1072,16 +1072,16 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
 
   // Numeric draft + commit-on-blur (F5 pattern): local state echoes every
   // keystroke; the model is only updated when a valid integer is committed.
-  const [repeatDraft, setRepeatDraft] = useState(String(step.repeat));
+  const [repeatDraft, setRepeatDraft] = useState(String(step.repeat ?? 1));
 
   useEffect(() => {
-    setRepeatDraft(String(step.repeat));
+    setRepeatDraft(String(step.repeat ?? 1));
   }, [step.id, step.repeat]);
 
   const commitRepeat = () => {
     const n = Number(repeatDraft);
     if (Number.isInteger(n) && n >= 1) setLoopRepeat(step.id, n);
-    else setRepeatDraft(String(step.repeat));
+    else setRepeatDraft(String(step.repeat ?? 1));
   };
 
   return (

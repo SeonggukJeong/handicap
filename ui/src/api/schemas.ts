@@ -546,7 +546,7 @@ export const DatasetRowsSchema = z.object({
 });
 export type DatasetRows = z.infer<typeof DatasetRowsSchema>;
 
-export const StepKindSchema = z.enum(["http", "if"]);
+export const StepKindSchema = z.enum(["http", "if", "loop"]);
 export type StepKind = z.infer<typeof StepKindSchema>;
 
 export const TracedRequestSchema = z.object({
@@ -588,6 +588,8 @@ export const ScenarioTraceSchema = z.object({
   final_vars: z.record(z.string(), z.string()),
   truncated: z.boolean(),
   error: z.string().nullable(),
+  // 조건 반복이 최대 횟수까지 풀리지 않아 끝난 경우의 loop 이름 — 서버는 없으면 키를 생략한다.
+  ended_by_loop: z.string().optional(),
 });
 export type ScenarioTrace = z.infer<typeof ScenarioTraceSchema>;
 

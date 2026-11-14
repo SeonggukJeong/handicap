@@ -62,8 +62,30 @@ describe("ScenarioTraceSchema", () => {
   });
 
   it("rejects an unknown kind", () => {
-    const bad = { ...SAMPLE, steps: [{ ...SAMPLE.steps[1], kind: "loop" }] };
+    const bad = { ...SAMPLE, steps: [{ ...SAMPLE.steps[1], kind: "bogus" }] };
     expect(() => ScenarioTraceSchema.parse(bad)).toThrow();
+  });
+
+  it("accepts a loop judge row and ended_by_loop (loop-do-while)", () => {
+    const withLoop = {
+      ...SAMPLE,
+      ended_by_loop: "poll",
+      steps: [
+        { ...SAMPLE.steps[1], kind: "loop", branch: "exhausted", request: null, response: null },
+      ],
+    };
+    const r = ScenarioTraceSchema.safeParse(withLoop);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.steps[0].kind).toBe("loop");
+      expect(r.data.ended_by_loop).toBe("poll");
+    }
+  });
+
+  it("legacy trace JSON without ended_by_loop still parses", () => {
+    const r = ScenarioTraceSchema.safeParse(SAMPLE);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.ended_by_loop).toBeUndefined();
   });
 
   it("requires always-emitted collection fields", () => {
