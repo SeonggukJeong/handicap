@@ -46,5 +46,5 @@ plan `docs/superpowers/plans/2026-11-13-loop-do-while.md`의 task들이 공유�
 
 | 위치 | 값 |
 |---|---|
-| `monitor/check.rs` `REASON_LOOP_EXHAUSTED` | `조건 반복이 최대 횟수까지 풀리지 않음` |
+| `monitor/check.rs` `REASON_LOOP_EXHAUSTED` | `조건 반복 최대 횟수 도달` |
 | TUI `inspect.rs` 판정 줄 again/done/exhausted | `조건 참 → 다시` / `조건 거짓 → 다음 스텝` / `최대 횟수 → 반복 종료` |

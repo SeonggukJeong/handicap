@@ -146,7 +146,7 @@ while 있음:
   - UI `chipResults.ts`: loop 판정 행은 칩 결과 계산에서 건너뛴다.
   - TUI `inspect.rs`의 `StepKind` match: `Loop` 가지 추가(if 판정과 같은 줄 형식, 문구만 다름).
   - GUI 모니터 `ui/src/components/monitor/CheckRecordDialog.tsx`(지금 `kind !== "if"`인 행을 전부 http 행으로 그림)·`PreviewResult.tsx`(모든 행을 http 행으로 그림): loop 판정 행은 판정 줄로 그린다(빈 요청 행이 되지 않게).
-  - 운영 모니터(`monitor/check.rs`·`step_judge.rs`·`record.rs`): 지금도 `== Http`/`== If`로만 걸러 쓰므로 loop 판정 행은 자연히 건너뛴다(코드 변경 없이 테스트로 고정). `ended_by_loop`가 있으면 그 점검은 **실패**(검사 위치는 기존 `trace.truncated`·`trace.error` 검사 바로 뒤 — 둘이 동시에 서는 일은 없지만 순서를 테스트로 고정), 사유 "조건 반복이 최대 횟수까지 풀리지 않음"(요청 상한 초과 사유 `REASON_REQUEST_CAP`와 같은 방식의 새 사유 상수).
+  - 운영 모니터(`monitor/check.rs`·`step_judge.rs`·`record.rs`): 지금도 `== Http`/`== If`로만 걸러 쓰므로 loop 판정 행은 자연히 건너뛴다(코드 변경 없이 테스트로 고정). `ended_by_loop`가 있으면 그 점검은 **실패**(검사 위치는 기존 `trace.truncated`·`trace.error` 검사 바로 뒤 — 둘이 동시에 서는 일은 없지만 순서를 테스트로 고정), 사유 "조건 반복 최대 횟수 도달"(요청 상한 초과 사유 `REASON_REQUEST_CAP`와 같은 방식의 새 사유 상수).
 
 ## 4. loop 횟수를 읽는 다른 코드 (전수)
 

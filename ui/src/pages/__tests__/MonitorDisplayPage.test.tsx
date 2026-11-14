@@ -377,15 +377,15 @@ describe("MonitorDisplayPage", () => {
       at_ms: T,
       verdict: "fail",
       latency_ms: null,
-      reason: "조건 반복이 최대 횟수까지 풀리지 않음",
+      reason: "조건 반복 최대 횟수 도달",
       detail: null,
       display: [],
     };
     boardHandler = () => res(board({}, [panelCfg()]));
     statusHandler = () => res(status([panelStatus(P1, [fail], { consecutive_fail: 1 })]));
     await renderPage();
-    const line = within(panelEl("결제")).getByText("조건 반복이 최대 횟수까지 풀리지 않음");
-    expect(line).toHaveAttribute("title", "조건 반복이 최대 횟수까지 풀리지 않음");
+    const line = within(panelEl("결제")).getByText("조건 반복 최대 횟수 도달");
+    expect(line).toHaveAttribute("title", "조건 반복 최대 횟수 도달");
   });
 
   it("fail_shows_reason_and_consecutive", async () => {

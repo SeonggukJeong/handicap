@@ -89,7 +89,7 @@ describe("directBodyExtractVars", () => {
 });
 
 describe("condWhenBodyVarsEmpty — 엔진과 어긋날 수 있는 입력은 판단 보류", () => {
-  it.each(["^(?!OK)", "(?<=a)b", "(?=a)", "(?<!a)b", "(a)\\1"])(
+  it.each(["^(?!OK)", "(?<=a)b", "(?=a)", "(?<!a)b", "(a)\\1", "(?<a>x)\\k<a>"])(
     "matches %s → unknown (Rust regex가 못 여는 문법)",
     (pat) => {
       expect(condWhenBodyVarsEmpty(leaf("matches", pat), X)).toBe("unknown");

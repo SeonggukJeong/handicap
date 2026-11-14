@@ -668,7 +668,7 @@ ${extra}
     expect(screen.getByText(/\{\{code\}\} eq 200/)).toBeInTheDocument();
   });
 
-  it("조건 loop 행: 이름은 최소 폭을 지키고 조건 요약이 먼저 줄어든다 (클래스 계약 — 실제 폭은 라이브 실측)", () => {
+  it("조건 loop 행: 이름 줄 아래 둘째 줄에 조건 요약 (클래스·구조 계약 — 실제 레이아웃은 라이브 실측)", () => {
     useScenarioEditor
       .getState()
       .loadFromString(
@@ -678,21 +678,29 @@ ${extra}
     const name = screen.getByText("poll");
     expect(name).toHaveAttribute("title", "poll");
     const nameTokens = name.className.split(/\s+/);
-    expect(nameTokens).toContain("min-w-[6ch]");
+    expect(nameTokens).toContain("min-w-0");
     expect(nameTokens).toContain("truncate");
     const summary = screen.getByText(/\{\{code\}\} eq 200/);
     const sumTokens = summary.className.split(/\s+/);
     expect(sumTokens).toContain("truncate");
-    expect(sumTokens).toContain("shrink-[999]");
-    expect(summary).toHaveAttribute("title");
+    expect(sumTokens).not.toContain("shrink-[999]");
+    expect(summary).toHaveAttribute("title", "{{code}} eq 200");
+    // 요약은 이름 줄(이름·개수 라벨·⚠)의 flex 형제가 아니라 둘째 줄이다.
+    const nameLine = name.parentElement as HTMLElement;
+    expect(summary.parentElement).toBe(nameLine.parentElement);
+    expect(summary.parentElement).not.toBe(nameLine);
+    expect(nameLine.contains(screen.getByText("조건 반복 · 최대 5"))).toBe(true);
+    expect(nameLine.contains(summary)).toBe(false);
+    expect((summary.parentElement as HTMLElement).className.split(/\s+/)).toContain("flex-col");
   });
 
-  it("while 없는 loop 이름 클래스는 그대로(min-w-0)", () => {
+  it("while 없는 loop은 한 줄 그대로 — 이름 클래스·요약 없음", () => {
     useScenarioEditor.getState().loadFromString(Y("    repeat: 3"));
     render(<FlowOutline />);
-    const tokens = screen.getByText("poll").className.split(/\s+/);
-    expect(tokens).toContain("min-w-0");
-    expect(tokens).not.toContain("min-w-[6ch]");
+    const name = screen.getByText("poll");
+    expect(name.className.split(/\s+/)).toContain("min-w-0");
+    // 이름과 개수 라벨은 같은 부모(행)의 형제 — 둘째 줄 구조가 아니다.
+    expect(name.parentElement).toBe(screen.getByText("× 3").parentElement);
   });
 
   it("while 없는 loop은 × 3 그대로", () => {
