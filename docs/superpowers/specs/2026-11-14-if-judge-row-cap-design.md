@@ -99,7 +99,8 @@ if 판정 줄은 조건 원문을 줄마다 복사한다(`condition.rs` `LeafEva
   - 근거: 줄도 요청도 안 생긴 회차는 http를 하나도 안 돌았다. 그 회차가 한 일은 parallel 병합(같은 이름에 같은 값을 다시 넣기)뿐이라 다음 회차도 같은 무진행이다. `${loop_index}`는 렌더되지 않았다.
   - 한계(수용): 손 YAML로만 만들 수 있는 두 경우에서 건너뛴 결과가 다를 수 있다 — ① parallel 분기의 추출 이름에 점이 든 경우(`A.x`를 다른 분기가 다시 내보내 회차마다 `B.A.x`류 이름이 하나씩 는다), ② parallel 분기마다 요청 단위 생성기가 씨앗을 한 번씩 뽑는 것(관찰 불가 — 씨앗이 엔트로피). UI는 parallel 분기에 http만 두므로 UI로 만든 시나리오는 해당 없음. 엔진 CLAUDE.md에 한 줄.
   - 이 규칙으로 while 없는 loop의 모든 회차는 요청 또는 판정 줄을 하나 이상 만든다 → 회차 수가 상한들로 묶인다. 중첩(`4e9 × 4e9 × []`)도 안쪽·바깥 모두 1회차에서 끊긴다.
-- **양보**: `tokio::task::yield_now().await`를 ① `Step::If` 가지 맨 앞(상한 검사 직후), ② while 없는 loop의 회차마다, ③ while 있는 loop의 회차마다(판정 줄을 넣은 뒤) 넣는다.
+- **양보**: `tokio::task::yield_now().await`를 ① `Step::If` 가지 맨 앞(상한 검사 직후), ② while 없는 loop의 회차마다(진행이 있었던 회차 뒤), ③ while 있는 loop의 회차마다(판정 줄을 넣은 뒤) 넣는다.
+  - ②가 필요한 경우: 보내기 전에 실패하는 http(값이 빈 `{{base}}`로 상대 주소가 된 요청, 잘못된 헤더 값)는 `send().await`가 멈추지 않고 바로 에러를 돌려준다. 그런 요청만 든 loop은 회차마다 줄을 만들지만(진행 있음) 양보가 없다. 회차 수는 요청 상한으로 묶인다.
   - 이유: 끊기는 회차 **수**를 묶지만 회차 하나의 **값**은 못 묶는다. if 줄 하나가 조건을 3–4번 렌더하고 `matches`는 평가마다 정규식을 다시 컴파일한다(선재, §B58 (2)). 큰 조건·비싼 정규식이면 줄 1,000개가 실행기 스레드를 초 단위로 쥘 수 있다.
   - 양보 지점이 있으면 클라이언트가 끊겼을 때 future가 버려지고, 모니터의 바깥 `tokio::time::timeout`도 동작한다. trace는 hot path가 아니다(부하 run의 조건 반복 가지에 같은 선례 — `runner.rs` `yield_now`).
 - while 있는 loop은 회차 수가 이미 상한 200에 묶여 있어 끊기 규칙은 넣지 않고 ③의 양보만 더한다(빈 본문 + 비싼 `while` 조건이 200회차 동안 `.await` 없이 도는 것을 막는다 — 회차마다 조건을 두 번 평가).
@@ -148,7 +149,7 @@ if 판정 줄은 조건 원문을 줄마다 복사한다(`condition.rs` `LeafEva
 - 무진행 끊기: §1.2 시나리오 → `max_wall`보다 훨씬 빨리 끝남 · `steps` 0 · `truncated` 아님 · `ok`. **이빨**: 끊기를 지우면 RED(테스트 `max_wall`은 짧게).
 - 끊기가 발동하면서 병합 결과가 남음: `loop repeat: 4000000000 → parallel{ A: [loop repeat: 0 [http extract x]] }` + 변수 `x`, 짧은 `max_wall` → `truncated` 아님 · `max_wall`보다 훨씬 빨리 끝남 · `final_vars["A.x"] == x`. **이빨**: 끊기를 지우면 RED(시간 제한에서 잘림).
 - while 양보: 빈 본문 + 항상 참 `while` → 판정 줄 200 · `truncated`(기존 동작) — 양보를 넣어도 결과가 같다.
-- 양보 지점 자체: `crates/engine/tests/loop_while.rs`의 `cond_loop_no_request_body_yields_to_other_tasks` 방식(단일 스레드 런타임 + 카운터를 올리는 옆 task + 카운터가 올랐다는 단언)으로 If 가지 양보와 while 회차 양보를 각각. **이빨**: 해당 양보를 지우면 RED.
+- 양보 지점 자체: `crates/engine/tests/loop_while.rs`의 `cond_loop_no_request_body_yields_to_other_tasks` 방식(단일 스레드 런타임 + 카운터를 올리는 옆 task + 카운터가 올랐다는 단언)으로 If 가지 양보·while 없는 loop 회차 양보(보내기 전에 실패하는 http 본문)·while 회차 양보를 각각. **이빨**: 해당 양보를 지우면 RED.
 - 진행 있는 loop은 안 끊김: http가 든 loop·if가 든 loop의 회차 수가 `repeat`과 같다.
 - 순차(정확한 경계 픽스처): 1행이 if 줄 정확히 상한 개수로 **잘리지 않고** 끝나고, 2행은 http로 시작 → 2행이 `rows`에 없고 2행의 요청이 나가지 않았다. 조건 반복 쪽: 1행이 판정 줄 정확히 200개(마지막 `done`)로 끝남 → 2행 미실행. **이빨**: §2.4를 되돌리면 RED(2행이 요청을 보내고 잘린 행으로 남음).
 - R0: 기존 판정 줄 테스트(`trace_judge_rows_capped*`·`…boundary_done_is_not_truncated`) 그대로 통과.
