@@ -208,26 +208,34 @@ export function TraceStepList({
   if (trace.steps.length === 0) {
     return <p className="text-sm text-slate-500">실행할 스텝이 없습니다.</p>;
   }
+  const endedId = trace.ended_by_loop;
   return (
-    <ul>
-      {trace.steps.map((step, i) => {
-        const key = `${step.step_id}-${i}`;
-        if (step.kind === "if") return <IfRow key={key} step={step} steps={steps} />;
-        if (step.kind === "loop") {
-          const m = meta[step.step_id];
-          return (
-            <li key={key} className="border-b border-slate-100 py-2">
-              <LoopJudgeRow
-                step={step}
-                loopName={m?.name ?? step.step_id}
-                maxPasses={m?.maxPasses}
-              />
-            </li>
-          );
-        }
-        return <HttpRow key={key} step={step} onAddExtract={onAddExtract} />;
-      })}
-    </ul>
+    <>
+      {endedId !== undefined && (
+        <Callout variant="warn" className="mb-2">
+          {ko.editor.endedByLoop(meta[endedId]?.name ?? endedId)}
+        </Callout>
+      )}
+      <ul>
+        {trace.steps.map((step, i) => {
+          const key = `${step.step_id}-${i}`;
+          if (step.kind === "if") return <IfRow key={key} step={step} steps={steps} />;
+          if (step.kind === "loop") {
+            const m = meta[step.step_id];
+            return (
+              <li key={key} className="border-b border-slate-100 py-2">
+                <LoopJudgeRow
+                  step={step}
+                  loopName={m?.name ?? step.step_id}
+                  maxPasses={m?.maxPasses}
+                />
+              </li>
+            );
+          }
+          return <HttpRow key={key} step={step} onAddExtract={onAddExtract} />;
+        })}
+      </ul>
+    </>
   );
 }
 
@@ -240,13 +248,6 @@ export function TestRunPanel({
   steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
 }) {
-  const endedName = useMemo(
-    () =>
-      trace.ended_by_loop === undefined
-        ? ""
-        : (loopJudgeMeta({ steps: steps ?? [] })[trace.ended_by_loop]?.name ?? trace.ended_by_loop),
-    [steps, trace.ended_by_loop],
-  );
   return (
     <section
       aria-label={ko.editor.testRunResultAria}
@@ -266,11 +267,6 @@ export function TestRunPanel({
       {trace.truncated && (
         <Callout variant="warn" className="mb-2">
           상한 도달 — 일부만 실행됨 (max_requests 또는 시간 천장)
-        </Callout>
-      )}
-      {trace.ended_by_loop !== undefined && (
-        <Callout variant="warn" className="mb-2">
-          {ko.editor.endedByLoop(endedName)}
         </Callout>
       )}
       <TraceStepList trace={trace} steps={steps} onAddExtract={onAddExtract} />

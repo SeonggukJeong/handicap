@@ -513,7 +513,7 @@ describe("CheckRecordDialog", () => {
   it("focus_index_skips_loop_judge_rows", async () => {
     // loop 행의 step_id가 포커스 id와 같아도(최악 충돌) 열리는 건 http 행이다.
     getRecord.mockResolvedValue(rec({}, [http({ step_id: S1 }), judgeRow("done", 0, S1)]));
-    const { rerender } = wrap(
+    wrap(
       <CheckRecordDialog
         boardId="B1"
         panel={panel}
@@ -522,7 +522,6 @@ describe("CheckRecordDialog", () => {
         onClose={() => {}}
       />,
     );
-    void rerender;
     const btn = await screen.findByRole("button", { expanded: true });
     expect(btn).toHaveTextContent("GET https://h/x");
   });

@@ -31,6 +31,20 @@ steps:
       method: GET
       url: http://x/b
 `;
+const LOOP_ID = "01HZZZZZZZZZZZZZZZZZZZZZK1";
+const LOOP_YAML = `${YAML}  - id: ${LOOP_ID}
+    name: 주문 재시도
+    type: loop
+    repeat: 3
+    while: { left: "{{code}}", op: eq, right: WAIT }
+    do:
+      - id: 01HZZZZZZZZZZZZZZZZZZZZZH1
+        name: 대기 조회
+        type: http
+        request:
+          method: GET
+          url: http://x/c
+`;
 const scenarios = {
   scenarios: [{ id: SID, name: "점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1 }],
 };
@@ -878,6 +892,21 @@ describe("MonitorEditPage", () => {
     await user.click(screen.getByRole("button", { name: ko.monitor.save }));
     await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
     expect(putConds()).toEqual([COND_B]);
+  });
+
+  it("condition_row_does_not_accept_loop_id_as_step", async () => {
+    handlers["GET /api/scenarios"] = () =>
+      json({
+        scenarios: [
+          { id: SID, name: "점검", yaml: LOOP_YAML, version: 1, created_at: 1, updated_at: 1 },
+        ],
+      });
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(withConds([{ ...COND_B, step_id: LOOP_ID }]));
+    renderAt("/monitors/B1");
+    await expandAll();
+    expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`상태코드 = 200 · ${LOOP_ID}`))).toBeInTheDocument();
   });
 
   it("condition_row_marks_missing_step", async () => {

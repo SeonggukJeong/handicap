@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { SequentialTrace, StepTrace } from "../../../api/schemas";
+import type { Step } from "../../../scenario/model";
 import { SequentialRunPanel, defaultExpandedRow } from "../SequentialRunPanel";
 import { ko } from "../../../i18n/ko";
 
@@ -67,6 +68,46 @@ describe("defaultExpandedRow", () => {
 
 describe("SequentialRunPanel", () => {
   const noop = () => {};
+  it("펼친 행의 trace에 ended_by_loop가 있으면 종료 안내가 뜬다", () => {
+    const LP = "01HX00000000000000000000L1";
+    const steps: Step[] = [
+      {
+        id: LP,
+        name: "주문 재시도",
+        type: "loop",
+        repeat: 3,
+        while: { left: "{{code}}", op: "eq", right: "WAIT" },
+        do: [
+          {
+            id: "01HX0000000000000000000010",
+            name: "조회",
+            type: "http",
+            request: { method: "GET", url: "http://x/a1", headers: {} },
+            assert: [],
+            extract: [],
+          },
+        ],
+      },
+    ];
+    const ended: SequentialTrace = {
+      ...seq,
+      rows: [{ row_index: 0, trace: { ...rowTrace("http://x/a0", true), ended_by_loop: LP } }],
+    };
+    render(
+      <SequentialRunPanel
+        seq={ended}
+        steps={steps}
+        requestedRows={1}
+        expandedRow={0}
+        onExpandRow={noop}
+      />,
+    );
+    expect(
+      screen.getAllByText(
+        "조건 반복 「주문 재시도」이(가) 최대 횟수까지 풀리지 않아 여기서 끝났습니다.",
+      ),
+    ).toHaveLength(1);
+  });
   it("행 목록: 번호(1-based)·✓/✗·ms + truncated 경고 (R13)", () => {
     render(
       <SequentialRunPanel seq={seq} requestedRows={5} expandedRow={null} onExpandRow={noop} />,
