@@ -269,6 +269,8 @@ while 있음:
 
 ## 부록 A. 2차(리포트, US4) 설계 초안 — 이 문서의 범위 밖, 2차 spec의 출발점
 
+> **2차 완료(2026-11-14, `docs/superpowers/specs/2026-11-14-loop-while-report-design.md`)** — 이 초안과 달라진 점: "잘린 진입은 세지 않는다"가 **"잘린 진입도 '마치지 못함'으로 따로 센다"**로 바뀌었다.
+
 - **US4**: QA 또는 운영자가 조건 반복이 있었던 run의 리포트를 읽으려 한다 — 성공하면 해당 스텝 행의 「재시도 포함」 표시, loop별 "진입 N · 재시도 M · 중단 K" 풀이, 몇 번째 회차에서 끝났는지의 분포, 재시도가 있었을 때 리포트 맨 위의 해석 주의 안내를 본다. 목업: `docs/superpowers/specs/2026-11-13-loop-do-while-mockups/report-options.html`.
 - **집계(counts-only)**: `while` loop에 들어갔다가 끝난 한 번마다 `(loop id, 회차 칸, 중단 여부)`로 한 건 + 실제 회차 합. 회차 칸은 20까지 따로, 그 이상은 "21회차 이상" 한 칸(고정 상수, `loop_breakdown_cap`과 별개). deadline/취소로 잘린 진입은 세지 않는다.
 - **길**: if 분기 집계와 같은 꼴 — 엔진 `Aggregator` → `MetricFlush`(리터럴·drain·빈 flush 건너뛰기 조건 3모드 전부) → proto `MetricBatch` 새 반복 필드(11) → 워커 → 컨트롤러 ingest(`MetricBatch` 리터럴 전부) → 새 테이블(누적 upsert, `/new-migration`, 시나리오 삭제 cascade 목록) → `ReportJson.loop_exits`(`#[serde(default, skip_serializing_if = "Vec::is_empty")]`) → UI Zod `.optional()`.

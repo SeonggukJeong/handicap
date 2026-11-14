@@ -79,3 +79,7 @@ plan의 검산 명령 중 **변경-후 상태가 존재해야 실행 자체가 �
 ## 버그 fix가 지운 부수효과에 기대던 소비자 (curve-arrival-integral, 2026-10-19)
 
 엔진-only plan(Global Constraint "controller 코드 0-diff")의 3 task가 전부 per-task clean이었지만, 최종 whole-branch 리뷰가 **크로스-크레이트 행동 의존**을 잡았다. 컨트롤러 startup 워치독은 "첫 MetricBatch가 grace(90s) 안에 온다"에 기대고, open-loop은 heartbeat가 없어 첫 *도착*이 그 신호다. 옛 엔진은 레이트 0 poll-step 직후 1건을 쏘는 **버그성 부수효과**로 이 계약을 우연히 지켰고, 버그를 고치자 느린 ramp(첫 도착 √(D/s) > 90s)가 hung으로 오판 `failed`됐다. 어느 task diff에도 워치독이 없었고, "0-diff" 제약 자체가 "의존 없음"을 가정했기에 per-task 리뷰는 그 가정 안에서만 봤다. 최종 리뷰 프롬프트에 "옛 동작에 의존하던 크로스-크레이트 소비자(호출 지점 확인)"를 명시 초점으로 줬기에 잡혔다 — 버그 fix 슬라이스에선 이 초점을 기본으로 넣을 것. "X 크레이트 0-diff"는 diff 범위 규칙이지 행동 무영향 보증이 아니며, 반증되면 그 슬라이스 안에서 고치고 ruling을 roadmap §B에 남긴다(§B36).
+
+## 리뷰·구현 병렬 중의 전체 게이트 flake (loop-while-report, 2026-11-14)
+
+task 리뷰(read-only)와 다음 task 구현을 서로 다른 파일에서 병렬로 돌리는 것 자체는 문제없었다(8 task 중 6회, 충돌 0). 다만 **다른 agent가 cargo를 쓰는 동안 orchestrator가 전체 `cargo nextest run --workspace`를 돌리면** `handicap-controller::pool_open_loop_capacity_test pool_open_loop_assigns_capacity_aware`가 "pool_idle_count >= 2 (current = 1)" 타임아웃으로 떨어진다(워커 subprocess 기동이 패키지 캐시 락에 밀림). 단독 3회는 전부 통과. 전체 게이트는 다른 agent의 cargo가 없을 때 돌리고, 이 테스트만 떨어지면 단독 재실행으로 판정한다. 같은 이유로 implementer의 첫 커밋이 pre-commit에서 원인 불명 exit 1로 떨어진 뒤 재시도에 통과한 일이 1회 있었다.

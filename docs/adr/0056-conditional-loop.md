@@ -22,7 +22,14 @@
 - **`keep_think`**: "이 반복 안의 think time은 think time을 무시하는 실행에서도 적용한다"(loop마다, 기본 켜짐). think를 무시하는 세 경로(open-loop 기본 think 무시의 `maybe_strip_think`·에디터 시험 실행·운영 모니터)가 대상 loop 본문의 유효 think(스텝 값, 없으면 시나리오 기본값)를 보존한다. 대상 loop이 없으면 세 경로 모두 결과가 지금과 같다.
 - **시험 실행 trace**: `while` loop은 매 회차 뒤 판정 행 하나(`StepKind::Loop`, 와이어 `"loop"`, branch `again|done|exhausted`)를 남기고, `exhausted`는 `ScenarioTrace.ended_by_loop`(loop id)로 알린다. 판정 행은 `MAX_LOOP_JUDGE_ROWS = 200`을 넘으면 `truncated`로 끝낸다(요청 없는 본문이 `max_requests`에 안 걸리고 도는 경우의 상한). 운영 모니터는 `ended_by_loop`가 있으면 흐름 칸의 점검을 실패(`REASON_LOOP_EXHAUSTED`)로 보고, 스텝 칸은 소진된 반복 본문 안의 스텝과 돌지 못한 스텝만 같은 사유로 실패시키며 반복 앞에서 돈 스텝은 평소대로 판정한다.
 - **에디터 경고(저장·실행을 막지 않음)**: ① 쉬지 않는 재시도(본문에 유효 think 없음 / think는 있는데 `keep_think` 꺼짐 — 약한 안내) ② 실패해도 반복(조건을 "본문이 뽑는 변수 = 빈 문자열"로 평가해 확실히 참). ②는 클라 순수 함수 `condWhenBodyVarsEmpty`의 3값 논리(`true|false|unknown`)로 엔진 `eval_compare`를 거울하며, JS에서 컴파일되지 않거나 Rust regex가 못 여는 패턴은 `unknown`으로 두어 경고하지 않는다. UI Zod는 `StepModel.superRefine` 한 곳에서 교차 검사한다(`repeat required when loop has no while`, `keep_think needs while`).
-- **범위**: 1차 = 실행·에디터. 메트릭 proto·DB·리포트 JSON은 건드리지 않는다.
+- **범위**: 1차 = 실행·에디터. 메트릭 proto·DB·리포트 JSON은 건드리지 않는다. (2차에서 리포트 집계를 더했다 — 아래 "리포트 집계".)
+
+**리포트 집계 (2차, loop-while-report 2026-11-14)**
+
+- 엔진이 조건 반복 진입이 **끝날 때마다** `(loop id, 회차 칸, 끝난 방식)` 건수와 실제 회차 합을 센다. 회차 칸 = `min(회차, 21)`(21 = "21번째 이후"), 끝난 방식 = 0 완료 · 1 중단(최대 횟수) · 2 마치지 못함(run 종료·중지·오류로 도중에 끊김 — 1차 부록 A의 "잘린 진입은 세지 않는다"를 뒤집음: 끝내 풀리지 않는 무제한 반복의 재시도가 안 보이면 안 된다). 본문을 한 번도 시작하지 못한 진입은 세지 않는다.
+- 운반은 send 실패 종류 집계(ADR-0050)와 같은 counts-only 길: `MetricFlush.loop_exit_stats` → proto `MetricBatch.loop_exit_stats = 11` → 컨트롤러 ingest(워커 입력의 칸은 1..=21로 clamp, 범위 밖 방식은 버림) → `run_loop_exit_metrics`(migration 0023, upsert 누적 — 워커 여럿의 델타가 합쳐진다) → `ReportJson.loop_exits`(빈 배열이면 키 생략).
+- 화면은 순수 뷰 모델 하나(`ui/src/components/report/loopExitView.ts`)를 표지·풀이 줄·분포 패널·맨 위 안내가 같이 쓴다. `재시도 = 회차 합 − 진입`. 「재시도 포함」 표지는 실제로 2번째 이후 회차에서 요청된 본문 스텝에만(회차별 요청 수가 없으면 재시도가 있는 loop의 본문 스텝 전부).
+- **R0**: 조건 반복 집계가 없는 run은 batch·DB 행·리포트 JSON·화면이 그대로다. 내보내기·인쇄·비교·유효성·인사이트·TUI·시험 실행 trace는 바꾸지 않았다(연기 — roadmap §B60).
 
 **기각**
 - **본문 실행 *전에* 조건을 보는 while**: 사용자 판단 — 나중에 if 스텝과 결합해 해결.
@@ -37,7 +44,7 @@
 
 **Negative / Trade-offs**: 조건 반복 안에서는 "성공 응답인데 값이 빠진" 경우가 그 스텝의 에러로 잡히지 않고 그 값을 쓰는 다음 스텝에서 드러난다. loop 전부터 있던 값도 덮인다(본문 스텝이 `token`을 다시 뽑다 실패하면 뒤 요청에 빈 토큰이 실린다). 조건 반복 안에서 빈 값이 된 값은 뒤 요청의 URL에도 그대로 치환되어 id 경로 조각이 다른 리소스를 가리킬 수 있다(`DELETE /orders/{{orderId}}` → `DELETE /orders/`) — 부하 run·에디터 시험 실행·무인 운영 모니터 점검 모두 해당하며, 작성자의 완화책은 뒤 스텝을 그 값에 대한 if로 감싸는 것이고, 실패 닫힘 옵션(이번 회차에서 빈 값이 된 값을 쓰는 URL은 보내지 않고 스텝 에러로 센다 — runner·trace 양쪽)은 roadmap 후속으로 기록한다. 최대 횟수로 끝난 반복은 1차 동안 리포트에 드러나지 않는다(2차가 채움 — 1·2차를 모두 끝낸 뒤 릴리즈). 실행 전 부하 추정은 무제한을 1회차로 계산한다. 새 YAML을 옛 워커가 읽으면 `deny_unknown_fields`로 run이 즉시 `failed`가 된다(릴리즈 노트 한 줄: 조건 반복이 든 시나리오는 워커도 새 버전이어야 함). `keep_think`(기본 켜짐)는 사용자가 think time을 켜지 않았어도 에디터 시험 실행이 본문 대기를 기다리게 한다(시험 실행 전체 제한 시간이 상한이고 취소 가능). UI 조건 평가 거울(`condEmptyEval.ts`)과 엔진 `eval_compare`는 두 벌이며 같은 연산자 표 테스트로 묶는다. yamlDoc의 loop 액션은 무효 조합을 막지 않는다(호출부 책임 — `ui/src/scenario/CLAUDE.md`).
 
-**연기**: 리포트 표시(2차, 회차 분포·재시도 풀이)·응답 시간 분리(3차)·내보내기/인쇄/비교 반영·판정 근거 값 표시·운영 모니터 점검 시간 상한의 재시도 반영 — roadmap §B(finish 단계에서 번호 부여).
+**연기**: ~~리포트 표시(2차, 회차 분포·재시도 풀이)~~(완료 — 위 "리포트 집계", 남은 것 §B60)·응답 시간 분리(3차)·내보내기/인쇄/비교 반영·판정 근거 값 표시·운영 모니터 점검 시간 상한의 재시도 반영 — roadmap §B(finish 단계에서 번호 부여).
 
 ## 사용 안내
 

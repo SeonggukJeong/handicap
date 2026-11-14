@@ -1,7 +1,7 @@
 # 조건 반복 2차 — 리포트 표시 설계
 
 - 날짜: 2026-11-14 · 브랜치 `worktree-loop-while-report` · 유형 `user-path`
-- 상태: 설계
+- 상태: 완료 (2026-11-14, 코드 `930e1b3d`..`e295d3c8`). 구현 중 바뀐 것: §4.1 표지 주석 정정(성공 회차에만 도는 if 안 스텝도 그 회차가 2번째 이후면 표지), 분포 막대 색(라이브 대비 실측). 판단·연기 → roadmap §B60.
 - 앞 작업: 조건 반복 1차(`docs/superpowers/specs/2026-11-13-loop-do-while-design.md`, ADR-0056) — 이 문서는 그 부록 A 초안을 확정한다. **부록 A와 다른 점 하나**: 부록 A는 "deadline/취소로 잘린 진입은 세지 않는다"였지만, 이 문서는 잘린 진입도 따로 센다(§2 — 이유 포함).
 - 관련 결정: ADR-0021(loop 집계는 counts-only)·0023(if 분기 집계)·0050(send 실패 종류 집계 — 이번 작업이 그대로 따르는 운반 길)·0056(조건 반복)
 - 목업: `docs/superpowers/specs/2026-11-13-loop-do-while-mockups/report-options.html` (A·B·맨 위 안내를 채택, C는 3차)
