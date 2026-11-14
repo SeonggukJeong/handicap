@@ -15,8 +15,8 @@ use handicap_worker_core::{WorkerError, WorkerLink, connect_with_backoff, load_d
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{
-    ActiveVuSample, BranchStat, ErrorKindStat, GroupStat, LoopStat, MetricBatch, MetricWindow,
-    PhaseStat, RunStatus, WorkerMessage,
+    ActiveVuSample, BranchStat, ErrorKindStat, GroupStat, LoopExitStat, LoopStat, MetricBatch,
+    MetricWindow, PhaseStat, RunStatus, WorkerMessage,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -323,11 +323,13 @@ async fn execute_assignment(
                 })
                 .collect();
             let error_kind_stats = error_kind_stats_to_proto(flush.error_kind_stats);
+            let loop_exit_stats = loop_exit_stats_to_proto(flush.loop_exit_stats);
             // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
             // run-total dropped count with empty windows. Dropping it would silently
             // discard `dropped` on all-empty-window final flushes (the C1 footgun).
             // Keep `error_kind_stats.is_empty()` too (E1): an error_kind-only flush with
             // all other vecs empty must not be silently skipped (the same C1 footgun).
+            // loop_exit_stats도 같은 이유.
             if windows.is_empty()
                 && loop_stats.is_empty()
                 && branch_stats.is_empty()
@@ -335,6 +337,7 @@ async fn execute_assignment(
                 && phase_stats.is_empty()
                 && active_vu_samples.is_empty()
                 && error_kind_stats.is_empty()
+                && loop_exit_stats.is_empty()
                 && flush.dropped == 0
             {
                 continue;
@@ -350,6 +353,7 @@ async fn execute_assignment(
                     phase_stats,
                     active_vu_samples,
                     error_kind_stats,
+                    loop_exit_stats,
                     dropped: flush.dropped,
                 })),
             };
@@ -654,6 +658,20 @@ fn to_run_plan(
         // E3: connect 단계 전용 타임아웃. 부재/0 = None = 빌더 호출 없음(byte-identical).
         connect_timeout: proto_connect_timeout(profile),
     }
+}
+
+/// 조건 반복 진입 종료 delta (loop-while-report): engine `LoopExitStat` → proto wire.
+fn loop_exit_stats_to_proto(stats: Vec<handicap_engine::LoopExitStat>) -> Vec<LoopExitStat> {
+    stats
+        .into_iter()
+        .map(|s| LoopExitStat {
+            step_id: s.step_id,
+            pass_bucket: s.pass_bucket,
+            outcome: s.outcome.as_wire(),
+            count: s.count,
+            pass_sum: s.pass_sum,
+        })
+        .collect()
 }
 
 /// send-실패 분류 delta counts (E1): engine `ErrorKindStat` → proto wire
@@ -1028,6 +1046,39 @@ mod tests {
         assert_eq!(
             (out[1].step_id.as_str(), out[1].kind.as_str(), out[1].count),
             ("s2", "local_port_exhaustion", 1)
+        );
+    }
+
+    #[test]
+    fn loop_exit_stats_map_to_proto_wire_values() {
+        use handicap_engine::{LoopExitOutcome, LoopExitStat};
+        let out = loop_exit_stats_to_proto(vec![
+            LoopExitStat {
+                step_id: "l1".into(),
+                pass_bucket: 21,
+                outcome: LoopExitOutcome::Truncated,
+                count: 2,
+                pass_sum: 90,
+            },
+            LoopExitStat {
+                step_id: "l1".into(),
+                pass_bucket: 3,
+                outcome: LoopExitOutcome::Exhausted,
+                count: 1,
+                pass_sum: 3,
+            },
+        ]);
+        assert_eq!(
+            out.iter()
+                .map(|s| (
+                    s.step_id.as_str(),
+                    s.pass_bucket,
+                    s.outcome,
+                    s.count,
+                    s.pass_sum
+                ))
+                .collect::<Vec<_>>(),
+            vec![("l1", 21, 2, 2, 90), ("l1", 3, 1, 1, 3)]
         );
     }
 

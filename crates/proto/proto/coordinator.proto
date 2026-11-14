@@ -51,6 +51,15 @@ message ErrorKindStat {
   uint64 count = 3;     // delta since last flush
 }
 
+// 조건 반복(while loop) 진입 종료 델타 (loop-while-report). counts-only.
+message LoopExitStat {
+  string step_id = 1;      // loop 스텝 id
+  uint32 pass_bucket = 2;  // 1..=20 = 그 회차, 21 = 21번째 이후
+  uint32 outcome = 3;      // 0 완료 · 1 중단(최대 횟수) · 2 마치지 못함
+  uint64 count = 4;
+  uint64 pass_sum = 5;     // 실제 회차 수의 합
+}
+
 message GroupStat {
   string step_id = 1;        // the `parallel` node's id
   bytes hdr_histogram = 2;   // hdrhistogram V2 serialized (delta since last drain)
@@ -82,6 +91,7 @@ message MetricBatch {
   repeated PhaseStat phase_stats = 8;  // per-(step_id,phase) latency-phase breakdown (delta, controller merges)
   repeated ActiveVuSample active_vu_samples = 9;  // per-second active-VU gauge (curve only)
   repeated ErrorKindStat error_kind_stats = 10;  // send-실패 분류 카운트 (delta, controller merges)
+  repeated LoopExitStat loop_exit_stats = 11;  // 조건 반복 진입 종료 (delta, controller sums)
 }
 
 message MetricWindow {

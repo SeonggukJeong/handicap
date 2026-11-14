@@ -1611,6 +1611,31 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "error_kind metrics insert failed");
         }
     }
+    // 조건 반복 진입 종료(loop-while-report). 워커 입력은 믿지 않는다 — 칸은 1..=21로 누르고
+    // 모르는 outcome은 버린다(loop당 행 수가 최대 63으로 묶인다).
+    let loop_exit_rows: Vec<crate::store::metrics::LoopExitRow> = batch
+        .loop_exit_stats
+        .iter()
+        .filter(|s| s.outcome <= 2)
+        .map(|s| crate::store::metrics::LoopExitRow {
+            run_id: batch.run_id.clone(),
+            step_id: s.step_id.clone(),
+            pass_bucket: i64::from(
+                s.pass_bucket
+                    .clamp(1, handicap_engine::LOOP_EXIT_PASS_CAP + 1),
+            ),
+            outcome: i64::from(s.outcome),
+            count: s.count as i64,
+            pass_sum: s.pass_sum as i64,
+        })
+        .collect();
+    if !loop_exit_rows.is_empty() {
+        if let Err(e) =
+            crate::store::metrics::insert_loop_exit_batch(&state.db, &loop_exit_rows).await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "loop_exit metrics insert failed");
+        }
+    }
     let group_rows: Vec<crate::store::metrics::GroupMetricRow> = batch
         .group_stats
         .iter()
@@ -2398,6 +2423,7 @@ mod tests {
             phase_stats: vec![],
             active_vu_samples: vec![],
             error_kind_stats: vec![],
+            loop_exit_stats: vec![],
             dropped: d,
         };
         ingest_metrics(&coord, &mk(3)).await;
@@ -2451,6 +2477,7 @@ mod tests {
             phase_stats: vec![],
             active_vu_samples: vec![],
             error_kind_stats: vec![],
+            loop_exit_stats: vec![],
             dropped: 0,
         };
         ingest_metrics(&coord, &batch).await;
@@ -2469,6 +2496,41 @@ mod tests {
         let branch_a = rows.iter().find(|r| r.branch == "a").expect("branch-a row");
         assert_eq!(page_row.count, 1);
         assert_eq!(branch_a.count, 1, "branch='a' round-trip count must be 1");
+    }
+
+    #[tokio::test]
+    async fn ingest_persists_loop_exits_and_sanitizes_worker_input() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let st = |bucket: u32, outcome: u32, count: u64, sum: u64| pb::LoopExitStat {
+            step_id: "l1".to_string(),
+            pass_bucket: bucket,
+            outcome,
+            count,
+            pass_sum: sum,
+        };
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            loop_exit_stats: vec![
+                st(2, 0, 3, 6),
+                st(0, 0, 1, 1),       // 범위 밖 칸 → 1로
+                st(9999, 2, 1, 9999), // 범위 밖 칸 → 21로
+                st(2, 7, 5, 10),      // 모르는 outcome → 버림
+            ],
+            ..Default::default()
+        };
+        ingest_metrics(&coord, &batch).await;
+        ingest_metrics(&coord, &batch).await; // 두 번째 델타 — 누적
+        let rows = crate::store::metrics::loop_exit_breakdown(&db, &run_id)
+            .await
+            .unwrap();
+        let got: Vec<_> = rows
+            .iter()
+            .map(|r| (r.pass_bucket, r.outcome, r.count, r.pass_sum))
+            .collect();
+        assert_eq!(got, vec![(1, 0, 2, 2), (2, 0, 6, 12), (21, 2, 2, 19998)]);
     }
 
     #[tokio::test]
@@ -2491,6 +2553,7 @@ mod tests {
                 kind: "connect_refused".to_string(),
                 count: 3,
             }],
+            loop_exit_stats: vec![],
             dropped: 0,
         };
         ingest_metrics(&coord, &batch).await;
