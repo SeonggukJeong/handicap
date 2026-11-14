@@ -443,3 +443,43 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     expect(document.activeElement).toBe(toggle);
   });
 });
+
+describe("TestFlowChips — 조건 반복 라벨", () => {
+  const Y = (extra: string) => `version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000040"
+    name: poll
+    type: loop
+${extra}
+    do:
+      - id: "01HX0000000000000000000041"
+        name: ping
+        type: http
+        request:
+          method: GET
+          url: "/ping"
+`;
+  const stepsOf = (yaml: string) => {
+    const p = parseScenarioDoc(yaml);
+    if (!("model" in p)) throw new Error("fixture must parse");
+    return p.model.steps;
+  };
+
+  it("조건 loop 칩은 라벨만(요약 없음)", () => {
+    const steps = stepsOf(
+      Y(`    repeat: 5\n    while:\n      left: "{{code}}"\n      op: eq\n      right: "200"`),
+    );
+    render(<TestFlowChips steps={steps} trace={null} selectedStepId={null} onSelect={noop} />);
+    expect(screen.getByText("조건 반복 · 최대 5")).toBeInTheDocument();
+    expect(screen.queryByText(/eq 200/)).toBeNull();
+  });
+
+  it("while 없는 loop은 × 3 그대로", () => {
+    const steps = stepsOf(Y("    repeat: 3"));
+    render(<TestFlowChips steps={steps} trace={null} selectedStepId={null} onSelect={noop} />);
+    expect(screen.getByText("× 3")).toBeInTheDocument();
+  });
+});

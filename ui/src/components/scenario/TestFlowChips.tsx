@@ -2,6 +2,7 @@ import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState } from "rea
 import type { ScenarioTrace } from "../../api/schemas";
 import { isIfStep, isLoopStep, isParallelStep, type Step } from "../../scenario/model";
 import { branchText, deriveChipResults, type ChipResult } from "../../scenario/chipResults";
+import { loopCountLabel } from "../../scenario/loopLabel";
 import { METHOD_BADGE } from "./methodBadge";
 import { ko } from "../../i18n/ko";
 
@@ -88,7 +89,7 @@ function ChipNode({ step, results, selectedStepId, onSelect }: NodeProps) {
           <span className="max-w-[8rem] truncate" title={step.name}>
             {step.name}
           </span>
-          {isLoopStep(step) && <span className="shrink-0">× {step.repeat ?? 1}</span>}
+          {isLoopStep(step) && <span className="shrink-0">{loopCountLabel(step)}</span>}
           {taken.includes("none") && (
             <span className="shrink-0 text-violet-700">{branchText("none")}</span>
           )}

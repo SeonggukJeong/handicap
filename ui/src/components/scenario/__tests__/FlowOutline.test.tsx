@@ -636,3 +636,41 @@ describe("FlowOutline wide 칩 — 시나리오 기본값 lock-in (R11, think-ti
     expect(screen.queryByText(/think \d+–\d+ms/)).not.toBeInTheDocument();
   });
 });
+
+describe("FlowOutline — 조건 반복 라벨", () => {
+  const Y = (extra: string) => `version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000040"
+    name: poll
+    type: loop
+${extra}
+    do:
+      - id: "01HX0000000000000000000041"
+        name: ping
+        type: http
+        request:
+          method: GET
+          url: "/ping"
+`;
+  beforeEach(reset);
+
+  it("조건 loop 행에 라벨과 조건 요약이 보인다", () => {
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        Y(`    repeat: 5\n    while:\n      left: "{{code}}"\n      op: eq\n      right: "200"`),
+      );
+    render(<FlowOutline />);
+    expect(screen.getByText("조건 반복 · 최대 5")).toBeInTheDocument();
+    expect(screen.getByText(/\{\{code\}\} eq 200/)).toBeInTheDocument();
+  });
+
+  it("while 없는 loop은 × 3 그대로", () => {
+    useScenarioEditor.getState().loadFromString(Y("    repeat: 3"));
+    render(<FlowOutline />);
+    expect(screen.getByText("× 3")).toBeInTheDocument();
+  });
+});

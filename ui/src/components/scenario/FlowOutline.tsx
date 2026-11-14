@@ -33,6 +33,7 @@ import {
 } from "../../scenario/model";
 import { resolveDrop } from "../../scenario/reorder";
 import { formatThink } from "../../scenario/thinkTime";
+import { loopCountLabel } from "../../scenario/loopLabel";
 import {
   bandIndex,
   bandKey,
@@ -108,7 +109,8 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
         <span className="min-w-0 truncate font-medium" title={step.name}>
           {step.name}
         </span>
-        <span className="shrink-0 text-xs text-slate-500">× {step.repeat ?? 1}</span>
+        <span className="shrink-0 text-xs text-slate-500">{loopCountLabel(step)}</span>
+        {step.while !== undefined && <CondSummary text={summarizeCondition(step.while)} />}
       </>
     );
   }

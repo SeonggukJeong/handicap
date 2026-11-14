@@ -1773,3 +1773,154 @@ describe("Inspector — think time 3상태 (think-time-defaults R8/R9)", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+const LOOP_COND_YAML = (extra: string) => `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000040"
+    name: "poll"
+    type: loop
+${extra}
+    do:
+      - id: "01HX0000000000000000000041"
+        name: "ping"
+        type: http
+        request:
+          method: GET
+          url: "/ping"
+`;
+
+const WHILE_BLOCK = `    repeat: 5
+    while:
+      left: "{{code}}"
+      op: eq
+      right: "200"`;
+
+function loadLoop(extra: string) {
+  useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  useScenarioEditor.getState().loadFromString(LOOP_COND_YAML(extra));
+  useScenarioEditor.getState().select("01HX0000000000000000000040");
+}
+
+describe("Inspector — 반복 조건 (loop-do-while)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("조건 없는 loop: 구역을 열면 조건 추가만 보이고, 누르면 while이 생긴다", async () => {
+    const user = userEvent.setup();
+    loadLoop("    repeat: 3");
+    render(<Inspector />);
+    expect(screen.queryByRole("checkbox", { name: ko.editor.loopKeepThink })).toBeNull();
+    await user.click(screen.getByRole("button", { name: ko.editor.loopCondSection }));
+    expect(screen.getByText(ko.editor.loopCondIntro)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: ko.editor.loopKeepThink })).toBeNull();
+    expect(screen.queryByRole("button", { name: ko.editor.loopCondRemove })).toBeNull();
+    await user.click(screen.getByRole("button", { name: ko.editor.loopCondAdd }));
+    const loop = useScenarioEditor.getState().model!.steps[0];
+    expect(loop.type === "loop" && loop.while).toEqual({ left: "", op: "eq", right: "" });
+    expect(screen.getByRole("checkbox", { name: ko.editor.loopKeepThink })).toBeChecked();
+  });
+
+  it("조건 있는 loop: 열린 채 시작, 최대 반복 횟수 라벨, keep_think 체크 해제 → YAML", async () => {
+    const user = userEvent.setup();
+    loadLoop(WHILE_BLOCK);
+    render(<Inspector />);
+    expect(screen.getByRole("button", { name: ko.editor.loopCondSection })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByLabelText(ko.editor.fieldRepeatMax)).toHaveValue(5);
+    const keep = screen.getByRole("checkbox", { name: ko.editor.loopKeepThink });
+    expect(keep).toBeChecked();
+    await user.click(keep);
+    expect(useScenarioEditor.getState().yamlText).toContain("keep_think: false");
+  });
+
+  it("횟수를 비우고 blur → repeat 없음 + 안내, 다시 4 → repeat: 4", async () => {
+    const user = userEvent.setup();
+    loadLoop(WHILE_BLOCK);
+    render(<Inspector />);
+    const repeat = screen.getByLabelText(ko.editor.fieldRepeatMax);
+    await user.clear(repeat);
+    await user.click(document.body);
+    expect(useScenarioEditor.getState().yamlText).not.toContain("repeat:");
+    expect(screen.getByText(ko.editor.loopRepeatUnlimitedHint)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(ko.editor.fieldRepeatMax), "4");
+    await user.click(document.body);
+    expect(useScenarioEditor.getState().yamlText).toContain("repeat: 4");
+    expect(screen.queryByText(ko.editor.loopRepeatUnlimitedHint)).toBeNull();
+  });
+
+  it("회귀 가드: 조건 없는 loop에서 횟수를 비우고 blur → 이전 값 복원, YAML 불변", async () => {
+    const user = userEvent.setup();
+    loadLoop("    repeat: 3");
+    render(<Inspector />);
+    const before = useScenarioEditor.getState().yamlText;
+    const repeat = screen.getByLabelText(ko.editor.fieldRepeat);
+    await user.clear(repeat);
+    await user.click(document.body);
+    expect(screen.getByLabelText(ko.editor.fieldRepeat)).toHaveValue(3);
+    expect(useScenarioEditor.getState().yamlText).toBe(before);
+  });
+
+  it("회귀 가드: 횟수를 비운 채 조건 삭제 → while 없음 + repeat: 1", async () => {
+    const user = userEvent.setup();
+    loadLoop(WHILE_BLOCK);
+    render(<Inspector />);
+    await user.clear(screen.getByLabelText(ko.editor.fieldRepeatMax));
+    await user.click(document.body);
+    await user.click(screen.getByRole("button", { name: ko.editor.loopCondRemove }));
+    const yaml = useScenarioEditor.getState().yamlText;
+    expect(yaml).not.toContain("while");
+    expect(yaml).toContain("repeat: 1");
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    expect(screen.getByLabelText(ko.editor.fieldRepeat)).toHaveValue(1);
+  });
+
+  it("자식 버튼: while 없는 loop은 loop ×3 그대로(회귀 가드), 조건 loop은 조건 라벨", () => {
+    const yaml = (loopExtra: string) => `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000050"
+    name: "outer"
+    type: if
+    cond:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    then:
+      - id: "01HX0000000000000000000051"
+        name: "inner"
+        type: loop
+${loopExtra}
+        do:
+          - id: "01HX0000000000000000000052"
+            name: "ping"
+            type: http
+            request:
+              method: GET
+              url: "/ping"
+`;
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(yaml("        repeat: 3"));
+    useScenarioEditor.getState().select("01HX0000000000000000000050");
+    const { unmount } = render(<Inspector />);
+    expect(screen.getByText("loop ×3")).toBeInTheDocument();
+    unmount();
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        yaml(
+          `        repeat: 5\n        while:\n          left: "{{code}}"\n          op: eq\n          right: "200"`,
+        ),
+      );
+    useScenarioEditor.getState().select("01HX0000000000000000000050");
+    render(<Inspector />);
+    expect(screen.getByText("조건 반복 · 최대 5")).toBeInTheDocument();
+  });
+});

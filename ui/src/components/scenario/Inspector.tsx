@@ -23,6 +23,7 @@ import {
   isInsideParallelBranch,
 } from "../../scenario/model";
 import { classifyThink, formatThink } from "../../scenario/thinkTime";
+import { loopCountLabel } from "../../scenario/loopLabel";
 import { useThinkTimePair } from "./useThinkTimePair";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
@@ -712,12 +713,14 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   const commitDrafts = (next: DraftExtract[]) => {
     // Rows that satisfy Zod (var non-empty + required second field non-empty and
     // not just the bare "$." default sentinel that append() inserts).
-    const valid = next.filter((d) => {
-      if (!d.var) return false;
-      if (d.from === "body") return d.path.length > 0 && d.path !== "$.";
-      if (d.from === "header" || d.from === "cookie") return d.name.length > 0;
-      return true; // status needs no extra field
-    }).map(toExtract);
+    const valid = next
+      .filter((d) => {
+        if (!d.var) return false;
+        if (d.from === "body") return d.path.length > 0 && d.path !== "$.";
+        if (d.from === "header" || d.from === "cookie") return d.name.length > 0;
+        return true; // status needs no extra field
+      })
+      .map(toExtract);
     setStepExtract(step.id, valid);
   };
 
@@ -1046,7 +1049,9 @@ function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void })
     step.type === "http"
       ? `${step.request.method} ${step.request.url}`
       : step.type === "loop"
-        ? `loop ×${step.repeat ?? 1}`
+        ? step.while !== undefined
+          ? loopCountLabel(step)
+          : `loop ×${step.repeat ?? 1}`
         : step.type === "parallel"
           ? `parallel ×${step.branches.length}`
           : "if";
@@ -1072,16 +1077,30 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
 
   // Numeric draft + commit-on-blur (F5 pattern): local state echoes every
   // keystroke; the model is only updated when a valid integer is committed.
-  const [repeatDraft, setRepeatDraft] = useState(String(step.repeat ?? 1));
+  const hasWhile = step.while !== undefined;
+  const repeatText = step.repeat === undefined ? (hasWhile ? "" : "1") : String(step.repeat);
+  const [repeatDraft, setRepeatDraft] = useState(repeatText);
 
   useEffect(() => {
-    setRepeatDraft(String(step.repeat ?? 1));
-  }, [step.id, step.repeat]);
+    setRepeatDraft(repeatText);
+  }, [step.id, step.repeat, repeatText]);
+
+  const setLoopWhile = useScenarioEditor((s) => s.setLoopWhile);
+  const setLoopKeepThink = useScenarioEditor((s) => s.setLoopKeepThink);
+  const [condOpen, setCondOpen] = useState(hasWhile);
+  useEffect(() => {
+    setCondOpen(step.while !== undefined);
+  }, [step.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commitRepeat = () => {
+    // 조건 있을 때만 빈 값 = 무제한(undefined). 조건 없는 loop은 repeat이 필수라 되돌린다.
+    if (repeatDraft.trim() === "" && hasWhile) {
+      setLoopRepeat(step.id, undefined);
+      return;
+    }
     const n = Number(repeatDraft);
-    if (Number.isInteger(n) && n >= 1) setLoopRepeat(step.id, n);
-    else setRepeatDraft(String(step.repeat ?? 1));
+    if (repeatDraft.trim() !== "" && Number.isInteger(n) && n >= 1) setLoopRepeat(step.id, n);
+    else setRepeatDraft(repeatText);
   };
 
   return (
@@ -1101,19 +1120,72 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
 
       <StepNameField stepId={step.id} name={step.name} />
 
-      <Field label={ko.editor.fieldRepeat}>
+      <Field label={hasWhile ? ko.editor.fieldRepeatMax : ko.editor.fieldRepeat}>
         <div className="w-24">
           <Input
             numeric
             type="number"
             min={1}
-            aria-label={ko.editor.fieldRepeat}
+            aria-label={hasWhile ? ko.editor.fieldRepeatMax : ko.editor.fieldRepeat}
             value={repeatDraft}
             onChange={(e) => setRepeatDraft(e.target.value)}
             onBlur={commitRepeat}
           />
         </div>
+        {hasWhile && step.repeat === undefined && (
+          <p className="mt-1 text-xs text-slate-500">{ko.editor.loopRepeatUnlimitedHint}</p>
+        )}
       </Field>
+
+      <Section
+        variant="card"
+        collapsible
+        title={ko.editor.loopCondSection}
+        hint={hasWhile ? ko.editor.sectionSetHint : null}
+        open={condOpen}
+        onToggle={() => setCondOpen((o) => !o)}
+      >
+        {step.while === undefined ? (
+          <>
+            <p className="text-xs text-slate-500">{ko.editor.loopCondIntro}</p>
+            <button
+              type="button"
+              className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+              onClick={() => {
+                setLoopWhile(step.id, { left: "", op: "eq", right: "" });
+                setCondOpen(true);
+              }}
+            >
+              {ko.editor.loopCondAdd}
+            </button>
+          </>
+        ) : (
+          <>
+            <ConditionEditor cond={step.while} onCommit={(c) => setLoopWhile(step.id, c)} />
+            <div className="flex items-center gap-1">
+              <label className="flex items-center gap-1.5 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={step.keep_think !== false}
+                  onChange={(e) => setLoopKeepThink(step.id, e.target.checked)}
+                />
+                {ko.editor.loopKeepThink}
+              </label>
+              <HelpTip label={ko.editor.loopKeepThink}>
+                <span className="block">{ko.editor.loopKeepThinkHelp}</span>
+              </HelpTip>
+            </div>
+            <p className="text-xs text-slate-500">{ko.editor.loopLenientExtractHelp}</p>
+            <button
+              type="button"
+              className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+              onClick={() => setLoopWhile(step.id, undefined)}
+            >
+              {ko.editor.loopCondRemove}
+            </button>
+          </>
+        )}
+      </Section>
 
       <div>
         <div className="text-xs font-semibold text-slate-600 mb-1">{ko.editor.bodyStepsLabel}</div>
@@ -1316,9 +1388,17 @@ function ConditionNode({
   const bareRight = noRight ? null : bareVarMatch(leaf.right ?? "", knownVars);
   const bareHints: { side: string; name: string; fix: Condition }[] = [];
   if (bareLeft)
-    bareHints.push({ side: ko.editor.condLeftPlaceholder, name: bareLeft, fix: { ...leaf, left: `{{${bareLeft}}}` } });
+    bareHints.push({
+      side: ko.editor.condLeftPlaceholder,
+      name: bareLeft,
+      fix: { ...leaf, left: `{{${bareLeft}}}` },
+    });
   if (bareRight)
-    bareHints.push({ side: ko.editor.condRightPlaceholder, name: bareRight, fix: { ...leaf, right: `{{${bareRight}}}` } });
+    bareHints.push({
+      side: ko.editor.condRightPlaceholder,
+      name: bareRight,
+      fix: { ...leaf, right: `{{${bareRight}}}` },
+    });
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap gap-1 items-center">
@@ -1371,7 +1451,9 @@ function ConditionNode({
       {regexBad && <span className="text-[11px] text-amber-600">⚠ invalid regex</span>}
       {bareHints.map((h) => (
         <div key={h.side} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-          <span className="min-w-0 break-words text-amber-700">{ko.editor.condBareVarHint(h.name)}</span>
+          <span className="min-w-0 break-words text-amber-700">
+            {ko.editor.condBareVarHint(h.name)}
+          </span>
           <button
             type="button"
             aria-label={ko.editor.condBareVarFixAria(h.side, h.name)}
