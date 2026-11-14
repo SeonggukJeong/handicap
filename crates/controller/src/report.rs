@@ -6,6 +6,10 @@ use handicap_engine::percentiles::{
     CURVE_QUANTILES, HISTOGRAM_BINS, Percentiles, decode_hdr, log_buckets, merge_into,
     percentile_curve, percentiles_of,
 };
+use handicap_engine::{
+    PHASE_LOOP_CUT, PHASE_LOOP_CUT_ERR, PHASE_LOOP_FINAL, PHASE_LOOP_FINAL_ERR, PHASE_LOOP_RETRY,
+    PHASE_LOOP_RETRY_ERR,
+};
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -156,6 +160,25 @@ pub struct ReportStep {
     pub download: Option<PhaseStats>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wait: Option<PhaseStats>,
+    /// 조건 반복에서 이어진 회차가 있는 스텝만: 끝낸 응답 / 재시도(이어짐+끊김) 응답 분리.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_split: Option<LoopSplit>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct LoopSplitStats {
+    pub count: u64,
+    pub error_count: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct LoopSplit {
+    #[serde(rename = "final")]
+    pub ended: LoopSplitStats,
+    pub retry: LoopSplitStats,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -785,6 +808,83 @@ pub fn build_report(
         })
         .collect();
 
+    // 조건 반복 응답 시간 분리: 구간 여섯 종 행을 스텝별로 모은다(download/wait와 별도 누적).
+    // 끝냄 = loop_final, 재시도 = loop_retry + loop_cut. 표시 조건 = loop_retry 건수 합 >= 1(끊김 제외).
+    #[derive(Default)]
+    struct SplitAcc {
+        final_h: Option<Histogram<u64>>,
+        retry_h: Option<Histogram<u64>>,
+        final_n: u64,
+        retry_n: u64,
+        cont_n: u64,
+        final_err: u64,
+        retry_err: u64,
+    }
+    let mut split_acc: BTreeMap<String, SplitAcc> = BTreeMap::new();
+    for p in phases {
+        let name = p.phase.as_str();
+        if ![
+            PHASE_LOOP_FINAL,
+            PHASE_LOOP_RETRY,
+            PHASE_LOOP_CUT,
+            PHASE_LOOP_FINAL_ERR,
+            PHASE_LOOP_RETRY_ERR,
+            PHASE_LOOP_CUT_ERR,
+        ]
+        .contains(&name)
+        {
+            continue;
+        }
+        let n = p.count.max(0) as u64;
+        let e = split_acc.entry(p.step_id.clone()).or_default();
+        let decoded = || decode_hdr(&p.hdr_histogram).ok().flatten();
+        match name {
+            PHASE_LOOP_FINAL => {
+                if let Some(h) = decoded() {
+                    merge_into(e.final_h.get_or_insert_with(fresh_hist), &h);
+                }
+                e.final_n += n;
+            }
+            PHASE_LOOP_RETRY | PHASE_LOOP_CUT => {
+                if let Some(h) = decoded() {
+                    merge_into(e.retry_h.get_or_insert_with(fresh_hist), &h);
+                }
+                e.retry_n += n;
+                if name == PHASE_LOOP_RETRY {
+                    e.cont_n += n;
+                }
+            }
+            PHASE_LOOP_FINAL_ERR => e.final_err += n,
+            _ => e.retry_err += n, // PHASE_LOOP_RETRY_ERR | PHASE_LOOP_CUT_ERR
+        }
+    }
+    let mut split_by_step: BTreeMap<String, LoopSplit> = split_acc
+        .into_iter()
+        .filter(|(_, a)| a.cont_n >= 1)
+        .map(|(step_id, a)| {
+            let side = |h: Option<Histogram<u64>>, count: u64, err: u64| {
+                let pc = h
+                    .as_ref()
+                    .map(percentiles_of)
+                    .unwrap_or_else(Percentiles::empty);
+                LoopSplitStats {
+                    count,
+                    error_count: err.min(count),
+                    p50_ms: pc.p50_ms,
+                    p95_ms: pc.p95_ms,
+                    p99_ms: pc.p99_ms,
+                }
+            };
+            (
+                step_id,
+                LoopSplit {
+                    ended: side(a.final_h, a.final_n, a.final_err),
+                    retry: side(a.retry_h, a.retry_n, a.retry_err),
+                },
+            )
+        })
+        .collect();
+
     // Connection cost: dns + connect phases rolled up RUN-LEVEL (step_id ignored — a
     // connection serves many steps). connections_opened = Σ connect counts. NOT per-step.
     let mut dns_hist = fresh_hist();
@@ -840,6 +940,7 @@ pub fn build_report(
             let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
             let download = download_by_step.remove(&step_id);
             let wait = wait_by_step.remove(&step_id);
+            let loop_split = split_by_step.remove(&step_id);
             ReportStep {
                 step_id,
                 count,
@@ -851,6 +952,7 @@ pub fn build_report(
                 loop_breakdown: breakdown,
                 download,
                 wait,
+                loop_split,
             }
         })
         .collect();
@@ -1377,6 +1479,7 @@ mod tests {
             loop_breakdown: vec![],
             download: None,
             wait: None,
+            loop_split: None,
         }
     }
 
@@ -2119,6 +2222,164 @@ mod tests {
             rep.steps.iter().all(|s| s.download.is_none()),
             "no download when phases empty (byte-identical)"
         );
+    }
+
+    fn ph(
+        step: &str,
+        phase: &str,
+        samples_us: &[u64],
+        count: i64,
+    ) -> crate::store::metrics::PhaseMetricRow {
+        crate::store::metrics::PhaseMetricRow {
+            run_id: run_row().id.clone(),
+            step_id: step.into(),
+            phase: phase.into(),
+            hdr_histogram: if samples_us.is_empty() {
+                Vec::new()
+            } else {
+                make_hdr_bytes(samples_us)
+            },
+            count,
+        }
+    }
+
+    fn split_report(phases: &[crate::store::metrics::PhaseMetricRow]) -> ReportJson {
+        let r = run_row();
+        let rows = vec![win(100, "s1", 5, 0, r#"{"200":5}"#, &[10_000])];
+        build_report(
+            &r,
+            "version: 1\nname: t\nsteps: []\n",
+            &rows,
+            &[],
+            &[],
+            &[],
+            phases,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+    }
+
+    #[test]
+    fn loop_split_rolls_up_final_and_retry() {
+        use handicap_engine::{PHASE_LOOP_FINAL, PHASE_LOOP_RETRY, PHASE_LOOP_RETRY_ERR};
+        let phases = vec![
+            ph("s1", PHASE_LOOP_FINAL, &[180_000, 180_000], 2),
+            ph("s1", PHASE_LOOP_FINAL, &[180_000, 180_000], 2),
+            ph("s1", PHASE_LOOP_RETRY, &[12_000, 12_000, 12_000], 3),
+            ph("s1", PHASE_LOOP_RETRY_ERR, &[], 1),
+        ];
+        let rep = split_report(&phases);
+        let ls = rep.steps[0].loop_split.as_ref().expect("loop_split");
+        assert_eq!(ls.ended.count, 4);
+        assert_eq!(ls.ended.p50_ms, 180);
+        assert_eq!(ls.ended.error_count, 0);
+        assert_eq!(ls.retry.count, 3);
+        assert_eq!(ls.retry.error_count, 1);
+        assert_eq!(ls.retry.p50_ms, 12);
+        let v = serde_json::to_value(&rep).unwrap();
+        assert_eq!(v["steps"][0]["loop_split"]["final"]["count"], 4);
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
+    }
+
+    #[test]
+    fn loop_split_omitted_without_continued_passes() {
+        use handicap_engine::{PHASE_LOOP_CUT, PHASE_LOOP_FINAL, PHASE_LOOP_RETRY};
+        let cases = vec![
+            vec![ph("s1", PHASE_LOOP_FINAL, &[1_000], 1)],
+            vec![
+                ph("s1", PHASE_LOOP_FINAL, &[1_000], 1),
+                ph("s1", PHASE_LOOP_CUT, &[1_000], 1),
+            ],
+            vec![
+                ph("s1", PHASE_LOOP_FINAL, &[1_000], 1),
+                ph("s1", PHASE_LOOP_RETRY, &[], 0),
+            ],
+        ];
+        for phases in cases {
+            let rep = split_report(&phases);
+            assert!(rep.steps[0].loop_split.is_none());
+            assert!(
+                !serde_json::to_string(&rep)
+                    .unwrap()
+                    .contains("\"loop_split\"")
+            );
+        }
+    }
+
+    #[test]
+    fn loop_split_retry_includes_cut() {
+        use handicap_engine::{PHASE_LOOP_CUT, PHASE_LOOP_CUT_ERR, PHASE_LOOP_RETRY};
+        let phases = vec![
+            ph("s1", PHASE_LOOP_RETRY, &[1_000], 1),
+            ph("s1", PHASE_LOOP_CUT, &[2_000, 2_000], 2),
+            ph("s1", PHASE_LOOP_CUT_ERR, &[], 2),
+        ];
+        let rep = split_report(&phases);
+        let ls = rep.steps[0].loop_split.as_ref().unwrap();
+        assert_eq!(ls.retry.count, 3);
+        assert_eq!(ls.retry.error_count, 2);
+    }
+
+    #[test]
+    fn loop_split_without_final_keeps_both_sides() {
+        use handicap_engine::PHASE_LOOP_RETRY;
+        let phases = vec![ph("s1", PHASE_LOOP_RETRY, &[1_000; 5], 5)];
+        let rep = split_report(&phases);
+        let ls = rep.steps[0].loop_split.as_ref().unwrap();
+        assert_eq!(ls.ended.count, 0);
+        assert_eq!(ls.ended.p50_ms, 0);
+        assert_eq!(ls.retry.count, 5);
+    }
+
+    #[test]
+    fn loop_split_sanitizes_worker_input() {
+        use handicap_engine::{PHASE_LOOP_FINAL, PHASE_LOOP_RETRY, PHASE_LOOP_RETRY_ERR};
+        let mut bad = ph("s1", PHASE_LOOP_RETRY, &[], 4);
+        bad.hdr_histogram = vec![1, 2, 3];
+        let phases = vec![
+            ph("s1", PHASE_LOOP_RETRY, &[1_000, 1_000], 2),
+            ph("s1", PHASE_LOOP_RETRY_ERR, &[], 9),
+            ph("s1", PHASE_LOOP_FINAL, &[1_000], -3),
+            bad,
+        ];
+        let rep = split_report(&phases);
+        let ls = rep.steps[0].loop_split.as_ref().unwrap();
+        assert_eq!(ls.retry.count, 6);
+        assert_eq!(ls.retry.error_count, 6);
+        assert_eq!(ls.ended.count, 0);
+    }
+
+    #[test]
+    fn loop_split_rows_do_not_touch_download_wait_connection() {
+        use handicap_engine::{
+            PHASE_LOOP_CUT, PHASE_LOOP_CUT_ERR, PHASE_LOOP_FINAL, PHASE_LOOP_FINAL_ERR,
+            PHASE_LOOP_RETRY, PHASE_LOOP_RETRY_ERR,
+        };
+        let base = vec![
+            ph("s1", "download", &[5_000, 9_000], 2),
+            ph("s1", "wait", &[3_000], 1),
+            ph("s1", "dns", &[1_000], 1),
+            ph("s1", "connect", &[2_000], 1),
+        ];
+        let mut with = base.clone();
+        with.extend(vec![
+            ph("s1", PHASE_LOOP_FINAL, &[1_000], 1),
+            ph("s1", PHASE_LOOP_RETRY, &[1_000], 1),
+            ph("s1", PHASE_LOOP_CUT, &[1_000], 1),
+            ph("s1", PHASE_LOOP_FINAL_ERR, &[], 1),
+            ph("s1", PHASE_LOOP_RETRY_ERR, &[], 1),
+            ph("s1", PHASE_LOOP_CUT_ERR, &[], 1),
+            ph("ghost", PHASE_LOOP_RETRY, &[1_000], 1),
+        ]);
+        let a = split_report(&base);
+        let b = split_report(&with);
+        assert_eq!(a.steps.len(), b.steps.len());
+        assert_eq!(a.steps[0].download, b.steps[0].download);
+        assert_eq!(a.steps[0].wait, b.steps[0].wait);
+        assert_eq!(a.connection, b.connection);
+        assert!(a.steps[0].download.is_some() && a.connection.is_some());
     }
 
     #[test]

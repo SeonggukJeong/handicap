@@ -604,6 +604,7 @@ mod tests {
             loop_breakdown: vec![],
             download: None,
             wait: None,
+            loop_split: None,
         }
     }
 

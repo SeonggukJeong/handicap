@@ -30,6 +30,7 @@
 - 운반은 send 실패 종류 집계(ADR-0050)와 같은 counts-only 길: `MetricFlush.loop_exit_stats` → proto `MetricBatch.loop_exit_stats = 11` → 컨트롤러 ingest(워커 입력의 칸은 1..=21로 clamp, 범위 밖 방식은 버림) → `run_loop_exit_metrics`(migration 0023, upsert 누적 — 워커 여럿의 델타가 합쳐진다) → `ReportJson.loop_exits`(빈 배열이면 키 생략).
 - 화면은 순수 뷰 모델 하나(`ui/src/components/report/loopExitView.ts`)를 표지·풀이 줄·분포 패널·맨 위 안내가 같이 쓴다. `재시도 = 회차 합 − 진입`. 「재시도 포함」 표지는 실제로 2번째 이후 회차에서 요청된 본문 스텝에만(회차별 요청 수가 없으면 재시도가 있는 loop의 본문 스텝 전부).
 - **R0**: 조건 반복 집계가 없는 run은 batch·DB 행·리포트 JSON·화면이 그대로다. 내보내기·인쇄·비교·유효성·인사이트·TUI·시험 실행 trace는 바꾸지 않았다(연기 — roadmap §B60).
+- **응답 시간 분리 (3차, loop-while-latency-split)**: 조건 반복 본문 응답을 회차가 끝날 때 세 갈래로 기록한다 — 끝냄(조건이 풀려 반복을 마친 회차)·이어짐(조건이 안 풀려 다음 회차로 간 것)·끊김(최대 횟수·run 종료 등으로 끊긴 회차). 구간 이름 여섯 개(`loop_final`/`loop_retry`/`loop_cut` + 각 `_err`)는 새 와이어 없이 기존 `phase_stats` 길을 탄다(스텝별 HDR + 에러 수 counts-only). 컨트롤러가 `ReportStep.loop_split`로 말아 올리며 화면의 `retry` = 이어짐 + 끊김, `final` = 끝냄이다. 표시 조건 = 이어짐 건수 합 ≥ 1(끊김만 있는 스텝은 키 생략 — R0). 음수 건수는 0, 에러 수는 건수로 자르고, 깨진 BLOB은 건수만 더한다(`download`와 같다). 회차 표본 상한은 1,024.
 
 **기각**
 - **본문 실행 *전에* 조건을 보는 while**: 사용자 판단 — 나중에 if 스텝과 결합해 해결.
