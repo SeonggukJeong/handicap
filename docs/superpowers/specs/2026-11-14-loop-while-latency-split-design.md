@@ -1,6 +1,7 @@
 # 조건 반복 3차 — 응답 시간 분리 설계
 
 - 날짜: 2026-11-14 · 브랜치 `worktree-loop-while-latency-split` · 유형 `user-path`
+- 상태: 완료 (2026-11-15, 코드 `3b122944`..`84e407e2`). 구현 중 더한 것: 건수 0인 갈래의 백분위 0 강제·합산 포화, 막대 보기에서 `loop_split` 없는 스텝의 DOM을 작업 전 그대로 고정하는 테스트. 판단·연기 → roadmap §B61.
 - 앞 작업: 조건 반복 1차(`2026-11-13-loop-do-while-design.md`, ADR-0056)·2차(`2026-11-14-loop-while-report-design.md`). 이 문서는 2차가 미뤄 둔 목업 C를 확정한다.
 - 목업: `docs/superpowers/specs/2026-11-13-loop-do-while-mockups/report-options.html`의 C안.
 - 관련 결정: ADR-0056(조건 반복)·0012(워커가 사전 집계)·B7-C 구간별 응답 시간 길(`phase_stats`).
