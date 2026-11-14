@@ -13,10 +13,10 @@ use handicap_engine::{
 };
 
 use super::check::{
-    CheckResult, MONITOR_MAX_REQUESTS, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
-    REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_REQUEST_CAP, REASON_TRACE_ERROR,
-    REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values,
-    eval_conditions, reason_timeout, shown,
+    CheckResult, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
+    REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_TRACE_ERROR, REASON_UNBOUND_VAR,
+    REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values, eval_conditions,
+    reason_timeout, shown, truncated_reason,
 };
 use super::config::{AUTH_HEADERS, PanelConfig};
 
@@ -593,16 +593,7 @@ fn own_result(
     }
     // 규칙 5: 그 외 미실행.
     let reason = if trace.truncated {
-        let http_rows = trace
-            .steps
-            .iter()
-            .filter(|s| s.kind == StepKind::Http)
-            .count();
-        if http_rows >= MONITOR_MAX_REQUESTS as usize {
-            REASON_REQUEST_CAP.to_string()
-        } else {
-            reason_timeout(flow_cap_secs)
-        }
+        truncated_reason(trace, flow_cap_secs)
     } else if trace.ended_by_loop.is_some() {
         // 조건 반복이 안 풀려 뒤 스텝이 못 돌았다.
         REASON_LOOP_EXHAUSTED.to_string()
@@ -1186,6 +1177,39 @@ mod tests {
         let r = run(&base(), &panels(&[H]), &tr(vec![ok(L1, 1)]));
         assert_eq!(r[0].verdict, Verdict::Fail);
         assert_eq!(r[0].reason.as_deref(), Some("조건 스텝 미실행"));
+    }
+
+    #[test]
+    fn truncated_not_run_judge_row_cap_reason() {
+        let judge = |kind: StepKind, n: usize| -> Vec<StepTrace> {
+            (0..n)
+                .map(|i| {
+                    let mut s = li(st(LP, None, None), i as u32);
+                    s.kind = kind.clone();
+                    s.request = None;
+                    s.branch = Some("none".into());
+                    s
+                })
+                .collect()
+        };
+        // 조건 반복 줄 200, if 줄 1,000 — 각각 같은 사유
+        for rows in [judge(StepKind::Loop, 200), judge(StepKind::If, 1000)] {
+            let mut steps = vec![ok(L1, 1)];
+            steps.extend(rows);
+            let mut t = tr(steps);
+            t.truncated = true;
+            let r = run(&base(), &panels(&[H]), &t);
+            assert_eq!(r[0].verdict, Verdict::Fail);
+            assert_eq!(r[0].reason.as_deref(), Some("판정 줄 상한 초과"));
+        }
+        // 상한 미만이면 그대로 시간 초과
+        let mut steps = vec![ok(L1, 1)];
+        steps.extend(judge(StepKind::Loop, 199));
+        steps.extend(judge(StepKind::If, 999));
+        let mut t = tr(steps);
+        t.truncated = true;
+        let r = run(&base(), &panels(&[H]), &t);
+        assert_eq!(r[0].reason.as_deref(), Some("시간 초과(21초)"));
     }
 
     #[test]

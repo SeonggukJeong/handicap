@@ -31,6 +31,7 @@ pub const REASON_LATENCY_STEP_MISSING: &str = "응답 시간 기준 스텝 없�
 pub const REASON_REQUEST_CAP: &str = "요청 수 상한(50) 초과";
 pub const REASON_TRACE_ERROR: &str = "시나리오 실행 오류";
 pub const REASON_LOOP_EXHAUSTED: &str = "조건 반복 최대 횟수 도달";
+pub const REASON_JUDGE_ROW_CAP: &str = "판정 줄 상한 초과";
 pub const REASON_BAD_REQUEST_BUILD: &str = "요청 구성 오류";
 pub const REASON_READ_BODY: &str = "응답 본문 읽기 실패";
 pub const REASON_EXTRACT: &str = "값 추출 실패";
@@ -127,6 +128,24 @@ fn reason_not_contained(needle: &str) -> String {
 
 pub(crate) fn reason_timeout(secs: u32) -> String {
     format!("시간 초과({secs}초)")
+}
+
+/// 잘린(`truncated`) trace의 사유 글자 — 순서는 요청 수 상한 → 판정 줄 상한 → 시간 초과.
+/// 판정 줄 상한은 엔진 `judge_rows_exhausted`가 판정한다. 줄의 `branch_eval`을 읽으므로
+/// 가공 전 trace로 불러야 한다(`build_record_body`가 `branch_eval`을 비우기 전).
+pub(crate) fn truncated_reason(trace: &ScenarioTrace, timeout_secs: u32) -> String {
+    let http_rows = trace
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::Http)
+        .count();
+    if http_rows >= MONITOR_MAX_REQUESTS as usize {
+        REASON_REQUEST_CAP.to_string()
+    } else if handicap_engine::trace::judge_rows_exhausted(&trace.steps, MONITOR_MAX_REQUESTS) {
+        REASON_JUDGE_ROW_CAP.to_string()
+    } else {
+        reason_timeout(timeout_secs)
+    }
 }
 
 pub const REASON_UPSTREAM: &str = "앞 단계 실패";
@@ -620,16 +639,7 @@ pub fn judge(
         return r;
     }
     if trace.truncated {
-        let http_rows = trace
-            .steps
-            .iter()
-            .filter(|s| s.kind == StepKind::Http)
-            .count();
-        let reason = if http_rows >= MONITOR_MAX_REQUESTS as usize {
-            REASON_REQUEST_CAP.to_string()
-        } else {
-            reason_timeout(panel.timeout_seconds)
-        };
+        let reason = truncated_reason(trace, panel.timeout_seconds);
         return CheckResult::with_reason(at_ms, Verdict::Fail, reason);
     }
     if trace.error.is_some() {
@@ -1095,6 +1105,67 @@ steps:
     #[test]
     fn truncated_time_reason() {
         let mut t = tr(vec![st(A, Some(resp(200, 1)), None)]);
+        t.truncated = true;
+        assert_eq!(fail_reason(&one_step(), &t), "시간 초과(5초)");
+    }
+
+    fn judge_rows(kind: StepKind, n: usize, left: &str) -> Vec<StepTrace> {
+        (0..n)
+            .map(|_| StepTrace {
+                step_id: "01HX00000000000000000000ZZ".into(),
+                kind: kind.clone(),
+                loop_index: None,
+                branch: Some("none".into()),
+                request: None,
+                response: None,
+                extracted: BTreeMap::new(),
+                unbound_vars: vec![],
+                error: None,
+                branch_eval: vec![handicap_engine::BranchEval {
+                    branch: "then".into(),
+                    passed: false,
+                    leaf: Some(handicap_engine::LeafEval {
+                        left: left.into(),
+                        op: handicap_engine::scenario::CompareOp::Eq,
+                        right: Some("2".into()),
+                        left_value: None,
+                        right_value: None,
+                        left_unbound: false,
+                    }),
+                }],
+                timed_out: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn truncated_judge_row_cap_reason() {
+        // if 줄 수 상한
+        let mut t = tr(judge_rows(StepKind::If, 1000, "1"));
+        t.truncated = true;
+        assert_eq!(fail_reason(&one_step(), &t), "판정 줄 상한 초과");
+        // 조건 반복 줄 수 상한
+        let mut t = tr(judge_rows(StepKind::Loop, 200, "1"));
+        t.truncated = true;
+        assert_eq!(fail_reason(&one_step(), &t), REASON_JUDGE_ROW_CAP);
+        // 바이트 예산
+        let mut t = tr(judge_rows(StepKind::If, 4, &"a".repeat(1_300_000)));
+        t.truncated = true;
+        assert_eq!(fail_reason(&one_step(), &t), REASON_JUDGE_ROW_CAP);
+    }
+
+    #[test]
+    fn truncated_reason_order() {
+        // 요청 줄 50 + if 줄 1,000 → 요청 수 상한이 먼저
+        let mut steps: Vec<StepTrace> = (0..50).map(|_| st(A, Some(resp(200, 1)), None)).collect();
+        steps.extend(judge_rows(StepKind::If, 1000, "1"));
+        let mut t = tr(steps);
+        t.truncated = true;
+        assert_eq!(fail_reason(&one_step(), &t), "요청 수 상한(50) 초과");
+        // 판정 줄이 상한 미만 → 시간 초과
+        let mut steps = judge_rows(StepKind::If, 999, "1");
+        steps.extend(judge_rows(StepKind::Loop, 199, "1"));
+        let mut t = tr(steps);
         t.truncated = true;
         assert_eq!(fail_reason(&one_step(), &t), "시간 초과(5초)");
     }
