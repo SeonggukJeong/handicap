@@ -872,6 +872,7 @@ export const ko = {
     testRunRun: "미리 실행",
     testRunOk: "성공",
     testRunFail: "실패",
+    testRunTruncated: "상한 도달 — 일부만 실행됨 (요청 수·판정 줄 수 또는 시간 상한)",
     testRunMaxRequests: "최대 요청 수",
     // ── 순차 검증 결과 (R13) ──
     seqResultTitle: "순차 검증 결과",

@@ -214,7 +214,7 @@ steps:
 ## 8. 상한(truncation) · 422
 
 **8-A. `max_requests` truncation**
-- [ ] Max requests를 **2**로 낮추고(http leaf는 ping=1 + ok-call=1 = 2에서 끊김) **Test run** → 패널 상단에 **앰버 배너 "상한 도달 — 일부만 실행됨 (max_requests 또는 시간 천장)"** + **loop 행들이 안 보인다**(2개 leaf까지만). 요약 step 수도 줄어든다.
+- [ ] Max requests를 **2**로 낮추고(http leaf는 ping=1 + ok-call=1 = 2에서 끊김) **Test run** → 패널 상단에 **앰버 배너 "상한 도달 — 일부만 실행됨 (요청 수·판정 줄 수 또는 시간 상한)"** + **loop 행들이 안 보인다**(2개 leaf까지만). 요약 step 수도 줄어든다.
 - [ ] Max requests를 50으로 원복 → 배너 사라지고 loop 행 3개 복귀.
 
 **8-B. 422 — 의미 검증(test-run 전용 422, 레거시 400과 분기)**

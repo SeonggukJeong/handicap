@@ -266,7 +266,7 @@ export function TestRunPanel({
       {trace.error && <div className="mb-2 text-sm text-red-700">{trace.error}</div>}
       {trace.truncated && (
         <Callout variant="warn" className="mb-2">
-          상한 도달 — 일부만 실행됨 (max_requests 또는 시간 천장)
+          {ko.editor.testRunTruncated}
         </Callout>
       )}
       <TraceStepList trace={trace} steps={steps} onAddExtract={onAddExtract} />

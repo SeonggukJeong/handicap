@@ -13,6 +13,7 @@ export const WIDEST_REASON_CANDIDATES: readonly string[] = [
   "요청 수 상한(50) 초과",
   "시나리오 실행 오류",
   "조건 반복 최대 횟수 도달",
+  "판정 줄 상한 초과",
   "값 다름",
   "앞 단계 실패",
   "분기 값 없음",

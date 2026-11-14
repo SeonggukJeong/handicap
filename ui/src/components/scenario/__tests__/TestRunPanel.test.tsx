@@ -56,6 +56,9 @@ describe("TestRunPanel", () => {
     render(<TestRunPanel trace={TRACE} />);
     // truncated banner
     expect(screen.getByText(/상한 도달/)).toBeInTheDocument();
+    // 원인 셋(요청 수·판정 줄 수·시간)을 적는다 — 글자 조각을 리터럴로(ko 참조는 자기 참조).
+    expect(screen.getByText(/판정 줄 수/)).toBeInTheDocument();
+    expect(screen.queryByText(/max_requests/)).not.toBeInTheDocument();
     // http row: method + url + status
     expect(screen.getByText("GET")).toBeInTheDocument();
     expect(screen.getByText("http://api/ping")).toBeInTheDocument();

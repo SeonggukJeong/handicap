@@ -6,6 +6,10 @@ describe("WIDEST_REASON_CANDIDATES — check.rs REASON_*와 같은 글자를 유
     expect(WIDEST_REASON_CANDIDATES).toContain("조건 반복 최대 횟수 도달");
   });
 
+  it("판정 줄 상한 사유가 크기 프로브 후보에 든다", () => {
+    expect(WIDEST_REASON_CANDIDATES).toContain("판정 줄 상한 초과");
+  });
+
   it("앞서 빠져 있던 짧은 사유도 후보에 든다", () => {
     for (const r of ["값 다름", "앞 단계 실패", "분기 값 없음"]) {
       expect(WIDEST_REASON_CANDIDATES).toContain(r);
