@@ -741,7 +741,7 @@ export const ko = {
     loopKeepThinkHelp:
       "도착률 기준 실행·시험 실행·운영 모니터처럼 think time을 무시하는 실행에서도 이 반복 안에서는 쉽니다. 운영 모니터에서는 재시도와 대기 시간만큼 점검 제한 시간을 넉넉히 잡으세요.",
     loopLenientExtractHelp:
-      "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 빈 값은 뒤 스텝의 요청 주소에도 그대로 들어가므로(예: /orders/{{orderId}} → /orders/), 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
+      "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값은 뒤 스텝의 요청 주소에도 그대로 들어가므로(예: /orders/{{orderId}} → /orders/), 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
     loopCondLabelMax: (n: number) => `조건 반복 · 최대 ${n}`,
     loopCondLabelUnlimited: "조건 반복 · 무제한",
     loopJudgeAgain: "조건이 참 → 다시 실행",
