@@ -42,7 +42,7 @@ spec이 암시하지만 놓치기 쉬운 입력. 괄호 안이 그 테스트가 
 4. 워커가 보낸 `pass_bucket: 0`·`9999`·`outcome: 7` (Task 4 ingest clamp·버림).
 5. `repeat: 1` 조건 반복 — 재시도 0·중단만 있는 안내 문구, 표지 없음 (Task 6·8).
 6. 루프 집계 상한 0인 run(`loop_breakdown` 빈 배열)의 표지 판정 갈래 (Task 6).
-7. 본문 if 안에서 성공 회차에만 도는 스텝 — 표지가 붙지 않는다 (Task 6).
+7. 본문 if 안에서 성공 회차에만 도는 스텝 — 1번째 회차에서만 요청됐으면 표지가 붙지 않고, 2번째 이후 회차에서 요청됐으면 붙는다 (Task 6).
 8. 시나리오 YAML 파싱 실패 — 이름은 id, 표지 없음, 나머지는 그린다 (Task 6).
 9. `loop_exits`가 없을 때 `StepStatsTable`·`StepPhaseBreakdown`·`ReportView` DOM 불변 (Task 7·8).
 
@@ -1183,7 +1183,7 @@ export function noticeLoops(views: LoopExitView[]): LoopExitView[];
 
 1. **기본 계산**: `loop_exits = [{ step_id: L, entered: 1200, passes: 1812, exhausted: 12, truncated: 3, buckets: [{pass:1,completed:816,exhausted:0,truncated:1},{pass:2,completed:240,exhausted:0,truncated:0},{pass:3,completed:114,exhausted:0,truncated:0},{pass:5,completed:12,exhausted:12,truncated:0},{pass:null,completed:3,exhausted:0,truncated:2}] }]` → `retries === 612`, `floorPct(retryPct) === "33.8%"`, `name`은 YAML의 loop 이름, `maxPasses`는 YAML `repeat`.
 2. **줄 순서와 분류**: rows = `first(pass 1, 816)` → `retried(pass 2, 240)` → `retried(pass 3, 114)` → `retried(pass 5, 12)` → `retried(pass null, 3)` → `exhausted(12)` → `truncated(3)`. 건수 0인 줄은 없다. `pct`는 `count / entered × 100`. 줄 건수 합 = `entered`(816+240+114+12+3+12+3 = 1,200).
-3. **표지 — 회차별 요청 수가 있을 때**: 본문에 스텝 A(매 회차)와 if 안 스텝 B(성공 회차에만). `steps`의 A는 `loop_breakdown: [{loop_index:0,count:10,…},{loop_index:1,count:4,…}]`, B는 `[{loop_index:0,count:10,…}]` → `retriedStepIds`는 A만. 상한 초과 줄(`loop_index: null`, count 2)만 있는 스텝도 포함된다.
+3. **표지 — 회차별 요청 수가 있을 때**: 본문에 스텝 A(매 회차)와 if 안 스텝 B(성공 회차에만). `steps`의 A는 `loop_breakdown: [{loop_index:0,count:10,…},{loop_index:1,count:4,…}]`, B는 `[{loop_index:0,count:10,…}]` → `retriedStepIds`는 A만. 상한 초과 줄(`loop_index: null`, count 2)만 있는 스텝도 포함된다. (구현 리뷰에서 정정: 이 데이터는 실제 run에서 나올 수 없어 케이스 3을 1회차 전용/2회차 이후 두 갈래로 재작성 — spec §4.1.)
 4. **표지 — 회차별 요청 수가 없을 때**(`loop_breakdown: []`): `retries > 0`이면 본문 http 스텝 전부, `retries === 0`이면 빈 배열.
 5. **`repeat: 1` 중단만**: `entered 5, passes 5, exhausted 5` → `retries 0`, `retriedStepIds []`, `noticeLoops`에는 포함.
 6. **마치지 못함만 있고 재시도 0**(`entered 3, passes 3, truncated 3`) → `noticeLoops`에 없음.

@@ -19,13 +19,13 @@ function steps(yaml: string): ReadonlyArray<Step> {
   return r.model.steps;
 }
 
-const loopYaml = `version: 1
+const loopYamlWith = (repeatLine: string) => `version: 1
 name: s
 steps:
   - id: ${L}
     name: 대기 반복
     type: loop
-    repeat: 5
+${repeatLine}
     while: { left: "{{s}}", op: eq, right: wait }
     do:
       - ${http(A, "poll")}
@@ -36,6 +36,7 @@ steps:
         then:
           - ${http(B, "done")}
 `;
+const loopYaml = loopYamlWith("    repeat: 5");
 
 const rs = (step_id: string, loop_breakdown?: ReportStep["loop_breakdown"]): ReportStep => ({
   step_id,
@@ -102,13 +103,28 @@ describe("buildLoopExitViews", () => {
     expect(w.rows).toHaveLength(1);
   });
 
-  it("3 표지 — 회차별 요청 수가 있을 때", () => {
+  it("3a 1번째 회차에서만 요청된 스텝은 표지 없음", () => {
+    // 진입 10 = 1번째에 끝남 6 + 5번째까지 가서 중단 4. passes = 6 + 4*5 = 26.
+    // A는 매 회차(진입 10 → 이후 회차마다 4), B(성공 회차에만)는 끝난 6건 = loop_index 0 한 줄.
     const [v] = buildLoopExitViews(
-      [basic],
-      [rs(A, [bd(0, 10), bd(1, 4)]), rs(B, [bd(0, 10)])],
+      [le({ entered: 10, passes: 26, exhausted: 4, buckets: [bk(1, 6), bk(5, 0, 4)] })],
+      [rs(A, [bd(0, 10), bd(1, 4), bd(2, 4), bd(3, 4), bd(4, 4)]), rs(B, [bd(0, 6)])],
       steps(loopYaml),
     );
     expect(v.retriedStepIds).toEqual([A]);
+  });
+
+  it("3b 성공 회차에만 도는 if 안 스텝도 그 회차가 2번째 이후면 표지가 붙는다", () => {
+    // 진입 10 = 1번째에 끝남 6 + 2번째에 끝남 4. passes = 6 + 4*2 = 14.
+    const [v] = buildLoopExitViews(
+      [le({ entered: 10, passes: 14, buckets: [bk(1, 6), bk(2, 4)] })],
+      [rs(A, [bd(0, 10), bd(1, 4)]), rs(B, [bd(0, 6), bd(1, 4)])],
+      steps(loopYaml),
+    );
+    expect(v.retriedStepIds).toEqual([A, B]);
+  });
+
+  it("3c 상한 초과 줄(loop_index null)만 있는 스텝도 표지", () => {
     const [w] = buildLoopExitViews(
       [basic],
       [rs(A, [bd(0, 10)]), rs(B, [bd(null, 2)])],
@@ -133,8 +149,9 @@ describe("buildLoopExitViews", () => {
     const views = buildLoopExitViews(
       [le({ entered: 5, passes: 5, exhausted: 5, buckets: [bk(1, 5, 5)] })],
       [rs(A, [bd(0, 5)])],
-      steps(loopYaml),
+      steps(loopYamlWith("    repeat: 1")),
     );
+    expect(views[0].maxPasses).toBe(1);
     expect(views[0].retries).toBe(0);
     expect(views[0].retriedStepIds).toEqual([]);
     expect(noticeLoops(views)).toHaveLength(1);
@@ -153,8 +170,9 @@ describe("buildLoopExitViews", () => {
     const views = buildLoopExitViews(
       [le({ entered: 4, passes: 400, truncated: 4, buckets: [bk(null, 0, 0, 4)] })],
       [],
-      steps(loopYaml),
+      steps(loopYamlWith("")),
     );
+    expect(views[0].maxPasses).toBeNull();
     expect(views[0].retries).toBe(396);
     expect(noticeLoops(views)).toHaveLength(1);
     expect(views[0].rows.map((r) => [r.kind, r.count])).toEqual([["truncated", 4]]);

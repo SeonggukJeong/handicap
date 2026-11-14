@@ -125,7 +125,7 @@ pub loop_exits: Vec<LoopExit>,
 - `name`(loop 스텝 이름, 못 찾으면 `step_id`), `maxPasses`(YAML `repeat`, 없으면 `null`),
 - `entered`, `retries = passes − entered`, `retryPct = retries / passes × 100`(passes 0이면 0), `exhausted`, `truncated`,
 - `retriedStepIds` — 「재시도 포함」을 붙일 스텝. 그 loop `do` 안의 http 스텝(`flattenHttpSteps(loop.do)` — if 분기 안 포함) 중:
-  - 그 스텝의 `loop_breakdown`이 비어 있지 않으면: `loop_index`가 0이 아닌 줄(상한 초과 줄 `null` 포함)의 요청 수 합이 1 이상인 스텝만(= 실제로 2번째 이후 회차에서 요청된 스텝. 성공 회차에서만 도는 if 안 스텝은 빠진다),
+  - 그 스텝의 `loop_breakdown`이 비어 있지 않으면: `loop_index`가 0이 아닌 줄(상한 초과 줄 `null` 포함)의 요청 수 합이 1 이상인 스텝만(= 실제로 2번째 이후 회차에서 요청된 스텝. 1번째 회차에서만 요청된 스텝은 빠진다 — 성공 회차에만 도는 if 안 스텝도 그 회차가 2번째 이후였으면 표지가 붙는다),
   - 비어 있으면(run의 루프 집계 상한이 0): `retries > 0`인 loop의 본문 스텝 전부.
 - `rows` = 분포 줄(4.3).
 
