@@ -18,6 +18,8 @@ vi.mock("../../../api/monitors", async (importOriginal) => ({
 
 const S1 = "01HX0000000000000000000001";
 const S2 = "01HX0000000000000000000002";
+const LP = "01HX0000000000000000000009";
+const S3 = "01HX0000000000000000000003";
 const YAML = `version: 1
 name: sc
 steps:
@@ -33,6 +35,18 @@ steps:
     request:
       method: GET
       url: https://h/y
+  - id: "${LP}"
+    name: "주문 재시도"
+    type: loop
+    repeat: 3
+    while: { left: "{{code}}", op: eq, right: "WAIT" }
+    do:
+      - id: "${S3}"
+        name: "대기 조회"
+        type: http
+        request:
+          method: GET
+          url: https://h/z
 `;
 vi.mock("../../../api/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/hooks")>()),
@@ -462,5 +476,54 @@ describe("CheckRecordDialog", () => {
     expect(await screen.findByText(ko.monitor.previewUnwrapped)).toBeInTheDocument();
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/k: "v"/)).toBeInTheDocument();
+  });
+
+  const judgeRow = (branch: string, i: number, id = LP): StepTrace => ({
+    step_id: id,
+    kind: "loop",
+    loop_index: i,
+    branch,
+    request: null,
+    response: null,
+    extracted: {},
+    unbound_vars: [],
+    error: null,
+  });
+
+  it("loop_judge_rows_render_as_judge_lines_with_loop_name", async () => {
+    getRecord.mockResolvedValue(
+      rec({}, [
+        http({ step_id: S3 }),
+        judgeRow("again", 0),
+        http({ step_id: S3 }),
+        judgeRow("exhausted", 1),
+      ]),
+    );
+    wrap(dlg());
+    expect(await screen.findByText("1회차")).toBeInTheDocument();
+    expect(screen.getByText("2회차")).toBeInTheDocument();
+    expect(screen.getByText("조건이 참 → 다시 실행")).toBeInTheDocument();
+    expect(screen.getByText("최대 3회 → 이번 반복 종료")).toBeInTheDocument();
+    expect(screen.getAllByText("주문 재시도")).toHaveLength(2);
+    expect(screen.queryByText(LP)).not.toBeInTheDocument();
+    // 판정 줄은 http 행이 아니다 — 접기 버튼은 http 2개뿐.
+    expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(2);
+  });
+
+  it("focus_index_skips_loop_judge_rows", async () => {
+    // loop 행의 step_id가 포커스 id와 같아도(최악 충돌) 열리는 건 http 행이다.
+    getRecord.mockResolvedValue(rec({}, [http({ step_id: S1 }), judgeRow("done", 0, S1)]));
+    const { rerender } = wrap(
+      <CheckRecordDialog
+        boardId="B1"
+        panel={panel}
+        clicked={clicked}
+        focusStepId={S1}
+        onClose={() => {}}
+      />,
+    );
+    void rerender;
+    const btn = await screen.findByRole("button", { expanded: true });
+    expect(btn).toHaveTextContent("GET https://h/x");
   });
 });

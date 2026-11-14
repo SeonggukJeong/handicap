@@ -273,3 +273,97 @@ describe("TestRunPanel", () => {
     expect(screen.getByRole("dialog", { name: "요청 본문" })).toBeInTheDocument();
   });
 });
+
+describe("TestRunPanel — 조건 반복 판정 줄", () => {
+  const LP = "01HX00000000000000000000L1";
+  const HT = "01HX00000000000000000000H1";
+  const loopSteps: Step[] = [
+    {
+      id: LP,
+      name: "주문 재시도",
+      type: "loop",
+      repeat: 3,
+      while: { left: "{{code}}", op: "eq", right: "WAIT" },
+      do: [
+        {
+          id: HT,
+          name: "조회",
+          type: "http",
+          request: { method: "GET", url: "/o", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    },
+  ];
+  const http = (i: number): ScenarioTrace["steps"][number] => ({
+    step_id: HT,
+    kind: "http",
+    loop_index: i,
+    branch: null,
+    request: { method: "GET", url: "http://api/o", headers: {}, body: null },
+    response: {
+      status: 200,
+      latency_ms: 1,
+      download_ms: null,
+      headers: {},
+      set_cookies: [],
+      body: "",
+      body_truncated: false,
+    },
+    extracted: {},
+    unbound_vars: [],
+    error: null,
+  });
+  const judge = (branch: string, i: number): ScenarioTrace["steps"][number] => ({
+    step_id: LP,
+    kind: "loop",
+    loop_index: i,
+    branch,
+    request: null,
+    response: null,
+    extracted: {},
+    unbound_vars: [],
+    error: null,
+  });
+  const base: ScenarioTrace = {
+    ok: true,
+    total_ms: 5,
+    truncated: false,
+    error: null,
+    final_vars: {},
+    steps: [http(0), judge("again", 0), http(1), judge("again", 1), http(2), judge("done", 2)],
+  };
+
+  it("판정 줄이 회차·문구로 그려지고 http 행은 3개 그대로다", () => {
+    render(<TestRunPanel trace={base} steps={loopSteps} />);
+    expect(screen.getByText("1회차")).toBeInTheDocument();
+    expect(screen.getByText("2회차")).toBeInTheDocument();
+    expect(screen.getByText("3회차")).toBeInTheDocument();
+    expect(screen.getAllByText("조건이 참 → 다시 실행")).toHaveLength(2);
+    expect(screen.getAllByText("조건이 거짓 → 다음 스텝")).toHaveLength(1);
+    expect(screen.getAllByText("GET")).toHaveLength(3);
+    expect(screen.getAllByText("주문 재시도")).toHaveLength(3);
+    expect(screen.queryByText(LP)).not.toBeInTheDocument();
+  });
+
+  it("ended_by_loop이면 목록 위에 안내가 뜬다", () => {
+    render(
+      <TestRunPanel
+        trace={{ ...base, ended_by_loop: LP, steps: [http(0), judge("exhausted", 2)] }}
+        steps={loopSteps}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "조건 반복 「주문 재시도」이(가) 최대 횟수까지 풀리지 않아 여기서 끝났습니다.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("최대 3회 → 이번 반복 종료")).toBeInTheDocument();
+  });
+
+  it("steps가 없으면 이름 자리에 step_id가 나온다", () => {
+    render(<TestRunPanel trace={{ ...base, steps: [judge("done", 0)] }} />);
+    expect(screen.getByText(LP)).toBeInTheDocument();
+  });
+});

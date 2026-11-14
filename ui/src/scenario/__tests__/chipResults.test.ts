@@ -85,6 +85,25 @@ describe("deriveChipResults (spec R4 ①–⑧)", () => {
   });
 });
 
+describe("deriveChipResults — loop 판정 행", () => {
+  const loopRow = (id: string, branch: string, i: number): StepTrace =>
+    httpRow({ step_id: id, kind: "loop", branch, loop_index: i, request: null, response: null });
+
+  it("loop 판정 행은 칩 결과를 만들지 않는다 (http 결과는 그대로)", () => {
+    const m = deriveChipResults(
+      trace([
+        httpRow({ step_id: "h1" }),
+        loopRow("lp", "again", 0),
+        httpRow({ step_id: "h1", error: "boom" }),
+        loopRow("lp", "done", 1),
+      ]),
+    );
+    expect(m.has("lp")).toBe(false);
+    expect(m.size).toBe(1);
+    expect(m.get("h1")).toEqual({ kind: "http", result: "fail" });
+  });
+});
+
 describe("branchText (TestRunPanel에서 byte-identical 추출)", () => {
   it("elif는 0-based 키를 그대로 표시", () => {
     expect(branchText("elif_0")).toBe("elif 0");

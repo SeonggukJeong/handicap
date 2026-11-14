@@ -744,6 +744,12 @@ export const ko = {
       "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다.",
     loopCondLabelMax: (n: number) => `조건 반복 · 최대 ${n}`,
     loopCondLabelUnlimited: "조건 반복 · 무제한",
+    loopJudgeAgain: "조건이 참 → 다시 실행",
+    loopJudgeDone: "조건이 거짓 → 다음 스텝",
+    loopJudgeExhausted: (n: number) => `최대 ${n}회 → 이번 반복 종료`,
+    loopJudgePass: (i: number) => `${i}회차`,
+    endedByLoop: (name: string) =>
+      `조건 반복 「${name}」이(가) 최대 횟수까지 풀리지 않아 여기서 끝났습니다.`,
     loopWarnNoThink:
       "대기 없이 재시도합니다. 응답이 빠르면 초당 수백 번 다시 요청할 수 있습니다. 반복 안 스텝에 think time을 넣으세요.",
     loopWarnThinkNotKept:

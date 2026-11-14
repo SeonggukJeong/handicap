@@ -26,6 +26,8 @@ export type ChipResult =
 export function deriveChipResults(trace: ScenarioTrace): Map<string, ChipResult> {
   const out = new Map<string, ChipResult>();
   for (const row of trace.steps) {
+    // 조건 반복 판정 행(step_id = loop id)은 칩 결과가 아니다 — 요청 행이 아니므로 http로 세지 않는다.
+    if (row.kind === "loop") continue;
     if (row.kind === "if") {
       const prev = out.get(row.step_id);
       const branches = prev?.kind === "if" ? prev.branches : [];

@@ -14,6 +14,8 @@ import { BodyBlock } from "../response/BodyBlock";
 import { HeaderTable } from "../response/HeaderTable";
 import { JsonValueTree } from "../response/JsonValueTree";
 import { ConditionRow } from "./ConditionRow";
+import { LoopJudgeRow } from "../scenario/LoopJudgeRow";
+import type { LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
 
 const VERDICT_LABEL = {
   ok: ko.monitor.stateOk,
@@ -284,6 +286,7 @@ function StepRow({
 export function PreviewResult({
   preview,
   stepNames,
+  loopMeta = {},
   onAddCondition,
   conditionCount = 0,
   displayItems = [],
@@ -292,6 +295,8 @@ export function PreviewResult({
 }: {
   preview: Preview;
   stepNames: Record<string, string>;
+  /** 조건 반복 loop id → 이름·최대 횟수 (stepNames와 분리: 조건 스텝 존재 검사에 loop을 섞지 않는다). */
+  loopMeta?: LoopJudgeMeta;
   onAddCondition?: (c: Condition) => void;
   conditionCount?: number;
   displayItems?: DisplayItem[];
@@ -316,6 +321,17 @@ export function PreviewResult({
       ) : (
         <ol className="mt-2 flex flex-col gap-2">
           {trace.steps.map((s, i) => {
+            if (s.kind === "loop") {
+              const m = loopMeta[s.step_id];
+              return (
+                <li
+                  key={`${s.step_id}-${i}`}
+                  className="rounded border border-slate-200 bg-white p-2"
+                >
+                  <LoopJudgeRow step={s} loopName={m?.name ?? s.step_id} maxPasses={m?.maxPasses} />
+                </li>
+              );
+            }
             const addable = onlyStepId === undefined || s.step_id === onlyStepId;
             return (
               <StepRow

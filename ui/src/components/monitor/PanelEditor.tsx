@@ -15,6 +15,7 @@ import { Field } from "../ui/Field";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { ko } from "../../i18n/ko";
+import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps } from "../../scenario/model";
 import { PreviewResult } from "./PreviewResult";
@@ -122,6 +123,12 @@ export function PanelEditor({
     const parsed = parseScenarioDoc(scenario.yaml);
     if ("error" in parsed) return [];
     return flattenHttpSteps(parsed.model.steps);
+  }, [scenario]);
+  const loopMeta = useMemo(() => {
+    if (!scenario) return {};
+    const parsed = parseScenarioDoc(scenario.yaml);
+    if ("error" in parsed) return {};
+    return loopJudgeMeta(parsed.model);
   }, [scenario]);
   const stepNames = useMemo(
     () => Object.fromEntries(steps.map((s) => [s.id, s.name])) as Record<string, string>,
@@ -505,6 +512,7 @@ export function PanelEditor({
           <PreviewResult
             preview={preview}
             stepNames={stepNames}
+            loopMeta={loopMeta}
             onAddCondition={addCondition}
             conditionCount={panel.conditions.length}
             displayItems={panel.display_items}

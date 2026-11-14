@@ -315,3 +315,46 @@ describe("PreviewResult onlyStepId", () => {
     expect(within(rows[1]).getByRole("button", { name: statusAdd })).toBeInTheDocument();
   });
 });
+
+describe("PreviewResult loop judge rows", () => {
+  const LP = "01HZZZZZZZZZZZZZZZZZZZZZL1";
+  const judge = (branch: string, i: number) => ({
+    step_id: LP,
+    kind: "loop" as const,
+    loop_index: i,
+    branch,
+    request: null,
+    response: null,
+    extracted: {},
+    unbound_vars: [],
+    error: null,
+  });
+  it("loop_rows_show_judge_text_with_loop_name_not_http_shape", () => {
+    const p = preview("");
+    p.trace!.steps = [p.trace!.steps[0], judge("again", 0), judge("exhausted", 1)];
+    render(
+      <PreviewResult
+        preview={p}
+        stepNames={{ [STEP]: "로그인" }}
+        loopMeta={{ [LP]: { name: "주문 재시도", maxPasses: 3 } }}
+        onAddCondition={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText("주문 재시도")).toHaveLength(2);
+    expect(screen.getByText("1회차")).toBeInTheDocument();
+    expect(screen.getByText("조건이 참 → 다시 실행")).toBeInTheDocument();
+    expect(screen.getByText("최대 3회 → 이번 반복 종료")).toBeInTheDocument();
+    expect(screen.queryByText(LP)).not.toBeInTheDocument();
+    // 상태 칸 라벨은 http 행 하나뿐
+    expect(screen.getAllByText(ko.monitor.previewStatus)).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: ko.monitor.condAddAria(ko.monitor.condTargetStatus) }),
+    ).toHaveLength(1);
+  });
+  it("loopMeta가 없으면 이름은 step_id", () => {
+    const p = preview("");
+    p.trace!.steps = [judge("done", 0)];
+    render(<PreviewResult preview={p} stepNames={{}} />);
+    expect(screen.getByText(LP)).toBeInTheDocument();
+  });
+});

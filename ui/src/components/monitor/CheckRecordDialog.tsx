@@ -12,6 +12,8 @@ import { ko } from "../../i18n/ko";
 import { formatDateHms } from "../../monitor/time";
 import { branchText } from "../../scenario/chipResults";
 import { flattenHttpSteps } from "../../scenario/model";
+import { loopJudgeMeta, type LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
+import { LoopJudgeRow } from "../scenario/LoopJudgeRow";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 
 const MASK = "••••";
@@ -62,6 +64,14 @@ export function CheckRecordDialog({
     return Object.fromEntries(flattenHttpSteps(parsed.model.steps).map((s) => [s.id, s.name]));
   }, [scenarios, panel.scenario_id]);
 
+  const loopMeta = useMemo((): LoopJudgeMeta => {
+    const sc = scenarios?.find((s) => s.id === panel.scenario_id);
+    if (!sc) return {};
+    const parsed = parseScenarioDoc(sc.yaml);
+    if ("error" in parsed) return {};
+    return loopJudgeMeta(parsed.model);
+  }, [scenarios, panel.scenario_id]);
+
   // Reason/detail of non-latest bars are absent from /status → take them from the record.
   const result = q.data?.result ?? clicked;
 
@@ -99,6 +109,7 @@ export function CheckRecordDialog({
             record={q.data}
             clicked={clicked}
             stepNames={stepNames}
+            loopMeta={loopMeta}
             focusStepId={focusStepId}
           />
         )}
@@ -111,11 +122,13 @@ function RecordSteps({
   record,
   clicked,
   stepNames,
+  loopMeta,
   focusStepId,
 }: {
   record: CheckRecord;
   clicked: CheckResult;
   stepNames: Record<string, string>;
+  loopMeta: LoopJudgeMeta;
   focusStepId?: string;
 }) {
   const trace = record.trace;
@@ -133,7 +146,7 @@ function RecordSteps({
   let focusIdx = -1;
   if (focusStepId !== undefined) {
     trace.steps.forEach((s, i) => {
-      if (s.kind !== "if" && s.step_id === focusStepId) focusIdx = i;
+      if (s.kind === "http" && s.step_id === focusStepId) focusIdx = i;
     });
   }
   return (
@@ -147,6 +160,14 @@ function RecordSteps({
           return (
             <div key={i} className="text-xs text-slate-600">
               {ko.monitor.recordIfRow(branchText(st.branch ?? "none"))}
+            </div>
+          );
+        }
+        if (st.kind === "loop") {
+          const m = loopMeta[st.step_id];
+          return (
+            <div key={i} className="text-xs">
+              <LoopJudgeRow step={st} loopName={m?.name ?? st.step_id} maxPasses={m?.maxPasses} />
             </div>
           );
         }
