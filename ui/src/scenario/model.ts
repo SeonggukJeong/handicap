@@ -256,7 +256,8 @@ export const ParallelStepModel = z
   .strict();
 export type ParallelStep = z.infer<typeof ParallelStepModel>;
 
-// repeat 없는 무조건 loop과 while 없는 keep_think는 엔진이 거절하는 조합 — 같은 규칙을 UI가 먼저 건다.
+// repeat 없는 무조건 loop과 while 없는 keep_think: 엔진은 관대하다(loop을 한 번 돌리고 keep_think는
+// 무시) — 작성 게이트는 UI뿐이라 여기서 막는다.
 function checkLoop(
   l: { repeat?: number; while?: Condition; keep_think?: boolean },
   path: Array<string | number>,

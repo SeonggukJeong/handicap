@@ -20,7 +20,7 @@
 - **본문 너그러운 추출**: `while`이 있는 loop의 본문(그 안 if 분기·중첩 loop 포함 — 표지 상속) http 스텝은 추출 항목을 하나씩 평가해 못 뽑은 변수를 **빈 문자열**로 두고 스텝 에러로 세지 않는다. 추출 전에 이미 `error`가 있으면(전송 실패·시간 초과·status assert 실패 등) 그 스텝이 선언한 추출 변수를 전부 빈 문자열로 둔다 — 에러 응답을 근거로 재시도하지 않게. 지우지 않고 빈 값으로 두는 이유: 조건 평가에서 빈 값과 없는 값은 같고, 요청 템플릿의 엄격 렌더는 없는 변수에서 엔진 에러(VU 종료)를 내기 때문이다. `while` 없는 loop·loop 밖은 지금처럼 엄격 추출이다.
 - **`StepFlow::EndIteration`(새 변형)**: 조건 반복이 최대 회차까지 풀리지 않으면 "이번 시나리오 반복을 여기서 끝낸다(실패 아님, 다음 반복은 정상 시작)". parallel 합치기 우선순위는 `Aborted > DeadlineReached > EndIteration > Continue`. 무제한 loop은 매 회차 앞의 기존 deadline 확인으로 run 종료 시각에 멈춘다 — 새 종료 장치 없음.
 - **`keep_think`**: "이 반복 안의 think time은 think time을 무시하는 실행에서도 적용한다"(loop마다, 기본 켜짐). think를 무시하는 세 경로(open-loop 기본 think 무시의 `maybe_strip_think`·에디터 시험 실행·운영 모니터)가 대상 loop 본문의 유효 think(스텝 값, 없으면 시나리오 기본값)를 보존한다. 대상 loop이 없으면 세 경로 모두 결과가 지금과 같다.
-- **시험 실행 trace**: `while` loop은 매 회차 뒤 판정 행 하나(`StepKind::Loop`, 와이어 `"loop"`, branch `again|done|exhausted`)를 남기고, `exhausted`는 `ScenarioTrace.ended_by_loop`(loop id)로 알린다. 판정 행은 `MAX_LOOP_JUDGE_ROWS = 200`을 넘으면 `truncated`로 끝낸다(요청 없는 본문이 `max_requests`에 안 걸리고 도는 경우의 상한). 운영 모니터는 `ended_by_loop`가 있으면 그 점검을 실패(`REASON_LOOP_EXHAUSTED`)로 본다.
+- **시험 실행 trace**: `while` loop은 매 회차 뒤 판정 행 하나(`StepKind::Loop`, 와이어 `"loop"`, branch `again|done|exhausted`)를 남기고, `exhausted`는 `ScenarioTrace.ended_by_loop`(loop id)로 알린다. 판정 행은 `MAX_LOOP_JUDGE_ROWS = 200`을 넘으면 `truncated`로 끝낸다(요청 없는 본문이 `max_requests`에 안 걸리고 도는 경우의 상한). 운영 모니터는 `ended_by_loop`가 있으면 흐름 칸의 점검을 실패(`REASON_LOOP_EXHAUSTED`)로 보고, 스텝 칸은 소진된 반복 본문 안의 스텝과 돌지 못한 스텝만 같은 사유로 실패시키며 반복 앞에서 돈 스텝은 평소대로 판정한다.
 - **에디터 경고(저장·실행을 막지 않음)**: ① 쉬지 않는 재시도(본문에 유효 think 없음 / think는 있는데 `keep_think` 꺼짐 — 약한 안내) ② 실패해도 반복(조건을 "본문이 뽑는 변수 = 빈 문자열"로 평가해 확실히 참). ②는 클라 순수 함수 `condWhenBodyVarsEmpty`의 3값 논리(`true|false|unknown`)로 엔진 `eval_compare`를 거울하며, JS에서 컴파일되지 않거나 Rust regex가 못 여는 패턴은 `unknown`으로 두어 경고하지 않는다. UI Zod는 `StepModel.superRefine` 한 곳에서 교차 검사한다(`repeat required when loop has no while`, `keep_think needs while`).
 - **범위**: 1차 = 실행·에디터. 메트릭 proto·DB·리포트 JSON은 건드리지 않는다.
 
@@ -35,7 +35,7 @@
 
 **Positive**: 대기 응답 재시도가 모델로 표현된다. R0로 기존 시나리오·리포트·지문이 안 바뀐다. 무제한 반복이 새 종료 장치 없이 기존 deadline에 묶인다. 조건 평가는 if 스텝의 `eval_condition` 재사용이라 규칙이 한 벌이다.
 
-**Negative / Trade-offs**: 조건 반복 안에서는 "성공 응답인데 값이 빠진" 경우가 그 스텝의 에러로 잡히지 않고 그 값을 쓰는 다음 스텝에서 드러난다. loop 전부터 있던 값도 덮인다(본문 스텝이 `token`을 다시 뽑다 실패하면 뒤 요청에 빈 토큰이 실린다). 최대 횟수로 끝난 반복은 1차 동안 리포트에 드러나지 않는다(2차가 채움 — 1·2차를 모두 끝낸 뒤 릴리즈). 실행 전 부하 추정은 무제한을 1회차로 계산한다. 새 YAML을 옛 워커가 읽으면 `deny_unknown_fields`로 run이 즉시 `failed`가 된다(릴리즈 노트 한 줄: 조건 반복이 든 시나리오는 워커도 새 버전이어야 함). UI 조건 평가 거울(`condEmptyEval.ts`)과 엔진 `eval_compare`는 두 벌이며 같은 연산자 표 테스트로 묶는다. yamlDoc의 loop 액션은 무효 조합을 막지 않는다(호출부 책임 — `ui/src/scenario/CLAUDE.md`).
+**Negative / Trade-offs**: 조건 반복 안에서는 "성공 응답인데 값이 빠진" 경우가 그 스텝의 에러로 잡히지 않고 그 값을 쓰는 다음 스텝에서 드러난다. loop 전부터 있던 값도 덮인다(본문 스텝이 `token`을 다시 뽑다 실패하면 뒤 요청에 빈 토큰이 실린다). 최대 횟수로 끝난 반복은 1차 동안 리포트에 드러나지 않는다(2차가 채움 — 1·2차를 모두 끝낸 뒤 릴리즈). 실행 전 부하 추정은 무제한을 1회차로 계산한다. 새 YAML을 옛 워커가 읽으면 `deny_unknown_fields`로 run이 즉시 `failed`가 된다(릴리즈 노트 한 줄: 조건 반복이 든 시나리오는 워커도 새 버전이어야 함). `keep_think`(기본 켜짐)는 사용자가 think time을 켜지 않았어도 에디터 시험 실행이 본문 대기를 기다리게 한다(시험 실행 전체 제한 시간이 상한이고 취소 가능). UI 조건 평가 거울(`condEmptyEval.ts`)과 엔진 `eval_compare`는 두 벌이며 같은 연산자 표 테스트로 묶는다. yamlDoc의 loop 액션은 무효 조합을 막지 않는다(호출부 책임 — `ui/src/scenario/CLAUDE.md`).
 
 **연기**: 리포트 표시(2차, 회차 분포·재시도 풀이)·응답 시간 분리(3차)·내보내기/인쇄/비교 반영·판정 근거 값 표시·운영 모니터 점검 시간 상한의 재시도 반영 — roadmap §B(finish 단계에서 번호 부여).
 

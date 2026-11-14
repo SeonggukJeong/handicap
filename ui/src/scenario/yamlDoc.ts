@@ -260,7 +260,8 @@ export function applyEdit(doc: Document, edit: Edit): void {
       if (edit.cond === undefined) {
         doc.deleteIn([...loopPath, "while"]);
         doc.deleteIn([...loopPath, "keep_think"]);
-        // repeat 없는 무조건 loop은 엔진이 거절 — 조건을 지우면 한 번 도는 loop으로 남긴다.
+        // repeat 없는 무조건 loop은 엔진이 한 번만 돌리지만(관대) UI가 작성 게이트라 만들지 않는다 —
+        // 조건을 지우면 repeat: 1인 loop으로 남긴다.
         if (!doc.hasIn([...loopPath, "repeat"])) doc.setIn([...loopPath, "repeat"], 1);
       } else {
         doc.setIn([...loopPath, "while"], doc.createNode(edit.cond));

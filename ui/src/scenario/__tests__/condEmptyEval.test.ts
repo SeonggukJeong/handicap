@@ -105,3 +105,26 @@ describe("condWhenBodyVarsEmpty — 엔진과 어긋날 수 있는 입력은 판
     expect(condWhenBodyVarsEmpty(leaf("eq", "{{{x}}}"), X)).toBe("unknown");
   });
 });
+
+describe("condWhenBodyVarsEmpty — 사용자 정규식 안전 (렌더 경로에서 실행되므로 멈추면 안 된다)", () => {
+  // 파국적 역추적 입력은 실행하면 멈추므로 "unknown이 즉시 돌아온다"만 단언한다
+  // (정규식을 아예 만들지 않는 가드의 이빨은 이 호출이 끝난다는 사실 자체다).
+  it("왼쪽이 리터럴(비어 있지 않음)인 matches는 정규식을 돌리지 않고 unknown", () => {
+    const t0 = Date.now();
+    expect(
+      condWhenBodyVarsEmpty(
+        leaf("matches", "^(a+)+$", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"),
+        X,
+      ),
+    ).toBe("unknown");
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
+  it("묶음에 반복이 붙은 패턴은 unknown", () => {
+    expect(condWhenBodyVarsEmpty(leaf("matches", "(?:a*|b*){30}x", "{{x}}"), X)).toBe("unknown");
+    expect(condWhenBodyVarsEmpty(leaf("matches", "(a+)+$", "{{x}}"), X)).toBe("unknown");
+  });
+  it("200자를 넘는 패턴은 unknown, 200자는 평가", () => {
+    expect(condWhenBodyVarsEmpty(leaf("matches", "a".repeat(201), "{{x}}"), X)).toBe("unknown");
+    expect(condWhenBodyVarsEmpty(leaf("matches", "a".repeat(200), "{{x}}"), X)).toBe(false);
+  });
+});

@@ -509,7 +509,9 @@ enum StepFlow {
 
 /// Recursively execute a slice of steps for one VU iteration. Http leaves run a
 /// request + record a metric, then optionally pace (per-step think time); loop
-/// nodes recurse over their body `repeat` times.
+/// nodes recurse over their body `repeat` times; a conditional loop (`while`) is
+/// do-while: body once, then the condition, and when it still holds at the max pass
+/// count the iteration ends via `StepFlow::EndIteration`.
 /// Returns `Err` only for genuine engine errors (template/header build failures);
 /// deadline and cancellation are surfaced via `StepFlow` so the caller can decide
 /// whether to end the iteration cleanly or report an abort — byte-for-byte the
@@ -815,7 +817,7 @@ async fn execute_steps(
                 // Merge in declaration order (join_all preserves input order). Key-origin
                 // namespace: expose each branch's declared extract outputs as
                 // {{branch.var}}. First Err propagates; else worst flow
-                // (Aborted > DeadlineReached > Continue).
+                // (Aborted > DeadlineReached > EndIteration > Continue).
                 let mut aborted = false;
                 let mut deadline_hit = false;
                 let mut end_iteration = false;

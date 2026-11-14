@@ -433,4 +433,13 @@ steps:
     assert!(count(&p, "/order") >= 1);
     assert!(count(&p, "/side") >= 1);
     assert_eq!(count(&p, "/after"), 0);
+    // EndIteration으로 끝난 블록은 페이지 지연 행(group_stats)을 남기지 않는다
+    // (runner.rs `&& !end_iteration` — 일찍 끝난 블록이 분포를 낮게 왜곡하는 것을 막는다).
+    let group_rows: usize = out
+        .flushes
+        .iter()
+        .flat_map(|f| f.group_stats.iter())
+        .filter(|g| g.step_id == "01HX0000000000000000000010")
+        .count();
+    assert_eq!(group_rows, 0, "EndIteration 블록에 group_stats 행이 남았다");
 }

@@ -1090,7 +1090,7 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
 
   const setLoopWhile = useScenarioEditor((s) => s.setLoopWhile);
   const defaultThink = useScenarioEditor((s) => s.model?.default_think_time);
-  const warn = loopWarnings(step, defaultThink);
+  const warn = useMemo(() => loopWarnings(step, defaultThink), [step, defaultThink]);
   const hasWarn = warn.noThink || warn.thinkNotKept || warn.retryOnFailure;
   const setLoopKeepThink = useScenarioEditor((s) => s.setLoopKeepThink);
   const [condOpen, setCondOpen] = useState(hasWhile);

@@ -14,9 +14,9 @@ use handicap_engine::{
 
 use super::check::{
     CheckResult, MONITOR_MAX_REQUESTS, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
-    REASON_LATENCY_STEP_MISSING, REASON_REQUEST_CAP, REASON_TRACE_ERROR, REASON_UNBOUND_VAR,
-    REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values, eval_conditions,
-    reason_timeout, shown,
+    REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_REQUEST_CAP, REASON_TRACE_ERROR,
+    REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values,
+    eval_conditions, reason_timeout, shown,
 };
 use super::config::{AUTH_HEADERS, PanelConfig};
 
@@ -335,6 +335,61 @@ fn branch_result(
     )
 }
 
+/// 소진된 조건 반복(`loop_id`) 본문 안의 http 스텝 id(중첩 if·loop·parallel 안까지).
+/// loop은 최상위·if 분기·다른 loop·parallel 분기 어디에 있어도 찾는다.
+fn loop_body_http_ids<'a>(steps: &'a [Step], loop_id: &str) -> HashSet<&'a str> {
+    fn collect<'a>(steps: &'a [Step], out: &mut HashSet<&'a str>) {
+        for s in steps {
+            match s {
+                Step::Http(h) => {
+                    out.insert(h.id.as_str());
+                }
+                Step::Loop(l) => collect(&l.do_, out),
+                Step::If(i) => {
+                    collect(&i.then_, out);
+                    for e in &i.elif {
+                        collect(&e.then_, out);
+                    }
+                    collect(&i.else_, out);
+                }
+                Step::Parallel(p) => {
+                    for b in &p.branches {
+                        collect(&b.steps, out);
+                    }
+                }
+            }
+        }
+    }
+    fn find<'a>(steps: &'a [Step], loop_id: &str, out: &mut HashSet<&'a str>) -> bool {
+        for s in steps {
+            let found = match s {
+                Step::Http(_) => false,
+                Step::Loop(l) => {
+                    if l.id == loop_id {
+                        collect(&l.do_, out);
+                        true
+                    } else {
+                        find(&l.do_, loop_id, out)
+                    }
+                }
+                Step::If(i) => {
+                    find(&i.then_, loop_id, out)
+                        || i.elif.iter().any(|e| find(&e.then_, loop_id, out))
+                        || find(&i.else_, loop_id, out)
+                }
+                Step::Parallel(p) => p.branches.iter().any(|b| find(&b.steps, loop_id, out)),
+            };
+            if found {
+                return true;
+            }
+        }
+        false
+    }
+    let mut out = HashSet::new();
+    find(steps, loop_id, &mut out);
+    out
+}
+
 /// 칸별 1차 분류(대리 원인 칸 결정 전).
 enum Pre {
     Missing,
@@ -373,6 +428,12 @@ pub fn judge_unit(
     let find_http = |id: &str| all.iter().copied().find(|h| h.id == id);
     let anc = ancestors(scenario);
     let auth_vars = auth_var_names(scenario);
+    // 조건 반복이 최대 횟수에서 끝났으면 그 본문 스텝 id(없으면 빈 집합 — R0).
+    let exhausted_body: HashSet<&str> = trace
+        .ended_by_loop
+        .as_deref()
+        .map(|id| loop_body_http_ids(&scenario.steps, id))
+        .unwrap_or_default();
     let limit = |id: &str, fallback: u32| step_limits.get(id).copied().unwrap_or(fallback);
     let rows = &trace.steps;
     let empty: Vec<Anc<'_>> = Vec::new();
@@ -464,6 +525,7 @@ pub fn judge_unit(
                 limit(sid, p.timeout_seconds),
                 anc.get(sid).unwrap_or(&empty),
                 &auth_vars,
+                &exhausted_body,
             ),
         };
         out[i] = Some(r);
@@ -491,6 +553,7 @@ fn own_result(
     limit_secs: u32,
     chain: &[Anc<'_>],
     auth_vars: &HashSet<String>,
+    exhausted_body: &HashSet<&str>,
 ) -> CheckResult {
     // 규칙 3: 실행됨 — 마지막 행 기준.
     if let Some(row) = trace
@@ -502,6 +565,15 @@ fn own_result(
             let http = all.iter().copied().find(|h| h.id == sid);
             let (v, why) = error_verdict(http, row, err, limit_secs);
             return result(at_ms, v, Some(why), None);
+        }
+        // 소진된 조건 반복의 본문 스텝은 마지막 응답이 200이어도 실패(truncated가 우선).
+        if !trace.truncated && exhausted_body.contains(sid) {
+            return result(
+                at_ms,
+                Verdict::Fail,
+                Some(REASON_LOOP_EXHAUSTED.to_string()),
+                None,
+            );
         }
         if let Some(r) = eval_conditions(all, panel, trace, at_ms) {
             return r;
@@ -531,6 +603,9 @@ fn own_result(
         } else {
             reason_timeout(flow_cap_secs)
         }
+    } else if trace.ended_by_loop.is_some() {
+        // 조건 반복이 안 풀려 뒤 스텝이 못 돌았다.
+        REASON_LOOP_EXHAUSTED.to_string()
     } else {
         REASON_COND_STEP_NOT_RUN.to_string()
     };
@@ -540,8 +615,8 @@ fn own_result(
 #[cfg(test)]
 mod tests {
     use super::super::check::{
-        CheckResult, MONITOR_MAX_REQUESTS, REASON_LATENCY_STEP_MISSING, REASON_REQUEST_CAP,
-        REASON_TRACE_ERROR, SHOWN_MAX_CHARS, Verdict,
+        CheckResult, MONITOR_MAX_REQUESTS, REASON_COND_STEP_NOT_RUN, REASON_LATENCY_STEP_MISSING,
+        REASON_LOOP_EXHAUSTED, REASON_REQUEST_CAP, REASON_TRACE_ERROR, SHOWN_MAX_CHARS, Verdict,
     };
     use super::super::config::{
         Condition, ConditionOp as Op, ConditionSource as Src, LatencySource, PanelConfig,
@@ -1187,6 +1262,56 @@ mod tests {
         assert_eq!(r[0].reason.as_deref(), Some("요청 실패"));
         assert_up(&r[1], "L1");
         assert_up(&r[2], "L1");
+    }
+
+    /// L1 → loop(LP, while){ L2 } → Z
+    fn exhausted_scn() -> Scenario {
+        let mut y = String::from("version: 1\nname: s\nsteps:\n");
+        y += &http_yaml(L1, "L1", 2);
+        y += &format!(
+            "  - id: \"{LP}\"\n    name: 반복\n    type: loop\n    repeat: 3\n    while: {{ left: \"{{{{code}}}}\", op: eq, right: \"WAIT\" }}\n    do:\n"
+        );
+        y += &http_yaml(L2, "L2", 6);
+        y += &http_yaml(Z, "Z", 2);
+        Scenario::from_yaml(&y).unwrap()
+    }
+
+    fn exhausted_trace() -> ScenarioTrace {
+        let mut t = tr(vec![ok(L1, 1), ok(L2, 2), ok(L2, 2), ok(L2, 2)]);
+        t.ended_by_loop = Some(LP.into());
+        t
+    }
+
+    #[test]
+    fn unit_panel_inside_exhausted_loop_fails() {
+        let r = run(&exhausted_scn(), &panels(&[L2]), &exhausted_trace());
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some(REASON_LOOP_EXHAUSTED));
+    }
+
+    #[test]
+    fn unit_panel_after_exhausted_loop_reports_loop_reason() {
+        let r = run(&exhausted_scn(), &panels(&[Z]), &exhausted_trace());
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some(REASON_LOOP_EXHAUSTED));
+    }
+
+    #[test]
+    fn unit_panel_before_exhausted_loop_unchanged() {
+        let r = run(&exhausted_scn(), &panels(&[L1]), &exhausted_trace());
+        assert_eq!(r[0].verdict, Verdict::Ok, "{:?}", r[0]);
+        assert_eq!(r[0].reason, None);
+    }
+
+    #[test]
+    fn unit_without_ended_by_loop_unchanged() {
+        // R0: 같은 trace라도 ended_by_loop이 없으면 본문 스텝은 기존대로 ok, 안 돈 스텝은 기존 사유.
+        let mut t = exhausted_trace();
+        t.ended_by_loop = None;
+        let r = run(&exhausted_scn(), &panels(&[L2, Z]), &t);
+        assert_eq!(r[0].verdict, Verdict::Ok, "{:?}", r[0]);
+        assert_eq!(r[1].verdict, Verdict::Fail);
+        assert_eq!(r[1].reason.as_deref(), Some(REASON_COND_STEP_NOT_RUN));
     }
 
     #[test]

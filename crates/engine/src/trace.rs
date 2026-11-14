@@ -31,8 +31,9 @@ pub struct TraceOptions {
 #[serde(rename_all = "lowercase")]
 pub enum StepKind {
     Http,
-    /// An `if` decision row (carries `branch`; no request/response). Loop nodes do
-    /// not get their own row — their children carry `loop_index`.
+    /// An `if` decision row (carries `branch`; no request/response). Plain loops
+    /// (no `while`) get no row of their own — their children carry `loop_index`;
+    /// conditional loops emit `Loop` judge rows (below).
     If,
     /// 조건 반복(`while`) 한 회차 뒤의 판정 행(`branch` = "again"/"done"/"exhausted",
     /// `branch_eval[0]` = 조건 판정). `while` 없는 loop은 행을 만들지 않는다.
@@ -527,15 +528,16 @@ async fn trace_steps(
                             timed_out: false,
                         });
                         state.judge_rows += 1;
-                        if state.judge_rows > MAX_LOOP_JUDGE_ROWS {
-                            state.truncated = true;
-                            return;
-                        }
                         if !again {
                             break;
                         }
                         if exhausted {
                             state.ended_by_loop = Some(lp.id.clone());
+                            return;
+                        }
+                        // 끝난 반복(done/exhausted)은 상한과 무관 — 한 번 더 돌 때만 자른다.
+                        if state.judge_rows >= MAX_LOOP_JUDGE_ROWS {
+                            state.truncated = true;
                             return;
                         }
                     }
@@ -926,7 +928,37 @@ steps:
         assert!(started.elapsed() < StdDuration::from_secs(5));
         assert!(t.truncated);
         let n = t.steps.iter().filter(|s| s.kind == StepKind::Loop).count();
-        assert!((200..=201).contains(&n), "judge rows = {n}");
+        assert_eq!(n, MAX_LOOP_JUDGE_ROWS as usize, "judge rows = {n}");
+    }
+
+    #[tokio::test]
+    async fn trace_judge_row_cap_boundary_done_is_not_truncated() {
+        // 조건이 정확히 상한번째 판정 행에서 거짓 → 끝난 반복이므로 truncated 아님.
+        let yaml = r#"version: 1
+name: edge
+steps:
+  - id: "01HX0000000000000000000001"
+    name: edge
+    type: loop
+    while: { left: "${loop_index}", op: lt, right: "199" }
+    do:
+      - id: "01HX0000000000000000000009"
+        name: never
+        type: if
+        cond: { left: "1", op: eq, right: "2" }
+        then: []
+"#;
+        let sc = Scenario::from_yaml(yaml).unwrap();
+        let t = trace_scenario(&sc, &t_opts(false, 50, StdDuration::from_secs(30))).await;
+        let loops: Vec<_> = t
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::Loop)
+            .collect();
+        assert_eq!(loops.len(), MAX_LOOP_JUDGE_ROWS as usize);
+        assert_eq!(loops.last().unwrap().branch.as_deref(), Some("done"));
+        assert!(!t.truncated);
+        assert!(t.ended_by_loop.is_none());
     }
 
     const THINK_200: &str = "        think_time: { min_ms: 200, max_ms: 200 }\n";

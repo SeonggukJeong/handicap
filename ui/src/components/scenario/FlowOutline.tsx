@@ -103,7 +103,8 @@ function CondSummary({ text }: { text: string }) {
 
 function LoopWarnIcon({ step }: { step: LoopStep }) {
   const defaultThink = useScenarioEditor((s) => s.model?.default_think_time);
-  const w = loopWarnings(step, defaultThink);
+  // 사용자 정규식을 평가하므로 무관한 재렌더마다 다시 계산하지 않는다.
+  const w = useMemo(() => loopWarnings(step, defaultThink), [step, defaultThink]);
   if (!(w.noThink || w.thinkNotKept || w.retryOnFailure)) return null;
   const label = ko.editor.loopWarnIconAria(step.name);
   return (
