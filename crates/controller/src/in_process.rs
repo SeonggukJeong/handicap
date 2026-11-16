@@ -87,8 +87,16 @@ impl SettingsSeeds {
     }
 }
 
+/// in-process 워커 모드. `Subprocess`=self-exe 워커 spawn(기본), `Pool`=LAN 풀 워커가 등록(토큰 필수).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum InProcessWorkerMode {
+    #[default]
+    Subprocess,
+    Pool,
+}
+
 /// in-process controller 구동 설정. `db: None` → dirs data-local-dir의 기본 DB,
-/// `rest`/`grpc` 기본 `127.0.0.1:0`(OS가 빈 포트 할당). **고정: worker_mode = Subprocess, ui_dir = None.**
+/// `rest`/`grpc` 기본 `127.0.0.1:0`(OS가 빈 포트 할당). **고정: ui_dir = None.**
 #[derive(Clone)]
 pub struct InProcessConfig {
     pub db: Option<String>,
@@ -98,6 +106,9 @@ pub struct InProcessConfig {
     pub scheduler_disabled: bool,
     pub scheduler_timezone: String,
     pub settings_seeds: SettingsSeeds,
+    pub worker_mode: InProcessWorkerMode,
+    /// gRPC 포트가 사용 중일 때 빈 포트로 우회할지(풀 모드는 false 권장).
+    pub grpc_port_fallback: bool,
 }
 
 impl Default for InProcessConfig {
@@ -110,6 +121,8 @@ impl Default for InProcessConfig {
             scheduler_disabled: false,
             scheduler_timezone: "Asia/Seoul".to_string(),
             settings_seeds: SettingsSeeds::default(),
+            worker_mode: InProcessWorkerMode::Subprocess,
+            grpc_port_fallback: true,
         }
     }
 }
@@ -127,6 +140,8 @@ impl std::fmt::Debug for InProcessConfig {
             .field("scheduler_disabled", &self.scheduler_disabled)
             .field("scheduler_timezone", &self.scheduler_timezone)
             .field("settings_seeds", &self.settings_seeds)
+            .field("worker_mode", &self.worker_mode)
+            .field("grpc_port_fallback", &self.grpc_port_fallback)
             .finish()
     }
 }
@@ -182,6 +197,9 @@ impl RunningController {
     pub fn grpc_addr(&self) -> SocketAddr {
         self.grpc_addr
     }
+    pub fn is_pool_mode(&self) -> bool {
+        self.coord.is_pool_mode()
+    }
 
     /// graceful 종료. 절대 무한 hang하지 않는다(스펙 §6): 활성 run abort(R4a) →
     /// 토큰 취소(axum/tonic graceful drain·scheduler/heartbeat 정지) → bounded drain
@@ -223,7 +241,15 @@ impl RunningController {
 }
 
 pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningController> {
-    // 1) data-dir + DB 경로 해석 (bundle: dirs data-local-dir, in-process는 worker_mode 고정 Subprocess).
+    if cfg.worker_mode == InProcessWorkerMode::Pool
+        && !cfg
+            .worker_token
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
+    {
+        anyhow::bail!("pool worker mode requires a non-empty worker token (--worker-token)");
+    }
+    // 1) data-dir + DB 경로 해석 (bundle: dirs data-local-dir).
     let data_dir: Option<std::path::PathBuf> =
         dirs::data_local_dir().map(|base| crate::launch::app_data_dir(&base));
     if let Some(dir) = &data_dir {
@@ -245,29 +271,35 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
         info!(count = recovered, "marked orphan runs as failed on startup");
     }
     let coord_state = CoordinatorState::new(db.clone());
-    // NOTE: In-process mode uses Subprocess self-exe workers that do NOT present a token; the
-    // in-process gRPC listener's security boundary is the `127.0.0.1` loopback bind, not the
-    // token. `worker_token` here applies only to the LAN-pool model (remote workers presenting a
-    // shared PSK), which the in-process path does not use — so setting it on a bundle build has
-    // no effect on locally self-spawned workers. Do not mistake this for in-process gRPC auth.
+    // NOTE: Subprocess 모드의 self-exe 워커는 토큰을 제시하지 않으며 gRPC 경계는 루프백 bind다.
+    // `worker_token`은 Pool 모드(원격 워커가 공유 PSK 제시)에서 실제로 쓰인다.
     coord_state.set_worker_token(cfg.worker_token.clone());
 
     // 3) 포트 pre-bind(빈 포트 fallback) → 실제 주소 확보(브라우저/worker가 dial).
     let rest_listener = crate::launch::bind_with_fallback(cfg.rest, true).context("bind REST")?;
     let rest_addr = rest_listener.local_addr().context("REST local_addr")?;
-    let grpc_listener = crate::launch::bind_with_fallback(cfg.grpc, true).context("bind gRPC")?;
+    let grpc_listener = crate::launch::bind_grpc_with_fallback(cfg.grpc, cfg.grpc_port_fallback)
+        .context("bind gRPC")?;
     let grpc_addr = grpc_listener.local_addr().context("gRPC local_addr")?;
     info!(version = env!("CARGO_PKG_VERSION"), rest = %rest_addr, grpc = %grpc_addr, "listeners (in-process)");
 
-    // 4) dispatcher: in-process는 항상 Subprocess(self-exe 멀티콜 워커).
-    let self_exe = std::env::current_exe()
-        .context("resolve current_exe for worker self-spawn")?
-        .to_string_lossy()
-        .into_owned();
-    let dispatcher: SharedDispatcher = Arc::new(
-        SubprocessDispatcher::new(self_exe, grpc_addr, db.clone())
-            .with_leading_args(vec!["worker".to_string()]),
-    );
+    // 4) dispatcher: Subprocess=self-exe 멀티콜 워커, Pool=Noop(유휴 풀 워커가 spawn_run에 배정됨).
+    let dispatcher: SharedDispatcher = match cfg.worker_mode {
+        InProcessWorkerMode::Subprocess => {
+            let self_exe = std::env::current_exe()
+                .context("resolve current_exe for worker self-spawn")?
+                .to_string_lossy()
+                .into_owned();
+            Arc::new(
+                SubprocessDispatcher::new(self_exe, grpc_addr, db.clone())
+                    .with_leading_args(vec!["worker".to_string()]),
+            )
+        }
+        InProcessWorkerMode::Pool => {
+            coord_state.set_pool_mode(true);
+            Arc::new(crate::dispatcher::NoopDispatcher)
+        }
+    };
     coord_state.set_dispatcher(dispatcher.clone());
 
     let scheduler_tz: chrono_tz::Tz = cfg
@@ -551,6 +583,75 @@ mod tests {
         // tmp는 함수 종료 시 drop되지만 DB connect가 끝난 뒤라 무방(파일 핸들은 풀이 보유).
         std::mem::forget(tmp);
         run_in_process(cfg).await.unwrap()
+    }
+
+    fn tmp_db() -> String {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("c.db").display().to_string();
+        std::mem::forget(tmp);
+        p
+    }
+
+    #[test]
+    fn default_config_unchanged() {
+        let c = InProcessConfig::default();
+        assert_eq!(c.worker_mode, InProcessWorkerMode::Subprocess);
+        assert!(c.grpc_port_fallback);
+        assert!(c.worker_token.is_none());
+        assert_eq!(c.rest.to_string(), "127.0.0.1:0");
+        assert_eq!(c.grpc.to_string(), "127.0.0.1:0");
+    }
+
+    #[tokio::test]
+    async fn pool_requires_nonempty_token() {
+        for t in [None, Some(String::new()), Some("  ".to_string())] {
+            let cfg = InProcessConfig {
+                db: Some(tmp_db()),
+                scheduler_disabled: true,
+                worker_mode: InProcessWorkerMode::Pool,
+                worker_token: t,
+                ..Default::default()
+            };
+            let e = run_in_process(cfg).await.err().expect("must refuse");
+            assert!(format!("{e:#}").contains("--worker-token"));
+        }
+    }
+
+    #[tokio::test]
+    async fn pool_mode_is_pool() {
+        let rc = run_in_process(InProcessConfig {
+            db: Some(tmp_db()),
+            scheduler_disabled: true,
+            worker_mode: InProcessWorkerMode::Pool,
+            worker_token: Some("t".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert!(rc.is_pool_mode());
+        rc.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn subprocess_mode_is_not_pool() {
+        let rc = start_test_controller().await;
+        assert!(!rc.is_pool_mode());
+        rc.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn pool_without_fallback_errors_on_busy_grpc() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let cfg = InProcessConfig {
+            db: Some(tmp_db()),
+            scheduler_disabled: true,
+            worker_mode: InProcessWorkerMode::Pool,
+            worker_token: Some("t".into()),
+            grpc: held.local_addr().unwrap(),
+            grpc_port_fallback: false,
+            ..Default::default()
+        };
+        assert!(run_in_process(cfg).await.is_err());
     }
 
     #[tokio::test]

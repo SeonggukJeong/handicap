@@ -25,7 +25,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum WorkerMode {
     Subprocess,
     Kubernetes,
@@ -360,6 +360,20 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+#[cfg(feature = "bundle")]
+fn bundle_worker_mode(
+    m: WorkerMode,
+) -> anyhow::Result<(handicap_controller::in_process::InProcessWorkerMode, bool)> {
+    use handicap_controller::in_process::InProcessWorkerMode as M;
+    match m {
+        WorkerMode::Subprocess => Ok((M::Subprocess, true)),
+        WorkerMode::Pool => Ok((M::Pool, false)),
+        WorkerMode::Kubernetes => anyhow::bail!(
+            "--worker-mode kubernetes is not supported by the single-exe controller; deploy with the Helm chart"
+        ),
+    }
+}
+
 /// bundle 부트스트랩: InProcessConfig를 조립해 run_in_process에 위임.
 /// 비-bundle 빌드에서는 컴파일되지 않는다(cfg-gated).
 ///
@@ -370,8 +384,10 @@ async fn main() -> anyhow::Result<()> {
 async fn run_bundle(args: ControllerArgs) -> anyhow::Result<()> {
     use handicap_controller::in_process::{InProcessConfig, SettingsSeeds, run_in_process};
 
+    let (worker_mode, grpc_port_fallback) = bundle_worker_mode(args.worker_mode)?;
     // 보안: args를 통째 ?-덤프하지 말 것(worker_token 누출). 명시 필드 + bool만.
     info!(
+        worker_mode = ?args.worker_mode,
         version = env!("CARGO_PKG_VERSION"),
         rest = %args.rest,
         grpc = %args.grpc,
@@ -396,6 +412,8 @@ async fn run_bundle(args: ControllerArgs) -> anyhow::Result<()> {
             run_startup_grace_seconds: args.run_startup_grace_seconds,
             run_backstop_grace_seconds: args.run_backstop_grace_seconds,
         },
+        worker_mode,
+        grpc_port_fallback,
     };
 
     let rc = run_in_process(cfg).await?;
@@ -462,6 +480,31 @@ mod cli_tests {
         assert!(
             rendered.contains(env!("CARGO_PKG_VERSION")),
             "--version은 크레이트 버전을 출력해야 한다: {rendered:?}"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "bundle"))]
+mod bundle_mode_tests {
+    use super::*;
+    use handicap_controller::in_process::InProcessWorkerMode;
+
+    #[test]
+    fn bundle_worker_mode_mapping() {
+        assert_eq!(
+            bundle_worker_mode(WorkerMode::Subprocess).unwrap(),
+            (InProcessWorkerMode::Subprocess, true)
+        );
+        assert_eq!(
+            bundle_worker_mode(WorkerMode::Pool).unwrap(),
+            (InProcessWorkerMode::Pool, false)
+        );
+        assert!(
+            format!(
+                "{:#}",
+                bundle_worker_mode(WorkerMode::Kubernetes).unwrap_err()
+            )
+            .contains("kubernetes")
         );
     }
 }

@@ -40,6 +40,30 @@ pub fn bind_with_fallback(
     }
 }
 
+/// 포트 fallback 대상 에러인가. `AddrInUse` 외에 Windows에서 점유된 포트가
+/// `PermissionDenied`(WSAEACCES)로 나오는 경우도 포함한다.
+pub fn is_port_fallback_error(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
+    )
+}
+
+/// gRPC용 bind. `bind_with_fallback`과 같되 fallback 대상 에러가 `AddrInUse`+`PermissionDenied`.
+/// `allow_fallback=false`면 어떤 에러든 전파(풀 모드: 워커가 알려진 포트로 dial해야 한다).
+pub fn bind_grpc_with_fallback(
+    preferred: SocketAddr,
+    allow_fallback: bool,
+) -> std::io::Result<TcpListener> {
+    match TcpListener::bind(preferred) {
+        Ok(l) => Ok(l),
+        Err(e) if allow_fallback && is_port_fallback_error(e.kind()) => {
+            TcpListener::bind(SocketAddr::new(preferred.ip(), 0))
+        }
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +113,34 @@ mod tests {
         let busy_addr = occupied.local_addr().unwrap();
         let err = bind_with_fallback(busy_addr, false);
         assert!(err.is_err(), "without fallback, busy port must error");
+    }
+
+    #[test]
+    fn fallback_kinds() {
+        use std::io::ErrorKind as K;
+        assert!(is_port_fallback_error(K::AddrInUse));
+        assert!(is_port_fallback_error(K::PermissionDenied));
+        assert!(!is_port_fallback_error(K::AddrNotAvailable));
+        assert!(!is_port_fallback_error(K::Other));
+    }
+
+    #[test]
+    fn grpc_bind_falls_back_when_busy() {
+        let held = TcpListener::bind("127.0.0.1:0").unwrap();
+        let a = held.local_addr().unwrap();
+        assert_ne!(
+            bind_grpc_with_fallback(a, true)
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port(),
+            a.port()
+        );
+    }
+
+    #[test]
+    fn grpc_bind_errors_when_busy_without_fallback() {
+        let held = TcpListener::bind("127.0.0.1:0").unwrap();
+        assert!(bind_grpc_with_fallback(held.local_addr().unwrap(), false).is_err());
     }
 }
