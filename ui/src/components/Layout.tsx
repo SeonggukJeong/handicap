@@ -54,8 +54,14 @@ export function Layout() {
               </a>
             )}
             {pool.data?.pool_mode && (
-              <Link to="/workers" title={ko.nav.poolChipTitle}>
-                <Badge tone="accent">{ko.nav.poolChip(pool.data.workers.length)}</Badge>
+              <Link
+                to="/workers"
+                title={ko.nav.poolChipTitle}
+                className="group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+              >
+                <Badge tone="accent" className="group-hover:bg-accent-100">
+                  {ko.nav.poolChip(pool.data.workers.length)}
+                </Badge>
               </Link>
             )}
           </nav>

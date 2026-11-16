@@ -123,6 +123,21 @@ describe("Layout 풀 칩·모드 전환", () => {
     );
   });
 
+  it("풀 칩 링크는 키보드 초점 고리와 마우스 올림 표시가 있다", () => {
+    mockPool({ pool_mode: true, workers: [w("a")] });
+    renderLayout();
+    const chip = screen.getByRole("link", { name: "서버 · 부하기 1대" });
+    expect(chip).toHaveClass(
+      "rounded",
+      "focus-visible:outline-none",
+      "focus-visible:ring-2",
+      "focus-visible:ring-accent-500",
+    );
+    // 이웃 네비 링크(hover:text-slate-900)처럼 올리면 진해진다 — 배지 색이 자기 글자색을 가지므로 배경으로.
+    expect(chip.firstElementChild).toHaveClass("group-hover:bg-accent-100");
+    expect(chip).toHaveClass("group");
+  });
+
   it("데스크톱 표지가 없으면 「모드 전환」 링크가 없다", () => {
     renderLayout();
     expect(screen.queryByRole("link", { name: "모드 전환" })).toBeNull();
