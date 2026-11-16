@@ -30,7 +30,7 @@ pub fn evaluate(
     facts: &ResponseFacts<'_>,
 ) -> Result<BTreeMap<String, String>> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
-    let mut body_json: Option<serde_json::Value> = None;
+    let mut body_json: BodyCache = None;
     for e in extracts {
         let v = strict_item(e, facts, &mut body_json)?;
         out.insert(e.var().to_string(), v);
@@ -38,11 +38,24 @@ pub fn evaluate(
     Ok(out)
 }
 
+/// Body JSON parse outcome, computed lazily at most once per evaluation and
+/// shared by every Body item. The error is the final `body not JSON: …` text.
+type BodyCache = Option<std::result::Result<serde_json::Value, String>>;
+
+fn parse_body<'c>(
+    cache: &'c mut BodyCache,
+    facts: &ResponseFacts<'_>,
+) -> &'c std::result::Result<serde_json::Value, String> {
+    cache.get_or_insert_with(|| {
+        serde_json::from_slice(facts.body).map_err(|e| format!("body not JSON: {e}"))
+    })
+}
+
 /// One item under the strict rules (body JSON parsed once, lazily).
 fn strict_item(
     e: &Extract,
     facts: &ResponseFacts<'_>,
-    body_json: &mut Option<serde_json::Value>,
+    body_json: &mut BodyCache,
 ) -> Result<String> {
     match e {
         Extract::Body {
@@ -52,14 +65,9 @@ fn strict_item(
             claim,
             ..
         } => {
-            let json = match body_json {
-                Some(v) => v,
-                None => {
-                    let v: serde_json::Value = serde_json::from_slice(facts.body)
-                        .map_err(|e| EngineError::ExtractFailed(format!("body not JSON: {e}")))?;
-                    body_json.insert(v)
-                }
-            };
+            let json = parse_body(body_json, facts)
+                .as_ref()
+                .map_err(|m| EngineError::ExtractFailed(m.clone()))?;
             let value = jsonpath_first(json, path)
                 .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
             post_process(var, stringify(&value), *decode, claim.as_deref())
@@ -108,7 +116,7 @@ pub fn evaluate_lenient(
 ) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     // Body JSON parse outcome, computed once and shared by every Body item.
-    let mut body_json: Option<Option<serde_json::Value>> = None;
+    let mut body_json: BodyCache = None;
     for e in extracts {
         if let Some(v) = lenient_item(e, facts, &mut body_json) {
             out.insert(e.var().to_string(), v);
@@ -121,7 +129,7 @@ pub fn evaluate_lenient(
 fn lenient_item(
     e: &Extract,
     facts: &ResponseFacts<'_>,
-    body_json: &mut Option<Option<serde_json::Value>>,
+    body_json: &mut BodyCache,
 ) -> Option<String> {
     match e {
         Extract::Body {
@@ -131,9 +139,7 @@ fn lenient_item(
             claim,
             ..
         } => {
-            let json = body_json
-                .get_or_insert_with(|| serde_json::from_slice(facts.body).ok())
-                .as_ref()?;
+            let json = parse_body(body_json, facts).as_ref().ok()?;
             // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
             // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
             let value = jsonpath_first(json, path).filter(|v| !v.is_null())?;
@@ -186,17 +192,16 @@ pub fn evaluate_with_defaults(extracts: &[Extract], facts: &ResponseFacts<'_>) -
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut from_default_items: BTreeMap<String, String> = BTreeMap::new();
     let mut error: Option<EngineError> = None;
-    let mut strict_json: Option<serde_json::Value> = None;
-    let mut lenient_json: Option<Option<serde_json::Value>> = None;
+    let mut body_json: BodyCache = None;
     for e in extracts {
         if e.default_value().is_some() {
-            if let Some(v) = lenient_item(e, facts, &mut lenient_json) {
+            if let Some(v) = lenient_item(e, facts, &mut body_json) {
                 from_default_items.insert(e.var().to_string(), v.clone());
                 out.insert(e.var().to_string(), v);
             }
             continue;
         }
-        match strict_item(e, facts, &mut strict_json) {
+        match strict_item(e, facts, &mut body_json) {
             Ok(v) => {
                 out.insert(e.var().to_string(), v);
             }
@@ -1434,5 +1439,39 @@ mod tests {
         let mut extracted = BTreeMap::new();
         let f = fill_missing_extracts(&step, &mut extracted, &mut iter_vars, false);
         assert!(f.blanked.is_empty() && f.defaulted.is_empty() && extracted.is_empty());
+    }
+
+    #[test]
+    fn strict_non_json_body_reports_first_error_and_keeps_no_values() {
+        let items = ys(r#"
+- {var: x, from: body, path: $.a}
+- {var: y, from: body, path: $.b}
+- {var: a, from: body, path: $.a, default: d}
+"#);
+        let facts = body_facts("not json");
+        let want = evaluate(&items[..1], &facts).unwrap_err().to_string();
+        let o = evaluate_with_defaults(&items, &facts);
+        assert_eq!(o.error.unwrap().to_string(), want);
+        assert!(o.extracted.is_empty(), "{:?}", o.extracted);
+    }
+
+    #[test]
+    fn strict_mixed_default_and_plain_body_items_share_one_parse() {
+        let items = ys(r#"
+- {var: k, from: body, path: $.a}
+- {var: d1, from: body, path: $.zz, default: d}
+- {var: d2, from: body, path: $.b, default: d}
+- {var: m, from: body, path: $.b}
+"#);
+        let o = evaluate_with_defaults(&items, &body_facts(r#"{"a":"A","b":"B"}"#));
+        assert!(o.error.is_none());
+        assert_eq!(
+            o.extracted,
+            BTreeMap::from([
+                ("k".to_string(), "A".to_string()),
+                ("d2".to_string(), "B".to_string()),
+                ("m".to_string(), "B".to_string()),
+            ])
+        );
     }
 }
