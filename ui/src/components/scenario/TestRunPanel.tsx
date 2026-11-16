@@ -30,7 +30,7 @@ function chip(text: string, cls: string, tag?: string) {
       {tag !== undefined && (
         <>
           {" "}
-          <span className="rounded bg-white/70 px-1 text-[10px] font-medium">{tag}</span>
+          <span className="rounded bg-white/70 px-1 text-[10px] leading-none font-medium">{tag}</span>
         </>
       )}
     </span>

@@ -339,6 +339,12 @@ describe("Inspector — ExtractEditor", () => {
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription(ko.editor.extractDefaultErrVars);
     expect(input).toHaveAccessibleName(ko.editor.extractDefaultAria(0));
+    // 삭제 버튼은 경고 문단보다 앞(같은 줄 유지) — 경고가 아래 전체 폭 줄로 간다.
+    const remove = within(sec).getByRole("button", { name: ko.editor.removeExtract(0) });
+    const alert = within(sec).getByRole("alert");
+    expect(
+      remove.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(useScenarioEditor.getState().yamlError).toBeNull();
     expect(extractOf().default).toBe("none");
     // 같은 줄의 다른 칸 편집은 여전히 커밋된다.
