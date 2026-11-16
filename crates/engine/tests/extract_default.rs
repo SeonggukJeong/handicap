@@ -335,3 +335,63 @@ async fn default_stops_request_regen() {
     assert!(us.len() >= 2, "{us:?}");
     assert!(us.iter().all(|p| p == "/u/fixed"), "{us:?}");
 }
+
+/// 조건 반복이 `id`를 비움 표에 올리고(기본값 없음) 조건으로 끝난 뒤, 중간 스텝이 `id`에 기본값을 넣는다.
+const CLEAR: &str = r#"version: 1
+name: ed-clear
+variables: { state: "" }
+steps:
+  - id: "01HX0000000000000000000001"
+    name: lp
+    type: loop
+    while: { left: "{{state}}", op: ne, right: "DONE" }
+    repeat: 2
+    do:
+      - { id: "01HX0000000000000000000002", name: poll, type: http, request: { method: GET, url: "{URI}/poll" }, assert: [], extract: [{ var: state, from: body, path: "$.state" }, { var: id, from: body, path: "$.id" }] }
+  - { id: "01HX0000000000000000000005", name: mid, type: http, request: { method: GET, url: "{URI}/mid" }, assert: [], extract: [{ var: id, from: body, path: "$.id"{DEF} }] }
+  - { id: "01HX0000000000000000000006", name: z, type: http, request: { method: GET, url: "{URI}/z/{{id}}" }, assert: [] }
+"#;
+
+async fn clear_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(path("/poll"))
+        .respond_with(json_resp(r#"{"state":"DONE"}"#))
+        .mount(&server)
+        .await;
+    Mock::given(path("/mid"))
+        .respond_with(json_resp("{}"))
+        .mount(&server)
+        .await;
+    server
+}
+
+// 앞서 비워진 이름이 뒤 스텝의 기본값으로 주소에 쓸 수 있게 되는 흐름을 고정한다.
+// 비움 표 항목이 지워지는지는 고정하지 않는다: `blank_guard::check`는 이름이 표에 있고 값이 비어 있을
+// 때만 막는데 기본값은 비지 않아 관찰할 수 없다(`filled.defaulted`를 note_step에 넘겨도 초록이었다).
+#[tokio::test]
+async fn default_unblocks_name_blanked_earlier() {
+    let server = clear_server().await;
+    let out = run_mode(
+        &fill(CLEAR, &server.uri(), ", default: none"),
+        1200,
+        Mode::Closed,
+    )
+    .await;
+    assert!(out.ok);
+    assert!(
+        received(&server, "/z/none").await > 0,
+        "{:?}",
+        paths(&server).await
+    );
+    assert_eq!(kind_count(&out, X_ID, ErrorKind::BlankVar), 0);
+}
+
+#[tokio::test]
+async fn default_unblocks_name_blanked_earlier_control_without_default_stays_blocked() {
+    // 통제: 중간 스텝에 기본값이 없으면 id가 표에 남아 마지막 스텝이 막힌다(위 테스트가 공허하지 않다는 증거).
+    let server = clear_server().await;
+    let out = run_mode(&fill(CLEAR, &server.uri(), ""), 1200, Mode::Closed).await;
+    assert!(out.ok);
+    assert_eq!(received(&server, "/z/").await, 0);
+    assert!(kind_count(&out, X_ID, ErrorKind::BlankVar) > 0);
+}

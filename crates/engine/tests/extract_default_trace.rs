@@ -260,3 +260,50 @@ async fn trace_strict_err_keeps_default_item_value() {
     );
     assert!(r.defaulted.is_empty());
 }
+
+const CLEAR: &str = r#"version: 1
+name: ed-clear
+variables: { state: "" }
+steps:
+  - id: "01HX0000000000000000000001"
+    name: lp
+    type: loop
+    while: { left: "{{state}}", op: ne, right: "DONE" }
+    repeat: 2
+    do:
+      - { id: "01HX0000000000000000000002", name: poll, type: http, request: { method: GET, url: "{URI}/poll" }, assert: [], extract: [{ var: state, from: body, path: "$.state" }, { var: id, from: body, path: "$.id" }] }
+  - { id: "01HX0000000000000000000005", name: mid, type: http, request: { method: GET, url: "{URI}/mid" }, assert: [], extract: [{ var: id, from: body, path: "$.id"{DEF} }] }
+  - { id: "01HX0000000000000000000006", name: z, type: http, request: { method: GET, url: "{URI}/z/{{id}}" }, assert: [] }
+"#;
+
+async fn clear_trace(def: &str) -> handicap_engine::ScenarioTrace {
+    let server = MockServer::start().await;
+    Mock::given(path("/poll"))
+        .respond_with(json_resp(r#"{"state":"DONE"}"#))
+        .mount(&server)
+        .await;
+    Mock::given(path("/mid"))
+        .respond_with(json_resp("{}"))
+        .mount(&server)
+        .await;
+    let sc = Scenario::from_yaml(&fill(CLEAR, &server.uri(), def)).unwrap();
+    trace_scenario(&sc, &opts()).await
+}
+
+// 앞서 비워진 이름이 뒤 스텝의 기본값으로 주소에 쓸 수 있게 되는 흐름을 고정한다.
+// 비움 표 항목이 지워지는지는 고정하지 않는다: `blank_guard::check`는 이름이 표에 있고 값이 비어 있을
+// 때만 막는데 기본값은 비지 않아 관찰할 수 없다(`filled.defaulted`를 note_step에 넘겨도 초록이었다).
+#[tokio::test]
+async fn trace_default_unblocks_name_blanked_earlier() {
+    let t = clear_trace(", default: none").await;
+    assert_eq!(row(&t.steps, A_ID).defaulted, vec!["id".to_string()]);
+    let z = row(&t.steps, X_ID);
+    assert!(z.blocked.is_none(), "{z:?}");
+    assert!(url(z).ends_with("/z/none"), "{}", url(z));
+}
+
+#[tokio::test]
+async fn trace_default_unblocks_name_blanked_earlier_control_without_default_stays_blocked() {
+    let t = clear_trace("").await;
+    assert!(row(&t.steps, X_ID).blocked.is_some());
+}

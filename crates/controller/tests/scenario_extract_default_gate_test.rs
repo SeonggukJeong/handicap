@@ -64,6 +64,9 @@ async fn extract_default_with_template_is_rejected_400() {
         msg.contains("extract default must not contain"),
         "got: {msg}"
     );
+    // 엔진 거절 문구는 값을 싣지 않는다 — 응답 본문 전체에서 확인한다(고정 문구에는 `{{`만 있고 `x}}`는 없다).
+    let whole = body.to_string();
+    assert!(!whole.contains("x}}"), "offending value leaked: {whole}");
 }
 
 #[tokio::test]
