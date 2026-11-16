@@ -8,11 +8,22 @@ pub enum Role {
     Server,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// `Debug`는 손으로 — 토큰은 `[REDACTED]`(`InProcessConfig`와 같은 규칙).
+#[derive(Clone, PartialEq)]
 pub struct ServerSettings {
     pub token: Option<String>,
     pub grpc_port: u16,
     pub self_worker: bool,
+}
+
+impl std::fmt::Debug for ServerSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerSettings")
+            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
+            .field("grpc_port", &self.grpc_port)
+            .field("self_worker", &self.self_worker)
+            .finish()
+    }
 }
 
 impl Default for ServerSettings {
@@ -159,6 +170,26 @@ mod tests {
         let l = parse_config(Some(r#"{"version":2,"role":"server"}"#));
         assert_eq!(l.config.role, Role::Local);
         assert!(l.warning);
+    }
+    #[test]
+    fn debug_redacts_token() {
+        let secret = "deadbeef".repeat(4);
+        let c = DesktopConfig {
+            role: Role::Server,
+            server: ServerSettings {
+                token: Some(secret.clone()),
+                grpc_port: 8093,
+                self_worker: true,
+            },
+        };
+        let d = format!("{c:?}");
+        assert!(!d.contains(&secret), "{d}");
+        assert!(d.contains("[REDACTED]"), "{d}");
+        assert!(d.contains("8093"), "다른 칸은 그대로: {d}");
+        let s = format!("{:?}", c.server);
+        assert!(!s.contains(&secret), "{s}");
+        let none = format!("{:?}", ServerSettings::default());
+        assert!(none.contains("token: None"), "{none}");
     }
     #[test]
     fn missing_server_section_defaults_without_warning() {
