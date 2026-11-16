@@ -221,6 +221,14 @@ pub struct CoordinatorState {
     /// Set once at startup when `--worker-mode pool`. When true, `spawn_run` uses
     /// the pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
     pool_mode: Arc<OnceLock<bool>>,
+    /// Cancelled by in-process `RunningController::shutdown` so pool (and
+    /// not-yet-registered) worker stream handlers end their loop, run their
+    /// cleanup and drop their `tx` — the remote worker then sees end-of-stream
+    /// and reconnects to whatever controller listens next (desktop US4). tonic's
+    /// graceful shutdown only sends GOAWAY to detached connection tasks, so
+    /// without this an idle pool worker stays attached to a dead coordinator.
+    /// Never cancelled by the CLI binary (byte-identical there). Clones share it.
+    streams_shutdown: CancellationToken,
 }
 
 impl CoordinatorState {
@@ -235,7 +243,15 @@ impl CoordinatorState {
             worker_token: Arc::new(OnceLock::new()),
             pool: Arc::new(Mutex::new(HashMap::new())),
             pool_mode: Arc::new(OnceLock::new()),
+            streams_shutdown: CancellationToken::new(),
         }
+    }
+
+    /// End every pool / not-yet-registered worker stream handler (in-process
+    /// shutdown). Legacy per-run streams are left alone — their workers end
+    /// on the Abort they were already sent. Idempotent.
+    pub fn shutdown_worker_streams(&self) {
+        self.streams_shutdown.cancel();
     }
 
     /// Install the dispatcher handle so finalize paths can clean up. Called once
@@ -1280,7 +1296,21 @@ impl Coordinator for CoordinatorService {
             let mut run_id: Option<String> = None;
             let mut worker_id: Option<String> = None;
             let mut pool_conn = false;
-            while let Some(msg) = inbound.next().await {
+            let streams_shutdown = state.streams_shutdown.clone();
+            loop {
+                // Only pool / unregistered connections listen for the in-process
+                // shutdown signal; a legacy per-run stream keeps its pre-existing
+                // behaviour (the branch is disabled, so a cancelled token never spins).
+                let listen_shutdown = pool_conn || worker_id.is_none();
+                let next = tokio::select! {
+                    biased;
+                    _ = streams_shutdown.cancelled(), if listen_shutdown => {
+                        info!(?worker_id, "controller shutting down: closing worker stream");
+                        break;
+                    }
+                    m = inbound.next() => m,
+                };
+                let Some(msg) = next else { break };
                 let msg = match msg {
                     Ok(m) => m,
                     Err(e) => {

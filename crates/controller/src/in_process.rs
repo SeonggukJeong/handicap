@@ -218,6 +218,8 @@ impl RunningController {
 
     /// 활성 run을 가드 UPDATE로 `aborted`(사유 `message`) 기록 후 워커에 Abort를 보낸다.
     /// 이미 terminal로 바뀐 run은 건드리지 않는다. 반환 = aborted로 바꾼 수.
+    /// 한 행의 DB 오류는 경고(run id만) 후 나머지 run을 계속 처리한다 — 종료 경로가
+    /// 첫 실패에서 멈추지 않도록. 활성 id 조회 자체의 실패만 Err.
     pub async fn abort_active_runs(&self, message: &str) -> anyhow::Result<usize> {
         let ids: Vec<String> =
             sqlx::query_scalar("SELECT id FROM runs WHERE status IN ('pending','running')")
@@ -226,12 +228,15 @@ impl RunningController {
                 .context("query active run ids")?;
         let mut n = 0;
         for id in &ids {
-            if crate::store::runs::mark_aborted_if_active(&self.db, id, message)
-                .await
-                .context("mark run aborted")?
-            {
-                let _ = self.coord.abort(id).await;
-                n += 1;
+            match crate::store::runs::mark_aborted_if_active(&self.db, id, message).await {
+                Ok(true) => {
+                    let _ = self.coord.abort(id).await;
+                    n += 1;
+                }
+                Ok(false) => {}
+                Err(_) => {
+                    warn!(run_id = %id, "abort_active_runs: mark aborted failed (continuing)")
+                }
             }
         }
         Ok(n)
@@ -253,6 +258,9 @@ impl RunningController {
             Err(e) => warn!(error = ?e, "shutdown: abort_all failed (continuing)"),
         }
         self.token.cancel();
+        // tonic graceful shutdown은 연결 태스크에 GOAWAY만 보낸다 — 풀 워커 스트림 처리기를
+        // 직접 끝내야 원격 워커가 스트림 끝을 보고 다음 컨트롤러로 재연결한다(US4).
+        self.coord.shutdown_worker_streams();
         self.monitor.stop_all().await;
         let serve = self.serve.lock().unwrap().take();
         if let Some(handle) = serve {
@@ -713,6 +721,33 @@ mod tests {
             status_msg(&rc.db, "r").await,
             ("aborted".into(), Some(ABORT_MSG_ROLE_SWITCH.into()))
         );
+        rc.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn abort_active_runs_continues_past_row_error() {
+        let rc = start_test_controller().await;
+        seed_scn(&rc.db).await;
+        // rowid 순으로 "bad"가 먼저 처리된다 — 실패에서 멈추면 "good"이 남는다.
+        insert_active_run(&rc.db, "bad", "running").await;
+        insert_active_run(&rc.db, "good", "running").await;
+        sqlx::query(
+            "CREATE TRIGGER fail_bad BEFORE UPDATE ON runs WHEN OLD.id = 'bad' \
+             BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .execute(&rc.db)
+        .await
+        .unwrap();
+        assert_eq!(
+            rc.abort_active_runs(ABORT_MSG_ROLE_SWITCH).await.unwrap(),
+            1
+        );
+        assert_eq!(status_msg(&rc.db, "good").await.0, "aborted");
+        assert_eq!(status_msg(&rc.db, "bad").await.0, "running");
+        sqlx::query("DROP TRIGGER fail_bad")
+            .execute(&rc.db)
+            .await
+            .unwrap();
         rc.shutdown().await;
     }
 
