@@ -628,7 +628,7 @@ pub(crate) fn classify(http: Option<&HttpStep>, st: &StepTrace, err: &str) -> St
 /// 스텝 표시 이름 — 이름이 비었거나 시나리오에 없으면 id.
 pub(super) fn step_label(h: Option<&HttpStep>, id: &str) -> String {
     match h {
-        Some(h) if !h.name.is_empty() => h.name.clone(),
+        Some(h) if !h.name.trim().is_empty() => h.name.clone(),
         _ => id.to_string(),
     }
 }
@@ -977,6 +977,20 @@ steps:
         assert_eq!(r.reason.as_deref(), Some("앞 단계 실패"));
         assert_eq!(r.detail.as_deref(), Some("주문 삭제 · 상태 조회 · 값 없음"));
         assert_eq!(r.latency_ms, None);
+    }
+
+    #[test]
+    fn flow_cell_blocked_whitespace_name_uses_id() {
+        let s = Scenario::from_yaml(&format!(
+            "version: 1\nname: s\nsteps:\n  - id: \"{POLL}\"\n    name: 상태 조회\n    type: http\n    request: {{ method: GET, url: \"http://x/p\" }}\n  - id: \"{DEL}\"\n    name: \" \"\n    type: http\n    request: {{ method: GET, url: \"http://x/d\" }}\n"
+        ))
+        .unwrap();
+        let t = tr(vec![st(POLL, Some(resp(200, 3)), None), blocked_st()]);
+        let r = judge(&s, &panel(LatencySource::Total), &t, 1);
+        assert_eq!(
+            r.detail.as_deref(),
+            Some("01HX00000000000000000000D1 · 상태 조회 · 값 없음")
+        );
     }
 
     #[test]
