@@ -250,12 +250,14 @@ fn dominant_error_kind(error_kinds: &[crate::report::ErrorKindCount]) -> Option<
         "timeout",
         "connect_refused",
     ];
-    let total: u64 = error_kinds.iter().map(|k| k.count).sum();
+    // blank_var(보내지 않은 요청)은 전송 실패가 아니라 합·후보 양쪽에서 뺀다.
+    let counted = || error_kinds.iter().filter(|k| k.kind != "blank_var");
+    let total: u64 = counted().map(|k| k.count).sum();
     if total == 0 {
         return None;
     }
     let mut best: Option<&crate::report::ErrorKindCount> = None;
-    for k in error_kinds {
+    for k in counted() {
         if best.is_none_or(|b| k.count > b.count || (k.count == b.count && k.kind < b.kind)) {
             best = Some(k);
         }
@@ -679,6 +681,7 @@ mod tests {
             download: None,
             wait: None,
             loop_split: None,
+            not_sent: None,
         }
     }
     fn summary() -> ReportSummary {
@@ -959,6 +962,15 @@ mod tests {
                 count: *c,
             })
             .collect()
+    }
+
+    #[test]
+    fn dominant_kind_ignores_blank_var() {
+        assert_eq!(
+            dominant_error_kind(&kinds(&[("blank_var", 90), ("timeout", 10)])).as_deref(),
+            Some("timeout")
+        );
+        assert_eq!(dominant_error_kind(&kinds(&[("blank_var", 5)])), None);
     }
 
     fn onset_of(windows: &[ReportWindow], ek: &[crate::report::ErrorKindCount]) -> Option<Insight> {

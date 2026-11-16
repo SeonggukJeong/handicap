@@ -163,6 +163,9 @@ pub struct ReportStep {
     /// 조건 반복에서 이어진 회차가 있는 스텝만: 끝낸 응답 / 재시도(이어짐+끊김) 응답 분리.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_split: Option<LoopSplit>,
+    /// 보내지 않은 요청 수(분류 blank_var의 스텝별 건수). 0건이면 None(직렬화 생략).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_sent: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -549,9 +552,16 @@ pub fn build_report(
     // ordered by step_id, kind from SQL) collapse to a kind-only total —
     // step attribution isn't surfaced in the report (spec §3.1/§9.2, counts-only).
     let mut kind_totals: BTreeMap<String, u64> = BTreeMap::new();
+    // blank_var(보내지 않은 요청)은 스텝별로도 모아 ReportStep.not_sent에 싣는다.
+    let mut not_sent_by_step: BTreeMap<String, u64> = BTreeMap::new();
     for r in error_kinds {
-        *kind_totals.entry(r.kind.clone()).or_default() += r.count.max(0) as u64;
+        let n = r.count.max(0) as u64;
+        *kind_totals.entry(r.kind.clone()).or_default() += n;
+        if r.kind == "blank_var" && n > 0 {
+            *not_sent_by_step.entry(r.step_id.clone()).or_default() += n;
+        }
     }
+    let not_sent_total: u64 = not_sent_by_step.values().sum();
     let mut error_kinds_rolled: Vec<ErrorKindCount> = kind_totals
         .into_iter()
         .map(|(kind, count)| ErrorKindCount { kind, count })
@@ -916,16 +926,18 @@ pub fn build_report(
                 max_ms: h.max() / 1_000,
             }
         };
-        let reuse_ratio = if total_count == 0 {
+        // 보내지 않은 요청은 연결을 쓰지 않으므로 분모에서 뺀다.
+        let sent_total = total_count.saturating_sub(not_sent_total);
+        let reuse_ratio = if sent_total == 0 {
             0.0
         } else {
-            1.0 - (connect_count as f64 / total_count as f64)
+            1.0 - (connect_count as f64 / sent_total as f64)
         };
         Some(ConnectionStats {
             dns: phase_stats(&dns_hist, dns_count),
             connect: phase_stats(&connect_hist, connect_count),
             connections_opened: connect_count,
-            requests_total: total_count,
+            requests_total: sent_total,
             reuse_ratio,
         })
     } else {
@@ -943,6 +955,7 @@ pub fn build_report(
             let download = download_by_step.remove(&step_id);
             let wait = wait_by_step.remove(&step_id);
             let loop_split = split_by_step.remove(&step_id);
+            let not_sent = not_sent_by_step.get(&step_id).copied();
             ReportStep {
                 step_id,
                 count,
@@ -955,6 +968,7 @@ pub fn build_report(
                 download,
                 wait,
                 loop_split,
+                not_sent,
             }
         })
         .collect();
@@ -1482,6 +1496,7 @@ mod tests {
             download: None,
             wait: None,
             loop_split: None,
+            not_sent: None,
         }
     }
 
@@ -2893,6 +2908,62 @@ steps:
             !json.contains("error_kinds"),
             "empty must be omitted: {json}"
         );
+    }
+
+    fn blank_ek(step: &str, kind: &str, count: i64) -> crate::store::metrics::ErrorKindRow {
+        crate::store::metrics::ErrorKindRow {
+            run_id: "r1".into(),
+            step_id: step.into(),
+            kind: kind.into(),
+            count,
+        }
+    }
+
+    #[test]
+    fn report_not_sent_per_step() {
+        let r = run_row();
+        let rows = vec![
+            win(100, "a", 10, 4, r#"{"200":6}"#, &[10_000]),
+            win(100, "b", 5, 2, r#"{"200":3}"#, &[10_000]),
+        ];
+        let eks = vec![blank_ek("a", "blank_var", 4), blank_ek("b", "timeout", 2)];
+        let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[], &[], &eks, &[]);
+        let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
+        let b = rep.steps.iter().find(|s| s.step_id == "b").unwrap();
+        assert_eq!(a.not_sent, Some(4));
+        assert_eq!(b.not_sent, None);
+        let v = serde_json::to_value(&rep).unwrap();
+        let steps = v["steps"].as_array().unwrap();
+        let ja = steps.iter().find(|s| s["step_id"] == "a").unwrap();
+        let jb = steps.iter().find(|s| s["step_id"] == "b").unwrap();
+        assert!(ja.as_object().unwrap().contains_key("not_sent"));
+        assert!(!jb.as_object().unwrap().contains_key("not_sent"));
+        assert!(
+            rep.error_kinds
+                .iter()
+                .any(|e| e.kind == "blank_var" && e.count == 4)
+        );
+        assert_eq!(rep.summary.count, 15, "summary count untouched");
+    }
+
+    #[test]
+    fn reuse_ratio_excludes_not_sent() {
+        use crate::store::metrics::PhaseMetricRow;
+        let r = run_row();
+        let rows = vec![win(100, "a", 10, 4, r#"{"200":6}"#, &[10_000])];
+        let eks = vec![blank_ek("a", "blank_var", 4)];
+        let phases = vec![PhaseMetricRow {
+            run_id: r.id.clone(),
+            step_id: "a".into(),
+            phase: "connect".into(),
+            hdr_histogram: make_hdr_bytes(&[15_000]),
+            count: 3,
+        }];
+        let rep = build_report(&r, "", &rows, &[], &[], &[], &phases, &[], &[], &eks, &[]);
+        let c = rep.connection.as_ref().expect("connection present");
+        assert_eq!(c.requests_total, 6);
+        assert!((c.reuse_ratio - 0.5).abs() < 1e-9);
+        assert_eq!(rep.summary.count, 10);
     }
 
     fn minimal_report_with_loop_exits(rows: &[crate::store::metrics::LoopExitRow]) -> ReportJson {

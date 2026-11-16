@@ -605,6 +605,7 @@ mod tests {
             download: None,
             wait: None,
             loop_split: None,
+            not_sent: None,
         }
     }
 

@@ -312,6 +312,7 @@ export const ReportStepSchema = z
     download: PhaseStatsSchema.optional(),
     wait: PhaseStatsSchema.optional(),
     loop_split: LoopSplitSchema.optional(),
+    not_sent: z.number().int().optional(),
   })
   .strict();
 
