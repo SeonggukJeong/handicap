@@ -550,7 +550,8 @@ pub fn build_report(
 
     // E1: run-level rollup of transport error kinds. Per-step rows (already
     // ordered by step_id, kind from SQL) collapse to a kind-only total —
-    // step attribution isn't surfaced in the report (spec §3.1/§9.2, counts-only).
+    // step attribution isn't surfaced in the report (spec §3.1/§9.2, counts-only)
+    // — except `blank_var`, which is surfaced per step as `ReportStep.not_sent`.
     let mut kind_totals: BTreeMap<String, u64> = BTreeMap::new();
     // blank_var(보내지 않은 요청)은 스텝별로도 모아 ReportStep.not_sent에 싣는다.
     let mut not_sent_by_step: BTreeMap<String, u64> = BTreeMap::new();

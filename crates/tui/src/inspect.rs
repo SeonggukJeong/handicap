@@ -416,7 +416,16 @@ pub fn step_lines(
                     url: s.request.as_ref().map(|r| r.url.clone()),
                     status: s.response.as_ref().map(|r| r.status),
                     latency_ms: s.response.as_ref().map(|r| r.latency_ms),
-                    error: s.error.clone(),
+                    error: match &s.blocked {
+                        Some(b) => {
+                            let by = names
+                                .step_name(scenario_id, &b.by_step)
+                                .filter(|n| !n.trim().is_empty())
+                                .unwrap_or(&b.by_step);
+                            Some(text::blocked_by_blank(by, &b.vars))
+                        }
+                        None => s.error.clone(),
+                    },
                     timed_out: s.timed_out,
                     focus: focus_idx == Some(i),
                 }
@@ -682,6 +691,8 @@ pub struct BodyInput<'a> {
     pub clipped_resp: bool,
     pub limit_kb: u32,
     pub reveal: bool,
+    /// 보내지 않은 행의 완성 문구(호출 쪽이 목록 줄에서 빌려 준다). 없으면 `step.error` 원문.
+    pub blocked_text: Option<&'a str>,
 }
 
 /// 헤더 이름 칸 최대 폭.
@@ -801,7 +812,7 @@ pub fn body_lines(i: &BodyInput, width: usize) -> Vec<BodyLine> {
         ));
     }
     l.wrapped(BodyLineKind::Summary, &summary);
-    if let Some(e) = &step.error {
+    if let Some(e) = i.blocked_text.or(step.error.as_deref()) {
         l.wrapped(BodyLineKind::Error, e);
     }
     if step.timed_out {

@@ -1467,6 +1467,7 @@ fn binput(step: &StepTrace) -> BodyInput<'_> {
         clipped_resp: false,
         limit_kb: 128,
         reveal: false,
+        blocked_text: None,
     }
 }
 
@@ -1487,6 +1488,89 @@ fn text_lines(l: &[BodyLine]) -> Vec<&str> {
 
 fn has(l: &[BodyLine], kind: BodyLineKind, text: &str) -> bool {
     l.iter().any(|b| b.kind == kind && b.text == text)
+}
+
+const BLOCKED_RAW: &str = "not sent: blank value in url";
+
+fn blocked_row(step: &str, by: &str) -> StepTrace {
+    let mut s = http(step, None, None, Some(BLOCKED_RAW));
+    s.blocked = Some(handicap_engine::BlockedInfo {
+        vars: vec!["orderId".into(), "code".into()],
+        by_step: by.into(),
+    });
+    s
+}
+
+fn http_error(l: &StepLine) -> Option<&str> {
+    match l {
+        StepLine::Http { error, .. } => error.as_deref(),
+        _ => panic!("not http"),
+    }
+}
+
+#[test]
+fn blocked_step_line_uses_korean() {
+    let tr = trace(vec![blocked_row("A02", &sid("A01"))]);
+    let lines = step_lines(&tr, &names(), "S1", None);
+    assert_eq!(
+        http_error(&lines[0]),
+        Some("앞 스텝 a이(가) orderId, code 값을 주지 않아 요청을 보내지 않음")
+    );
+    // 이름을 모르는 스텝이면 id.
+    let tr = trace(vec![blocked_row("A02", "ZZZ")]);
+    let lines = step_lines(&tr, &names(), "S1", None);
+    assert_eq!(
+        http_error(&lines[0]),
+        Some("앞 스텝 ZZZ이(가) orderId, code 값을 주지 않아 요청을 보내지 않음")
+    );
+}
+
+#[test]
+fn blocked_step_line_empty_name_uses_id() {
+    let yaml = "version: 1\nname: n\nsteps:\n  - { id: \"01J00000000000000000000A01\", name: \"\", type: http, request: { method: GET, url: \"/a\" }, assert: [] }\n";
+    let file = serde_json::to_vec(&serde_json::json!({
+        "format": "handicap-bundle", "format_version": 1, "boards": [],
+        "scenarios": [{ "id": "S1", "yaml": yaml }], "environments": []
+    }))
+    .unwrap();
+    let names = Names::from_bundle(&file);
+    let tr = trace(vec![blocked_row("A02", &sid("A01"))]);
+    let lines = step_lines(&tr, &names, "S1", None);
+    assert_eq!(
+        http_error(&lines[0]),
+        Some(
+            "앞 스텝 01J00000000000000000000A01이(가) orderId, code 값을 주지 않아 요청을 보내지 않음"
+        )
+    );
+}
+
+#[test]
+fn blocked_body_view_uses_korean() {
+    let s = blocked_row("A02", &sid("A01"));
+    let i = BodyInput {
+        blocked_text: Some("앞 스텝 a이(가) orderId, code 값을 주지 않아 요청을 보내지 않음"),
+        ..binput(&s)
+    };
+    let l = body_lines(&i, 120);
+    assert!(
+        has(
+            &l,
+            BodyLineKind::Error,
+            "앞 스텝 a이(가) orderId, code 값을 주지 않아 요청을 보내지 않음"
+        ),
+        "{l:?}"
+    );
+    assert!(l.iter().all(|b| !b.text.contains(BLOCKED_RAW)), "{l:?}");
+}
+
+#[test]
+fn plain_error_unchanged() {
+    let tr = trace(vec![http("A01", None, None, Some("boom"))]);
+    let lines = step_lines(&tr, &names(), "S1", None);
+    assert_eq!(http_error(&lines[0]), Some("boom"));
+    let s = http("A01", None, None, Some("boom"));
+    let l = body_lines(&binput(&s), 80);
+    assert!(has(&l, BodyLineKind::Error, "boom"), "{l:?}");
 }
 
 #[test]

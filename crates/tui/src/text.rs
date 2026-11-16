@@ -561,3 +561,28 @@ pub fn pick_other_step(name: &str) -> String {
     format!("이 칸은 \"{name}\" 스텝만 봅니다 — 그 스텝의 요청·응답에서 추가하세요")
 }
 pub const PICK_NO_RESPONSE: &str = "응답이 없어 고를 값이 없습니다";
+
+/// `ko.ts` trace 행 문구 — 값은 싣지 않고 변수 이름과 스텝 이름/id만.
+pub fn blocked_by_blank(step: &str, vars: &[String]) -> String {
+    format!(
+        "앞 스텝 {step}이(가) {} 값을 주지 않아 요청을 보내지 않음",
+        vars.join(", ")
+    )
+}
+
+#[cfg(test)]
+mod blocked_tests {
+    use super::*;
+
+    #[test]
+    fn blocked_by_blank_joins_vars() {
+        assert_eq!(
+            blocked_by_blank("주문 조회", &["orderId".to_string(), "code".to_string()]),
+            "앞 스텝 주문 조회이(가) orderId, code 값을 주지 않아 요청을 보내지 않음"
+        );
+        assert_eq!(
+            blocked_by_blank("a", &["x".to_string()]),
+            "앞 스텝 a이(가) x 값을 주지 않아 요청을 보내지 않음"
+        );
+    }
+}

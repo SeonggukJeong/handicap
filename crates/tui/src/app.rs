@@ -3315,6 +3315,7 @@ fn body_input<'a>(
         trace_idx,
         no,
         name,
+        error,
         ..
     }) = line
     else {
@@ -3332,6 +3333,12 @@ fn body_input<'a>(
         clipped_resp,
         limit_kb: rec.limit_kb,
         reveal: false,
+        // 목록 줄이 이미 한국어로 바꿔 둔 문구를 빌린다(blocked일 때만).
+        blocked_text: if step.blocked.is_some() {
+            error.as_deref()
+        } else {
+            None
+        },
     })
 }
 
