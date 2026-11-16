@@ -1,9 +1,13 @@
 import { Link, Outlet } from "react-router-dom";
 import { ko } from "../i18n/ko";
-import { useVersion } from "../api/hooks";
+import { usePoolWorkers, useVersion } from "../api/hooks";
+import { readDesktopShell } from "../api/desktopShell";
+import { Badge } from "./ui/Badge";
 
 export function Layout() {
   const version = useVersion();
+  const pool = usePoolWorkers();
+  const desktop = readDesktopShell();
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-slate-200 bg-white">
@@ -44,6 +48,16 @@ export function Layout() {
             <Link to="/workers" className="hover:text-slate-900">
               {ko.nav.workers}
             </Link>
+            {desktop && (
+              <a href={desktop.rolePageUrl} className="hover:text-slate-900">
+                {ko.nav.modeSwitch}
+              </a>
+            )}
+            {pool.data?.pool_mode && (
+              <Link to="/workers" title={ko.nav.poolChipTitle}>
+                <Badge tone="accent">{ko.nav.poolChip(pool.data.workers.length)}</Badge>
+              </Link>
+            )}
           </nav>
         </div>
       </header>

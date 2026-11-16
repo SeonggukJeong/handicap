@@ -282,6 +282,9 @@ export const ko = {
     stepTemplates: "스텝 템플릿",
     monitors: "모니터",
     workers: "워커",
+    modeSwitch: "모드 전환",
+    poolChip: (n: number) => `서버 · 부하기 ${n}대`,
+    poolChipTitle: "부하기 목록 보기",
   },
   capacityGuard: {
     // bespoke createRun error (shown as a banner in non-RunDialog callers)

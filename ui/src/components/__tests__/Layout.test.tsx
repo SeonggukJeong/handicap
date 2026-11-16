@@ -1,14 +1,45 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../i18n/ko";
-import { useVersion } from "../../api/hooks";
+import { usePoolWorkers, useVersion } from "../../api/hooks";
+import type { PoolWorkerSummary } from "../../api/pool";
 import { Layout } from "../Layout";
 
 vi.mock("../../api/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/hooks")>()),
   useVersion: vi.fn(),
+  usePoolWorkers: vi.fn(),
 }));
+
+function mockPool(data: { pool_mode: boolean; workers: PoolWorkerSummary[] }) {
+  vi.mocked(usePoolWorkers).mockReturnValue({
+    data: { ...data, heartbeat_interval_seconds: 5, stale_timeout_seconds: 15 },
+  } as unknown as ReturnType<typeof usePoolWorkers>);
+}
+
+function w(id: string): PoolWorkerSummary {
+  return {
+    worker_id: id,
+    hostname: `host-${id}`,
+    capacity_vus: 100,
+    busy: false,
+    run_id: null,
+    last_seen_secs_ago: 1,
+    drained: false,
+    capacity_override: null,
+    label: null,
+    stable: true,
+  };
+}
+
+beforeEach(() => {
+  mockPool({ pool_mode: false, workers: [] });
+});
+
+afterEach(() => {
+  delete (window as unknown as Record<string, unknown>).__HANDICAP_DESKTOP__;
+});
 
 function mockVersion(data: { version: string } | undefined) {
   vi.mocked(useVersion).mockReturnValue({ data } as unknown as ReturnType<typeof useVersion>);
@@ -70,5 +101,41 @@ describe("Layout 버전 표시", () => {
     expect(badge.className).not.toContain("text-slate-400");
     expect(badge.querySelector("span")).toHaveClass("sr-only");
     expect(badge).toHaveTextContent(new RegExp(`^${ko.common.versionTitle} v9\\.9\\.9$`));
+  });
+});
+
+describe("Layout 풀 칩·모드 전환", () => {
+  beforeEach(() => {
+    mockVersion(undefined);
+  });
+
+  it("풀 모드가 아니면 칩이 없다", () => {
+    renderLayout();
+    expect(screen.queryByText(/서버 · 부하기/)).toBeNull();
+  });
+
+  it("풀 모드면 연결된 워커 수로 칩을 보이고 /workers로 간다", () => {
+    mockPool({ pool_mode: true, workers: [w("a"), w("b")] });
+    renderLayout();
+    expect(screen.getByRole("link", { name: "서버 · 부하기 2대" })).toHaveAttribute(
+      "href",
+      "/workers",
+    );
+  });
+
+  it("데스크톱 표지가 없으면 「모드 전환」 링크가 없다", () => {
+    renderLayout();
+    expect(screen.queryByRole("link", { name: "모드 전환" })).toBeNull();
+  });
+
+  it("표지가 있으면 「모드 전환」 링크가 셸 화면을 가리킨다", () => {
+    (window as unknown as Record<string, unknown>).__HANDICAP_DESKTOP__ = {
+      rolePageUrl: "tauri://localhost/role.html",
+    };
+    renderLayout();
+    expect(screen.getByRole("link", { name: "모드 전환" })).toHaveAttribute(
+      "href",
+      "tauri://localhost/role.html",
+    );
   });
 });
