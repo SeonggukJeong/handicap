@@ -73,6 +73,8 @@
       <h2>이 PC의 IP</h2>
       <div id="ips" class="ips"></div>
       <p id="no-ip" class="muted" hidden>이 PC의 망 주소를 찾지 못했습니다</p>
+      <p id="ip-public" class="err" hidden>사설 망 주소가 아닙니다 — 이 주소는 바깥 망에 드러날 수 있습니다</p>
+      <p id="plaintext" class="muted">연결은 암호화되지 않습니다 — 회사 망에서만 쓰세요. 부하기 PC는 테스트의 환경 값(비밀 포함)을 받습니다.</p>
     </div>
     <div class="field">
       <h2><label for="os">부하기 PC의 OS</label></h2>
@@ -229,6 +231,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     }
     document.querySelectorAll('input[name="ip"]').forEach(function (r) { r.disabled = locked; });
     $("no-ip").hidden = st.ips.length > 0;
+    $("ip-public").hidden = !(st.ips_public_fallback && st.ips.length > 0);
 
     if (selOs == null) { selOs = st.server_os; $("os").value = selOs; }
     $("os").disabled = locked;

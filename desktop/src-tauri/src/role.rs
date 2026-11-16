@@ -361,6 +361,11 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
         match start_running(shell, &mut attempt, &mut n).await {
             Ok(r) => {
                 n.start_error = None;
+                if target == Role::Local {
+                    // 서버 역할에만 뜻이 있는 안내 — 혼자 쓰기로 바뀌면 남기지 않는다.
+                    n.port_changed = None;
+                    n.self_worker_excluded = false;
+                }
                 (Some(r), attempt, n, Ok(()), true)
             }
             Err(e) => {
@@ -819,6 +824,24 @@ mod tests {
         // 서버 설정(토큰)은 혼자 쓰기로 돌아가도 남아 다음 서버 열기에 재사용된다.
         assert!(saved.server.token.as_deref().is_some_and(is_usable_token));
         assert!(!running(&s).await.controller.is_pool_mode());
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn switch_to_local_clears_server_only_notices() {
+        let (s, _d) = shell(server(free_port()));
+        boot(&s).await.unwrap();
+        {
+            let mut st = s.state.lock().await;
+            st.notices.port_changed = Some((8081, 8093));
+            st.notices.self_worker_excluded = true;
+        }
+        switch(&s, Role::Local).await.unwrap();
+        {
+            let st = s.state.lock().await;
+            assert_eq!(st.notices.port_changed, None);
+            assert!(!st.notices.self_worker_excluded);
+        }
         shutdown(&s).await;
     }
 

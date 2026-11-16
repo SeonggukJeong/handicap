@@ -29,11 +29,38 @@ pub fn load(dir: &Path) -> Loaded {
 }
 
 /// `create_dir_all` + 같은 디렉터리의 임시 파일에 쓰고 rename(반쯤 쓴 파일이 남지 않게).
+/// unix에선 파일 0o600·디렉터리 0o700(토큰이 들어 있다 — 같은 PC의 다른 사용자가 못 읽게).
+/// rename은 임시 파일의 권한을 그대로 가져간다.
 pub fn save(dir: &Path, c: &DesktopConfig) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
     let tmp = dir.join(format!("{CONFIG_FILE_NAME}.tmp"));
-    std::fs::write(&tmp, serialize_config(c))?;
+    write_private(&tmp, serialize_config(c).as_bytes())?;
     std::fs::rename(&tmp, dir.join(CONFIG_FILE_NAME))
+}
+
+/// 새 파일로 만들어 쓴다(남은 임시 파일은 지운다 — `mode`는 생성 때만 적용되므로).
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
 }
 
 #[cfg(test)]
@@ -59,6 +86,29 @@ mod tests {
         let l = load(d.path());
         assert_eq!(l.config, server_cfg());
         assert!(!l.warning);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_file_and_dir_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("cfg");
+        save(&dir, &server_cfg()).unwrap();
+        let fm = std::fs::metadata(dir.join(CONFIG_FILE_NAME))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(fm & 0o077, 0, "file mode {fm:o}");
+        let dm = std::fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(dm & 0o077, 0, "dir mode {dm:o}");
+        // 덮어쓰기(기존 파일 교체)도 같은 권한.
+        save(&dir, &server_cfg()).unwrap();
+        let fm2 = std::fs::metadata(dir.join(CONFIG_FILE_NAME))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(fm2 & 0o077, 0, "file mode after overwrite {fm2:o}");
     }
 
     #[test]

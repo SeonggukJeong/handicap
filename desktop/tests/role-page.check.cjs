@@ -23,7 +23,7 @@ function base(role) {
     role, switching: false, grpc_port: 8093, ips: ["192.168.0.12", "10.0.0.5"], server_os: "macos",
     self_worker: true, self_worker_busy: false, self_worker_unavailable: null,
     notices: { port_changed: null, save_failed: false, self_worker_excluded: false, config_warning: false, start_error: null },
-    app_url: "http://127.0.0.1:5555/",
+    app_url: "http://127.0.0.1:5555/", ips_public_fallback: false,
   };
 }
 
@@ -119,6 +119,20 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     d.getElementById("copy").click(); await sleep(20);
     check("copy failure message (jsdom has no clipboard)", d.getElementById("copy-msg").textContent === "복사하지 못했습니다 — 칸을 선택해 직접 복사하세요");
     check("no token key in any call args", calls.every((c) => !JSON.stringify(c[1] || {}).includes("token")));
+    const pt = d.getElementById("plaintext");
+    check("plaintext caution shown", !pt.hidden && !pt.closest("[hidden]") && pt.textContent === "연결은 암호화되지 않습니다 — 회사 망에서만 쓰세요. 부하기 PC는 테스트의 환경 값(비밀 포함)을 받습니다.");
+    check("private ips → no public warning", d.getElementById("ip-public").hidden);
+  }
+  // 사설 주소가 없어 바깥 주소로 채운 목록
+  {
+    const st = { value: base("server") };
+    st.value.ips = ["8.8.4.4"]; st.value.ips_public_fallback = true;
+    const { d } = await load(st);
+    const w = d.getElementById("ip-public");
+    check("public fallback warning shown", !w.hidden && w.textContent === "사설 망 주소가 아닙니다 — 이 주소는 바깥 망에 드러날 수 있습니다");
+    check("public fallback keeps plaintext caution", !d.getElementById("plaintext").hidden);
+    st.value.ips = []; await sleep(3200);
+    check("no ips → public warning hidden", w.hidden && !d.getElementById("no-ip").hidden);
   }
   // 잠금 사유 · 주소 0개 · Windows 방화벽
   {

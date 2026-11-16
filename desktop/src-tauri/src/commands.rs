@@ -2,7 +2,8 @@
 //!
 //! 이름·인자·응답 모양은 role.html과 1:1. **토큰은 `worker_command` 응답에만** 실린다 —
 //! `role_state`·로그·표지에는 없다. 원격 origin(`http://127.0.0.1:…`)에는 capability가 없어
-//! 이 명령들을 부를 수 없다(Task 1 실측: "not allowed").
+//! 이 명령들을 부를 수 없다(Task 1 실측: "not allowed"). 두 번째 방어선으로 명령마다 첫 문장에서
+//! 부른 웹뷰의 origin이 셸 origin인지 다시 본다(`require_shell`).
 
 use std::net::Ipv4Addr;
 
@@ -11,6 +12,7 @@ use handicap_desktop_core::command::{
 };
 use handicap_desktop_core::config::Role;
 use handicap_desktop_core::net::{candidate_ipv4s, list_local_ipv4s};
+use handicap_desktop_core::token::is_usable_token;
 use serde::Serialize;
 use tauri::State;
 
@@ -39,6 +41,8 @@ pub struct RoleStateDto {
     pub notices: NoticesDto,
     /// 앱 화면 주소(컨트롤러가 떠 있을 때만).
     pub app_url: Option<String>,
+    /// 사설 IPv4가 하나도 없어 `ips`가 사설 아닌 주소(바깥 망에 드러날 수 있음)로 채워졌는지.
+    pub ips_public_fallback: bool,
 }
 
 pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleStateDto {
@@ -50,6 +54,9 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
         // 컨트롤러가 없으면(시작 전·실패) 저장된 토글.
         None => s.config.server.self_worker,
     };
+    // `candidate_ipv4s`와 같은 입력으로: 사설 주소가 없는데 후보가 남았으면 그 후보는 대체 목록.
+    let candidates = candidate_ipv4s(&ips);
+    let ips_public_fallback = !candidates.is_empty() && !ips.iter().any(|a| a.is_private());
     RoleStateDto {
         role: match s.config.role {
             Role::Local => "local",
@@ -57,10 +64,7 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
         },
         switching: s.switching,
         grpc_port: s.config.server.grpc_port,
-        ips: candidate_ipv4s(&ips)
-            .into_iter()
-            .map(|a| a.to_string())
-            .collect(),
+        ips: candidates.into_iter().map(|a| a.to_string()).collect(),
         server_os: current_os(),
         self_worker,
         self_worker_busy: busy,
@@ -73,6 +77,7 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
             start_error: s.notices.start_error.clone(),
         },
         app_url: s.running.as_ref().map(|r| r.base_url.clone()),
+        ips_public_fallback,
     }
 }
 
@@ -99,7 +104,8 @@ pub fn worker_command_for(
         .server
         .token
         .as_deref()
-        .filter(|t| !t.is_empty())
+        // 손으로 고친 설정의 공백·셸 특수문자가 명령에 실리지 않게(시작이 새로 만든다 — R3).
+        .filter(|t| is_usable_token(t))
         .ok_or_else(|| "접속 토큰이 없습니다".to_string())?;
     Ok(build_worker_command(
         os,
@@ -135,10 +141,37 @@ pub fn parse_target(t: &str) -> Result<Role, String> {
     }
 }
 
+/// 셸 origin(`launch::shell_origin`)의 페이지인지. capability 밖 두 번째 방어선(S2).
+pub fn is_shell_origin(u: &tauri::Url) -> bool {
+    crate::launch::origin_of(u) == crate::launch::shell_origin()
+}
+
+/// 모든 IPC 명령의 첫 문장: 부른 웹뷰가 셸 origin이 아니면 거절한다.
+fn require_shell(webview: &tauri::Webview) -> Result<(), String> {
+    match webview.url() {
+        Ok(u) if is_shell_origin(&u) => Ok(()),
+        Ok(u) => {
+            eprintln!(
+                "desktop: 셸 밖 화면의 명령 거절: {}",
+                crate::launch::origin_of(&u)
+            );
+            Err(MSG_NOT_SHELL.into())
+        }
+        Err(_) => Err(MSG_NOT_SHELL.into()),
+    }
+}
+
+/// 셸 origin이 아닌 화면이 명령을 부를 때.
+pub const MSG_NOT_SHELL: &str = "이 화면에서는 쓸 수 없습니다";
+
 // ---- IPC (잠금은 짧게: 플래그·스냅샷만. 긴 작업은 role::switch가 잠금 밖에서) ----
 
 #[tauri::command]
-pub async fn role_state(shell: State<'_, Shell>) -> Result<RoleStateDto, String> {
+pub async fn role_state(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+) -> Result<RoleStateDto, String> {
+    require_shell(&webview)?;
     let ips = list_local_ipv4s();
     let mut st = shell.state.lock().await;
     let busy = role::self_worker_busy_locked(&mut st).await;
@@ -147,11 +180,13 @@ pub async fn role_state(shell: State<'_, Shell>) -> Result<RoleStateDto, String>
 
 #[tauri::command]
 pub async fn worker_command(
+    webview: tauri::Webview,
     app: tauri::AppHandle,
     shell: State<'_, Shell>,
     ip: String,
     os: WorkerOs,
 ) -> Result<String, String> {
+    require_shell(&webview)?;
     let ips = list_local_ipv4s();
     let version = app.package_info().version.to_string();
     let st = shell.state.lock().await;
@@ -162,7 +197,11 @@ pub async fn worker_command(
 }
 
 #[tauri::command]
-pub async fn active_run_count(shell: State<'_, Shell>) -> Result<usize, String> {
+pub async fn active_run_count(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+) -> Result<usize, String> {
+    require_shell(&webview)?;
     let st = shell.state.lock().await;
     if st.switching {
         return Err(MSG_SWITCHING.into());
@@ -178,18 +217,33 @@ pub async fn active_run_count(shell: State<'_, Shell>) -> Result<usize, String> 
 }
 
 #[tauri::command]
-pub async fn switch_role(shell: State<'_, Shell>, target: String) -> Result<(), String> {
+pub async fn switch_role(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+    target: String,
+) -> Result<(), String> {
+    require_shell(&webview)?;
     let target = parse_target(&target)?;
     role::switch(&shell, target).await
 }
 
 #[tauri::command]
-pub async fn set_self_worker(shell: State<'_, Shell>, enabled: bool) -> Result<(), String> {
+pub async fn set_self_worker(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+    enabled: bool,
+) -> Result<(), String> {
+    require_shell(&webview)?;
     role::set_self_worker(&shell, enabled).await
 }
 
 #[tauri::command]
-pub async fn dismiss_notice(shell: State<'_, Shell>, kind: String) -> Result<(), String> {
+pub async fn dismiss_notice(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+    kind: String,
+) -> Result<(), String> {
+    require_shell(&webview)?;
     let mut st = shell.state.lock().await;
     apply_dismiss(&mut st, &kind)
 }
@@ -328,6 +382,7 @@ mod tests {
                 "app_url",
                 "grpc_port",
                 "ips",
+                "ips_public_fallback",
                 "notices",
                 "role",
                 "self_worker",
@@ -390,12 +445,71 @@ mod tests {
     }
     #[test]
     fn worker_command_uses_current_port_and_token() {
-        let s = server_state_with_token("tok"); // grpc_port 8093
+        let tok = "0123456789abcdef".repeat(2);
+        let s = server_state_with_token(&tok); // grpc_port 8093
         assert!(
             worker_command_for(&s, &[ip("10.0.0.1")], "10.0.0.1", WorkerOs::Linux, "0.15.0")
                 .unwrap()
-                .contains("http://10.0.0.1:8093 --token tok")
+                .contains(&format!("http://10.0.0.1:8093 --token {tok}"))
         );
+    }
+    #[test]
+    fn worker_command_refused_for_unusable_token() {
+        for bad in ["tok", "a b", "x;y", &format!("{};", "a".repeat(32))] {
+            let s = server_state_with_token(bad);
+            assert_eq!(
+                worker_command_for(&s, &[ip("10.0.0.1")], "10.0.0.1", WorkerOs::Linux, "0.15.0")
+                    .unwrap_err(),
+                "접속 토큰이 없습니다",
+                "{bad:?}"
+            );
+        }
+    }
+    #[test]
+    fn public_fallback_flag_follows_candidates() {
+        let pubd = build_role_state(&server_state(), vec![ip("8.8.4.4"), ip("127.0.0.1")], false);
+        assert_eq!(pubd.ips, vec!["8.8.4.4"]);
+        assert!(pubd.ips_public_fallback);
+        let private = build_role_state(
+            &server_state(),
+            vec![ip("8.8.4.4"), ip("192.168.0.12")],
+            false,
+        );
+        assert_eq!(private.ips, vec!["192.168.0.12"]);
+        assert!(!private.ips_public_fallback);
+        let none = build_role_state(&server_state(), vec![ip("127.0.0.1")], false);
+        assert!(none.ips.is_empty());
+        assert!(
+            !none.ips_public_fallback,
+            "후보가 없으면 경고할 주소도 없음"
+        );
+    }
+    #[test]
+    fn shell_origin_predicate() {
+        let ok: tauri::Url = format!("{}/role.html", crate::launch::shell_origin())
+            .parse()
+            .unwrap();
+        assert!(is_shell_origin(&ok));
+        for bad in [
+            "http://127.0.0.1:1234/",
+            "http://tauri.localhost.evil/role.html",
+            "tauri://localhost.evil/role.html",
+            "https://tauri.localhost/role.html",
+            "http://tauri.localhost:8080/role.html",
+        ] {
+            let u: tauri::Url = bad.parse().unwrap();
+            assert!(!is_shell_origin(&u), "{bad}");
+        }
+        #[cfg(not(windows))]
+        {
+            let w: tauri::Url = "http://tauri.localhost/role.html".parse().unwrap();
+            assert!(!is_shell_origin(&w), "다른 플랫폼의 셸 origin");
+        }
+        #[cfg(windows)]
+        {
+            let m: tauri::Url = "tauri://localhost/role.html".parse().unwrap();
+            assert!(!is_shell_origin(&m), "다른 플랫폼의 셸 origin");
+        }
     }
     #[test]
     fn dismiss_clears_each_kind() {
