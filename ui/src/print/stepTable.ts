@@ -238,7 +238,8 @@ export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): St
       if (col.kind === "notSent") {
         const cell: Cell = { count: row.notSent, cls: "counted", strongest: false };
         row.cells[col.key] = cell;
-        if (cell.count > 0 && (best === null || cell.count > best.count))
+        // 동률이면 보내지 않음 칸 — 요약 문장(sentences.ts `>=`)과 같은 규칙.
+        if (cell.count > 0 && (best === null || cell.count >= best.count))
           best = { key: col.key, count: cell.count };
         continue;
       }

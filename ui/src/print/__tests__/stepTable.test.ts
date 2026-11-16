@@ -362,6 +362,15 @@ describe("notSent column", () => {
     expect(t.rows[0].cells.notSent).toEqual({ count: 4, cls: "counted", strongest: true });
   });
 
+  it("notSent ties the largest counted code cell -> notSent gets the strongest mark", () => {
+    const t = buildStepTable(
+      [rs("A", { "200": 4, "0": 3 }, { error_count: 6, count: 10, not_sent: 3 })],
+      okFacts([sf("A")]),
+    );
+    expect(t.rows[0].cells.none).toEqual({ count: 3, cls: "counted", strongest: false });
+    expect(t.rows[0].cells.notSent).toEqual({ count: 3, cls: "counted", strongest: true });
+  });
+
   it("no not_sent -> no notSent column and row.notSent is 0", () => {
     const t = buildStepTable([rs("A", { "200": 6 }, { error_count: 2 })], okFacts([sf("A")]));
     expect(t.columns.map((c) => c.key)).not.toContain("notSent");

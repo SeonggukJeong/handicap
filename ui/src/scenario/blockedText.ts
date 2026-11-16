@@ -9,8 +9,10 @@ export function traceErrorText(
   if (!step.error) return null;
   if (step.blocked) {
     const { vars, by_step } = step.blocked;
-    const name = stepName(by_step);
-    return ko.common.blockedByBlank(name && name.trim() !== "" ? name : by_step, vars.join(", "));
+    // 호출부가 평범한 객체로 조회하면 `constructor`·`__proto__` 같은 id에 문자열이 아닌 값이 온다.
+    const name: unknown = stepName(by_step);
+    const label = typeof name === "string" && name.trim() !== "" ? name : by_step;
+    return ko.common.blockedByBlank(label, vars.join(", "));
   }
   return step.error;
 }

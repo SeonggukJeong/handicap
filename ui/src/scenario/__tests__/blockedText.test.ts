@@ -29,6 +29,15 @@ describe("traceErrorText", () => {
       "앞 스텝 S1이(가) a 값을 주지 않아 요청을 보내지 않음",
     );
   });
+  it("by_step이 객체 원형 키여도 던지지 않고 id를 쓴다", () => {
+    const lookup = (id: string) => (({}) as Record<string, string>)[id];
+    for (const id of ["constructor", "__proto__"]) {
+      const b = { error: RAW, blocked: { vars: ["a"], by_step: id } };
+      expect(traceErrorText(b, lookup)).toBe(
+        `앞 스텝 ${id}이(가) a 값을 주지 않아 요청을 보내지 않음`,
+      );
+    }
+  });
   it("blocked 없으면 error 그대로", () => {
     expect(traceErrorText({ error: "status 500 != 200" }, names)).toBe("status 500 != 200");
   });
