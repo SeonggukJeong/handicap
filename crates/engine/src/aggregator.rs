@@ -209,6 +209,12 @@ impl StepWindow {
         *self.status_counts.entry(status).or_insert(0) += 1;
     }
 
+    /// 보내지 않은 요청: 건수·에러만 +1 (표본·status 없음).
+    pub fn record_not_sent(&mut self) {
+        self.count += 1;
+        self.error_count += 1;
+    }
+
     pub fn serialize_histogram(&self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         let mut ser = V2Serializer::new();
@@ -272,7 +278,23 @@ impl Aggregator {
             .entry(key)
             .or_insert_with(|| StepWindow::new(step_id.to_string(), ts));
         w.record(latency_us, status, is_error);
+        self.count_loop(step_id, loop_index, is_error);
+    }
 
+    /// 보내지 않은 요청 1건(비워진 값 주소 차단): 현재 초 창에 count+1·error_count+1,
+    /// loop_index가 있으면 `record`와 같은 규칙으로 loop_counts도 +1.
+    /// 히스토그램·status_counts는 건드리지 않는다.
+    pub fn record_not_sent(&mut self, step_id: &str, loop_index: Option<u32>) {
+        let ts = current_second();
+        let w = self
+            .windows
+            .entry((step_id.to_string(), ts))
+            .or_insert_with(|| StepWindow::new(step_id.to_string(), ts));
+        w.record_not_sent();
+        self.count_loop(step_id, loop_index, true);
+    }
+
+    fn count_loop(&mut self, step_id: &str, loop_index: Option<u32>, is_error: bool) {
         if self.loop_cap > 0 {
             if let Some(i) = loop_index {
                 let bucket = if i < self.loop_cap { i } else { LOOP_OVERFLOW };
@@ -555,6 +577,54 @@ mod tests {
         assert_eq!(drained.len(), 1, "only ts<1001 should drain");
         assert_eq!(drained[0].ts_second, 1_000);
         assert!(a.windows.contains_key(&("s".into(), 1_001)));
+    }
+
+    #[test]
+    fn not_sent_counts_without_sample_or_status() {
+        let mut a = Aggregator::new(8);
+        a.record_not_sent("s", None);
+        a.record_not_sent("s", None);
+        let ws = a.drain_all();
+        // 1초 경계를 넘나들 수 있어 창 합계로 단언한다.
+        assert_eq!(ws.iter().map(|w| w.count).sum::<u64>(), 2);
+        assert_eq!(ws.iter().map(|w| w.error_count).sum::<u64>(), 2);
+        assert!(ws.iter().all(|w| w.status_counts.is_empty()));
+        assert!(ws.iter().all(|w| w.histogram.is_empty()));
+    }
+
+    #[test]
+    fn not_sent_updates_loop_counts() {
+        let mut a = Aggregator::new(8);
+        a.record_not_sent("s", Some(3));
+        let d = a.drain_loop_deltas();
+        assert_eq!(d.len(), 1);
+        assert_eq!((d[0].step_id.as_str(), d[0].loop_index), ("s", 3));
+        assert_eq!((d[0].count, d[0].error_count), (1, 1));
+    }
+
+    #[test]
+    fn not_sent_loop_counts_respect_cap_overflow() {
+        let mut a = Aggregator::new(4);
+        a.record_not_sent("s", Some(99));
+        let d = a.drain_loop_deltas();
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].loop_index, u32::MAX);
+    }
+
+    #[test]
+    fn not_sent_mixed_with_real() {
+        let mut a = Aggregator::new(8);
+        a.record("s", 5_000, 200, false, None);
+        a.record_not_sent("s", None);
+        let ws = a.drain_all();
+        assert_eq!(ws.iter().map(|w| w.count).sum::<u64>(), 2);
+        let s200: u64 = ws
+            .iter()
+            .map(|w| w.status_counts.get(&200).copied().unwrap_or(0))
+            .sum();
+        assert_eq!(s200, 1);
+        assert!(ws.iter().all(|w| w.status_counts.len() <= 1));
+        assert_eq!(ws.iter().map(|w| w.histogram.len()).sum::<u64>(), 1);
     }
 
     #[test]

@@ -14,6 +14,8 @@ pub enum ErrorKind {
     Tls,
     LocalPortExhaustion,
     Other,
+    /// 비워진 값이 든 주소라 보내지 않음. `classify_send_error`는 이 값을 만들지 않는다.
+    BlankVar,
 }
 
 impl ErrorKind {
@@ -27,6 +29,7 @@ impl ErrorKind {
             ErrorKind::Tls => "tls",
             ErrorKind::LocalPortExhaustion => "local_port_exhaustion",
             ErrorKind::Other => "other",
+            ErrorKind::BlankVar => "blank_var",
         }
     }
 }
@@ -110,6 +113,11 @@ pub fn classify_send_error(e: &reqwest::Error) -> ErrorKind {
 mod tests {
     use super::*;
     use std::fmt;
+
+    #[test]
+    fn blank_var_wire_name() {
+        assert_eq!(ErrorKind::BlankVar.as_str(), "blank_var");
+    }
 
     /// 합성 체인 노드: 임의 메시지 + 임의 source. 필드는 `Send + Sync` 바운드까지
     /// 갖는다 — `io::Error::new`(아래 `io_node`/falls-through 테스트)의

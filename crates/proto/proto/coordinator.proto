@@ -47,7 +47,7 @@ message BranchStat {
 
 message ErrorKindStat {
   string step_id = 1;
-  string kind = 2;      // "connect_refused"|"connection_reset"|"connect_timeout"|"timeout"|"dns"|"tls"|"local_port_exhaustion"|"other"
+  string kind = 2;      // "connect_refused"|"connection_reset"|"connect_timeout"|"timeout"|"dns"|"tls"|"local_port_exhaustion"|"other"|"blank_var"
   uint64 count = 3;     // delta since last flush
 }
 
