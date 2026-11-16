@@ -1,4 +1,5 @@
 pub mod aggregator;
+pub mod blank_guard;
 mod cast;
 pub mod condition;
 mod conn_timing;
@@ -22,6 +23,7 @@ pub use aggregator::{
     PHASE_LOOP_CUT, PHASE_LOOP_CUT_ERR, PHASE_LOOP_FINAL, PHASE_LOOP_FINAL_ERR, PHASE_LOOP_RETRY,
     PHASE_LOOP_RETRY_ERR, PhaseStat, StepWindow,
 };
+pub use blank_guard::{BLOCKED_ERROR, BlankTable, Blocked};
 pub use condition::{BranchEval, LeafEval, eval_condition, explain_branches};
 pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};

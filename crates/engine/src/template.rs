@@ -20,7 +20,7 @@ pub struct TemplateContext<'a> {
 /// - `${NAME:-default}` falls back to `default` when `NAME` is absent from env.
 /// - Unknown `{{name}}` → error.
 pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
-    render_inner(input, ctx, false, &mut None)
+    render_inner(input, ctx, false, &mut None, &mut None)
 }
 
 /// Lenient variant for **condition evaluation** (spec §3.1). Shares the parser
@@ -32,7 +32,7 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
 /// which preserves them literally for its diagnostic panel).
 pub fn render_lenient(input: &str, ctx: &TemplateContext) -> String {
     // `render_inner(.., true, ..)` provably never returns Err; default-guard is defensive.
-    render_inner(input, ctx, true, &mut None).unwrap_or_default()
+    render_inner(input, ctx, true, &mut None, &mut None).unwrap_or_default()
 }
 
 /// Lenient render that ALSO appends the name of every unresolved token
@@ -42,7 +42,19 @@ pub fn render_lenient(input: &str, ctx: &TemplateContext) -> String {
 /// (caller dedupes per step).
 pub fn render_collecting(input: &str, ctx: &TemplateContext, unbound: &mut Vec<String>) -> String {
     let mut sink = Some(unbound);
-    render_inner(input, ctx, true, &mut sink).unwrap_or_default()
+    render_inner(input, ctx, true, &mut sink, &mut None).unwrap_or_default()
+}
+
+/// Fourth entry point: lenient render that also appends every flow `{{name}}` actually
+/// found in `ctx.vars` (in order, duplicates possible) to `reads`. `${…}` branches
+/// collect nothing. Output is identical to [`render_lenient`].
+pub fn render_collecting_reads(
+    input: &str,
+    ctx: &TemplateContext,
+    reads: &mut Vec<String>,
+) -> String {
+    let mut sink = Some(reads);
+    render_inner(input, ctx, true, &mut None, &mut sink).unwrap_or_default()
 }
 
 fn render_inner(
@@ -50,6 +62,7 @@ fn render_inner(
     ctx: &TemplateContext,
     lenient: bool,
     collect: &mut Option<&mut Vec<String>>,
+    reads: &mut Option<&mut Vec<String>>,
 ) -> Result<String> {
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
@@ -86,7 +99,12 @@ fn render_inner(
                 }
             };
             match ctx.vars.get(name) {
-                Some(value) => out.push_str(value),
+                Some(value) => {
+                    if let Some(sink) = reads.as_deref_mut() {
+                        sink.push(name.to_string());
+                    }
+                    out.push_str(value)
+                }
                 None => {
                     if !lenient {
                         return Err(EngineError::UnknownVar(name.to_string()));
@@ -196,6 +214,44 @@ mod tests {
 
     fn empty_env() -> BTreeMap<String, String> {
         BTreeMap::new()
+    }
+
+    #[test]
+    fn collecting_reads_leaves_other_entries_unchanged() {
+        let v = vars(&[("a", "1"), ("b", "")]);
+        let env = vars(&[("E", "env")]);
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 7,
+            iter_id: 0,
+            loop_index: None,
+        };
+        // (input, lenient output, unbound list from render_collecting)
+        let cases: [(&str, &str, Vec<&str>); 6] = [
+            ("/x/{{a}}", "/x/1", vec![]),
+            ("/x/{{ b }}/y", "/x//y", vec![]),
+            ("{{nope}}/{{a}}", "/1", vec!["nope"]),
+            ("${E}/${vu_id}/${MISSING}", "env/7/", vec!["MISSING"]),
+            ("${X:-{{a}}}", "{{a}}", vec![]),
+            ("{{a}}/{{unclosed", "1/{{unclosed", vec![]),
+        ];
+        for (input, want, unbound_want) in cases {
+            assert_eq!(render_lenient(input, &ctx), want, "lenient {input}");
+            let mut unbound = Vec::new();
+            assert_eq!(
+                render_collecting(input, &ctx, &mut unbound),
+                want,
+                "collecting {input}"
+            );
+            assert_eq!(unbound, unbound_want, "unbound {input}");
+            let mut reads = Vec::new();
+            assert_eq!(
+                render_collecting_reads(input, &ctx, &mut reads),
+                want,
+                "reads {input}"
+            );
+        }
     }
 
     #[test]
