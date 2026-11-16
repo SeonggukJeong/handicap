@@ -625,6 +625,14 @@ pub(crate) fn classify(http: Option<&HttpStep>, st: &StepTrace, err: &str) -> St
     REASON_EXTRACT.to_string()
 }
 
+/// 스텝 표시 이름 — 이름이 비었거나 시나리오에 없으면 id.
+pub(super) fn step_label(h: Option<&HttpStep>, id: &str) -> String {
+    match h {
+        Some(h) if !h.name.is_empty() => h.name.clone(),
+        _ => id.to_string(),
+    }
+}
+
 /// 순수 판정 — spec §6.2.
 pub fn judge(
     scenario: &Scenario,
@@ -659,6 +667,17 @@ pub fn judge(
         .find_map(|s| s.error.as_deref().map(|e| (s, e)))
     {
         let http = all.iter().copied().find(|h| h.id == st.step_id);
+        // 보내지 않은 행(비워진 값이 주소에 쓰임)은 변수 미설정·분류보다 먼저 — 앞 단계 실패.
+        if let Some(b) = st.blocked.as_ref() {
+            let blocked = step_label(http, &st.step_id);
+            let cause = step_label(all.iter().copied().find(|h| h.id == b.by_step), &b.by_step);
+            return CheckResult::cond_result(
+                at_ms,
+                Verdict::Fail,
+                REASON_UPSTREAM,
+                &format!("{blocked} · {cause} · {REASON_NO_VALUE}"),
+            );
+        }
         // 치환 안 된 변수는 시스템 장애가 아니라 설정 오류 — 빨강(Fail)이 아니라 설정 오류로.
         let (verdict, mut reason) = if st.unbound_vars.is_empty() {
             (Verdict::Fail, classify(http, st, err))
@@ -928,6 +947,46 @@ steps:
         assert_eq!(r.verdict, Verdict::Fail);
         assert_eq!(r.latency_ms, None);
         r.reason.unwrap()
+    }
+
+    const POLL: &str = "01HX00000000000000000000P1";
+    const DEL: &str = "01HX00000000000000000000D1";
+
+    fn blocked_flow() -> Scenario {
+        Scenario::from_yaml(&format!(
+            "version: 1\nname: s\nsteps:\n  - id: \"{POLL}\"\n    name: 상태 조회\n    type: http\n    request: {{ method: GET, url: \"http://x/p\" }}\n  - id: \"{DEL}\"\n    name: 주문 삭제\n    type: http\n    request: {{ method: GET, url: \"http://x/d\" }}\n"
+        ))
+        .unwrap()
+    }
+
+    fn blocked_st() -> StepTrace {
+        let mut row = st(DEL, None, Some("not sent: blank value in url"));
+        row.request = None;
+        row.blocked = Some(handicap_engine::BlockedInfo {
+            vars: vec!["orderId".into()],
+            by_step: POLL.into(),
+        });
+        row
+    }
+
+    #[test]
+    fn flow_cell_blocked() {
+        let t = tr(vec![st(POLL, Some(resp(200, 3)), None), blocked_st()]);
+        let r = judge(&blocked_flow(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail, "{r:?}");
+        assert_eq!(r.reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r.detail.as_deref(), Some("주문 삭제 · 상태 조회 · 값 없음"));
+        assert_eq!(r.latency_ms, None);
+    }
+
+    #[test]
+    fn blocked_wins_over_unbound_flow() {
+        let mut row = blocked_st();
+        row.unbound_vars = vec!["x".into()];
+        let t = tr(vec![st(POLL, Some(resp(200, 3)), None), row]);
+        let r = judge(&blocked_flow(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail, "{r:?}");
+        assert_eq!(r.reason.as_deref(), Some("앞 단계 실패"));
     }
 
     #[test]

@@ -14,9 +14,9 @@ use handicap_engine::{
 
 use super::check::{
     CheckResult, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
-    REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_TRACE_ERROR, REASON_UNBOUND_VAR,
-    REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values, eval_conditions,
-    reason_timeout, shown, truncated_reason,
+    REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_NO_VALUE, REASON_TRACE_ERROR,
+    REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values,
+    eval_conditions, reason_timeout, shown, step_label, truncated_reason,
 };
 use super::config::{AUTH_HEADERS, PanelConfig};
 
@@ -208,10 +208,14 @@ fn exclusion_row<'a>(
 }
 
 fn step_name(h: Option<&HttpStep>, id: &str) -> String {
-    match h {
-        Some(h) if !h.name.is_empty() => h.name.clone(),
-        _ => id.to_string(),
-    }
+    step_label(h, id)
+}
+
+/// 보내지 않은 행의 원인 스텝 이름(시나리오에 없으면 id).
+fn blocked_cause(all: &[&HttpStep], row: &StepTrace) -> Option<String> {
+    let b = row.blocked.as_ref()?;
+    let cause = all.iter().copied().find(|h| h.id == b.by_step);
+    Some(step_name(cause, &b.by_step))
 }
 
 fn if_name(i: &IfStep) -> &str {
@@ -496,7 +500,14 @@ pub fn judge_unit(
                     && (0..panels.len())
                         .find(|&k| matches!(pre[k], Pre::Cause(ck) if rows[ck].step_id == cid))
                         == Some(i);
-                if stand_in {
+                if stand_in && let Some(by) = blocked_cause(&all, crow) {
+                    result(
+                        at_ms,
+                        Verdict::Fail,
+                        Some(REASON_UPSTREAM.to_string()),
+                        Some(format!("{cname} · {by} · {REASON_NO_VALUE}")),
+                    )
+                } else if stand_in {
                     let err = crow.error.as_deref().unwrap_or_default();
                     let (v, why) =
                         error_verdict(chttp, crow, err, limit(cid, DEFAULT_STEP_LIMIT_SECS));
@@ -561,6 +572,14 @@ fn own_result(
         .iter()
         .rfind(|s| s.kind == StepKind::Http && s.step_id == sid)
     {
+        if let Some(by) = blocked_cause(all, row) {
+            return result(
+                at_ms,
+                Verdict::Fail,
+                Some(REASON_UPSTREAM.to_string()),
+                Some(format!("{by} · {REASON_NO_VALUE}")),
+            );
+        }
         if let Some(err) = row.error.as_deref() {
             let http = all.iter().copied().find(|h| h.id == sid);
             let (v, why) = error_verdict(http, row, err, limit_secs);
@@ -868,6 +887,94 @@ mod tests {
             ok(P, 15),
             ok(Z, 16),
         ])
+    }
+
+    const POLL: &str = "01HX00000000000000000000P1";
+    const DEL: &str = "01HX00000000000000000000D1";
+    const AFTER: &str = "01HX00000000000000000000A1";
+
+    fn blocked_scn() -> Scenario {
+        let mut y = String::from("version: 1\nname: s\nsteps:\n");
+        y += &http_yaml(POLL, "상태 조회", 2);
+        y += &http_yaml(DEL, "주문 삭제", 2);
+        y += &http_yaml(AFTER, "after", 2);
+        Scenario::from_yaml(&y).unwrap()
+    }
+
+    fn blocked_row(id: &str, by: &str) -> StepTrace {
+        let mut row = st(id, None, Some("not sent: blank value in url"));
+        row.request = None;
+        row.blocked = Some(handicap_engine::BlockedInfo {
+            vars: vec!["orderId".into()],
+            by_step: by.into(),
+        });
+        row
+    }
+
+    #[test]
+    fn step_cell_blocked_own() {
+        let t = tr(vec![ok(POLL, 5), blocked_row(DEL, POLL)]);
+        let r = run(&blocked_scn(), &panels(&[DEL]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[0].detail.as_deref(), Some("상태 조회 · 값 없음"));
+        assert_eq!(r[0].latency_ms, None);
+    }
+
+    #[test]
+    fn step_cell_cause_stays_ok() {
+        let t = tr(vec![ok(POLL, 5), blocked_row(DEL, POLL)]);
+        let r = run(&blocked_scn(), &panels(&[POLL]), &t);
+        assert_eq!(r[0].verdict, Verdict::Ok, "{:?}", r[0]);
+        assert_eq!(r[0].latency_ms, Some(5));
+    }
+
+    #[test]
+    fn step_cell_stand_in() {
+        let t = tr(vec![ok(POLL, 5), blocked_row(DEL, POLL)]);
+        let r = run(&blocked_scn(), &panels(&[AFTER]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(
+            r[0].detail.as_deref(),
+            Some("주문 삭제 · 상태 조회 · 값 없음")
+        );
+    }
+
+    #[test]
+    fn step_cell_later_is_upstream() {
+        let t = tr(vec![ok(POLL, 5), blocked_row(DEL, POLL)]);
+        let r = run(&blocked_scn(), &panels(&[DEL, AFTER]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_up(&r[1], "주문 삭제");
+    }
+
+    #[test]
+    fn blocked_wins_over_unbound() {
+        let mut row = blocked_row(DEL, POLL);
+        row.unbound_vars = vec!["x".into()];
+        row.timed_out = true;
+        let t = tr(vec![ok(POLL, 5), row]);
+        let r = run(&blocked_scn(), &panels(&[DEL, AFTER]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].detail.as_deref(), Some("상태 조회 · 값 없음"));
+        let r = run(&blocked_scn(), &panels(&[AFTER]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(
+            r[0].detail.as_deref(),
+            Some("주문 삭제 · 상태 조회 · 값 없음")
+        );
+    }
+
+    #[test]
+    fn cause_step_unknown_uses_id() {
+        let t = tr(vec![ok(POLL, 5), blocked_row(DEL, GHOST)]);
+        let r = run(&blocked_scn(), &panels(&[DEL]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(
+            r[0].detail.as_deref(),
+            Some("01HX00000000000000000000ZZ · 값 없음")
+        );
     }
 
     #[test]
