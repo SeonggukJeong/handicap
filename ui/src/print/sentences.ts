@@ -113,7 +113,8 @@ function identityLine(i: SummaryInput): string | null {
   const own = i.windows.filter((w) => w.step_id === T.stepId);
   const rel = (w: { ts_second: number }) => (t0 === null ? 0 : Math.max(0, w.ts_second - t0));
 
-  const notSentTail = T.notSent > 0 && (c === null || T.notSent >= c.count);
+  const notSentTail =
+    T.notSent > 0 && (c === null || T.notSent >= c.count) && T.notSent >= T.residual;
   if (c === null || notSentTail) {
     const first = own.filter((w) => w.error_count > 0).map(rel);
     const when = t0 !== null && first.length > 0 ? S.firstSeen(elapsed(Math.min(...first))) : "";

@@ -255,6 +255,24 @@ describe("error_identity_line", () => {
     expect(out).toContain("앞 스텝이 값을 주지 않아 요청을 보내지 않았습니다.");
     expect(out).not.toContain("응답은 받았지만");
   });
+  it("small notSent under a dominant residual keeps the residual sentence", () => {
+    const out = run(T({ perCode: [], notSent: 5, residual: 865 }), [win(240, "T", 10, 5)]);
+    expect(out).toContain("응답은 받았지만");
+    expect(out).not.toContain("앞 스텝이 값을 주지 않아 요청을 보내지 않았습니다.");
+  });
+  it("notSent equal to residual uses the not-sent sentence", () => {
+    const out = run(T({ perCode: [], errorCount: 870, notSent: 4, residual: 4 }), [
+      win(240, "T", 10, 5),
+    ]);
+    expect(out).toContain("앞 스텝이 값을 주지 않아 요청을 보내지 않았습니다.");
+  });
+  it("notSent equal to the largest counted status cell uses the not-sent sentence", () => {
+    const out = run(
+      T({ perCode: [{ code: 503, count: 70, cls: "counted" }], notSent: 70, residual: 0 }),
+      [win(240, "T", 10, 5, { "503": 5 })],
+    );
+    expect(out).toContain("앞 스텝이 값을 주지 않아 요청을 보내지 않았습니다.");
+  });
   it("counted status code bigger than notSent keeps the code sentence", () => {
     const out = run(
       T({ perCode: [{ code: 503, count: 800, cls: "counted" }], notSent: 70, errorCount: 870 }),
