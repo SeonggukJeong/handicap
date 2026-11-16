@@ -162,13 +162,19 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     return out;
   }
 
+  // 본문(#app) 컨트롤만 잠근다 — 확인 상자(#confirm)의 버튼은 건드리지 않는다.
   function setAllDisabled(on) {
-    document.querySelectorAll("button, input, select").forEach(function (el) {
+    document.querySelectorAll("#app button, #app input, #app select").forEach(function (el) {
       if (on) el.disabled = true;
     });
   }
 
-  function showErr(msg) { var e = $("err"); e.textContent = msg; e.hidden = !msg; }
+  // errSrc: "refresh"(상태 조회 실패 — 다음 조회가 성공하면 지움) | "switch"(전환 실패 — 다음 전환 때 지움)
+  var errSrc = null;
+  function showErr(msg, src) {
+    var e = $("err"); e.textContent = msg; e.hidden = !msg;
+    errSrc = msg ? (src || null) : null;
+  }
 
   function render(st) {
     cur = st;
@@ -267,7 +273,10 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
   }
 
   function refresh() {
-    return invoke("role_state").then(render, function (e) { showErr(errText(e)); });
+    return invoke("role_state").then(function (st) {
+      if (errSrc === "refresh") showErr("");
+      render(st);
+    }, function (e) { showErr(errText(e), "refresh"); });
   }
 
   // 복사: 클릭 → navigator.clipboard.writeText → 숨은 textarea + execCommand("copy")
@@ -324,19 +333,30 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     return new Promise(function (resolve) {
       confirmOpen = true;
       $("confirm-text").textContent = "실행 중인 테스트 " + n + "개가 중단됩니다";
-      var dlg = $("confirm");
+      var dlg = $("confirm"), ok = $("confirm-ok"), cancel = $("confirm-cancel");
+      ok.disabled = false; cancel.disabled = false;
       dlg.classList.add("on");
-      $("confirm-cancel").focus();
+      cancel.focus();
       function done(v) {
         dlg.classList.remove("on"); confirmOpen = false;
-        $("confirm-ok").removeEventListener("click", yes);
-        $("confirm-cancel").removeEventListener("click", no);
+        ok.removeEventListener("click", yes);
+        cancel.removeEventListener("click", no);
+        document.removeEventListener("keydown", onKey, true);
         resolve(v);
       }
       function yes() { done(true); }
       function no() { done(false); }
-      $("confirm-ok").addEventListener("click", yes);
-      $("confirm-cancel").addEventListener("click", no);
+      // Esc = 취소, Tab/Shift+Tab은 두 버튼 사이에서만 돈다.
+      function onKey(ev) {
+        if (ev.key === "Escape") { ev.preventDefault(); no(); return; }
+        if (ev.key === "Tab") {
+          ev.preventDefault();
+          (document.activeElement === cancel ? ok : cancel).focus();
+        }
+      }
+      ok.addEventListener("click", yes);
+      cancel.addEventListener("click", no);
+      document.addEventListener("keydown", onKey, true);
     });
   }
 
@@ -361,11 +381,14 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
         setOverlay("");
         cmdKey = null; ipsKey = null;
         return refresh().then(function () {
-          if (rs[0].status === "rejected") showErr("전환하지 못했습니다: " + errText(rs[0].reason));
+          if (rs[0].status !== "rejected") return;
+          // 서버로의 실패는 셸이 「서버로 열지 못했습니다」 안내를 세운다 — 사유는 한 번만.
+          if (target === "server" && cur && cur.notices.start_error != null) return;
+          showErr("전환하지 못했습니다: " + errText(rs[0].reason), "switch");
         });
       });
     }, function (e) {
-      showErr("전환하지 못했습니다: " + errText(e));
+      showErr("전환하지 못했습니다: " + errText(e), "switch");
       return refresh();
     });
   });

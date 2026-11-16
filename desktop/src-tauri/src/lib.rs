@@ -60,13 +60,15 @@ pub fn run() {
                         }
                     }
                     Err(e) => {
-                        // 시작 실패 → 「모드 전환」 화면(사유는 notices.start_error로 보인다).
+                        // 서버 역할 시작 실패 → 「모드 전환」 화면(사유는 notices.start_error 안내).
+                        // 혼자 쓰기 시작 실패(DB 등)는 안내가 없으므로 스플래시에 사유를 띄운다.
                         eprintln!("desktop: 시작 실패: {e}");
+                        let server_failed = shell.state.lock().await.notices.start_error.is_some();
                         match role_page.parse::<tauri::Url>() {
-                            Ok(u) => {
+                            Ok(u) if server_failed => {
                                 let _ = win.navigate(u);
                             }
-                            Err(_) => {
+                            _ => {
                                 let js = format!(
                                     "window.__setError && window.__setError({})",
                                     serde_json::to_string(&e)

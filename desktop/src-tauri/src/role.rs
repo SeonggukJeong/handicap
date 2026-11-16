@@ -128,7 +128,7 @@ fn persist(st: &mut ShellState) {
 }
 
 /// 앱 시작: 저장된 역할로 시작. 성공이면 base_url. 시작 중 토큰 생성·포트 변경으로 config가
-/// 바뀌었으면 여기서 저장. 실패면 `notices.start_error` 기록 후 `Err`(R6 실패 화면).
+/// 바뀌었으면 여기서 저장. 실패면 `Err` — 서버 역할이면 `notices.start_error`도 기록(R6 실패 화면).
 /// 시작 동안 `switching`을 세워 두어 동시 전환은 거절되고 종료는 이를 기다린다.
 pub async fn boot(shell: &Shell) -> Result<String, String> {
     let (mut config, mut notices) = {
@@ -156,7 +156,10 @@ pub async fn boot(shell: &Shell) -> Result<String, String> {
             Ok(url)
         }
         Err(e) => {
-            notices.start_error = Some(e.clone());
+            // 「서버로 열지 못했습니다」 안내는 서버 역할 시작 실패에만(오케스트레이터 판정).
+            if config.role == Role::Server {
+                notices.start_error = Some(e.clone());
+            }
             st.config = config;
             st.notices = notices;
             Err(e)
@@ -368,8 +371,12 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
                 (r, c, nn, Err(e), save)
             }
         };
+    // 「서버로 열지 못했습니다」 안내는 서버로의 전환 실패에만. 혼자 쓰기로의 실패는 화면의
+    // 「전환하지 못했습니다」 한 줄로만 보인다(오케스트레이터 판정).
     if let Err(e) = &result {
-        new_notices.start_error = Some(e.clone());
+        if target == Role::Server {
+            new_notices.start_error = Some(e.clone());
+        }
     }
 
     let mut st = shell.state.lock().await;
@@ -590,6 +597,39 @@ mod tests {
     }
     fn shell_with_host(cfg: DesktopConfig, hostname: fn() -> String) -> (Shell, TempDir) {
         build(cfg, None, hostname, None)
+    }
+    /// `role`의 시작이 늘 실패하는 셸(실패 주입).
+    fn shell_failing(cfg: DesktopConfig, role: Role) -> (Shell, TempDir) {
+        let (s, d) = shell(cfg);
+        s.state.try_lock().unwrap().env.fail_start = Some(role);
+        (s, d)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_failure_sets_start_error_only_for_server() {
+        let (s, _d) = shell_failing(server(free_port()), Role::Server);
+        let e = boot(&s).await.unwrap_err();
+        assert_eq!(
+            s.state.lock().await.notices.start_error.as_deref(),
+            Some(e.as_str())
+        );
+        let (s, _d) = shell_failing(local(), Role::Local);
+        boot(&s).await.unwrap_err();
+        assert_eq!(s.state.lock().await.notices.start_error, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_switch_to_server_sets_start_error() {
+        let (s, _d) = shell_failing(local(), Role::Server);
+        boot(&s).await.unwrap();
+        let e = switch(&s, Role::Server).await.unwrap_err();
+        {
+            let st = s.state.lock().await;
+            assert_eq!(st.notices.start_error.as_deref(), Some(e.as_str()));
+            assert_eq!(st.config.role, Role::Local, "이전 역할로 복구");
+            assert!(st.running.is_some());
+        }
+        shutdown(&s).await;
     }
 
     async fn running(s: &Shell) -> tokio::sync::MappedMutexGuard<'_, Running> {
@@ -1082,6 +1122,10 @@ mod tests {
         let actual = {
             let st = s.state.lock().await;
             assert_eq!(st.config.role, Role::Server);
+            assert_eq!(
+                st.notices.start_error, None,
+                "혼자 쓰기로의 전환 실패는 「서버로 열지 못했습니다」 안내를 세우지 않는다"
+            );
             assert_eq!(st.notices.port_changed.map(|x| x.0), Some(p));
             st.running.as_ref().unwrap().controller.grpc_addr().port()
         };
