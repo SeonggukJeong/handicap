@@ -633,6 +633,20 @@ pub(super) fn step_label(h: Option<&HttpStep>, id: &str) -> String {
     }
 }
 
+/// 조건 반복이 최대 횟수를 다 쓰고 끝났으면 그 반복 id. `ended_by_loop`만으로는 모자라다 —
+/// 한 회차가 통째로 못 보내 끝난 경우에도 달리는데 그땐 `exhausted` 판정 행이 없다
+/// (blank-var-url-guard).
+pub(super) fn loop_exhausted(trace: &ScenarioTrace) -> Option<&str> {
+    let id = trace.ended_by_loop.as_deref()?;
+    trace
+        .steps
+        .iter()
+        .any(|s| {
+            s.kind == StepKind::Loop && s.step_id == id && s.branch.as_deref() == Some("exhausted")
+        })
+        .then_some(id)
+}
+
 /// 순수 판정 — spec §6.2.
 pub fn judge(
     scenario: &Scenario,
@@ -677,7 +691,7 @@ pub fn judge(
             &format!("{blocked} · {cause} · {REASON_NO_VALUE}"),
         );
     }
-    if trace.ended_by_loop.is_some() {
+    if loop_exhausted(trace).is_some() {
         return CheckResult::with_reason(at_ms, Verdict::Fail, REASON_LOOP_EXHAUSTED);
     }
 
@@ -1060,9 +1074,40 @@ steps:
         );
     }
 
+    fn loop_judge_row(id: &str, branch: &str) -> StepTrace {
+        let mut r = st(id, None, None);
+        r.kind = StepKind::Loop;
+        r.request = None;
+        r.branch = Some(branch.into());
+        r
+    }
+
+    /// 한 번 보낸 뒤 시간 초과(실패)·「again」 판정·다음 회차 전부 못 보냄 → 반복에 최대 횟수가
+    /// 없을 수 있다. 첫 실패 행(시간 초과)의 사유여야지 「최대 횟수 도달」이 아니다.
+    #[test]
+    fn dead_pass_with_real_failure_is_not_exhausted() {
+        const LP: &str = "01HX0000000000000000000009";
+        let mut timeout = st(POLL, None, Some("request timed out"));
+        timeout.timed_out = true;
+        let mut dead = st(POLL, None, Some("not sent: blank value in url"));
+        dead.request = None;
+        dead.blocked = Some(handicap_engine::BlockedInfo {
+            vars: vec!["etag".into()],
+            by_step: POLL.into(),
+        });
+        let mut t = tr(vec![timeout, loop_judge_row(LP, "again"), dead]);
+        t.ended_by_loop = Some(LP.into());
+        let r = judge(&blocked_flow(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail, "{r:?}");
+        assert_ne!(r.reason.as_deref(), Some(REASON_LOOP_EXHAUSTED), "{r:?}");
+    }
+
     #[test]
     fn ended_by_loop_fails_with_reason() {
-        let mut t = tr(vec![st(A, Some(resp(200, 10)), None)]);
+        let mut t = tr(vec![
+            st(A, Some(resp(200, 10)), None),
+            loop_judge_row("01HX0000000000000000000009", "exhausted"),
+        ]);
         t.ended_by_loop = Some("01HX0000000000000000000009".into());
         let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
         assert_eq!(r.verdict, Verdict::Fail);

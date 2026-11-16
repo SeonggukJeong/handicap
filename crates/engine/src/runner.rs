@@ -840,9 +840,10 @@ async fn execute_steps(
                         let activity = take_pass(&samples, &mut scratch);
                         entry_activity = entry_activity.or(activity);
                         if activity.dead() {
-                            // 보낸 요청 없이 막히기만 한 회차: 다음 회차도 같다. 조건은 아직 참이라
-                            // 반복 뒤 스텝(조건이 풀려야 갈 곳)으로 가지 않고, 최대 횟수에 닿은
-                            // 것처럼 이번 반복을 끝낸다(fail-closed, 「마치지 못함」 —
+                            // 보낸 요청 없이 막히기만 한 회차: 다음 회차도 같다. 조건이 기대는 값을
+                            // 가져오지 못했으니 반복이 끝났다고 볼 수 없어 반복 뒤 스텝(조건이
+                            // 풀려야 갈 곳)으로 가지 않고, 최대 횟수에 닿은 것처럼 이번 반복을
+                            // 끝낸다(fail-closed, 「마치지 못함」 —
                             // blank-var-url-guard G1). 보낸 표본이 없으니 scratch는 비어 있다.
                             agg.lock().await.record_loop_exit(
                                 &lp.id,

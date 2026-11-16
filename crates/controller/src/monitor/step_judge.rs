@@ -16,7 +16,7 @@ use super::check::{
     CheckResult, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
     REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_NO_VALUE, REASON_TRACE_ERROR,
     REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values,
-    eval_conditions, reason_timeout, shown, step_label, truncated_reason,
+    eval_conditions, loop_exhausted, reason_timeout, shown, step_label, truncated_reason,
 };
 use super::config::{AUTH_HEADERS, PanelConfig};
 
@@ -433,9 +433,7 @@ pub fn judge_unit(
     let anc = ancestors(scenario);
     let auth_vars = auth_var_names(scenario);
     // 조건 반복이 최대 횟수에서 끝났으면 그 본문 스텝 id(없으면 빈 집합 — R0).
-    let exhausted_body: HashSet<&str> = trace
-        .ended_by_loop
-        .as_deref()
+    let exhausted_body: HashSet<&str> = loop_exhausted(trace)
         .map(|id| loop_body_http_ids(&scenario.steps, id))
         .unwrap_or_default();
     let limit = |id: &str, fallback: u32| step_limits.get(id).copied().unwrap_or(fallback);
@@ -613,7 +611,7 @@ fn own_result(
     // 규칙 5: 그 외 미실행.
     let reason = if trace.truncated {
         truncated_reason(trace, flow_cap_secs)
-    } else if trace.ended_by_loop.is_some() {
+    } else if loop_exhausted(trace).is_some() {
         // 조건 반복이 안 풀려 뒤 스텝이 못 돌았다.
         REASON_LOOP_EXHAUSTED.to_string()
     } else {
@@ -1409,10 +1407,60 @@ mod tests {
         Scenario::from_yaml(&y).unwrap()
     }
 
+    /// 조건 반복 판정 행(엔진은 `ended_by_loop`보다 먼저 이 행을 넣는다).
+    fn loop_row(branch: &str) -> StepTrace {
+        let mut r = st(LP, None, None);
+        r.kind = StepKind::Loop;
+        r.request = None;
+        r.branch = Some(branch.into());
+        r
+    }
+
     fn exhausted_trace() -> ScenarioTrace {
-        let mut t = tr(vec![ok(L1, 1), ok(L2, 2), ok(L2, 2), ok(L2, 2)]);
+        let mut t = tr(vec![
+            ok(L1, 1),
+            ok(L2, 2),
+            ok(L2, 2),
+            ok(L2, 2),
+            loop_row("exhausted"),
+        ]);
         t.ended_by_loop = Some(LP.into());
         t
+    }
+
+    /// 한 회차를 돌고 「again」 판정 뒤 다음 회차가 통째로 못 보내 끝난 trace — 최대 횟수 행 없음.
+    #[test]
+    fn dead_pass_blocked_cell_is_upstream_not_exhausted() {
+        let mut t = tr(vec![
+            ok(L1, 1),
+            ok(L2, 2),
+            loop_row("again"),
+            blocked_row(L2, L2),
+        ]);
+        t.ended_by_loop = Some(LP.into());
+        let r = run(&exhausted_scn(), &panels(&[L2]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+    }
+
+    #[test]
+    fn dead_pass_after_success_is_not_exhausted() {
+        let mut t = tr(vec![ok(L1, 1), ok(L2, 2), loop_row("again")]);
+        t.ended_by_loop = Some(LP.into());
+        let r = run(&exhausted_scn(), &panels(&[L2, Z]), &t);
+        assert_ne!(
+            r[0].reason.as_deref(),
+            Some(REASON_LOOP_EXHAUSTED),
+            "{:?}",
+            r[0]
+        );
+        assert_eq!(r[0].verdict, Verdict::Ok, "{:?}", r[0]);
+        assert_ne!(
+            r[1].reason.as_deref(),
+            Some(REASON_LOOP_EXHAUSTED),
+            "{:?}",
+            r[1]
+        );
     }
 
     #[test]
