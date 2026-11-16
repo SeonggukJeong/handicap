@@ -374,6 +374,42 @@ describe("Inspector — ExtractEditor", () => {
     expect(yamlText()).not.toContain("default");
   });
 
+  it("header → body: 경로를 적어 blur하면 기본값이 유지된다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), "none");
+    await user.tab();
+    await user.selectOptions(within(sec).getByLabelText(ko.editor.extractFromAria(0)), "body");
+    const path = within(sec).getByPlaceholderText("$.path");
+    await user.clear(path);
+    await user.type(path, "$.token");
+    await user.tab();
+    expect(extractOf().from).toBe("body");
+    expect(extractOf().default).toBe("none");
+    expect(yamlText()).toContain('default: "none"');
+  });
+
+  it("body → header: 이름을 적어 blur하면 기본값이 유지된다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), "none");
+    await user.tab();
+    const from = within(sec).getByLabelText(ko.editor.extractFromAria(0));
+    await user.selectOptions(from, "body");
+    const path = within(sec).getByPlaceholderText("$.path");
+    await user.clear(path);
+    await user.type(path, "$.token");
+    await user.tab();
+    await user.selectOptions(from, "header");
+    const name = within(sec).getByPlaceholderText(ko.editor.headerNamePlaceholder);
+    await user.clear(name);
+    await user.type(name, "X-Token");
+    await user.tab();
+    expect(extractOf().from).toBe("header");
+    expect(extractOf().default).toBe("none");
+    expect(yamlText()).toContain('default: "none"');
+  });
+
   it.each(["0x1F", "0", "true", "null", "0b101"])(
     "기본값 %s는 YAML에 큰따옴표로 쓰인다",
     async (v) => {
