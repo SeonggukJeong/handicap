@@ -31,6 +31,15 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 handicap-controller = { path = "../../crates/controller", features = ["bundle"] }
+handicap-desktop-core = { path = "../../crates/desktop-core" }
+handicap-worker = { path = "../../crates/worker" }
+tokio-util = "0.7"
+# 워크스페이스와 같은 주버전 — 0.9의 OsRng는 0.8 RngCore가 아니다(desktop-core generate_token).
+rand = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
