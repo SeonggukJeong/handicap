@@ -59,7 +59,7 @@ use crate::view::inspect::{
     body_height, errors_list_height, render_body, render_errors, render_missing, render_record,
     sub_layout,
 };
-use crate::view::model::{build_panels, header_times};
+use crate::view::model::{build_panels, checks_off, header_times};
 use crate::view::monitor::{HeaderNotice, HeaderView};
 use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
@@ -3813,6 +3813,7 @@ impl App<'_> {
             board_pos: (self.idx + 1, r.boards.len()),
             last_check,
             dial,
+            checks_off: checks_off(board, &snap),
             server_down: snap.server_down,
             panels,
             selected,

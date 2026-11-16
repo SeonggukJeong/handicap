@@ -32,6 +32,8 @@ pub fn consecutive(n: u32, hms: &str) -> String {
 
 /// 머리 줄 점검 상태(끊김이면 `SERVER_DOWN`)
 pub const MONITOR_RUNNING: &str = "점검 중";
+/// 머리 줄 점검 상태 — 이 보드의 점검이 꺼져 있다.
+pub const MONITOR_OFF: &str = "점검 꺼짐";
 
 /// 머리 줄 시각 앞 이름표 — 이 시각이 현재 시각이 아니라는 표시.
 pub const LAST_CHECK: &str = "마지막 점검";

@@ -60,6 +60,8 @@ pub struct MonitorScreen {
     /// 마지막 점검 시각(ms) — 현재 시각이 아니다.
     pub last_check: Option<i64>,
     pub dial: Option<Dial>,
+    /// 이 보드의 점검이 꺼져 있다 — 머리 줄 상태가 `점검 꺼짐`.
+    pub checks_off: bool,
     pub server_down: bool,
     pub panels: Vec<PanelView>,
     pub selected: usize,
@@ -625,6 +627,8 @@ pub struct HeaderView {
     /// 마지막 점검 시각(ms) — 현재 시각이 아니다.
     pub last_check: Option<i64>,
     pub dial: Option<Dial>,
+    /// 이 보드의 점검이 꺼져 있다 — 머리 줄 상태가 `점검 꺼짐`.
+    pub checks_off: bool,
     pub server_down: bool,
     pub notice: Option<HeaderNotice>,
 }
@@ -636,6 +640,7 @@ impl MonitorScreen {
             board_pos: self.board_pos,
             last_check: self.last_check,
             dial: self.dial,
+            checks_off: self.checks_off,
             server_down: self.server_down,
             notice: self.notice.clone(),
         }
@@ -647,7 +652,7 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
 }
 
 /// 머리 줄 — 왼쪽 보드 이름, 오른쪽 `마지막 점검 {시각}  {막대 남은 초}`.
-/// 막대가 없으면(끊김·꺼짐·결과 없음) 그 자리에 점검 상태 문구. 막대·점검 상태는 절대 자르지 않고,
+/// 막대가 없으면 그 자리에 점검 상태 문구(끊김 `서버 응답 없음` > 꺼짐 `점검 꺼짐` > 그 밖 `점검 중`). 막대·점검 상태는 절대 자르지 않고,
 /// 좁으면 날짜 → `마지막 점검 시각`(이름표와 함께) 순으로 뺀다.
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
 /// 알림: `Saved`·`CheckSent`는 초록 `저장됨`/`지금 점검 HH:MM:SS`를 시각 앞에 두고 날짜 다음·시각 앞에 빠진다. 경고(`FileFailed`·
@@ -658,6 +663,8 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let board_name = crate::inspect::sanitize(&s.board_name);
     let status = if s.server_down {
         text::SERVER_DOWN
+    } else if s.checks_off {
+        text::MONITOR_OFF
     } else {
         text::MONITOR_RUNNING
     };

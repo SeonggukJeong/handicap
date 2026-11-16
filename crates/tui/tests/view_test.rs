@@ -14,8 +14,8 @@ use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
 use handicap_tui::view::graph::{column, label_width, threshold_rows};
 use handicap_tui::view::model::{
-    Bar, BarKind, BigValue, Dial, PanelView, Row, ThresholdView, build_panels, header_times,
-    panel_rows_s, parse_hex,
+    Bar, BarKind, BigValue, Dial, PanelView, Row, ThresholdView, build_panels, checks_off,
+    header_times, panel_rows_s, parse_hex,
 };
 use handicap_tui::view::monitor::{
     HeaderNotice, KeyBar, MonitorScreen, layout, panel_at, render, render_header_view,
@@ -146,6 +146,7 @@ fn screen(panels: Vec<PanelView>, pos: (usize, usize), selected: usize) -> Monit
         board_pos: pos,
         last_check: Some(1_700_000_000_000),
         dial: None,
+        checks_off: false,
         server_down: false,
         panels,
         selected,
@@ -3405,4 +3406,45 @@ fn local_date_hms(ms: i64) -> String {
         .unwrap()
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
+}
+
+// ---------- 머리 줄: 점검이 꺼진 보드 ----------
+
+#[test]
+fn checks_off_only_when_this_board_reports_disabled() {
+    let b = board(vec![panel("p1", "a")], false);
+    let on = snap(vec![pstatus("p1", vec![], 0, None)], 0);
+    assert!(!checks_off(&b, &on));
+    let mut off = on.clone();
+    off.last.as_mut().unwrap().enabled = false;
+    assert!(checks_off(&b, &off));
+    // 다른 보드의 응답·아직 응답 없음은 꺼짐으로 보지 않는다.
+    let mut other = off.clone();
+    other.board_id = "b2".into();
+    assert!(!checks_off(&b, &other));
+    let mut none = off.clone();
+    none.last = None;
+    assert!(!checks_off(&b, &none));
+}
+
+#[test]
+fn header_says_off_when_checks_are_off() {
+    let row = |off: bool, down: bool, w: u16| {
+        let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+        sc.checks_off = off;
+        sc.server_down = down;
+        let h = sc.header();
+        assert_eq!(h.checks_off, off);
+        let t = draw(w, 1, |f| render_header_view(f, f.area(), &h));
+        t.lines().next().unwrap().trim_end().to_string()
+    };
+    for w in [24u16, 48, 100] {
+        let off = row(true, false, w);
+        assert!(off.ends_with("점검 꺼짐"), "w={w}: {off}");
+        assert!(!off.contains("점검 중"), "w={w}: {off}");
+        // 켜져 있으면 그대로 `점검 중`, 서버가 끊겼으면 끊김 문구가 이긴다.
+        assert!(row(false, false, w).ends_with("점검 중"), "w={w}");
+        let down = row(true, true, w);
+        assert!(down.ends_with("서버 응답 없음"), "w={w}: {down}");
+    }
 }

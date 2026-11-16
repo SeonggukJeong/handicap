@@ -308,6 +308,14 @@ pub fn header_times(board: &BoardResponse, snap: &PollSnapshot) -> (Option<i64>,
     (last, dial)
 }
 
+/// 이 보드의 점검이 꺼져 있는가 — 이 보드의 상태 응답이 꺼짐을 알릴 때만 참(응답 전·다른 보드 응답은 거짓).
+pub fn checks_off(board: &BoardResponse, snap: &PollSnapshot) -> bool {
+    snap.last
+        .as_ref()
+        .filter(|_| snap.board_id == board.id)
+        .is_some_and(|st| !st.enabled)
+}
+
 pub fn build_panels(board: &BoardResponse, snap: &PollSnapshot) -> Vec<PanelView> {
     let last = snap.last.as_ref().filter(|_| snap.board_id == board.id);
     board

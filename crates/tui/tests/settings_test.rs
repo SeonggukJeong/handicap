@@ -133,6 +133,7 @@ fn head() -> HeaderView {
         board_pos: (1, 1),
         last_check: Some(1_700_000_000_000),
         dial: None,
+        checks_off: false,
         server_down: false,
         notice: None,
     }

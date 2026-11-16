@@ -74,6 +74,7 @@ fn head() -> HeaderView {
         board_pos: (1, 1),
         last_check: Some(NOW),
         dial: None,
+        checks_off: false,
         server_down: false,
         notice: None,
     }
