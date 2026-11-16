@@ -510,6 +510,30 @@ fn self_lock_yaml(base: &str) -> String {
     scenario_yaml(base, r#"id: "1", etag: "", state: """#, &[lp, after_step()])
 }
 
+/// 반복을 끝낸 회차 수 판정: 뒤 스텝은 한 번도 안 가고, 반복마다 본문을 한 번 보내고 한 번 막힌다.
+/// 막힌 회차가 반복을 계속 돌면(빈 회전) `blocked`가 `sent`보다 훨씬 크다. 창 `count`는 막힌
+/// 건도 센다(`record_not_sent`) — 보낸 건수는 와이어로 잰다.
+async fn assert_dead_pass_ends_iteration(out: &Out, server: &MockServer) {
+    assert!(out.ok);
+    let after = win(out, AFTER_ID).count;
+    let body = win(out, DETAIL_ID).count;
+    let sent = received(server, "/jobs/").await as u64;
+    let blocked = kind_count(out, DETAIL_ID, ErrorKind::BlankVar);
+    assert_eq!(after, 0, "step after the loop ran (sent {sent})");
+    assert_eq!(
+        received(server, "/after").await,
+        0,
+        "after reached the wire"
+    );
+    assert!(sent >= 2, "iterations did not restart (sent {sent})");
+    assert_eq!(body, sent + blocked, "window count = sent + not sent");
+    // 끝 반복은 deadline에 첫 회차 뒤에서 잘릴 수 있다(보냈으나 막히기 전).
+    assert!(
+        blocked <= sent && sent - blocked <= 1,
+        "sent={sent} blocked={blocked}"
+    );
+}
+
 #[tokio::test]
 async fn self_locking_loop_exits_instead_of_spinning() {
     use handicap_engine::LoopExitOutcome;
@@ -519,32 +543,27 @@ async fn self_locking_loop_exits_instead_of_spinning() {
         .mount(&server)
         .await;
     let out = run_mode(&self_lock_yaml(&server.uri()), 1000, Mode::Closed).await;
-    assert!(out.ok);
-    let after = win(&out, AFTER_ID).count;
-    let body = win(&out, DETAIL_ID).count;
-    let sent = received(&server, "/jobs/").await as u64;
-    assert!(
-        after >= 1,
-        "step after the loop never reached (body count {body})"
-    );
-    assert!(body <= 3 * after, "body={body} after={after}");
-    // 회차 1은 보내고 회차 2는 막힌다 — 반복마다 한 번 보내고 뒤 스텝에 닿는다(끝 반복은 잘릴 수 있다).
-    assert!(sent.abs_diff(after) <= 1, "sent={sent} after={after}");
-    let truncated: Vec<_> = out
+    assert_dead_pass_ends_iteration(&out, &server).await;
+    let exits: Vec<_> = out
         .flushes
         .iter()
         .flat_map(|f| f.loop_exit_stats.iter())
-        .filter(|s| s.step_id == LOOP_ID && s.outcome == LoopExitOutcome::Truncated)
+        .filter(|s| s.step_id == LOOP_ID)
         .collect();
-    assert!(!truncated.is_empty(), "no Truncated loop exit");
     assert!(
-        truncated.iter().any(|s| s.pass_bucket == 2),
-        "dead pass not counted: {truncated:?}"
+        exits
+            .iter()
+            .all(|s| s.outcome == LoopExitOutcome::Truncated),
+        "only Truncated exits expected: {exits:?}"
+    );
+    assert!(
+        exits.iter().any(|s| s.pass_bucket == 2),
+        "dead pass not counted: {exits:?}"
     );
 }
 
-/// 바깥 조건 반복의 회차가 안쪽 조건 반복 하나뿐이어도, 안쪽이 막히기만 하고 끝나면 바깥 회차도
-/// 막힌 회차다 — 안쪽 반복이 바깥 회차 표지에 알린다.
+/// 바깥 조건 반복의 회차가 안쪽 조건 반복 하나뿐이어도, 안쪽 회차가 막히기만 하면 그 반복(시나리오
+/// 회차)이 끝난다 — 바깥 반복도 뒤 스텝으로 가지 않는다.
 #[tokio::test]
 async fn nested_self_locking_loop_exits() {
     let server = MockServer::start().await;
@@ -571,11 +590,7 @@ async fn nested_self_locking_loop_exits() {
         &[outer, after_step()],
     );
     let out = run_mode(&y, 1000, Mode::Closed).await;
-    assert!(out.ok);
-    let after = win(&out, AFTER_ID).count;
-    let body = win(&out, DETAIL_ID).count;
-    assert!(after >= 1, "outer loop never left (body count {body})");
-    assert!(body <= 4 * after, "body={body} after={after}");
+    assert_dead_pass_ends_iteration(&out, &server).await;
 }
 
 #[tokio::test]

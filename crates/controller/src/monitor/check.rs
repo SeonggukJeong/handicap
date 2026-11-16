@@ -653,31 +653,36 @@ pub fn judge(
     if trace.error.is_some() {
         return CheckResult::with_reason(at_ms, Verdict::Fail, REASON_TRACE_ERROR);
     }
+    let mut all = Vec::new();
+    collect_http_steps(&scenario.steps, &mut all);
+
+    let first_error = trace
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::Http)
+        .find_map(|s| s.error.as_deref().map(|e| (s, e)));
+    // 보내지 않은 행(비워진 값이 주소에 쓰임)은 변수 미설정·분류보다, 그리고 조건 반복 종료
+    // (`ended_by_loop`)보다 먼저 — 앞 단계 실패. 스스로 잠긴 반복은 막힌 회차에서 끝나므로
+    // `ended_by_loop`이 함께 붙는데, 원인은 최대 횟수가 아니라 빠진 값이다(blank-var-url-guard G3).
+    if let Some((st, _)) = first_error
+        && let Some(b) = st.blocked.as_ref()
+    {
+        let http = all.iter().copied().find(|h| h.id == st.step_id);
+        let blocked = step_label(http, &st.step_id);
+        let cause = step_label(all.iter().copied().find(|h| h.id == b.by_step), &b.by_step);
+        return CheckResult::cond_result(
+            at_ms,
+            Verdict::Fail,
+            REASON_UPSTREAM,
+            &format!("{blocked} · {cause} · {REASON_NO_VALUE}"),
+        );
+    }
     if trace.ended_by_loop.is_some() {
         return CheckResult::with_reason(at_ms, Verdict::Fail, REASON_LOOP_EXHAUSTED);
     }
 
-    let mut all = Vec::new();
-    collect_http_steps(&scenario.steps, &mut all);
-
-    if let Some((st, err)) = trace
-        .steps
-        .iter()
-        .filter(|s| s.kind == StepKind::Http)
-        .find_map(|s| s.error.as_deref().map(|e| (s, e)))
-    {
+    if let Some((st, err)) = first_error {
         let http = all.iter().copied().find(|h| h.id == st.step_id);
-        // 보내지 않은 행(비워진 값이 주소에 쓰임)은 변수 미설정·분류보다 먼저 — 앞 단계 실패.
-        if let Some(b) = st.blocked.as_ref() {
-            let blocked = step_label(http, &st.step_id);
-            let cause = step_label(all.iter().copied().find(|h| h.id == b.by_step), &b.by_step);
-            return CheckResult::cond_result(
-                at_ms,
-                Verdict::Fail,
-                REASON_UPSTREAM,
-                &format!("{blocked} · {cause} · {REASON_NO_VALUE}"),
-            );
-        }
         // 치환 안 된 변수는 시스템 장애가 아니라 설정 오류 — 빨강(Fail)이 아니라 설정 오류로.
         let (verdict, mut reason) = if st.unbound_vars.is_empty() {
             (Verdict::Fail, classify(http, st, err))
@@ -991,6 +996,29 @@ steps:
             r.detail.as_deref(),
             Some("01HX00000000000000000000D1 · 상태 조회 · 값 없음")
         );
+    }
+
+    /// 스스로 잠긴 조건 반복: 회차 1은 보내고 회차 2는 자기 값이 비어 막힌다 → trace는 그 회차를
+    /// 끝내며 `ended_by_loop`을 단다. 사유는 반복 최대 횟수가 아니라 막힌 행(앞 단계 실패)이다.
+    #[test]
+    fn blocked_wins_over_ended_by_loop() {
+        const LP: &str = "01HX0000000000000000000009";
+        let s = Scenario::from_yaml(&format!(
+            "version: 1\nname: s\nsteps:\n  - id: \"{LP}\"\n    name: 대기\n    type: loop\n    while: {{ left: \"{{{{state}}}}\", op: ne, right: \"DONE\" }}\n    do:\n      - id: \"{POLL}\"\n        name: 상태 조회\n        type: http\n        request: {{ method: GET, url: \"http://x/p/{{{{etag}}}}\" }}\n  - id: \"{DEL}\"\n    name: 주문 삭제\n    type: http\n    request: {{ method: GET, url: \"http://x/d\" }}\n"
+        ))
+        .unwrap();
+        let mut self_blocked = st(POLL, None, Some("not sent: blank value in url"));
+        self_blocked.request = None;
+        self_blocked.blocked = Some(handicap_engine::BlockedInfo {
+            vars: vec!["etag".into()],
+            by_step: POLL.into(),
+        });
+        let mut t = tr(vec![st(POLL, Some(resp(200, 3)), None), self_blocked]);
+        t.ended_by_loop = Some(LP.into());
+        let r = judge(&s, &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail, "{r:?}");
+        assert_eq!(r.reason.as_deref(), Some(REASON_UPSTREAM));
+        assert_eq!(r.detail.as_deref(), Some("상태 조회 · 상태 조회 · 값 없음"));
     }
 
     #[test]

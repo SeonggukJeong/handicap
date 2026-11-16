@@ -266,7 +266,8 @@ async fn self_locking_loop_trace_stops_without_truncation() {
     let sc = Scenario::from_yaml(&self_lock_yaml(&server.uri())).unwrap();
     let t = trace_scenario(&sc, &opts(500, Duration::from_secs(20))).await;
     assert!(!t.truncated, "trace spun into a cap");
-    assert_eq!(t.ended_by_loop, None);
+    // 막힌 회차는 최대 횟수에 닿은 것처럼 그 회차를 끝낸다 — 반복 뒤 스텝은 안 돈다.
+    assert_eq!(t.ended_by_loop.as_deref(), Some(LOOP_ID));
     let blocked: Vec<_> = t
         .steps
         .iter()
@@ -274,13 +275,15 @@ async fn self_locking_loop_trace_stops_without_truncation() {
         .collect();
     assert_eq!(blocked.len(), 1, "blocked rows");
     assert_eq!(blocked[0].loop_index, Some(1));
-    let after = row(&t.steps, AFTER_ID);
-    assert!(after.blocked.is_none());
-    assert_eq!(after.error, None);
+    assert!(
+        t.steps.iter().all(|s| s.step_id != AFTER_ID),
+        "after step ran"
+    );
     assert_eq!(received(&server, "/jobs/").await, 1);
+    assert_eq!(received(&server, "/after").await, 0);
 }
 
-/// 두 엔진 모두 막힌 회차에서 반복을 나와 뒤 스텝에 닿는다(lockstep).
+/// 두 엔진 모두 막힌 회차에서 그 회차를 끝내고 뒤 스텝에 가지 않는다(lockstep).
 #[tokio::test]
 async fn trace_and_runner_both_leave_self_locking_loop() {
     let server = MockServer::start().await;
@@ -289,15 +292,31 @@ async fn trace_and_runner_both_leave_self_locking_loop() {
     let sc = Scenario::from_yaml(&yaml).unwrap();
     let t = trace_scenario(&sc, &opts(500, Duration::from_secs(20))).await;
     assert!(!t.truncated);
-    assert!(t.steps.iter().any(|s| s.step_id == AFTER_ID), "trace");
-    let after: u64 = runner_flushes(&yaml)
-        .await
+    assert_eq!(t.ended_by_loop.as_deref(), Some(LOOP_ID), "trace");
+    assert!(t.steps.iter().all(|s| s.step_id != AFTER_ID), "trace");
+    let flushes = runner_flushes(&yaml).await;
+    let count = |id: &str| -> u64 {
+        flushes
+            .iter()
+            .flat_map(|f| f.windows.iter())
+            .filter(|w| w.step_id == id)
+            .map(|w| w.count)
+            .sum()
+    };
+    assert_eq!(count(AFTER_ID), 0, "runner reached the step after the loop");
+    // 창 count = 보낸 + 막힌. 반복마다 한 번 보내고 한 번 막힌다(빈 회전이면 막힌 쪽이 훨씬 많다).
+    let blocked: u64 = flushes
         .iter()
-        .flat_map(|f| f.windows.iter())
-        .filter(|w| w.step_id == AFTER_ID)
-        .map(|w| w.count)
+        .flat_map(|f| f.error_kind_stats.iter())
+        .filter(|s| s.step_id == DETAIL_ID && s.kind == ErrorKind::BlankVar)
+        .map(|s| s.count)
         .sum();
-    assert!(after >= 1, "runner never left the loop");
+    let sent = count(DETAIL_ID) - blocked;
+    assert!(sent >= 2, "runner iterations did not restart (sent {sent})");
+    assert!(
+        blocked <= sent && sent - blocked <= 1,
+        "sent={sent} blocked={blocked}"
+    );
 }
 
 #[tokio::test]

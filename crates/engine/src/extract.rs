@@ -95,7 +95,8 @@ pub fn evaluate(
 
 /// Lenient sibling of [`evaluate`]: each item is evaluated on its own; found
 /// values are kept and failed items (missing path/header/cookie, non-JSON body,
-/// a body path that finds JSON `null`, decode/claim failure) are simply absent.
+/// a body path or decoded claim that finds JSON `null`, decode/claim failure)
+/// are simply absent.
 /// Never errors.
 pub fn evaluate_lenient(
     extracts: &[Extract],
@@ -122,7 +123,9 @@ pub fn evaluate_lenient(
                 let Some(value) = jsonpath_first(json, path).filter(|v| !v.is_null()) else {
                     continue;
                 };
-                if let Ok(v) = post_process(var, stringify(&value), *decode, claim.as_deref()) {
+                if let Some(v) =
+                    post_process_lenient(var, stringify(&value), *decode, claim.as_deref())
+                {
                     out.insert(var.clone(), v);
                 }
             }
@@ -140,7 +143,7 @@ pub fn evaluate_lenient(
                 else {
                     continue;
                 };
-                if let Ok(v) = post_process(var, value, *decode, claim.as_deref()) {
+                if let Some(v) = post_process_lenient(var, value, *decode, claim.as_deref()) {
                     out.insert(var.clone(), v);
                 }
             }
@@ -157,7 +160,7 @@ pub fn evaluate_lenient(
                 else {
                     continue;
                 };
-                if let Ok(v) = post_process(var, value, *decode, claim.as_deref()) {
+                if let Some(v) = post_process_lenient(var, value, *decode, claim.as_deref()) {
                     out.insert(var.clone(), v);
                 }
             }
@@ -382,11 +385,43 @@ fn post_process(
     decode: Option<Decode>,
     claim: Option<&str>,
 ) -> Result<String> {
+    Ok(match post_process_value(var, raw, decode, claim)? {
+        Processed::Text(s) => s,
+        Processed::Claim(v) => stringify(&v),
+    })
+}
+
+/// 너그러운 쪽: 실패와 JSON `null` claim은 "못 뽑음"(`None`) — 본문 경로의 null 규칙과 같다
+/// (blank-var-url-guard G6). 엄격 [`post_process`]는 null claim을 `""`로 뽑는다.
+fn post_process_lenient(
+    var: &str,
+    raw: String,
+    decode: Option<Decode>,
+    claim: Option<&str>,
+) -> Option<String> {
+    match post_process_value(var, raw, decode, claim).ok()? {
+        Processed::Text(s) => Some(s),
+        Processed::Claim(v) if v.is_null() => None,
+        Processed::Claim(v) => Some(stringify(&v)),
+    }
+}
+
+enum Processed {
+    Text(String),
+    Claim(serde_json::Value),
+}
+
+fn post_process_value(
+    var: &str,
+    raw: String,
+    decode: Option<Decode>,
+    claim: Option<&str>,
+) -> Result<Processed> {
     let fail = |reason: &str| EngineError::ExtractFailed(format!("{var}: {reason}"));
     let Some(decode) = decode else {
         return match claim {
             Some(_) => Err(fail("claim requires decode")),
-            None => Ok(raw),
+            None => Ok(Processed::Text(raw)),
         };
     };
     let segment = match decode {
@@ -398,12 +433,12 @@ fn post_process(
         Base64TextError::NotUtf8 => fail("not UTF-8 text"),
     })?;
     if decode == Decode::Base64 && claim.is_none() {
-        return Ok(text);
+        return Ok(Processed::Text(text));
     }
     let json: serde_json::Value =
         serde_json::from_str(&text).map_err(|_| fail("decoded value is not JSON"))?;
     let Some(claim) = claim else {
-        return Ok(text); // jwt without claim → payload JSON text verbatim (R5)
+        return Ok(Processed::Text(text)); // jwt without claim → payload JSON text verbatim (R5)
     };
     let path = serde_json_path::JsonPath::parse(claim)
         .map_err(|_| fail(&format!("invalid claim path: {claim}")))?;
@@ -412,7 +447,7 @@ fn post_process(
         .first()
         .cloned()
         .ok_or_else(|| fail(&format!("claim not found: {claim}")))?;
-    Ok(stringify(&first))
+    Ok(Processed::Claim(first))
 }
 
 #[cfg(test)]
@@ -507,6 +542,82 @@ mod tests {
         let facts = lenient_facts(br#"{"orderId":null}"#, &[]);
         let out = evaluate(&extracts, &facts).expect("strict null is a match");
         assert_eq!(out.get("orderId").map(String::as_str), Some(""));
+    }
+
+    /// JWT 페이로드 `{"sub":null,"name":""}` — base64url(no pad).
+    fn null_claim_jwt() -> String {
+        format!(
+            "eyJhbGciOiJub25lIn0.{}.c2ln",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":null,"name":""}"#)
+        )
+    }
+
+    /// body·header·cookie 세 출처에서 같은 JWT를 같은 claim으로 뽑는다.
+    fn claim_extracts(claim: &str) -> Vec<Extract> {
+        vec![
+            Extract::Body {
+                var: "b".into(),
+                path: "$.t".into(),
+                decode: Some(Decode::Jwt),
+                claim: Some(claim.into()),
+            },
+            Extract::Header {
+                var: "h".into(),
+                name: "X-T".into(),
+                decode: Some(Decode::Jwt),
+                claim: Some(claim.into()),
+            },
+            Extract::Cookie {
+                var: "c".into(),
+                name: "t".into(),
+                decode: Some(Decode::Jwt),
+                claim: Some(claim.into()),
+            },
+        ]
+    }
+
+    fn eval_claims(
+        claim: &str,
+        lenient: bool,
+    ) -> std::result::Result<BTreeMap<String, String>, String> {
+        let jwt = null_claim_jwt();
+        let body = format!(r#"{{"t":"{jwt}"}}"#);
+        let headers = vec![("X-T".to_string(), jwt.clone())];
+        let cookies = vec![format!("t={jwt}; Path=/")];
+        let facts = ResponseFacts {
+            status: 200,
+            headers: &headers,
+            set_cookies: &cookies,
+            body: body.as_bytes(),
+        };
+        let extracts = claim_extracts(claim);
+        if lenient {
+            Ok(evaluate_lenient(&extracts, &facts))
+        } else {
+            evaluate(&extracts, &facts).map_err(|e| format!("{e:?}"))
+        }
+    }
+
+    #[test]
+    fn lenient_null_claim_is_not_extracted() {
+        let out = eval_claims("$.sub", true).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn strict_null_claim_still_extracts_empty() {
+        let out = eval_claims("$.sub", false).unwrap();
+        for v in ["b", "h", "c"] {
+            assert_eq!(out.get(v).map(String::as_str), Some(""), "{v}: {out:?}");
+        }
+    }
+
+    #[test]
+    fn lenient_real_empty_claim_is_extracted() {
+        let out = eval_claims("$.name", true).unwrap();
+        for v in ["b", "h", "c"] {
+            assert_eq!(out.get(v).map(String::as_str), Some(""), "{v}: {out:?}");
+        }
     }
 
     #[test]

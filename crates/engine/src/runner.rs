@@ -559,7 +559,7 @@ struct PassActivity {
 
 impl PassActivity {
     /// 아무것도 안 보내고 막히기만 한 회차 — 다음 회차도 새로 뽑을 값이 없어 같다
-    /// (blank-var-url-guard F2: 반복을 끝낸다).
+    /// (blank-var-url-guard G1: 최대 횟수 소진처럼 이번 시나리오 반복을 끝낸다).
     fn dead(self) -> bool {
         self.blocked && !self.sent
     }
@@ -840,15 +840,16 @@ async fn execute_steps(
                         let activity = take_pass(&samples, &mut scratch);
                         entry_activity = entry_activity.or(activity);
                         if activity.dead() {
-                            // 보낸 요청 없이 막히기만 한 회차: 다음 회차도 같다 — 조건이 거짓이 된
-                            // 것처럼 반복 뒤로 간다(「마치지 못함」, blank-var-url-guard F2).
-                            // 보낸 표본이 없으니 scratch는 비어 있다.
+                            // 보낸 요청 없이 막히기만 한 회차: 다음 회차도 같다. 조건은 아직 참이라
+                            // 반복 뒤 스텝(조건이 풀려야 갈 곳)으로 가지 않고, 최대 횟수에 닿은
+                            // 것처럼 이번 반복을 끝낸다(fail-closed, 「마치지 못함」 —
+                            // blank-var-url-guard G1). 보낸 표본이 없으니 scratch는 비어 있다.
                             agg.lock().await.record_loop_exit(
                                 &lp.id,
                                 pass,
                                 LoopExitOutcome::Truncated,
                             );
-                            break;
+                            return Ok(StepFlow::EndIteration);
                         }
                         let again = {
                             let ctx = TemplateContext {

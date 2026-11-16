@@ -94,7 +94,8 @@ pub enum LoopExitOutcome {
     /// 최대 횟수까지 조건이 참 — `EndIteration`.
     Exhausted,
     /// 스스로 끝나기 전에 밖에서 끊김(deadline·취소·본문의 비-`Continue` 흐름·`Err`), 또는
-    /// 요청 없이 막히기만 한 회차로 끝남(blank-var-url-guard — 흐름은 반복 뒤로 `Continue`).
+    /// 요청 없이 막히기만 한 회차로 끝남(blank-var-url-guard — 흐름은 `Exhausted`처럼
+    /// `EndIteration`: 반복 뒤 스텝으로 가지 않는다).
     Truncated,
 }
 

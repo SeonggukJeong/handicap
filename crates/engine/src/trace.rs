@@ -638,13 +638,15 @@ async fn trace_steps(
                             return;
                         }
                         // runner와 같은 규칙: 보낸 요청 없이 막히기만 한 회차(안쪽 if·loop·parallel
-                        // 행 포함)면 판정 행 없이 반복 뒤로 간다 — 잘림 아님(blank-var-url-guard F2).
+                        // 행 포함)면 판정 행 없이, 최대 횟수 소진처럼 이번 반복을 끝낸다
+                        // (`ended_by_loop`, 잘림 아님 — blank-var-url-guard G2).
                         let pass_rows = &state.steps[pass_start..];
                         let http_rows = || pass_rows.iter().filter(|s| s.kind == StepKind::Http);
                         if http_rows().any(|s| s.blocked.is_some())
                             && http_rows().all(|s| s.blocked.is_some())
                         {
-                            break;
+                            state.ended_by_loop = Some(lp.id.clone());
+                            return;
                         }
                         pass = pass.saturating_add(1);
                         let (eval, again) = {

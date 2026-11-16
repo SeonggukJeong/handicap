@@ -1436,6 +1436,22 @@ mod tests {
         assert_eq!(r[0].reason, None);
     }
 
+    /// 스스로 잠긴 반복(L2가 자기 값이 비어 회차 2에서 막힘 → trace `ended_by_loop`): 본문 칸·뒤 칸
+    /// 모두 반복 최대 횟수가 아니라 막힌 행(앞 단계 실패 · 원인 스텝)으로 판정한다.
+    #[test]
+    fn blocked_wins_over_ended_by_loop_step_cells() {
+        let mut t = tr(vec![ok(L1, 1), ok(L2, 2), blocked_row(L2, L2)]);
+        t.ended_by_loop = Some(LP.into());
+        let r = run(&exhausted_scn(), &panels(&[L2]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[0].detail.as_deref(), Some("L2 · 값 없음"));
+        let r = run(&exhausted_scn(), &panels(&[Z]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[0].detail.as_deref(), Some("L2 · L2 · 값 없음"));
+    }
+
     #[test]
     fn unit_without_ended_by_loop_unchanged() {
         // R0: 같은 trace라도 ended_by_loop이 없으면 본문 스텝은 기존대로 ok, 안 돈 스텝은 기존 사유.
