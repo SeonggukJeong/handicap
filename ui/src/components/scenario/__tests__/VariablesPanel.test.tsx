@@ -1701,15 +1701,13 @@ describe("VariablesPanel — 요청마다 새로 뽑기", () => {
 
   it("refresh: request 선택 배열을 팝업으로 편집해도 refresh가 남는다 (Review Focus 5)", async () => {
     const user = userEvent.setup();
-    useScenarioEditor
-      .getState()
-      .setVariableGen("flags", {
-        gen: "pick_array",
-        length: 30,
-        min: 2,
-        max: 3,
-        refresh: "request",
-      });
+    useScenarioEditor.getState().setVariableGen("flags", {
+      gen: "pick_array",
+      length: 30,
+      min: 2,
+      max: 3,
+      refresh: "request",
+    });
     render(<VariablesPanel />);
     await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
     const dialog = screen.getByRole("dialog");
@@ -1765,5 +1763,20 @@ describe("VariablesPanel — 요청마다 새로 뽑기", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(useScenarioEditor.getState().yamlText).toBe(before);
     expect(screen.queryByText(ko.editor.genRefreshBadge)).toBeNull();
+  });
+});
+
+describe("VariablesPanel — 문자 순서 정렬", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  it("선언 순서(zeta, token, beta)와 종류에 상관없이 이름의 문자 순서로 행을 그린다", () => {
+    useScenarioEditor
+      .getState()
+      .loadFromString(MIXED.replace("  token: seed", "  zeta: z\n  token: seed\n  beta: b"));
+    render(<VariablesPanel />);
+    const rows = [...(document.querySelector("section > ul")?.children ?? [])];
+    // alpha.s(분기) · beta(선언) · flatVar(추출) · missing(미정의) · token · zeta
+    const NAMES = ["alpha.", "beta", "flatVar", "missing", "token", "zeta"];
+    expect(rows.map((li) => NAMES.find((n) => li.textContent?.includes(n)))).toEqual(NAMES);
   });
 });

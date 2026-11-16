@@ -131,7 +131,8 @@ fn head() -> HeaderView {
     HeaderView {
         board_name: "운영 API 보드".into(),
         board_pos: (1, 1),
-        server_time: Some(1_700_000_000_000),
+        last_check: Some(1_700_000_000_000),
+        dial: None,
         server_down: false,
         notice: None,
     }
@@ -799,7 +800,10 @@ fn render_edit_menu_selection_and_note() {
     let v = menu_view(&lines, 5, Some(note), None);
     let (buf, table, t) = draw_menu(100, 30, &v, &menu_keys());
     let rows: Vec<&str> = t.lines().collect();
-    assert!(rows[0].contains(text::MONITOR_TITLE), "{t}");
+    assert!(
+        rows[0].starts_with(&format!(" {}", head().board_name)),
+        "{t}"
+    );
     assert!(rows[1].starts_with("칸 설정 · 주문 조회"), "{t}");
     assert!(
         rows[1].trim_end().ends_with(text::SETTINGS_EDIT_NOTE),

@@ -32,7 +32,18 @@ pub fn consecutive(n: u32, hms: &str) -> String {
 
 /// 머리 줄 점검 상태(끊김이면 `SERVER_DOWN`)
 pub const MONITOR_RUNNING: &str = "점검 중";
-pub const MONITOR_TITLE: &str = "Handicap 모니터";
+
+/// 머리 줄 오른쪽 끝의 점검 간격 원 — 마지막 점검 뒤 지난 시간만큼 4분의 1씩 차오른다.
+pub fn dial(quarters: u8, interval_sec: u32) -> String {
+    let glyph = match quarters {
+        0 => '○',
+        1 => '◔',
+        2 => '◑',
+        3 => '◕',
+        _ => '●',
+    };
+    format!("{glyph} {interval_sec}초")
+}
 
 /// 키 안내 줄 조각 — 좁으면 앞에서부터 통째로 뺀다(마지막 `q 종료`는 끝까지 남는다).
 pub const KEYS_MOVE: &str = "←↑↓→ 칸 이동";

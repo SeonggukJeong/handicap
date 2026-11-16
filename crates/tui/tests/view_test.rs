@@ -14,7 +14,8 @@ use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
 use handicap_tui::view::graph::{column, label_width, threshold_rows};
 use handicap_tui::view::model::{
-    Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows_s, parse_hex,
+    Bar, BarKind, BigValue, Dial, PanelView, Row, ThresholdView, build_panels, header_times,
+    panel_rows_s, parse_hex,
 };
 use handicap_tui::view::monitor::{
     HeaderNotice, KeyBar, MonitorScreen, layout, panel_at, render, render_header_view,
@@ -143,7 +144,11 @@ fn screen(panels: Vec<PanelView>, pos: (usize, usize), selected: usize) -> Monit
     MonitorScreen {
         board_name: "운영 API 보드".into(),
         board_pos: pos,
-        server_time: Some(1_700_000_000_000),
+        last_check: Some(1_700_000_000_000),
+        dial: Some(Dial {
+            interval_sec: 10,
+            quarters: 1,
+        }),
         server_down: false,
         panels,
         selected,
@@ -1014,8 +1019,8 @@ fn render_min_panel_keeps_axis() {
     assert!(panels[0].stats.is_some());
     let mut sc = screen(panels, (1, 1), 0);
     // 머리 줄 시계가 결과 시각과 같은 글자를 만들지 않게 한다.
-    sc.server_time = Some(base + 3 * 3_600_000 + 7 * 60_000 + 9_000);
-    assert_ne!(clock_hms(sc.server_time.unwrap()), format_hms(base));
+    sc.last_check = Some(base + 3 * 3_600_000 + 7 * 60_000 + 9_000);
+    assert_ne!(clock_hms(sc.last_check.unwrap()), format_hms(base));
     let mut t = Terminal::new(TestBackend::new(24, 8)).unwrap();
     t.draw(|f| render(f, &sc)).unwrap();
     let text = buffer_text(t.backend().buffer());
@@ -1068,10 +1073,9 @@ fn header_of(w: u16, down: bool) -> String {
 #[test]
 fn header_degrades_by_whole_parts() {
     let h80 = header_of(80, false);
-    assert!(
-        h80.contains("Handicap 모니터 · 운영 API 보드 (1/2)"),
-        "{h80}"
-    );
+    assert!(h80.starts_with(" 운영 API 보드 (1/2)"), "{h80}");
+    assert!(!h80.contains("Handicap"), "{h80}");
+    assert!(h80.trim_end().ends_with("점검 중  ◔ 10초"), "{h80}");
     // 머리 줄 날짜는 이 PC의 로컬 시각이다 — 기대값도 로컬로 구해야 CI(UTC)·개발기(KST) 둘 다 맞는다.
     let date = {
         use chrono::TimeZone;
@@ -1087,7 +1091,7 @@ fn header_degrades_by_whole_parts() {
 
     let h48 = header_of(48, false);
     assert!(h48.contains("운영 API 보드 (1/2)"), "{h48}");
-    assert!(!h48.contains("Handicap"), "{h48}");
+    assert!(h48.contains("◔ 10초"), "{h48}");
     assert!(h48.contains("점검 중"), "{h48}");
 
     let h24 = header_of(24, false);
@@ -1095,6 +1099,7 @@ fn header_degrades_by_whole_parts() {
     assert!(h24.contains("(1/2)"), "{h24}");
     assert!(h24.contains('…'), "{h24}");
     assert!(!h24.contains("2023"), "{h24}");
+    assert!(!h24.contains('◔'), "{h24}");
 
     for w in [24u16, 48, 80] {
         let d = header_of(w, true);
@@ -2937,7 +2942,7 @@ fn header_notice_saved_and_failed() {
     let (h120, buf) = header_with(120, Some(HeaderNotice::Saved(saved_at)));
     assert!(h120.contains(&want), "{h120}");
     assert!(h120.contains("점검 중"), "{h120}");
-    assert!(h120.contains("Handicap 모니터 · 운영 API 보드"), "{h120}");
+    assert!(h120.starts_with(" 운영 API 보드"), "{h120}");
     // 저장됨 글자는 초록, 점검 상태는 그 색이 아니다.
     let x = h120
         .find("저장됨")
@@ -3154,14 +3159,14 @@ fn header_notice_check_sent_matches_saved_steps() {
         Some(Color::Rgb(0x22, 0xc5, 0x5e))
     );
     // `저장됨`과 같은 순서로 빠진다 — 문구 폭이 달라 문턱 폭은 2칸 어긋나도, 넓은 쪽에서 좁은 쪽으로 가며
-    // 거치는 상태(알림·접두·날짜·보드 이름·시계)의 순서가 같다.
+    // 거치는 상태(알림·간격 원·날짜·보드 이름·시계)의 순서가 같다.
     let states = |mk: &dyn Fn() -> HeaderNotice, mark: &str| {
         let mut out: Vec<(bool, bool, bool, bool, usize)> = Vec::new();
         for w in (1..=130u16).rev() {
             let (h, _) = header_with(w, Some(mk()));
             let st = (
                 h.contains(mark),
-                h.contains("Handicap 모니터"),
+                h.contains("◔ 10초"),
                 h.contains("2023-"),
                 h.contains("운영 API 보드"),
                 h.matches(':').count(),
@@ -3256,4 +3261,89 @@ fn help_has_check_now_row_and_everything_fits_at_80x24() {
         "{text}"
     );
     assert!(text.contains(".bak"), "{text}");
+}
+
+// ---------- 머리 줄: 마지막 점검 시각 + 점검 간격 원 ----------
+
+#[test]
+fn header_times_last_check_and_dial() {
+    let base = 1_700_000_000_000;
+    let mut fast = panel("p1", "a");
+    fast.interval_seconds = 20;
+    let mut slow = panel("p2", "b");
+    slow.interval_seconds = 60;
+    let b = board(vec![fast, slow], false);
+    let at = |now: i64| {
+        snap(
+            vec![
+                pstatus("p1", vec![ok(base, 5), ok(base + 20_000, 5)], 0, None),
+                pstatus("p2", vec![ok(base + 3_000, 5)], 0, None),
+            ],
+            now,
+        )
+    };
+    // 마지막 점검 = 칸들의 최근 결과 중 가장 늦은 시각(서버 현재 시각이 아니다), 간격 = 가장 짧은 칸.
+    for (elapsed, q) in [
+        (0, 0u8),
+        (4_999, 0),
+        (5_000, 1),
+        (10_000, 2),
+        (15_000, 3),
+        (19_999, 3),
+        (20_000, 4),
+        (90_000, 4),
+        (-500, 0),
+    ] {
+        let (last, dial) = header_times(&b, &at(base + 20_000 + elapsed));
+        assert_eq!(last, Some(base + 20_000), "elapsed={elapsed}");
+        assert_eq!(
+            dial,
+            Some(Dial {
+                interval_sec: 20,
+                quarters: q
+            }),
+            "elapsed={elapsed}"
+        );
+    }
+    // 서버 끊김·보드 꺼짐: 마지막 점검 시각은 남고 원은 없다.
+    let mut down = at(base + 25_000);
+    down.server_down = true;
+    assert_eq!(header_times(&b, &down), (Some(base + 20_000), None));
+    let mut off = at(base + 25_000);
+    off.last.as_mut().unwrap().enabled = false;
+    assert_eq!(header_times(&b, &off), (Some(base + 20_000), None));
+    // 결과가 아직 없거나 다른 보드의 응답이면 둘 다 없다.
+    let empty = snap(vec![pstatus("p1", vec![], 0, None)], base);
+    assert_eq!(header_times(&b, &empty), (None, None));
+    let mut other = at(base + 25_000);
+    other.board_id = "b2".into();
+    assert_eq!(header_times(&b, &other), (None, None));
+}
+
+#[test]
+fn header_dial_glyph_fills_by_quarter() {
+    for (q, g) in [(0u8, '○'), (1, '◔'), (2, '◑'), (3, '◕'), (4, '●'), (9, '●')] {
+        let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+        sc.dial = Some(Dial {
+            interval_sec: 300,
+            quarters: q,
+        });
+        let h = sc.header();
+        let row = draw(100, 1, |f| render_header_view(f, f.area(), &h));
+        assert!(
+            row.trim_end().ends_with(&format!("점검 중  {g} 300초")),
+            "q={q}: {row}"
+        );
+    }
+    // 원이 없으면(끊김·꺼짐·결과 없음) 점검 상태가 줄 끝이다.
+    let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    sc.dial = None;
+    let h = sc.header();
+    let row = draw(100, 1, |f| render_header_view(f, f.area(), &h));
+    assert!(row.trim_end().ends_with("점검 중"), "{row}");
+    // 마지막 점검이 없으면 시각도 없다.
+    sc.last_check = None;
+    let h = sc.header();
+    let row = draw(100, 1, |f| render_header_view(f, f.area(), &h));
+    assert_eq!(row.matches(':').count(), 0, "{row}");
 }

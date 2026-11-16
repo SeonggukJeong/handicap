@@ -42,7 +42,8 @@ fn head() -> HeaderView {
     HeaderView {
         board_name: "운영 API 보드".into(),
         board_pos: (1, 1),
-        server_time: Some(1_700_000_000_000),
+        last_check: Some(1_700_000_000_000),
+        dial: None,
         server_down: false,
         notice: None,
     }

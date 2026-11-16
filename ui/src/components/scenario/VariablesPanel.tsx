@@ -5,7 +5,7 @@ import { VarCheatSheet } from "./VarCheatSheet";
 import { VarUsagePopover } from "./VarUsagePopover";
 import { AutoGrowTextarea } from "../AutoGrowTextarea";
 import { Input } from "../ui/Input";
-import { buildVarRows, type VarRow } from "../../scenario/varRows";
+import { buildVarRows, sortVarRows, type VarRow } from "../../scenario/varRows";
 import {
   declSearchText,
   genParamsSummary,
@@ -122,7 +122,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const bumpSampleTick = (name: string) =>
     setSampleTicks((prev) => ({ ...prev, [name]: (prev[name] ?? 0) + 1 }));
 
-  const rows = useMemo<VarRow[]>(() => buildVarRows(model), [model]);
+  const rows = useMemo<VarRow[]>(() => sortVarRows(buildVarRows(model)), [model]);
   const jsonCastNames = useMemo(() => (model ? jsonCastVarNames(model) : EMPTY_NAMES), [model]);
 
   useEffect(() => {

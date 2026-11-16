@@ -72,7 +72,8 @@ fn head() -> HeaderView {
     HeaderView {
         board_name: "운영 API 보드".into(),
         board_pos: (1, 1),
-        server_time: Some(NOW),
+        last_check: Some(NOW),
+        dial: None,
         server_down: false,
         notice: None,
     }
@@ -452,7 +453,8 @@ fn render_errors_shows_rows() {
     let t = render_view(100, 14, &sample_view());
     println!("{t}");
     let lines: Vec<&str> = t.lines().collect();
-    assert!(lines[0].contains("Handicap 모니터 · 운영 API 보드"), "{t}");
+    assert!(lines[0].starts_with(" 운영 API 보드"), "{t}");
+    assert!(!t.contains("Handicap"), "{t}");
     assert!(lines[1].contains("오류 보기 · 주문 조회"), "{t}");
     assert!(lines[1].contains("실패 3회 · 최근 5회(약 25초) 중"), "{t}");
     assert!(
@@ -1088,7 +1090,7 @@ fn render_record_loaded() {
     let v = loaded_view();
     let t = render_rec(110, 22, &v);
     assert!(
-        t.lines().next().unwrap().contains(text::MONITOR_TITLE),
+        t.lines().next().unwrap().starts_with(" 운영 API 보드"),
         "{t}"
     );
     assert!(
@@ -1922,7 +1924,7 @@ fn render_body_scrolls_and_shows_position() {
     assert_eq!(h, usize::from(sub_layout(area).body.height));
     let t = draw(80, 14, |f| render_body(f, &head(), &l, 0, &bkeys()));
     let rows: Vec<&str> = t.lines().collect();
-    assert!(rows[0].contains(text::MONITOR_TITLE), "{t}");
+    assert!(rows[0].starts_with(" 운영 API 보드"), "{t}");
     assert!(rows[1].contains("row-00"), "{t}");
     assert!(rows[1].trim_end().ends_with(&format!("{h}/40줄")), "{t}");
     assert!(rows[12].contains(text::IDLE_NOTICE), "{t}");

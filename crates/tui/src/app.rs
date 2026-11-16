@@ -59,7 +59,7 @@ use crate::view::inspect::{
     body_height, errors_list_height, render_body, render_errors, render_missing, render_record,
     sub_layout,
 };
-use crate::view::model::build_panels;
+use crate::view::model::{build_panels, header_times};
 use crate::view::monitor::{HeaderNotice, HeaderView};
 use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
@@ -3806,16 +3806,13 @@ impl App<'_> {
         }
         snap.server_down = effective_server_down(snap.server_down, stalled);
         let panels = build_panels(board, &snap);
-        let server_time = snap
-            .last
-            .as_ref()
-            .filter(|_| snap.board_id == board.id)
-            .map(|s| s.now_ms);
+        let (last_check, dial) = header_times(board, &snap);
         let selected = self.selected.min(panels.len().saturating_sub(1));
         Some(MonitorScreen {
             board_name: board.name.clone(),
             board_pos: (self.idx + 1, r.boards.len()),
-            server_time,
+            last_check,
+            dial,
             server_down: snap.server_down,
             panels,
             selected,

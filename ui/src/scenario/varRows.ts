@@ -93,3 +93,12 @@ export function buildVarRows(model: Scenario | null): VarRow[] {
     });
   return out;
 }
+
+const rowLabel = (r: VarRow): string => (r.kind === "parallel-extract" ? r.display : r.name);
+const labelOrder = new Intl.Collator("ko", { numeric: true, sensitivity: "base" });
+
+/** 변수 패널 표시 순서 — 종류와 무관하게 화면에 보이는 이름의 문자 순서(대소문자 무시, 숫자는 값 순서).
+ *  새 배열을 돌려준다: `buildVarRows`의 순서는 `trust.ts`·`condVarHint.ts`가 그대로 쓴다. */
+export function sortVarRows(rows: VarRow[]): VarRow[] {
+  return [...rows].sort((a, b) => labelOrder.compare(rowLabel(a), rowLabel(b)));
+}

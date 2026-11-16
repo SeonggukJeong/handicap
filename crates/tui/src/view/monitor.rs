@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use super::axis::{axis_line, axis_uses_seconds};
 use super::bigfont::{self, Tier};
 use super::graph;
-use super::model::{BigValue, PanelView, Row, panel_rows_s, parse_hex};
+use super::model::{BigValue, Dial, PanelView, Row, panel_rows_s, parse_hex};
 use super::tier::{self, TierInput, UNIT_W};
 use super::{fit, key_bar, text_width};
 use crate::judge::ReasonParts;
@@ -57,7 +57,9 @@ pub struct MonitorScreen {
     pub board_name: String,
     /// (현재 순번 1부터, 전체)
     pub board_pos: (usize, usize),
-    pub server_time: Option<i64>,
+    /// 마지막 점검 시각(ms) — 현재 시각이 아니다.
+    pub last_check: Option<i64>,
+    pub dial: Option<Dial>,
     pub server_down: bool,
     pub panels: Vec<PanelView>,
     pub selected: usize,
@@ -620,7 +622,9 @@ pub struct HeaderView {
     pub board_name: String,
     /// (현재 순번 1부터, 전체)
     pub board_pos: (usize, usize),
-    pub server_time: Option<i64>,
+    /// 마지막 점검 시각(ms) — 현재 시각이 아니다.
+    pub last_check: Option<i64>,
+    pub dial: Option<Dial>,
     pub server_down: bool,
     pub notice: Option<HeaderNotice>,
 }
@@ -630,7 +634,8 @@ impl MonitorScreen {
         HeaderView {
             board_name: self.board_name.clone(),
             board_pos: self.board_pos,
-            server_time: self.server_time,
+            last_check: self.last_check,
+            dial: self.dial,
             server_down: self.server_down,
             notice: self.notice.clone(),
         }
@@ -641,9 +646,10 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
     render_header_view(f, area, &s.header());
 }
 
-/// 머리 줄. 점검 상태는 절대 자르지 않고, 좁으면 날짜 → `Handicap 모니터 · ` → 시계 순으로 뺀다.
+/// 머리 줄 — 왼쪽 보드 이름, 오른쪽 `마지막 점검 시각  점검 상태  간격 원`.
+/// 점검 상태는 절대 자르지 않고, 좁으면 날짜 → 간격 원 → 시각 순으로 뺀다.
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
-/// 알림: `Saved`·`CheckSent`는 초록 `저장됨`/`지금 점검 HH:MM:SS`를 시계 앞에 두고 접두 다음·시계 앞에 빠진다. 경고(`FileFailed`·
+/// 알림: `Saved`·`CheckSent`는 초록 `저장됨`/`지금 점검 HH:MM:SS`를 시각 앞에 두고 간격 원 다음·시각 앞에 빠진다. 경고(`FileFailed`·
 /// `ChangedOutside`·`CheckOff`·`CheckFailed`)는 접두 자리에 빨갛게 — 날짜 → 보드 이름 → 시계 순으로 뺀 뒤에도 안 들어가면 경고를 `fit`한다.
 pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let w = usize::from(area.width);
@@ -659,9 +665,17 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     } else {
         String::new()
     };
-    let right_for = |date: Option<bool>| match (s.server_time, date) {
-        (Some(ms), Some(d)) => format!("{}  {} ", clock(ms, d), status),
-        _ => format!("{status} "),
+    let right_for = |date: Option<bool>, with_dial: bool| {
+        let mut right = match (s.last_check, date) {
+            (Some(ms), Some(d)) => format!("{}  {}", clock(ms, d), status),
+            _ => status.to_string(),
+        };
+        if let (true, Some(d)) = (with_dial, s.dial) {
+            right.push_str("  ");
+            right.push_str(&text::dial(d.quarters, d.interval_sec));
+        }
+        right.push(' ');
+        right
     };
     let warn = match s.notice {
         Some(HeaderNotice::FileFailed) => Some(text::FILE_SAVE_FAILED),
@@ -683,7 +697,7 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
         }
         _ => None,
     };
-    // (접두 표시, 시계 형식, 저장됨 표시)
+    // (간격 원 표시, 시각 형식, 저장됨 표시)
     let mut steps: Vec<(bool, Option<bool>, bool)> = Vec::new();
     if saved.is_some() {
         steps.extend([
@@ -702,18 +716,14 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
         ]);
     }
     let mut chosen = None;
-    for (i, (prefix, date, with_saved)) in steps.iter().enumerate() {
-        let mut right = right_for(*date);
+    for (i, (with_dial, date, with_saved)) in steps.iter().enumerate() {
+        let mut right = right_for(*date, *with_dial);
         let mut saved_len = 0;
         if let (true, Some(sv)) = (*with_saved, saved.as_ref()) {
             right = format!("{sv}{right}");
             saved_len = sv.len();
         }
-        let head = if *prefix {
-            format!(" {} · ", text::MONITOR_TITLE)
-        } else {
-            " ".to_string()
-        };
+        let head = " ".to_string();
         let fixed = text_width(&head) + text_width(&pos) + text_width(&right) + 1;
         let name_w = text_width(&board_name);
         let last = i == steps.len() - 1;
@@ -779,11 +789,11 @@ fn render_warn_header(
     warn: &str,
     board_name: &str,
     pos: &str,
-    right_for: &dyn Fn(Option<bool>) -> String,
+    right_for: &dyn Fn(Option<bool>, bool) -> String,
     status: &str,
 ) {
     let w = usize::from(area.width);
-    // (시계 형식, 보드 이름 표시) — 날짜 → 보드 이름 → 시계 순으로 뺀다.
+    // (시각 형식, 보드 이름 표시) — 날짜 → 보드 이름 → 시각·간격 원 순으로 뺀다.
     let steps: [(Option<bool>, bool); 4] = [
         (Some(true), true),
         (Some(false), true),
@@ -792,7 +802,7 @@ fn render_warn_header(
     ];
     let mut chosen = None;
     for (date, with_name) in steps {
-        let right = right_for(date);
+        let right = right_for(date, date.is_some());
         let left = if with_name {
             format!(" {warn} · {board_name}{pos}")
         } else {
@@ -805,7 +815,7 @@ fn render_warn_header(
     }
     let (left, right) = chosen.unwrap_or_else(|| {
         // 점검 상태는 그대로 두고 경고를 `fit` — 상태만으로도 넘치면 상태를 `fit`하고 경고는 뺀다.
-        let right = right_for(None);
+        let right = right_for(None, false);
         let room = w.saturating_sub(text_width(&right) + 2);
         let left = if room >= 1 {
             format!(" {}", fit(warn, room))

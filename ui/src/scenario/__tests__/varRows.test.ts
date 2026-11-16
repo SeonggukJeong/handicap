@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildVarRows } from "../varRows";
+import { buildVarRows, sortVarRows, type VarRow } from "../varRows";
 import { ScenarioModel, type Scenario } from "../model";
 
 const A = "01HZZZZZZZZZZZZZZZZZZZZZZA";
@@ -145,5 +145,50 @@ describe("declared.overwrittenByFlat (trust-check-precision US3)", () => {
     const rows = buildVarRows(mkSc({ variables: { plain: "v" } }));
     const d = rows.find((r) => r.kind === "declared" && r.name === "plain");
     expect(d).toMatchObject({ overwritten: false, overwrittenByFlat: false });
+  });
+});
+
+describe("sortVarRows — 변수 패널 표시 순서", () => {
+  const flat = (name: string): VarRow => ({ kind: "flat-extract", name, refIds: [] });
+  const par = (branchName: string, varName: string): VarRow => ({
+    kind: "parallel-extract",
+    branchName,
+    varName,
+    display: `${branchName}.${varName}`,
+    isShadow: false,
+    refIds: [],
+  });
+  const undef = (name: string): VarRow => ({
+    kind: "undefined",
+    name,
+    refIds: [],
+    candidates: [],
+    refKind: "downstream",
+  });
+  const label = (r: VarRow) => (r.kind === "parallel-extract" ? r.display : r.name);
+
+  it("종류와 무관하게 화면에 보이는 이름의 문자 순서로 정렬한다(한글 먼저·대소문자 무시·숫자는 값 순서)", () => {
+    const rows = [
+      flat("zeta"),
+      undef("Beta"),
+      par("alpha", "s"),
+      flat("item10"),
+      flat("item2"),
+      flat("가나"),
+    ];
+    expect(sortVarRows(rows).map(label)).toEqual([
+      "가나",
+      "alpha.s",
+      "Beta",
+      "item2",
+      "item10",
+      "zeta",
+    ]);
+  });
+
+  it("입력 배열을 바꾸지 않는다(buildVarRows 순서는 신뢰도 판정이 그대로 쓴다)", () => {
+    const rows = [flat("b"), flat("a")];
+    sortVarRows(rows);
+    expect(rows.map(label)).toEqual(["b", "a"]);
   });
 });
