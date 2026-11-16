@@ -1283,7 +1283,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **(3) 선재 (라이브에서 관찰, 이 작업 무관)**
   - **공백 없는 80자 스텝 이름 + 12칸 표(「칩」 보기, 대기·다운로드 칸 포함)는 표가 1,239px로 컨테이너(1,104px)를 넘어 페이지가 가로로 스크롤된다** — 새 두 줄을 숨겨도 폭이 같다(이름 칸 782px, URL 칸 46px로 눌림). 해소: 이름 칸에 `break-all`/최대 폭, 또는 표 wrapper에 `overflow-x-auto`.
   - `crates/proto/proto/coordinator.proto`의 `PhaseStat.phase` 주석 `// v1: "download" only`가 오래됐다(이제 `wait`·`dns`·`connect`·`loop_*`). proto는 이번 작업 범위 밖이라 그대로.
-- **(4) 사고 기록**: 라이브 A/B 준비 중 작업 전 컨트롤러를 8099로 띄우려 했으나 그 포트는 `redis-large-list-bench`의 handicap v0.13.0 컨트롤러가 쓰고 있었다 — `lsof` 출력을 확인하지 않고 진행해 그 프로젝트의 `results/pilot-20261110/handicap.db`에 시나리오 `lv-flat` 1개와 5초 run 1개(`01M7D9FP1BAXHDC7RCQG60RN43`)가 생겼다. 지우지 않았다(사용자 판단 대기).
+- **(4) 사고 기록**: 라이브 A/B 준비 중 작업 전 컨트롤러를 8099로 띄우려 했으나 그 포트는 `redis-large-list-bench`의 handicap v0.13.0 컨트롤러가 쓰고 있었다 — `lsof` 출력을 확인하지 않고 진행해 그 프로젝트의 `results/pilot-20261110/handicap.db`에 시나리오 `lv-flat` 1개와 5초 run 1개(`01M7D9FP1BAXHDC7RCQG60RN43`)가 생겼다. **2026-11-16 삭제함**(사용자 승인 — 그 컨트롤러가 꺼져 있어 DB에서 직접, id 지정 한 트랜잭션: `run_metrics` 6행·`runs` 1행·`scenarios` 1행, 남은 시나리오 38·run 2,856).
 - **(5) 릴리즈 노트 한 줄**(§B58 (3)·§B60 (5)와 함께): "조건 반복 스텝의 응답 시간이 '반복을 끝낸 응답 / 재시도로 이어진 응답'으로 나뉘어 보입니다. 워커도 새 버전이어야 합니다."
 
 ### B62. 비워진 값의 주소 전송 차단 (blank-var-url-guard, 2026-11-16, 코드 `264eea37`..`ecb40102`, spec `docs/superpowers/specs/2026-11-16-blank-var-url-guard-design.md`, plan `docs/superpowers/plans/2026-11-16-blank-var-url-guard.md`, ADR-0056·ADR-0050) 판단·연기
