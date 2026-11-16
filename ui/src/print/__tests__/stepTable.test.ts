@@ -346,3 +346,74 @@ describe("buildStepTable", () => {
     expect(t.rows[0].cells["c404"].cls).toBe("unknown");
   });
 });
+
+describe("notSent column", () => {
+  it("blocked step -> notSent column, no residual, cell strongest", () => {
+    const facts = okFacts([sf("A")]);
+    const t = buildStepTable(
+      [rs("A", { "200": 6 }, { error_count: 4, count: 10, not_sent: 4 })],
+      facts,
+    );
+    const keys = t.columns.map((c) => c.key);
+    expect(keys).toContain("notSent");
+    expect(keys).not.toContain("residual");
+    expect(t.rows[0].notSent).toBe(4);
+    expect(t.rows[0].residual).toBe(0);
+    expect(t.rows[0].cells.notSent).toEqual({ count: 4, cls: "counted", strongest: true });
+  });
+
+  it("no not_sent -> no notSent column and row.notSent is 0", () => {
+    const t = buildStepTable([rs("A", { "200": 6 }, { error_count: 2 })], okFacts([sf("A")]));
+    expect(t.columns.map((c) => c.key)).not.toContain("notSent");
+    expect(t.rows[0].notSent).toBe(0);
+    expect(t.rows[0].residual).toBe(2);
+  });
+
+  it("column order: none, notSent, residual", () => {
+    const totals = new Map<number, number>([
+      [200, 1],
+      [0, 1],
+    ]);
+    expect(buildColumns(totals, true, true).map((c) => c.key)).toEqual([
+      "2xx",
+      "none",
+      "notSent",
+      "residual",
+    ]);
+    expect(labels(buildColumns(totals, true, true))).toContain("보내지 않음");
+  });
+
+  it("fixed 5 columns + three 4xx codes -> 7 columns", () => {
+    const totals = new Map<number, number>([
+      [200, 1],
+      [301, 1],
+      [0, 1],
+      [400, 5],
+      [404, 4],
+      [409, 3],
+    ]);
+    const cols = buildColumns(totals, true, true);
+    expect(cols).toHaveLength(7);
+    expect(cols.filter((c) => c.kind === "folded")).toHaveLength(1);
+  });
+
+  it("fixed 5 columns + one each of 4xx, 5xx, other -> 8 columns", () => {
+    const totals = new Map<number, number>([
+      [200, 1],
+      [301, 1],
+      [0, 1],
+      [404, 1],
+      [503, 1],
+      [99, 1],
+    ]);
+    expect(buildColumns(totals, true, true)).toHaveLength(8);
+  });
+
+  it("hasNotSent false -> same as two-argument behavior", () => {
+    const totals = new Map<number, number>([
+      [200, 1],
+      [0, 1],
+    ]);
+    expect(buildColumns(totals, true, false)).toEqual(buildColumns(totals, true));
+  });
+});

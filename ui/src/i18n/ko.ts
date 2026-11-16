@@ -2168,6 +2168,7 @@ export const ko = {
       class3xxSub: "이동 계열",
       none: "응답 없음",
       noneSub: "코드 없음",
+      notSent: "보내지 않음",
       residual: "그중: 응답 받은 뒤 실패",
       residualSub: "(어느 코드였는지는 기록되지 않음)",
       folded4xx: "기타 4xx",
@@ -2364,6 +2365,7 @@ export const ko = {
       classText: "서버가 처리했다는 응답. 검사가 다른 코드를 기대하면 오류일 수 있음",
       codeFallback: "표준 HTTP 응답 코드",
       none: { term: "응답 없음", text: "연결 거부·시간 초과·DNS 실패 등으로 응답을 받지 못함" },
+      notSent: { term: "보내지 않음", text: "앞 스텝이 값을 주지 않아 요청을 보내지 않음" },
       residual: {
         term: "응답 받은 뒤 실패",
         text: "응답은 받았지만 값 꺼내기나 본문 읽기에 실패함",
@@ -2446,6 +2448,7 @@ export const ko = {
         `오류의 ${pct}%는 '${step}'에서 났고, ${what}`,
       identityMostly: (code: string) => `대부분 ${code}입니다.`,
       identityResidual: "응답은 받았지만 값을 꺼내거나 본문을 읽지 못했습니다.",
+      identityNotSent: "앞 스텝이 값을 주지 않아 요청을 보내지 않았습니다.",
       noneCode: "응답 없음(코드 없음)",
       codeWithName: (code: number, name: string) => `${code}(${name})`,
       firstSeen: (elapsed: string) => ` 시작 ${elapsed} 뒤 처음 나타났습니다.`,

@@ -35,6 +35,7 @@ type StepSpec = {
   counts: Record<string, number>;
   errors: number;
   p95?: number;
+  notSent?: number;
 };
 
 const q = (s: string) => JSON.stringify(s);
@@ -122,6 +123,7 @@ function makeDoc(f: Fixture): PrintDoc {
       p50_ms: 100,
       p95_ms: s.p95 ?? 600,
       p99_ms: 900,
+      ...(s.notSent ? { not_sent: s.notSent } : {}),
     })),
     status_distribution: {},
     verdict: f.verdict ?? null,
@@ -708,5 +710,28 @@ describe("Legend status symbols", () => {
     expect(sym(2)).toHaveTextContent(/^●$/);
     expect(sym(2)).toHaveClass("p-ok");
     expect(sym(3)).toBeNull();
+  });
+  it("renders the notSent column for a run with blocked requests", async () => {
+    const fx: Fixture = {
+      steps: [
+        {
+          id: "s0",
+          name: "주문 삭제",
+          method: "DELETE",
+          url: "https://api.example.com/orders/{{orderId}}",
+          counts: { "200": 6 },
+          errors: 4,
+          notSent: 4,
+        },
+      ],
+    };
+    const { root } = renderDoc(makeDoc(fx));
+    await ready(root);
+    const th = screen.getAllByText("보내지 않음")[0].closest("th");
+    expect(th).not.toBeNull();
+    const idx = Array.from((th as HTMLElement).parentElement!.children).indexOf(th as HTMLElement);
+    const tr = (th as HTMLElement).closest("table")!.querySelector("tbody tr")!;
+    // 본문 앞 3칸(스텝·건수·95%)은 2단 머리의 rowSpan 칸이라 둘째 줄 색인에 3을 더한다
+    expect(tr.children[idx + 3].textContent).toBe("4");
   });
 });

@@ -43,6 +43,7 @@ const mkRow = (
   cells: {},
   residual: 0,
   residualUncertain: false,
+  notSent: 0,
   factsKnown: true,
   ...over,
   status: { tags: ["ok"], grade: 1, errorRate: 0, ...status },
@@ -248,6 +249,19 @@ describe("error_identity_line", () => {
     expect(run(T({ perCode: [] }), [win(240, "T", 10, 5)])).toBe(
       "오류의 87%는 '신청 제출'에서 났고, 응답은 받았지만 값을 꺼내거나 본문을 읽지 못했습니다. 시작 4분 뒤 처음 나타났습니다.",
     );
+  });
+  it("not-sent-dominant errors use the not-sent tail", () => {
+    const out = run(T({ perCode: [], notSent: 870 }), [win(240, "T", 10, 5)]);
+    expect(out).toContain("앞 스텝이 값을 주지 않아 요청을 보내지 않았습니다.");
+    expect(out).not.toContain("응답은 받았지만");
+  });
+  it("counted status code bigger than notSent keeps the code sentence", () => {
+    const out = run(
+      T({ perCode: [{ code: 503, count: 800, cls: "counted" }], notSent: 70, errorCount: 870 }),
+      [win(240, "T", 10, 5, { "503": 5 })],
+    );
+    expect(out).toContain("대부분 503");
+    expect(out).not.toContain("보내지 않았습니다");
   });
   it("scattered below 50%", () => {
     expect(run(T({ errorCount: 400 }), [win(240, "T", 10, 5, { "503": 5 })])).toBe(

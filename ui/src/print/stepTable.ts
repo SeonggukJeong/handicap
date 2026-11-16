@@ -42,7 +42,7 @@ function strongestOf(classes: CellClass[]): CellClass {
 
 export type Column = {
   key: string;
-  kind: "class2xx" | "class3xx" | "code" | "folded" | "none" | "residual";
+  kind: "class2xx" | "class3xx" | "code" | "folded" | "none" | "notSent" | "residual";
   label: string;
   sub: string | null;
   codes: number[];
@@ -50,15 +50,23 @@ export type Column = {
 
 const MAX_COLS = 7;
 
-export function buildColumns(codeTotals: Map<number, number>, hasResidual: boolean): Column[] {
+export function buildColumns(
+  codeTotals: Map<number, number>,
+  hasResidual: boolean,
+  hasNotSent = false,
+): Column[] {
   const present = [...codeTotals.entries()].filter(([, n]) => n > 0).map(([c]) => c);
   const in2 = present.filter((c) => codeFamily(c) === "2xx").sort((a, b) => a - b);
   const in3 = present.filter((c) => codeFamily(c) === "3xx").sort((a, b) => a - b);
   const has0 = present.includes(0);
   const fixedCount =
-    (in2.length ? 1 : 0) + (in3.length ? 1 : 0) + (has0 ? 1 : 0) + (hasResidual ? 1 : 0);
+    (in2.length ? 1 : 0) +
+    (in3.length ? 1 : 0) +
+    (has0 ? 1 : 0) +
+    (hasNotSent ? 1 : 0) +
+    (hasResidual ? 1 : 0);
   const K = present.filter((c) => ["4xx", "5xx", "other"].includes(codeFamily(c)));
-  const B = Math.max(MAX_COLS - fixedCount, 3);
+  const B = Math.max(MAX_COLS - fixedCount, hasNotSent ? 2 : 3);
 
   const individual = new Set<number>(K);
   const foldedByFam: Record<"4xx" | "5xx" | "other", number[]> = {
@@ -122,6 +130,8 @@ export function buildColumns(codeTotals: Map<number, number>, hasResidual: boole
   cols.push(...indiv("4xx"), ...foldCol("4xx"), ...indiv("5xx"), ...foldCol("5xx"));
   cols.push(...indiv("other"), ...foldCol("other"));
   if (has0) cols.push({ key: "none", kind: "none", label: T.none, sub: T.noneSub, codes: [0] });
+  if (hasNotSent)
+    cols.push({ key: "notSent", kind: "notSent", label: T.notSent, sub: null, codes: [] });
   if (hasResidual)
     cols.push({
       key: "residual",
@@ -148,6 +158,7 @@ export type StepRow = {
   perCode: Array<{ code: number; count: number; cls: CellClass }>;
   cells: Record<string, Cell>;
   residual: number;
+  notSent: number;
   residualUncertain: boolean;
   factsKnown: boolean;
 };
@@ -190,7 +201,8 @@ export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): St
     }
     const errorCount = r?.error_count ?? 0;
     const countedSum = perCode.filter((p) => p.cls === "counted").reduce((a, p) => a + p.count, 0);
-    const residual = Math.max(0, errorCount - countedSum);
+    const notSent = r?.not_sent ?? 0;
+    const residual = Math.max(0, errorCount - countedSum - notSent);
     return {
       index,
       no: stepNo(index),
@@ -204,6 +216,7 @@ export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): St
       perCode,
       cells: {},
       residual,
+      notSent,
       residualUncertain: residual > 0 && perCode.some((p) => p.cls === "unknown"),
       factsKnown: f !== null,
     };
@@ -215,12 +228,20 @@ export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): St
   const columns = buildColumns(
     codeTotals,
     rows.some((r) => r.residual > 0),
+    rows.some((r) => r.notSent > 0),
   );
 
   for (const row of rows) {
     let best: { key: string; count: number } | null = null;
     for (const col of columns) {
       if (col.kind === "residual") continue;
+      if (col.kind === "notSent") {
+        const cell: Cell = { count: row.notSent, cls: "counted", strongest: false };
+        row.cells[col.key] = cell;
+        if (cell.count > 0 && (best === null || cell.count > best.count))
+          best = { key: col.key, count: cell.count };
+        continue;
+      }
       const parts = row.perCode.filter((p) => col.codes.includes(p.code));
       const cell: Cell = {
         count: parts.reduce((a, p) => a + p.count, 0),

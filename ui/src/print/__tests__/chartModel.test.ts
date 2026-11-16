@@ -52,6 +52,7 @@ const row = (index: number, id: string): StepRow => ({
   cells: {},
   residual: 0,
   residualUncertain: false,
+  notSent: 0,
   factsKnown: true,
 });
 

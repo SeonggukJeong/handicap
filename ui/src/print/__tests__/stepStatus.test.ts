@@ -29,6 +29,7 @@ const row = (index: number, over: Partial<StepRow> = {}): StepRow => ({
   cells: {},
   residual: 0,
   residualUncertain: false,
+  notSent: 0,
   factsKnown: true,
   ...over,
 });
@@ -359,6 +360,35 @@ describe("glossary_only_present", () => {
       "95% 응답시간",
       "오류율",
     ]);
+  });
+});
+
+describe("notSent glossary and legend", () => {
+  it("adds the notSent term and error-kind line without a none column", () => {
+    const m = model([col("notSent", "notSent", "보내지 않음", [])], []);
+    const g = glossary(m, [], [{ kind: "blank_var", count: 4 }]);
+    expect(g.entries.find((e) => e.term === "보내지 않음")?.text).toBe(
+      "앞 스텝이 값을 주지 않아 요청을 보내지 않음",
+    );
+    expect(g.errorKindLine).toContain("보내지 않음 (앞 스텝 값 없음) 4");
+  });
+  it("no notSent column -> no such term", () => {
+    const g = glossary(model([], []), [], [{ kind: "blank_var", count: 4 }]);
+    expect(g.entries.map((e) => e.term)).not.toContain("보내지 않음");
+    expect(g.errorKindLine).toBeNull();
+  });
+  it("notSent cell feeds the legend via row.cells", () => {
+    const r = rk(
+      row(0, {
+        errorCount: 4,
+        notSent: 4,
+        cells: { notSent: { count: 4, cls: "counted", strongest: true } },
+      }),
+    );
+    const m = model([col("notSent", "notSent", "보내지 않음", [])], [r]);
+    expect(legendItems(m, [r])).toEqual(
+      expect.arrayContaining(["오류에 포함된 응답", "그중 가장 많은 것"]),
+    );
   });
 });
 

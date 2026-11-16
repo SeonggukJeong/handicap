@@ -164,13 +164,15 @@ export function glossary(
     });
   const hasNone = kinds.has("none");
   if (hasNone) entries.push({ ...G.none });
+  const hasNotSent = kinds.has("notSent");
+  if (hasNotSent) entries.push({ ...G.notSent });
   if (kinds.has("residual")) entries.push({ ...G.residual });
   const anyCls = (cls: string) => rows.some((r) => r.perCode.some((p) => p.cls === cls));
   if (anyCls("uncounted")) entries.push({ ...G.uncounted });
   if (anyCls("unknown")) entries.push({ ...G.unknown });
   const kl = (errorKinds ?? []).filter((k) => k.count > 0);
   const errorKindLine =
-    hasNone && kl.length > 0
+    (hasNone || hasNotSent) && kl.length > 0
       ? G.errorKindLine(
           kl
             .map((k) => `${ko.report.errorKinds.labels[k.kind] ?? k.kind} ${fmtCount(k.count)}`)
