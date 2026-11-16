@@ -226,6 +226,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0054** 보드 파일 형식: `handicap-bundle` v1(보드·시나리오·환경) + ID 보존·내용 비교 + 모르는 키 거부
 - **0055** 터미널 운영 모니터 `handicap-tui`: 컨트롤러 in-process 임베드 + 루프백 REST 클라이언트 + glibc 2.27 zigbuild
 - **0056** 조건 반복: loop + `while`(do-while) + `keep_think` + 본문 너그러운 추출 + `EndIteration`
+- **0057** 데스크톱 모드 전환: 셸 소유 설정 + 컨트롤러 재기동 + 셸 origin 「모드 전환」 화면(REST loopback 고정)
 
 ## 코딩 컨벤션
 
