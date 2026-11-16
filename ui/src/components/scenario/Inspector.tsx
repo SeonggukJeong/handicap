@@ -1,5 +1,5 @@
 import type { FocusEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import type {
@@ -826,6 +826,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
     setStepExtract(step.id, list.map(toExtract));
   };
 
+  const alertBase = useId();
   const append = () => {
     const list: DraftExtract[] = [...drafts, { var: "", from: "body", path: "$." }];
     setDrafts(list);
@@ -836,129 +837,136 @@ function ExtractEditor({ step }: { step: HttpStep }) {
     <div className="flex flex-col gap-2 min-w-0">
       <p className="text-xs text-slate-500">{ko.editor.extractsHint}</p>
       <ul className="flex flex-col gap-2">
-        {drafts.map((x, idx) => (
-          <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
-            <div className="w-24">
-              <Input
-                size="sm"
-                placeholder="var"
-                className="font-mono"
-                value={x.var}
-                onChange={(e) => updateDraft(idx, { ...x, var: e.target.value })}
-                onBlur={commitFromBlur}
-              />
-            </div>
-            <div className="w-fit">
-              <Select
-                size="sm"
-                aria-label={ko.editor.extractFromAria(idx)}
-                value={x.from}
-                onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
-              >
-                <option value="body">본문</option>
-                <option value="header">헤더</option>
-                <option value="cookie">쿠키</option>
-                <option value="status">상태</option>
-              </Select>
-            </div>
-            {x.from === "body" && (
-              <div className="flex-1 min-w-[120px]">
+        {drafts.map((x, idx) => {
+          const defaultAlert =
+            x.from !== "status" && x.defaultTouched ? defaultMsg(x.default) : null;
+          const alertId = `${alertBase}-${idx}`;
+          return (
+            <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
+              <div className="w-24">
                 <Input
                   size="sm"
-                  placeholder="$.path"
+                  placeholder="var"
                   className="font-mono"
-                  value={x.path}
-                  onChange={(e) => updateDraft(idx, { ...x, path: e.target.value })}
+                  value={x.var}
+                  onChange={(e) => updateDraft(idx, { ...x, var: e.target.value })}
                   onBlur={commitFromBlur}
                 />
               </div>
-            )}
-            {(x.from === "header" || x.from === "cookie") && (
-              <div className="flex-1 min-w-[120px]">
-                <Input
-                  size="sm"
-                  placeholder={
-                    x.from === "header"
-                      ? ko.editor.headerNamePlaceholder
-                      : ko.editor.cookieNamePlaceholder
-                  }
-                  className="font-mono"
-                  value={x.name}
-                  onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}
-                  onBlur={commitFromBlur}
-                />
-              </div>
-            )}
-            {x.from !== "status" && (
               <div className="w-fit">
                 <Select
                   size="sm"
-                  aria-label={ko.editor.extractDecodeAria(idx)}
-                  value={x.decode ?? ""}
-                  disabled={yamlError !== null}
-                  onChange={(e) => setDecode(idx, e.target.value)}
+                  aria-label={ko.editor.extractFromAria(idx)}
+                  value={x.from}
+                  onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
                 >
-                  <option value="">{ko.editor.extractDecodeNone}</option>
-                  <option value="base64">{ko.editor.extractDecodeBase64}</option>
-                  <option value="jwt">{ko.editor.extractDecodeJwt}</option>
+                  <option value="body">본문</option>
+                  <option value="header">헤더</option>
+                  <option value="cookie">쿠키</option>
+                  <option value="status">상태</option>
                 </Select>
               </div>
-            )}
-            {x.from !== "status" && x.decode && (
-              <div className="flex-1 min-w-[96px]">
-                <Input
-                  size="sm"
-                  placeholder="$.sub"
-                  aria-label={ko.editor.extractClaimAria(idx)}
-                  className="font-mono"
-                  value={x.claim ?? ""}
-                  disabled={yamlError !== null}
-                  onChange={(e) => updateDraft(idx, { ...x, claim: e.target.value })}
-                  onBlur={commitFromBlur}
-                />
-              </div>
-            )}
-            {x.from !== "status" && (
-              <div className="flex min-w-0 flex-1 basis-[140px] items-center gap-1">
-                <div className="min-w-0 flex-1">
+              {x.from === "body" && (
+                <div className="flex-1 min-w-[120px]">
                   <Input
                     size="sm"
-                    placeholder={ko.editor.extractDefaultPlaceholder}
-                    aria-label={ko.editor.extractDefaultAria(idx)}
-                    maxLength={EXTRACT_DEFAULT_MAX}
-                    className="min-w-0"
-                    value={x.default ?? ""}
-                    disabled={yamlError !== null}
-                    onChange={(e) => updateDraft(idx, { ...x, default: e.target.value })}
-                    onBlur={() => commitDefaultBlur(idx)}
+                    placeholder="$.path"
+                    className="font-mono"
+                    value={x.path}
+                    onChange={(e) => updateDraft(idx, { ...x, path: e.target.value })}
+                    onBlur={commitFromBlur}
                   />
                 </div>
-                <HelpTip label={ko.editor.extractDefaultHelpAria(idx)}>
-                  <span className="block">{ko.glossary.extractDefault1}</span>
-                  <span className="mt-1 block">{ko.glossary.extractDefault2}</span>
-                  <span className="mt-1 block">{ko.glossary.extractDefault3}</span>
-                  <span className="mt-1 block">{ko.glossary.extractDefault4}</span>
-                </HelpTip>
-              </div>
-            )}
-            {x.from !== "status" && x.defaultTouched && defaultMsg(x.default) !== null && (
-              <p role="alert" className="basis-full text-xs text-red-700">
-                {defaultMsg(x.default)}
-              </p>
-            )}
-            {x.from === "status" && (
-              <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>
-            )}
-            <button
-              type="button"
-              aria-label={ko.editor.removeExtract(idx)}
-              className="text-slate-500 hover:text-red-600"
-              onClick={() => remove(idx)}
-            >
-              ×
-            </button>
-          </li>
-        ))}
+              )}
+              {(x.from === "header" || x.from === "cookie") && (
+                <div className="flex-1 min-w-[120px]">
+                  <Input
+                    size="sm"
+                    placeholder={
+                      x.from === "header"
+                        ? ko.editor.headerNamePlaceholder
+                        : ko.editor.cookieNamePlaceholder
+                    }
+                    className="font-mono"
+                    value={x.name}
+                    onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}
+                    onBlur={commitFromBlur}
+                  />
+                </div>
+              )}
+              {x.from !== "status" && (
+                <div className="w-fit">
+                  <Select
+                    size="sm"
+                    aria-label={ko.editor.extractDecodeAria(idx)}
+                    value={x.decode ?? ""}
+                    disabled={yamlError !== null}
+                    onChange={(e) => setDecode(idx, e.target.value)}
+                  >
+                    <option value="">{ko.editor.extractDecodeNone}</option>
+                    <option value="base64">{ko.editor.extractDecodeBase64}</option>
+                    <option value="jwt">{ko.editor.extractDecodeJwt}</option>
+                  </Select>
+                </div>
+              )}
+              {x.from !== "status" && x.decode && (
+                <div className="flex-1 min-w-[96px]">
+                  <Input
+                    size="sm"
+                    placeholder="$.sub"
+                    aria-label={ko.editor.extractClaimAria(idx)}
+                    className="font-mono"
+                    value={x.claim ?? ""}
+                    disabled={yamlError !== null}
+                    onChange={(e) => updateDraft(idx, { ...x, claim: e.target.value })}
+                    onBlur={commitFromBlur}
+                  />
+                </div>
+              )}
+              {x.from !== "status" && (
+                <div className="flex min-w-0 flex-1 basis-[140px] items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      size="sm"
+                      placeholder={ko.editor.extractDefaultPlaceholder}
+                      aria-label={ko.editor.extractDefaultAria(idx)}
+                      aria-invalid={defaultAlert !== null ? true : undefined}
+                      aria-describedby={defaultAlert !== null ? alertId : undefined}
+                      maxLength={EXTRACT_DEFAULT_MAX}
+                      className="min-w-0"
+                      value={x.default ?? ""}
+                      disabled={yamlError !== null}
+                      onChange={(e) => updateDraft(idx, { ...x, default: e.target.value })}
+                      onBlur={() => commitDefaultBlur(idx)}
+                    />
+                  </div>
+                  <HelpTip label={ko.editor.extractDefaultHelpAria(idx)}>
+                    <span className="block">{ko.glossary.extractDefault1}</span>
+                    <span className="mt-1 block">{ko.glossary.extractDefault2}</span>
+                    <span className="mt-1 block">{ko.glossary.extractDefault3}</span>
+                    <span className="mt-1 block">{ko.glossary.extractDefault4}</span>
+                  </HelpTip>
+                </div>
+              )}
+              {defaultAlert !== null && (
+                <p id={alertId} role="alert" className="basis-full text-xs text-red-700">
+                  {defaultAlert}
+                </p>
+              )}
+              {x.from === "status" && (
+                <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>
+              )}
+              <button
+                type="button"
+                aria-label={ko.editor.removeExtract(idx)}
+                className="text-slate-500 hover:text-red-600"
+                onClick={() => remove(idx)}
+              >
+                ×
+              </button>
+            </li>
+          );
+        })}
         {drafts.length === 0 && (
           <li className="text-xs text-slate-400 italic">{ko.editor.noExtracts}</li>
         )}

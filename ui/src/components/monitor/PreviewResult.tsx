@@ -176,6 +176,7 @@ function StepRow({
   const parsedBody =
     interactive && resp.body !== "" && !resp.body_truncated ? parseBodyJson(resp.body) : null;
   const treeBody = parsedBody !== null;
+  const defaulted = defaultedText(s);
 
   return (
     <li className="rounded border border-slate-200 bg-white p-2">
@@ -205,9 +206,7 @@ function StepRow({
           </>
         )}
       </dl>
-      {defaultedText(s) && (
-        <p className="mt-1 text-xs break-all text-slate-600">{defaultedText(s)}</p>
-      )}
+      {defaulted && <p className="mt-1 text-xs break-all text-slate-600">{defaulted}</p>}
       {interactive && (
         <div className="mt-2">
           <HeaderTable

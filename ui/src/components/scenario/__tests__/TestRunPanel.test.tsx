@@ -466,6 +466,9 @@ describe("TestRunPanel 기본값 표지", () => {
     const stateChip = screen.getByText("state=WAIT");
     expect(within(orderChip).getByText("기본값")).toBeInTheDocument();
     expect(within(stateChip).queryByText("기본값")).not.toBeInTheDocument();
+    // 스크린리더가 `orderId=none기본값`으로 붙여 읽지 않게 값과 표지 사이에 실제 공백이 있다.
+    expect(orderChip.textContent).toBe("orderId=none 기본값");
+    expect(stateChip.textContent).toBe("state=WAIT");
   });
   it("defaulted 키가 없으면 「기본값」 글자가 화면에 없다", () => {
     render(<TestRunPanel trace={withExtracted()} />);

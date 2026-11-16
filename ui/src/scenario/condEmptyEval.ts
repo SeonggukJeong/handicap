@@ -4,17 +4,20 @@ export type Tri = true | false | "unknown";
 
 /**
  * 본문 직계 http 스텝이 extract하는 변수 이름 → 못 뽑았을 때 값 (if 분기 안 스텝 제외 — 분기가
- * 안 탄 회차엔 이전 값이 남는다). 값 = 그 이름의 `default`가 있는 마지막 항목의 기본값, 없으면 "".
+ * 안 탄 회차엔 이전 값이 남는다). 값 = 스텝별로 그 이름의 `default`가 있는 마지막 항목의 기본값(없으면 ""), 뒤 스텝이 앞 스텝을 덮어쓴다.
  */
 export function directBodyExtractSubst(loop: LoopStep | NestedLoopStep): Map<string, string> {
   const out = new Map<string, string>();
   for (const s of loop.do) {
     if (s.type !== "http") continue;
+    // 값은 스텝마다 따로 정하고(그 스텝의 기본값 있는 마지막 항목, 없으면 ""), 뒤 스텝이 앞 스텝을 덮어쓴다.
+    const perStep = new Map<string, string>();
     for (const x of s.extract) {
       const d = x.from === "status" ? undefined : x.default;
-      if (d !== undefined) out.set(x.var, d);
-      else if (!out.has(x.var)) out.set(x.var, "");
+      if (d !== undefined) perStep.set(x.var, d);
+      else if (!perStep.has(x.var)) perStep.set(x.var, "");
     }
+    for (const [k, v] of perStep) out.set(k, v);
   }
   return out;
 }

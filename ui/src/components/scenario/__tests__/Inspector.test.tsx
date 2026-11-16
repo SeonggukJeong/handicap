@@ -336,6 +336,9 @@ describe("Inspector — ExtractEditor", () => {
     fireEvent.change(input, { target: { value: "{{x}}" } }); // user-event는 `{{`를 이스케이프로 먹는다
     fireEvent.blur(input);
     expect(within(sec).getByRole("alert")).toHaveTextContent(ko.editor.extractDefaultErrVars);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription(ko.editor.extractDefaultErrVars);
+    expect(input).toHaveAccessibleName(ko.editor.extractDefaultAria(0));
     expect(useScenarioEditor.getState().yamlError).toBeNull();
     expect(extractOf().default).toBe("none");
     // 같은 줄의 다른 칸 편집은 여전히 커밋된다.
@@ -438,6 +441,9 @@ describe("Inspector — ExtractEditor", () => {
     expect(input.closest("label")).toBeNull();
     await user.click(help);
     const note = screen.getByRole("note");
+    expect(ko.glossary.extractDefault3).toBe(
+      "적은 글자가 그대로 들어갑니다. {{변수}}·${ENV}는 적을 수 없고, 디코딩(base64·JWT)은 적용되지 않습니다. 비밀 값은 적지 마세요 — 시나리오에 그대로 저장됩니다.",
+    );
     for (const k of [
       ko.glossary.extractDefault1,
       ko.glossary.extractDefault2,

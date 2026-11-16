@@ -78,6 +78,24 @@ describe("loopWarnings", () => {
       expect(retry(withDefaults("done", undefined))).toBe(false);
     });
   });
+  describe("같은 이름을 두 스텝이 뽑을 때 — 스텝 순서대로 뒤 스텝이 덮어쓴다", () => {
+    const step = (id: string, d?: string) => ({
+      ...http([]),
+      id,
+      extract: [
+        { var: "status", from: "body", path: "$.s", ...(d === undefined ? {} : { default: d }) },
+      ],
+    });
+    const ne = { left: "{{status}}", op: "ne", right: "done" };
+    const retry = (...body: ReturnType<typeof step>[]) =>
+      loopWarnings(loop({ while: ne }, body as never), T).retryOnFailure;
+    it("A[default done] 뒤 B[기본값 없음] → 빈 값이 덮어써서 재시도 경고", () => {
+      expect(retry(step("A", "done"), step("B"))).toBe(true);
+    });
+    it("A[기본값 없음] 뒤 B[default done] → done이 덮어써서 경고 없음", () => {
+      expect(retry(step("A"), step("B", "done"))).toBe(false);
+    });
+  });
   it("unlimited = repeat 없음", () => {
     expect(loopWarnings(loop({ repeat: undefined }), T).unlimited).toBe(true);
     expect(loopWarnings(loop({}), T).unlimited).toBe(false);

@@ -20,13 +20,19 @@ function statusClass(status: number, error: string | null): string {
   return "bg-slate-200 text-slate-700";
 }
 
-function chip(text: string, cls: string) {
+function chip(text: string, cls: string, tag?: string) {
   return (
     <span
       key={text}
       className={["inline-block rounded px-2 py-0.5 text-xs font-medium break-all", cls].join(" ")}
     >
       {text}
+      {tag !== undefined && (
+        <>
+          {" "}
+          <span className="rounded bg-white/70 px-1 text-[10px] font-medium">{tag}</span>
+        </>
+      )}
     </span>
   );
 }
@@ -49,6 +55,7 @@ function HttpRow({
   const req = step.request;
   const resp = step.response;
   const extracted = Object.entries(step.extracted);
+  const defaultedKeys = new Set(step.defaulted ?? []);
   const onCreate = onAddExtract
     ? (extract: Extract) => onAddExtract(step.step_id, extract)
     : undefined;
@@ -69,19 +76,13 @@ function HttpRow({
             TTFB {resp.latency_ms}ms / 다운로드 {resp.download_ms ?? "—"}ms
           </span>
         )}
-        {extracted.map(([k, v]) => (
-          <span
-            key={k}
-            className="inline-block rounded bg-indigo-100 px-2 py-0.5 text-xs font-medium break-all text-indigo-800"
-          >
-            {`${k}=${v}`}
-            {step.defaulted?.includes(k) && (
-              <span className="ml-1 rounded bg-white/70 px-1 text-[10px] font-medium">
-                {ko.common.defaultedTag}
-              </span>
-            )}
-          </span>
-        ))}
+        {extracted.map(([k, v]) =>
+          chip(
+            `${k}=${v}`,
+            "bg-indigo-100 text-indigo-800",
+            defaultedKeys.has(k) ? ko.common.defaultedTag : undefined,
+          ),
+        )}
       </button>
       {errorText && <div className="mt-1 text-xs text-red-700">{errorText}</div>}
       {!step.blocked && step.unbound_vars.length > 0 && (
