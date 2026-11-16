@@ -345,6 +345,7 @@ mod tests {
             error: None,
             branch_eval: Vec::new(),
             timed_out: false,
+            blocked: None,
         }
     }
 

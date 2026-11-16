@@ -759,6 +759,7 @@ fn http_step(id: &str, status: Option<u16>) -> StepTrace {
         error: None,
         branch_eval: vec![],
         timed_out: false,
+        blocked: None,
     }
 }
 fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {

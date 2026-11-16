@@ -440,6 +440,19 @@ pub(crate) fn request_flow_refs(
     hit.into_iter().collect()
 }
 
+/// 메서드 → (trace 행에 적는 대문자 글자, reqwest 메서드). 전송 trace와 차단 trace 행이 같이 쓴다.
+pub(crate) fn method_parts(m: &HttpMethod) -> (&'static str, reqwest::Method) {
+    match m {
+        HttpMethod::Get => ("GET", reqwest::Method::GET),
+        HttpMethod::Post => ("POST", reqwest::Method::POST),
+        HttpMethod::Put => ("PUT", reqwest::Method::PUT),
+        HttpMethod::Patch => ("PATCH", reqwest::Method::PATCH),
+        HttpMethod::Delete => ("DELETE", reqwest::Method::DELETE),
+        HttpMethod::Head => ("HEAD", reqwest::Method::HEAD),
+        HttpMethod::Options => ("OPTIONS", reqwest::Method::OPTIONS),
+    }
+}
+
 /// Trace sibling of [`execute_step`]: renders leniently (collecting unbound tokens)
 /// and KEEPS the resolved request + response detail. Never errors — failures are
 /// captured in the returned `HttpTrace.error`. Does not touch the load hot path.
@@ -461,15 +474,7 @@ pub async fn execute_step_traced_with(
     let mut unbound: Vec<String> = Vec::new();
     let url = render_collecting(&step.request.url, ctx, &mut unbound);
 
-    let (method_str, method) = match step.request.method {
-        HttpMethod::Get => ("GET", reqwest::Method::GET),
-        HttpMethod::Post => ("POST", reqwest::Method::POST),
-        HttpMethod::Put => ("PUT", reqwest::Method::PUT),
-        HttpMethod::Patch => ("PATCH", reqwest::Method::PATCH),
-        HttpMethod::Delete => ("DELETE", reqwest::Method::DELETE),
-        HttpMethod::Head => ("HEAD", reqwest::Method::HEAD),
-        HttpMethod::Options => ("OPTIONS", reqwest::Method::OPTIONS),
-    };
+    let (method_str, method) = method_parts(&step.request.method);
 
     let mut header_display: BTreeMap<String, String> = BTreeMap::new();
     let mut headers = HeaderMap::new();

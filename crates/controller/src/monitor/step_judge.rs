@@ -730,6 +730,7 @@ mod tests {
             error: error.map(String::from),
             branch_eval: vec![],
             timed_out: false,
+            blocked: None,
         }
     }
 
@@ -774,6 +775,7 @@ mod tests {
             error: None,
             branch_eval: evals,
             timed_out: false,
+            blocked: None,
         }
     }
 

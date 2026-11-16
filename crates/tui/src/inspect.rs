@@ -913,6 +913,7 @@ mod loop_judge_tests {
             error: None,
             branch_eval: vec![],
             timed_out: false,
+            blocked: None,
         }
     }
 

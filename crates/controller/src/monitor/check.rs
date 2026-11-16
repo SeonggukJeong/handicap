@@ -898,6 +898,7 @@ steps:
             error: error.map(String::from),
             branch_eval: vec![],
             timed_out: false,
+            blocked: None,
         }
     }
 
@@ -1134,6 +1135,7 @@ steps:
                     }),
                 }],
                 timed_out: false,
+                blocked: None,
             })
             .collect()
     }

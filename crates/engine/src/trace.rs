@@ -152,6 +152,16 @@ pub struct StepTrace {
     /// http 행 전용: 요청 시간 초과로 실패했는가(false면 직렬화 생략).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub timed_out: bool,
+    /// http 행 전용: 비워진 값이 주소에 쓰여 보내지 않았다(없으면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<BlockedInfo>,
+}
+
+/// 보내지 않은 http 행의 사유 — 변수 이름과 값을 못 준 스텝 id만 싣는다(값 없음).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlockedInfo {
+    pub vars: Vec<String>,
+    pub by_step: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -174,7 +184,8 @@ pub struct ScenarioTrace {
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::executor::{ExtractMode, VuClient, execute_step_traced_with};
+use crate::blank_guard::{self, BLOCKED_ERROR, BlankTable};
+use crate::executor::{ExtractMode, VuClient, execute_step_traced_with, method_parts};
 use crate::extract::blank_missing_extracts;
 use crate::pacing::ThinkTime;
 use crate::reqgen::{ReqGen, RequestGenPlan};
@@ -392,6 +403,8 @@ async fn trace_once(
     if let Some(rg) = req.as_mut() {
         rg.mark_written(seed_vars.keys());
     }
+    // 행/반복마다 새 비움 표 — 앞 행에서 비워진 이름이 다음 행의 정당한 요청을 막지 않는다.
+    let mut blanked = BlankTable::new();
     Box::pin(trace_steps(
         client,
         &scenario.steps,
@@ -403,6 +416,7 @@ async fn trace_once(
         state,
         scenario.default_think_time,
         &mut req,
+        &mut blanked,
         false,
         false,
     ))
@@ -472,6 +486,8 @@ async fn trace_steps(
     default_think: Option<ThinkTime>,
     // 요청 단위 재평가 상태(runner::execute_steps와 동일 규칙). None = refresh 변수 없음.
     req: &mut Option<ReqGen>,
+    // 추출 못 해 비워진 이름의 비움 표(runner::execute_steps와 같은 규칙).
+    blanked: &mut BlankTable,
     // 조건 반복(while) 본문 안인지 — runner::execute_steps와 같은 규칙(if·parallel·중첩 loop로 상속).
     in_cond_loop: bool,
     // 조건 반복 본문의 think time을 `apply_think_time`과 무관하게 잘 것인가(keep_think).
@@ -490,40 +506,86 @@ async fn trace_steps(
                 if let Some(rg) = req.as_mut() {
                     rg.refresh(&http.id, iter_vars);
                 }
-                let ctx = TemplateContext {
-                    vars: iter_vars,
-                    env,
-                    vu_id: 0,
-                    iter_id: state.iter_id,
-                    loop_index,
+                // runner::execute_steps와 같은 판정 — 주소가 읽는 이름이 비워진 채면 보내지 않는다.
+                let blocked = {
+                    let ctx = TemplateContext {
+                        vars: iter_vars,
+                        env,
+                        vu_id: 0,
+                        iter_id: state.iter_id,
+                        loop_index,
+                    };
+                    blank_guard::check(&http.request.url, &ctx, blanked)
                 };
-                let mode = if in_cond_loop {
-                    ExtractMode::Lenient
+                if let Some(b) = blocked {
+                    let mut extracted = BTreeMap::new();
+                    if in_cond_loop {
+                        let names = blank_missing_extracts(http, &mut extracted, iter_vars);
+                        blank_guard::note_step(blanked, &http.id, &extracted, &names);
+                    }
+                    state.requests += 1;
+                    state.steps.push(StepTrace {
+                        step_id: http.id.clone(),
+                        kind: StepKind::Http,
+                        loop_index,
+                        branch: None,
+                        request: Some(TracedRequest {
+                            method: method_parts(&http.request.method).0.to_string(),
+                            url: b.url,
+                            headers: BTreeMap::new(),
+                            body: None,
+                        }),
+                        response: None,
+                        extracted,
+                        unbound_vars: Vec::new(),
+                        error: Some(BLOCKED_ERROR.to_string()),
+                        branch_eval: Vec::new(),
+                        timed_out: false,
+                        blocked: Some(BlockedInfo {
+                            vars: b.vars,
+                            by_step: b.by_step,
+                        }),
+                    });
                 } else {
-                    ExtractMode::Strict
-                };
-                let mut t = execute_step_traced_with(client, http, &ctx, mode).await;
-                if let Some(rg) = req.as_mut() {
-                    rg.mark_written(t.extracted.keys());
+                    let ctx = TemplateContext {
+                        vars: iter_vars,
+                        env,
+                        vu_id: 0,
+                        iter_id: state.iter_id,
+                        loop_index,
+                    };
+                    let mode = if in_cond_loop {
+                        ExtractMode::Lenient
+                    } else {
+                        ExtractMode::Strict
+                    };
+                    let mut t = execute_step_traced_with(client, http, &ctx, mode).await;
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(t.extracted.keys());
+                    }
+                    let names = if in_cond_loop {
+                        blank_missing_extracts(http, &mut t.extracted, iter_vars)
+                    } else {
+                        Vec::new()
+                    };
+                    blank_guard::note_step(blanked, &http.id, &t.extracted, &names);
+                    iter_vars.extend(t.extracted.clone());
+                    state.requests += 1;
+                    state.steps.push(StepTrace {
+                        step_id: http.id.clone(),
+                        kind: StepKind::Http,
+                        loop_index,
+                        branch: None,
+                        request: Some(t.request),
+                        response: t.response,
+                        extracted: t.extracted,
+                        unbound_vars: t.unbound_vars,
+                        error: t.error,
+                        branch_eval: Vec::new(),
+                        timed_out: t.timed_out,
+                        blocked: None,
+                    });
                 }
-                if in_cond_loop {
-                    blank_missing_extracts(http, &mut t.extracted, iter_vars);
-                }
-                iter_vars.extend(t.extracted.clone());
-                state.requests += 1;
-                state.steps.push(StepTrace {
-                    step_id: http.id.clone(),
-                    kind: StepKind::Http,
-                    loop_index,
-                    branch: None,
-                    request: Some(t.request),
-                    response: t.response,
-                    extracted: t.extracted,
-                    unbound_vars: t.unbound_vars,
-                    error: t.error,
-                    branch_eval: Vec::new(),
-                    timed_out: t.timed_out,
-                });
                 if opts.apply_think_time || force_think {
                     if let Some(tt) = http.think_time.or(default_think) {
                         let now = Instant::now();
@@ -566,6 +628,7 @@ async fn trace_steps(
                             state,
                             default_think,
                             req,
+                            blanked,
                             true,
                             body_think,
                         ))
@@ -606,6 +669,7 @@ async fn trace_steps(
                             error: None,
                             branch_eval: vec![eval],
                             timed_out: false,
+                            blocked: None,
                         });
                         state.judge_rows += 1;
                         if charge_judge_row(state, opts) {
@@ -642,6 +706,7 @@ async fn trace_steps(
                             state,
                             default_think,
                             req,
+                            blanked,
                             in_cond_loop,
                             force_think,
                         ))
@@ -699,6 +764,7 @@ async fn trace_steps(
                     error: None,
                     branch_eval,
                     timed_out: false,
+                    blocked: None,
                 });
                 state.if_rows += 1;
                 if charge_judge_row(state, opts) {
@@ -716,6 +782,7 @@ async fn trace_steps(
                     state,
                     default_think,
                     req,
+                    blanked,
                     in_cond_loop,
                     force_think,
                 ))
@@ -730,6 +797,7 @@ async fn trace_steps(
                 // No decision row for the node itself (all branches run); each branch
                 // http appears as an ordinary Http row in declaration order.
                 let entry: BTreeMap<String, String> = iter_vars.clone();
+                let entry_blanked: BlankTable = blanked.clone();
                 // runner와 동일하게 모든 분기 ReqGen을 merge-back 전에 한꺼번에 fork한다
                 // (앞 분기의 `<branch>.<k>` mark_written이 뒤 분기 fork에 새지 않게).
                 let branch_reqs: Vec<Option<ReqGen>> = par
@@ -746,6 +814,7 @@ async fn trace_steps(
                     // intentionally preserved so the preview shows what resolved.
                     // Do NOT add an early-return between the recursion and the merge.
                     let mut branch_vars = entry.clone();
+                    let mut branch_blanked: BlankTable = entry_blanked.clone();
                     Box::pin(trace_steps(
                         client,
                         &branch.steps,
@@ -761,6 +830,7 @@ async fn trace_steps(
                         // Http arm에서 그대로 적용된다.
                         None,
                         &mut branch_req,
+                        &mut branch_blanked,
                         in_cond_loop,
                         force_think,
                     ))
@@ -774,6 +844,13 @@ async fn trace_steps(
                             }
                         }
                     }
+                    blank_guard::merge_branch(
+                        blanked,
+                        &branch_blanked,
+                        &branch.name,
+                        &branch.output_var_names(),
+                        &branch_vars,
+                    );
                 }
             }
         }
@@ -814,6 +891,7 @@ mod tests {
                 error: None,
                 branch_eval: vec![],
                 timed_out: false,
+                blocked: None,
             }],
             final_vars: BTreeMap::new(),
             truncated: false,
@@ -1381,6 +1459,7 @@ steps:
                 }),
             }],
             timed_out: false,
+            blocked: None,
         }
     }
 

@@ -727,6 +727,7 @@ fn http(
         error: error.map(str::to_string),
         branch_eval: vec![],
         timed_out: false,
+        blocked: None,
     }
 }
 
@@ -743,6 +744,7 @@ fn if_row(step: &str, branch: &str) -> StepTrace {
         error: None,
         branch_eval: vec![],
         timed_out: false,
+        blocked: None,
     }
 }
 
