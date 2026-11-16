@@ -295,6 +295,124 @@ describe("Inspector — ExtractEditor", () => {
     expect(within(sec).queryByLabelText(ko.editor.extractDecodeAria(0))).toBeNull();
   });
 
+  // ── extract-default: 「값이 없을 때」 기본값 칸 ──
+  const yamlText = () => useScenarioEditor.getState().yamlText;
+  const extractOf = () => {
+    const st = useScenarioEditor.getState().model!.steps[0];
+    if (st.type !== "http") throw new Error("http");
+    return st.extract[0] as Record<string, unknown>;
+  };
+
+  it("기본값 칸: 본문 줄에는 있고 상태 줄에는 없다, maxLength 256", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    expect(input).toHaveAttribute("maxLength", "256");
+    await user.selectOptions(within(sec).getByLabelText(ko.editor.extractFromAria(0)), "status");
+    expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+  });
+
+  it("기본값 입력은 blur에 커밋되고, 비우면 키가 사라진다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    await user.type(input, "none");
+    expect(yamlText()).not.toMatch(/default:/);
+    await user.tab();
+    expect(extractOf().default).toBe("none");
+    expect(yamlText()).toContain('default: "none"'); // 기본값은 항상 큰따옴표
+    await user.clear(input);
+    await user.tab();
+    expect("default" in extractOf()).toBe(false);
+    expect(yamlText()).not.toContain("default");
+  });
+
+  it("{{x}}를 적고 blur해도 편집기는 잠기지 않고 직전 유효 값이 남는다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    await user.type(input, "none");
+    await user.tab();
+    fireEvent.change(input, { target: { value: "{{x}}" } }); // user-event는 `{{`를 이스케이프로 먹는다
+    fireEvent.blur(input);
+    expect(within(sec).getByRole("alert")).toHaveTextContent(ko.editor.extractDefaultErrVars);
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    expect(extractOf().default).toBe("none");
+    // 같은 줄의 다른 칸 편집은 여전히 커밋된다.
+    const name = within(sec).getByPlaceholderText(ko.editor.headerNamePlaceholder);
+    await user.clear(name);
+    await user.type(name, "X-Token");
+    await user.tab();
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    expect(extractOf().name).toBe("X-Token");
+    expect(extractOf().default).toBe("none");
+  });
+
+  it("제어 문자 안내도 blur 뒤에 뜬다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    fireEvent.change(input, { target: { value: "a\tb" } });
+    expect(within(sec).queryByRole("alert")).toBeNull();
+    fireEvent.blur(input);
+    expect(within(sec).getByRole("alert")).toHaveTextContent(ko.editor.extractDefaultErrControl);
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+  });
+
+  it("종류를 바꿔도 기본값은 header/cookie 사이에서 유지되고 status에서 버려진다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), "none");
+    await user.tab();
+    const from = within(sec).getByLabelText(ko.editor.extractFromAria(0));
+    await user.selectOptions(from, "cookie");
+    expect(extractOf().default).toBe("none");
+    await user.selectOptions(from, "header");
+    expect(extractOf().default).toBe("none");
+    await user.selectOptions(from, "status");
+    expect("default" in extractOf()).toBe(false);
+    expect(yamlText()).not.toContain("default");
+  });
+
+  it.each(["0x1F", "0", "true", "null", "0b101"])(
+    "기본값 %s는 YAML에 큰따옴표로 쓰인다",
+    async (v) => {
+      const user = userEvent.setup();
+      const sec = await addHeaderRow(user);
+      await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), v);
+      await user.tab();
+      expect(yamlText()).toContain(`default: "${v}"`);
+      expect(extractOf().default).toBe(v);
+    },
+  );
+
+  it("기본값 없는 항목의 YAML에는 default도 따옴표 흔적도 없다(R0)", async () => {
+    const user = userEvent.setup();
+    await addHeaderRow(user);
+    expect(yamlText()).toContain("name: Authorization");
+    expect(yamlText()).not.toContain("default");
+  });
+
+  it("도움말 버튼은 입력의 형제이고 글로서리 네 문장을 연다; 입력 접근명은 그대로", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    const help = within(sec).getByRole("button", { name: ko.editor.extractDefaultHelpAria(0) });
+    expect(help.closest("label")).toBeNull();
+    expect(input.closest("label")).toBeNull();
+    await user.click(help);
+    const note = screen.getByRole("note");
+    for (const k of [
+      ko.glossary.extractDefault1,
+      ko.glossary.extractDefault2,
+      ko.glossary.extractDefault3,
+      ko.glossary.extractDefault4,
+    ]) {
+      expect(note).toHaveTextContent(k);
+    }
+    expect(input).toHaveAccessibleName(ko.editor.extractDefaultAria(0));
+  });
+
   it("empty claim is not written (R11)", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
@@ -2039,7 +2157,7 @@ steps:
     render(<Inspector />);
     expect(
       screen.getByText(
-        "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값이 된 값을 뒤 스텝의 요청 주소에 쓰면(예: /orders/{{orderId}}) 그 요청은 보내지 않고 에러로 셉니다. 헤더·본문에는 빈 값이 그대로 들어가므로, 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
+        "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값이 된 값을 뒤 스텝의 요청 주소에 쓰면(예: /orders/{{orderId}}) 그 요청은 보내지 않고 에러로 셉니다. 헤더·본문에는 빈 값이 그대로 들어가므로, 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요. 추출 줄의 「값이 없을 때」에 기본값을 적으면 빈 값 대신 그 글자가 들어가고, 주소에 써도 막히지 않습니다.",
       ),
     ).toBeInTheDocument();
   });

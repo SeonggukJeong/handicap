@@ -1,4 +1,4 @@
-import { condWhenBodyVarsEmpty, directBodyExtractVars } from "./condEmptyEval";
+import { condWhenBodyVarsEmpty, directBodyExtractSubst } from "./condEmptyEval";
 import { flattenHttpSteps, type LoopStep, type NestedLoopStep, type ThinkTime } from "./model";
 import { classifyThink } from "./thinkTime";
 
@@ -30,7 +30,7 @@ export function loopWarnings(
   return {
     noThink,
     thinkNotKept: !noThink && loop.keep_think === false,
-    retryOnFailure: condWhenBodyVarsEmpty(loop.while, directBodyExtractVars(loop)) === true,
+    retryOnFailure: condWhenBodyVarsEmpty(loop.while, directBodyExtractSubst(loop)) === true,
     unlimited: loop.repeat === undefined,
   };
 }

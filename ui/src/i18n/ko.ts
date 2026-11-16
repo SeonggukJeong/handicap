@@ -34,8 +34,18 @@ export const ko = {
     required: "필수",
     optional: "선택",
     recommended: "추천",
+    defaultedTag: "기본값",
+    defaultedNames: (names: string) => `기본값 사용: ${names}`,
   },
   glossary: {
+    extractDefault1:
+      "응답에 값이 없을 때(JSON null 포함) 이 글자가 대신 들어갑니다. 요청이 실패했거나 응답 검증에 실패했거나 보내지 못한 스텝에서도 들어갑니다.",
+    extractDefault2:
+      "기본값이 들어간 값은 받은 값으로 취급합니다. 뒤 요청 주소에 써도 막히지 않고, 그 스텝은 값 누락 때문에 에러로 세지 않습니다.",
+    extractDefault3:
+      "적은 글자가 그대로 들어갑니다. {{변수}}·${ENV}는 적을 수 없고, 디코딩(base64·JWT)은 적용되지 않습니다.",
+    extractDefault4:
+      "기본값이 쓰였는지는 시험 실행과 모니터 기록의 「기본값」 표시로 봅니다. 부하 실행 리포트에는 표시되지 않습니다.",
     vu: "동시 사용자(VU) — 동시에 요청을 보내는 가상 사용자 수입니다.",
     rps: "RPS — 초당 요청 수(Requests Per Second)입니다.",
     p50: "p50(중앙값) — 전체 요청의 50%가 이 시간 안에 응답했다는 뜻입니다. 낮을수록 좋습니다.",
@@ -724,6 +734,12 @@ export const ko = {
       `${path}: keep_think는 반복 조건(while)이 있을 때만 쓸 수 있습니다`,
     gateExtractClaimNeedsDecode: (path: string) =>
       `${path}: claim 경로를 쓰려면 디코딩(base64/JWT)을 먼저 선택해야 합니다`,
+    gateExtractDefaultEmpty: (path: string) =>
+      `${path}: 기본값은 비울 수 없습니다(쓰지 않으려면 default 줄을 지우세요)`,
+    gateExtractDefaultVars: (path: string) =>
+      `${path}: 기본값에는 {{변수}}나 ${"${ENV}"}를 적을 수 없습니다`,
+    gateExtractDefaultLong: (path: string) => `${path}: 기본값은 256자까지입니다`,
+    gateExtractDefaultControl: (path: string) => `${path}: 기본값에는 제어 문자를 적을 수 없습니다`,
     // ── Inspector 필드 라벨 ──
     fieldName: "이름",
     fieldMethod: "메서드",
@@ -743,7 +759,7 @@ export const ko = {
     loopKeepThinkHelp:
       "도착률 기준 실행·시험 실행·운영 모니터처럼 think time을 무시하는 실행에서도 이 반복 안에서는 쉽니다. 운영 모니터에서는 재시도와 대기 시간만큼 점검 제한 시간을 넉넉히 잡으세요.",
     loopLenientExtractHelp:
-      "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값이 된 값을 뒤 스텝의 요청 주소에 쓰면(예: /orders/{{orderId}}) 그 요청은 보내지 않고 에러로 셉니다. 헤더·본문에는 빈 값이 그대로 들어가므로, 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
+      "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값이 된 값을 뒤 스텝의 요청 주소에 쓰면(예: /orders/{{orderId}}) 그 요청은 보내지 않고 에러로 셉니다. 헤더·본문에는 빈 값이 그대로 들어가므로, 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요. 추출 줄의 「값이 없을 때」에 기본값을 적으면 빈 값 대신 그 글자가 들어가고, 주소에 써도 막히지 않습니다.",
     loopCondLabelMax: (n: number) => `조건 반복 · 최대 ${n}`,
     loopCondLabelUnlimited: "조건 반복 · 무제한",
     loopJudgeAgain: "조건이 참 → 다시 실행",
@@ -909,6 +925,12 @@ export const ko = {
     extractFromAria: (n: number) => `추출 ${n} 종류`,
     extractDecodeAria: (n: number) => `추출 ${n} 디코딩`,
     extractClaimAria: (n: number) => `추출 ${n} claim 경로`,
+    extractDefaultPlaceholder: "값이 없을 때",
+    extractDefaultAria: (n: number) => `추출 ${n} 값이 없을 때 쓸 값`,
+    extractDefaultHelpAria: (n: number) => `추출 ${n} 기본값 도움말`,
+    extractDefaultErrVars:
+      "기본값에는 {{변수}}나 ${ENV}를 적을 수 없습니다. 적은 글자가 그대로 들어갑니다.",
+    extractDefaultErrControl: "기본값에는 줄바꿈·탭 같은 제어 문자를 적을 수 없습니다.",
     extractDecodeNone: "디코딩 없음",
     extractDecodeBase64: "base64",
     extractDecodeJwt: "JWT",

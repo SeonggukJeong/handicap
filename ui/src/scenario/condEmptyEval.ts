@@ -2,22 +2,31 @@ import type { Condition, LoopStep, NestedLoopStep } from "./model";
 
 export type Tri = true | false | "unknown";
 
-/** 본문 직계 http 스텝이 extract하는 변수 이름 (if 분기 안 스텝 제외 — 분기가 안 탄 회차엔 이전 값이 남는다) */
-export function directBodyExtractVars(loop: LoopStep | NestedLoopStep): Set<string> {
-  const out = new Set<string>();
+/**
+ * 본문 직계 http 스텝이 extract하는 변수 이름 → 못 뽑았을 때 값 (if 분기 안 스텝 제외 — 분기가
+ * 안 탄 회차엔 이전 값이 남는다). 값 = 그 이름의 `default`가 있는 마지막 항목의 기본값, 없으면 "".
+ */
+export function directBodyExtractSubst(loop: LoopStep | NestedLoopStep): Map<string, string> {
+  const out = new Map<string, string>();
   for (const s of loop.do) {
-    if (s.type === "http") for (const x of s.extract) out.add(x.var);
+    if (s.type !== "http") continue;
+    for (const x of s.extract) {
+      const d = x.from === "status" ? undefined : x.default;
+      if (d !== undefined) out.set(x.var, d);
+      else if (!out.has(x.var)) out.set(x.var, "");
+    }
   }
   return out;
 }
 
 const FLOW_TOKEN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
-/** bodyVars의 {{변수}}를 ""로 치환. 그 밖의 {{…}}·${…}가 남으면 null(알 수 없음). */
-function render(s: string, bodyVars: Set<string>): string | null {
+/** subst의 {{변수}}를 그 값(못 뽑았을 때 값)으로 치환. 그 밖의 {{…}}·${…}가 남으면 null(알 수 없음). */
+function render(s: string, subst: Map<string, string>): string | null {
   let unknown = false;
   const out = s.replace(FLOW_TOKEN, (_m, name: string) => {
-    if (bodyVars.has(name)) return "";
+    const v = subst.get(name);
+    if (v !== undefined) return v;
     unknown = true;
     return "";
   });
@@ -38,13 +47,13 @@ function leafWhenEmpty(
   left: string,
   op: string,
   right: string | undefined,
-  bodyVars: Set<string>,
+  subst: Map<string, string>,
 ): Tri {
-  const l = render(left, bodyVars);
+  const l = render(left, subst);
   if (l === null) return "unknown";
   if (op === "exists") return l !== "";
   if (op === "empty") return l === "";
-  const r = render(right ?? "", bodyVars);
+  const r = render(right ?? "", subst);
   if (r === null) return "unknown";
   switch (op) {
     case "eq":
@@ -81,12 +90,12 @@ function leafWhenEmpty(
   }
 }
 
-/** bodyVars에 든 {{변수}}를 ""로 놓고 조건을 3값 평가. 그 밖의 {{…}}·${…}가 있는 잎은 "unknown". */
-export function condWhenBodyVarsEmpty(cond: Condition, bodyVars: Set<string>): Tri {
+/** subst에 든 {{변수}}를 못 뽑았을 때 값으로 놓고 조건을 3값 평가. 그 밖의 {{…}}·${…}가 있는 잎은 "unknown". */
+export function condWhenBodyVarsEmpty(cond: Condition, subst: Map<string, string>): Tri {
   if ("all" in cond) {
     let unknown = false;
     for (const c of cond.all) {
-      const v = condWhenBodyVarsEmpty(c, bodyVars);
+      const v = condWhenBodyVarsEmpty(c, subst);
       if (v === false) return false;
       if (v === "unknown") unknown = true;
     }
@@ -95,11 +104,11 @@ export function condWhenBodyVarsEmpty(cond: Condition, bodyVars: Set<string>): T
   if ("any" in cond) {
     let unknown = false;
     for (const c of cond.any) {
-      const v = condWhenBodyVarsEmpty(c, bodyVars);
+      const v = condWhenBodyVarsEmpty(c, subst);
       if (v === true) return true;
       if (v === "unknown") unknown = true;
     }
     return unknown ? "unknown" : false;
   }
-  return leafWhenEmpty(cond.left, cond.op, cond.right, bodyVars);
+  return leafWhenEmpty(cond.left, cond.op, cond.right, subst);
 }

@@ -22,6 +22,8 @@ import {
   isIfStep,
   isParallelStep,
   isInsideParallelBranch,
+  extractDefaultIssue,
+  EXTRACT_DEFAULT_MAX,
 } from "../../scenario/model";
 import { classifyThink, formatThink } from "../../scenario/thinkTime";
 import { loopCountLabel } from "../../scenario/loopLabel";
@@ -667,7 +669,14 @@ function AssertEditor({
 }
 
 // Draft type mirrors Extract but allows empty strings during editing.
-type DecodeDraft = { decode?: ExtractDecode; claim?: string };
+// default = 칸에 적힌 글자(편집 중), defaultOk = 직전에 규칙을 통과한 값(커밋용).
+type DecodeDraft = {
+  decode?: ExtractDecode;
+  claim?: string;
+  default?: string;
+  defaultOk?: string;
+  defaultTouched?: boolean;
+};
 type DraftExtract =
   | ({ var: string; from: "body"; path: string } & DecodeDraft)
   | ({ var: string; from: "header"; name: string } & DecodeDraft)
@@ -675,7 +684,19 @@ type DraftExtract =
   | { var: string; from: "status" };
 
 function draftFromExtract(e: Extract): DraftExtract {
+  if (e.from !== "status" && e.default !== undefined) {
+    return { ...e, defaultOk: e.default } as DraftExtract;
+  }
   return e as DraftExtract;
+}
+
+// 못 뽑았을 때 값: 빈 칸 → 키 없음, 규칙 통과 → 그 값, 위반 → 직전 유효 값(없으면 키 없음).
+function defaultField(d: DraftExtract): { default?: string } {
+  if (d.from === "status") return {};
+  const cur = d.default;
+  if (cur === undefined || cur === "") return {};
+  const v = extractDefaultIssue(cur) === null ? cur : d.defaultOk;
+  return v === undefined ? {} : { default: v };
 }
 
 // R11: never write `decode: undefined`/`claim: ""` — only present, non-empty keys.
@@ -687,14 +708,22 @@ function decodeFields(d: DraftExtract): DecodeDraft {
 function toExtract(d: DraftExtract): Extract {
   switch (d.from) {
     case "body":
-      return { var: d.var, from: "body", path: d.path, ...decodeFields(d) };
+      return { var: d.var, from: "body", path: d.path, ...decodeFields(d), ...defaultField(d) };
     case "header":
-      return { var: d.var, from: "header", name: d.name, ...decodeFields(d) };
+      return { var: d.var, from: "header", name: d.name, ...decodeFields(d), ...defaultField(d) };
     case "cookie":
-      return { var: d.var, from: "cookie", name: d.name, ...decodeFields(d) };
+      return { var: d.var, from: "cookie", name: d.name, ...decodeFields(d), ...defaultField(d) };
     case "status":
       return { var: d.var, from: "status" };
   }
+}
+
+function defaultMsg(v: string | undefined): string | null {
+  if (v === undefined) return null;
+  const issue = extractDefaultIssue(v);
+  if (issue === "vars") return ko.editor.extractDefaultErrVars;
+  if (issue === "control") return ko.editor.extractDefaultErrControl;
+  return null;
 }
 
 function ExtractEditor({ step }: { step: HttpStep }) {
@@ -739,10 +768,28 @@ function ExtractEditor({ step }: { step: HttpStep }) {
     commitDrafts(drafts);
   };
 
+  // 기본값 칸 blur: touched 표시 + 유효하면 defaultOk 갱신 후 커밋(유효하지 않으면 직전 값 유지).
+  const commitDefaultBlur = (idx: number) => {
+    const x = drafts[idx];
+    if (x.from === "status") return;
+    const next: DraftExtract = { ...x, defaultTouched: true };
+    if (x.default === undefined || x.default === "") delete next.defaultOk;
+    else if (extractDefaultIssue(x.default) === null) next.defaultOk = x.default;
+    const list = drafts.slice();
+    list[idx] = next;
+    setDrafts(list);
+    commitDrafts(list);
+  };
+
   // Structural from-kind change: update draft AND commit immediately.
   const setFromKind = (idx: number, from: Extract["from"]) => {
     const x = drafts[idx];
-    const keep = decodeFields(x);
+    const keep = {
+      ...decodeFields(x),
+      ...(x.from !== "status" && x.default !== undefined
+        ? { default: x.default, defaultOk: x.defaultOk, defaultTouched: x.defaultTouched }
+        : {}),
+    };
     const list = drafts.slice();
     if (from === "body")
       list[idx] = { var: x.var, from, path: (x as { path?: string }).path ?? "$.", ...keep };
@@ -870,6 +917,34 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                   onBlur={commitFromBlur}
                 />
               </div>
+            )}
+            {x.from !== "status" && (
+              <div className="flex min-w-0 flex-1 basis-[140px] items-center gap-1">
+                <div className="min-w-0 flex-1">
+                  <Input
+                    size="sm"
+                    placeholder={ko.editor.extractDefaultPlaceholder}
+                    aria-label={ko.editor.extractDefaultAria(idx)}
+                    maxLength={EXTRACT_DEFAULT_MAX}
+                    className="min-w-0"
+                    value={x.default ?? ""}
+                    disabled={yamlError !== null}
+                    onChange={(e) => updateDraft(idx, { ...x, default: e.target.value })}
+                    onBlur={() => commitDefaultBlur(idx)}
+                  />
+                </div>
+                <HelpTip label={ko.editor.extractDefaultHelpAria(idx)}>
+                  <span className="block">{ko.glossary.extractDefault1}</span>
+                  <span className="mt-1 block">{ko.glossary.extractDefault2}</span>
+                  <span className="mt-1 block">{ko.glossary.extractDefault3}</span>
+                  <span className="mt-1 block">{ko.glossary.extractDefault4}</span>
+                </HelpTip>
+              </div>
+            )}
+            {x.from !== "status" && x.defaultTouched && defaultMsg(x.default) !== null && (
+              <p role="alert" className="basis-full text-xs text-red-700">
+                {defaultMsg(x.default)}
+              </p>
             )}
             {x.from === "status" && (
               <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>

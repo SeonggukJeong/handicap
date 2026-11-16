@@ -51,7 +51,27 @@ export type ExtractDecode = z.infer<typeof ExtractDecodeModel>;
 const extractDecodeFields = {
   decode: ExtractDecodeModel.optional(),
   claim: z.string().min(1).optional(),
+  // extract-default: 못 뽑았을 때 쓸 글자. 규칙은 union superRefine(extractDefaultIssue).
+  default: z.string().optional(),
 };
+
+export const EXTRACT_DEFAULT_MAX = 256;
+
+/** 기본값 규칙(엔진 `extract default …`와 같다). 순서: 빈 값 → {{ ${ → 길이 → 제어 문자. */
+export function extractDefaultIssue(s: string): "empty" | "vars" | "long" | "control" | null {
+  if (s === "") return "empty";
+  if (s.includes("{{") || s.includes("${")) return "vars";
+  if ([...s].length > EXTRACT_DEFAULT_MAX) return "long";
+  if (/\p{Cc}/u.test(s)) return "control";
+  return null;
+}
+
+const EXTRACT_DEFAULT_MSG = {
+  empty: "default must not be empty",
+  vars: "default must not contain {{ or ${",
+  long: "default too long (max 256)",
+  control: "default must not contain control characters",
+} as const;
 
 export const ExtractModel = z
   .discriminatedUnion("from", [
@@ -96,6 +116,16 @@ export const ExtractModel = z
         path: ["claim"],
         message: "claim requires decode",
       });
+    }
+    if (e.from !== "status" && e.default !== undefined) {
+      const issue = extractDefaultIssue(e.default);
+      if (issue !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["default"],
+          message: EXTRACT_DEFAULT_MSG[issue],
+        });
+      }
     }
   });
 export type Extract = z.infer<typeof ExtractModel>;

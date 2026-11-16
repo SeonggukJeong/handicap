@@ -556,7 +556,17 @@ export function applyEdit(doc: Document, edit: Edit): void {
         doc.deleteIn([...path, "extract"]);
         return;
       }
-      doc.setIn([...path, "extract"], doc.createNode(edit.extract));
+      const node = doc.createNode(edit.extract);
+      // default는 항상 큰따옴표 — yaml(1.2 core)은 `0b101`을 평문으로 두지만 serde_yaml은 정수로
+      // 읽어 엔진이 타입 에러를 낸다(scenario/CLAUDE.md pick-array 줄). 기본값 없는 항목은 무변경.
+      if (isSeq(node)) {
+        for (const item of node.items) {
+          if (!isMap(item)) continue;
+          const d = item.get("default", true);
+          if (isScalar(d) && typeof d.value === "string") d.type = Scalar.QUOTE_DOUBLE;
+        }
+      }
+      doc.setIn([...path, "extract"], node);
       return;
     }
     case "renameVariable": {

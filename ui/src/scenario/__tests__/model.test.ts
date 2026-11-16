@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseScenarioDoc } from "../yamlDoc";
 import {
   ScenarioModel,
   StepModel,
@@ -202,6 +203,45 @@ describe("ExtractModel", () => {
       expect(r.error.issues[0].path).toEqual(["claim"]);
       expect(r.error.issues[0].message).toBe("claim requires decode");
     }
+  });
+
+  it("default: 값 규칙 4가지(빈 값·{{ ${·256자 초과·제어 문자)와 status 거절", () => {
+    const base = { var: "a", from: "body", path: "$.a" } as const;
+    expect(ExtractModel.safeParse({ ...base, default: "none" }).success).toBe(true);
+    expect(ExtractModel.safeParse({ ...base, default: "가".repeat(256) }).success).toBe(true);
+    for (const [bad, msg] of [
+      ["", "default must not be empty"],
+      ["a{{b}}", "default must not contain {{ or ${"],
+      ["${X}", "default must not contain {{ or ${"],
+      ["x".repeat(257), "default too long (max 256)"],
+      ["a\nb", "default must not contain control characters"],
+    ] as const) {
+      const r = ExtractModel.safeParse({ ...base, default: bad });
+      expect(r.success).toBe(false);
+      if (!r.success) expect(r.error.issues[0]).toMatchObject({ path: ["default"], message: msg });
+    }
+    expect(ExtractModel.safeParse({ var: "s", from: "status", default: "x" }).success).toBe(false);
+  });
+
+  it("default: YAML 정규화가 키를 떨구지 않는다", () => {
+    const parsed = parseScenarioDoc(`version: 1
+name: s
+steps:
+  - type: http
+    id: 01ARZ3NDEKTSV4RRFFQ69G5FA1
+    name: x
+    request: { method: GET, url: /x }
+    extract:
+      - var: a
+        from: body
+        path: $.a
+        default: none
+`);
+    if (!("model" in parsed)) throw new Error(parsed.error);
+    const st = parsed.model.steps[0];
+    if (st.type !== "http") throw new Error("http");
+    const e = st.extract[0];
+    expect(e.from === "status" ? undefined : e.default).toBe("none");
   });
 });
 
@@ -786,7 +826,9 @@ describe("loop while / keep_think (loop-do-while)", () => {
     const r = StepModel.safeParse(ifStep);
     expect(r.success).toBe(false);
     if (!r.success) {
-      const hit = r.error.issues.find((i) => i.message === "repeat required when loop has no while");
+      const hit = r.error.issues.find(
+        (i) => i.message === "repeat required when loop has no while",
+      );
       expect(hit?.path).toEqual(["then", 0, "repeat"]);
     }
   });

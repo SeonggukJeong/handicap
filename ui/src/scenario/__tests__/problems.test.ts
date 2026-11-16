@@ -455,4 +455,27 @@ steps:
       ko.editor.gateExtractClaimNeedsDecode("steps.0.extract.0.claim"),
     );
   });
+
+  it.each([
+    ['""', "gateExtractDefaultEmpty"],
+    ['"a{{x}}"', "gateExtractDefaultVars"],
+    ['"${X}"', "gateExtractDefaultVars"],
+    [`"${"x".repeat(257)}"`, "gateExtractDefaultLong"],
+    ['"a\\nb"', "gateExtractDefaultControl"],
+  ] as const)("extract default %s → 한국어 게이트 문구 %s", (lit, key) => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: x
+    request: { method: GET, url: /x }
+    extract:
+      - var: uid
+        from: body
+        path: $.a
+        default: ${lit}
+`);
+    expect(formatGateMessages(err)).toContain(ko.editor[key]("steps.0.extract.0.default"));
+  });
 });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Condition, LoopStep } from "../model";
-import { condWhenBodyVarsEmpty, directBodyExtractVars } from "../condEmptyEval";
+import { condWhenBodyVarsEmpty, directBodyExtractSubst } from "../condEmptyEval";
 
-const X = new Set(["x"]);
+const X = new Map([["x", ""]]);
 const leaf = (op: string, right?: string, left = "{{x}}"): Condition =>
   ({ left, op, ...(right === undefined ? {} : { right }) }) as Condition;
 
@@ -64,7 +64,7 @@ const http = (id: string, extract: string[]) => ({
   extract: extract.map((v) => ({ var: v, from: "body", path: "$.a" })),
 });
 
-describe("directBodyExtractVars", () => {
+describe("directBodyExtractSubst", () => {
   it("본문 직계 http의 extract만 — if 분기 안은 제외", () => {
     const loop = {
       id: "L",
@@ -84,7 +84,37 @@ describe("directBodyExtractVars", () => {
         },
       ],
     } as unknown as LoopStep;
-    expect([...directBodyExtractVars(loop)]).toEqual(["code"]);
+    expect([...directBodyExtractSubst(loop)]).toEqual([["code", ""]]);
+  });
+});
+
+describe("directBodyExtractSubst — 기본값", () => {
+  it("이름 → 그 이름의 default 있는 마지막 항목의 값, 없으면 빈 문자열", () => {
+    const h = (extract: unknown[]) => ({
+      id: "h",
+      name: "h",
+      type: "http",
+      request: { method: "GET", url: "/a", headers: {} },
+      assert: [],
+      extract,
+    });
+    const loop = {
+      id: "L",
+      name: "L",
+      type: "loop",
+      while: leaf("ne", "OK", "{{a}}"),
+      do: [
+        h([
+          { var: "a", from: "body", path: "$.a", default: "first" },
+          { var: "a", from: "body", path: "$.b", default: "last" },
+          { var: "b", from: "body", path: "$.b" },
+        ]),
+      ],
+    } as unknown as LoopStep;
+    expect([...directBodyExtractSubst(loop)]).toEqual([
+      ["a", "last"],
+      ["b", ""],
+    ]);
   });
 });
 

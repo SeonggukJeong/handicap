@@ -45,6 +45,39 @@ describe("loopWarnings", () => {
     expect(loopWarnings(loop({ while: ne }), T).retryOnFailure).toBe(true);
     expect(loopWarnings(loop({}), T).retryOnFailure).toBe(false);
   });
+  describe("추출 기본값 — 못 뽑았을 때 값으로 평가", () => {
+    const withDefaults = (...defs: Array<string | undefined>) => [
+      {
+        ...http([]),
+        extract: defs.map((d) => ({
+          var: "status",
+          from: "body",
+          path: "$.s",
+          ...(d === undefined ? {} : { default: d }),
+        })),
+      },
+    ];
+    const ne = { left: "{{status}}", op: "ne", right: "done" };
+    const retry = (body: ReturnType<typeof withDefaults>, w: Record<string, unknown> = ne) =>
+      loopWarnings(loop({ while: w }, body as never), T).retryOnFailure;
+    it("기본값 없음 → 재시도 경고(지금과 같다)", () => {
+      expect(retry(withDefaults(undefined))).toBe(true);
+    });
+    it("기본값이 종료 값(done) → 경고 없음", () => {
+      expect(retry(withDefaults("done"))).toBe(false);
+    });
+    it("기본값이 계속 값(wait) → 경고", () => {
+      expect(retry(withDefaults("wait"))).toBe(true);
+    });
+    it("matches + 기본값 x → 판단 보류(경고 없음)", () => {
+      expect(retry(withDefaults("x"), { left: "{{status}}", op: "matches", right: "^d" })).toBe(
+        false,
+      );
+    });
+    it("같은 이름 두 항목[default done, default 없음] → done으로 본다", () => {
+      expect(retry(withDefaults("done", undefined))).toBe(false);
+    });
+  });
   it("unlimited = repeat 없음", () => {
     expect(loopWarnings(loop({ repeat: undefined }), T).unlimited).toBe(true);
     expect(loopWarnings(loop({}), T).unlimited).toBe(false);

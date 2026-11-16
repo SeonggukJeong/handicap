@@ -87,5 +87,13 @@ function formatSegment(seg: string): string {
   if (m) return ko.editor.gateLoopKeepThinkNeedsWhile(m[1]);
   m = /^(.+): claim requires decode$/.exec(seg);
   if (m) return ko.editor.gateExtractClaimNeedsDecode(m[1]);
+  m = /^(.+): default must not be empty$/.exec(seg);
+  if (m) return ko.editor.gateExtractDefaultEmpty(m[1]);
+  m = /^(.+): default must not contain \{\{ or \$\{$/.exec(seg);
+  if (m) return ko.editor.gateExtractDefaultVars(m[1]);
+  m = /^(.+): default too long \(max 256\)$/.exec(seg);
+  if (m) return ko.editor.gateExtractDefaultLong(m[1]);
+  m = /^(.+): default must not contain control characters$/.exec(seg);
+  if (m) return ko.editor.gateExtractDefaultControl(m[1]);
   return seg;
 }
