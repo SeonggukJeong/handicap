@@ -297,16 +297,18 @@ async fn timeout_server() -> MockServer {
 #[tokio::test]
 async fn cond_loop_transport_failure_blanks_and_exits() {
     let to = "        timeout_seconds: 1\n";
-    // 조건 반복: 실패한 회차의 code는 빈 문자열 → 조건 거짓 → 탈출, 뒤 스텝은 c= 로 간다.
+    // 조건 반복: 실패한 회차의 code는 빈 문자열 → 조건 거짓 → 탈출. 그 빈 값을 주소에 쓰는
+    // 뒤 스텝은 보내지 않고(blank-var-url-guard) 그 스텝의 에러로만 센다.
     let server = timeout_server().await;
     let y = scenario_yaml(&server.uri(), WHILE_WAIT, to, false);
     let out = run(&y, 2500).await;
     assert!(out.ok);
     let p = paths(&server).await;
-    assert_eq!(
-        p.iter().find(|s| s.starts_with("/after")).unwrap(),
-        "/after?c="
-    );
+    assert_eq!(count(&p, "/after"), 0, "blank url was sent: {p:?}");
+    // 탈출했다: 첫 회차 WAIT(i=0) → 두 번째 회차 시간 초과(i=1)에서 끝나 i=2는 없다.
+    assert_eq!(&p[0..2], &["/order?i=0", "/order?i=1"]);
+    assert_eq!(count(&p, "/order?i=2"), 0, "loop kept retrying: {p:?}");
+    assert!(errors_of(&out, "01HX0000000000000000000003") > 0);
 
     // 대조: while 없는 loop은 실패 뒤에도 code가 WAIT으로 남는다.
     let server2 = timeout_server().await;

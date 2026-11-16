@@ -675,7 +675,7 @@ fn loop_exit_stats_to_proto(stats: Vec<handicap_engine::LoopExitStat>) -> Vec<Lo
 }
 
 /// send-실패 분류 delta counts (E1): engine `ErrorKindStat` → proto wire
-/// (`kind` becomes the 8-way lowercase_snake string via `ErrorKind::as_str()`).
+/// (`kind` becomes the 9-way lowercase_snake string via `ErrorKind::as_str()`).
 fn error_kind_stats_to_proto(stats: Vec<handicap_engine::ErrorKindStat>) -> Vec<ErrorKindStat> {
     stats
         .into_iter()

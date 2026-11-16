@@ -16,9 +16,11 @@ use crate::aggregator::{
     ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LOOP_SPLIT_PASS_SAMPLE_CAP,
     LoopExitOutcome, LoopExitStat, LoopSplitClass, LoopStat, PhaseStat, StepWindow,
 };
+use crate::blank_guard::{self, BlankTable};
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result, safe_cause};
+use crate::error_kind::ErrorKind;
 use crate::executor::{ExtractMode, VuClient, execute_step_with};
 use crate::extract::blank_missing_extracts;
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
@@ -459,6 +461,7 @@ async fn run_vu(
         // per iteration — generator values re-evaluate every loop).
         let mut iter_vars: BTreeMap<String, String> =
             crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+        let mut blanked = BlankTable::new();
         let mut req = reqgen
             .as_ref()
             .map(|p| ReqGen::new(p.clone(), &mut gen_rng));
@@ -492,6 +495,7 @@ async fn run_vu(
             &client,
             &scenario.steps,
             &mut iter_vars,
+            &mut blanked,
             &agg,
             deadline,
             &env,
@@ -574,6 +578,8 @@ async fn execute_steps(
     client: &VuClient,
     steps: &[Step],
     iter_vars: &mut BTreeMap<String, String>,
+    // 추출 못 해 비워진 이름 → 그 스텝 id (반복마다 새로, blank-var-url-guard).
+    blanked: &mut BlankTable,
     agg: &Arc<Mutex<Aggregator>>,
     deadline: Instant,
     env: &Arc<BTreeMap<String, String>>,
@@ -604,77 +610,103 @@ async fn execute_steps(
                 if let Some(rg) = req.as_mut() {
                     rg.refresh(&http.id, iter_vars);
                 }
-                let ctx = TemplateContext {
-                    vars: iter_vars,
-                    env: env.as_ref(),
-                    vu_id,
-                    iter_id,
-                    loop_index,
-                };
-                let mode = if cond_pass.is_some() {
-                    ExtractMode::Lenient
-                } else {
-                    ExtractMode::Strict
-                };
-                let mut outcome = execute_step_with(client, http, &ctx, mode).await?;
-                if let Some(rg) = req.as_mut() {
-                    rg.mark_written(outcome.extracted.keys());
-                }
-                if cond_pass.is_some() {
-                    blank_missing_extracts(http, &mut outcome.extracted, iter_vars);
-                }
-                iter_vars.extend(outcome.extracted.clone());
-                {
-                    let mut a = agg.lock().await;
-                    a.record(
-                        &outcome.step_id,
-                        outcome.latency.as_micros().min(u64::MAX as u128) as u64,
-                        outcome.status,
-                        outcome.error.is_some(),
+                // 주소가 읽는 이름 중 "추출 못 해 비워진" 값이 지금도 비어 있으면 보내지 않는다
+                // (blank-var-url-guard R1). ctx 차용은 판정 값만 꺼내고 닫는다.
+                let blocked = {
+                    let ctx = TemplateContext {
+                        vars: iter_vars,
+                        env: env.as_ref(),
+                        vu_id,
+                        iter_id,
                         loop_index,
-                    );
-                    if let Some(k) = outcome.error_kind {
-                        a.record_error_kind(&outcome.step_id, k);
-                    }
-                    if measure_phases {
-                        if let Some(dl) = outcome.download {
-                            a.record_phase(
-                                &outcome.step_id,
-                                "download",
-                                dl.as_micros().min(u64::MAX as u128) as u64,
-                            );
-                        }
-                        if let Some(w) = outcome.wait {
-                            a.record_phase(
-                                &outcome.step_id,
-                                "wait",
-                                w.as_micros().min(u64::MAX as u128) as u64,
-                            );
-                        }
-                        if let Some(d) = outcome.dns {
-                            a.record_phase(
-                                &outcome.step_id,
-                                "dns",
-                                d.as_micros().min(u64::MAX as u128) as u64,
-                            );
-                        }
-                        if let Some(c) = outcome.connect {
-                            a.record_phase(
-                                &outcome.step_id,
-                                "connect",
-                                c.as_micros().min(u64::MAX as u128) as u64,
-                            );
+                    };
+                    blank_guard::check(&http.request.url, &ctx, blanked).is_some()
+                };
+                if blocked {
+                    if cond_pass.is_some() {
+                        let mut none = BTreeMap::new();
+                        for n in blank_missing_extracts(http, &mut none, iter_vars) {
+                            blanked.insert(n, http.id.clone());
                         }
                     }
-                } // drop the aggregator guard before the (possibly long) think-time sleep
-                if let Some(samples) = cond_pass {
-                    let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
-                    if g.len() < LOOP_SPLIT_PASS_SAMPLE_CAP {
-                        g.push(PassSample {
-                            step_id: std::mem::take(&mut outcome.step_id),
-                            latency_us: outcome.latency.as_micros().min(u64::MAX as u128) as u64,
-                            is_error: outcome.error.is_some(),
-                        });
+                    let mut a = agg.lock().await;
+                    a.record_not_sent(&http.id, loop_index);
+                    a.record_error_kind(&http.id, ErrorKind::BlankVar);
+                } else {
+                    let ctx = TemplateContext {
+                        vars: iter_vars,
+                        env: env.as_ref(),
+                        vu_id,
+                        iter_id,
+                        loop_index,
+                    };
+                    let mode = if cond_pass.is_some() {
+                        ExtractMode::Lenient
+                    } else {
+                        ExtractMode::Strict
+                    };
+                    let mut outcome = execute_step_with(client, http, &ctx, mode).await?;
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(outcome.extracted.keys());
+                    }
+                    if cond_pass.is_some() {
+                        let names = blank_missing_extracts(http, &mut outcome.extracted, iter_vars);
+                        blank_guard::note_step(blanked, &http.id, &outcome.extracted, &names);
+                    }
+                    iter_vars.extend(outcome.extracted.clone());
+                    {
+                        let mut a = agg.lock().await;
+                        a.record(
+                            &outcome.step_id,
+                            outcome.latency.as_micros().min(u64::MAX as u128) as u64,
+                            outcome.status,
+                            outcome.error.is_some(),
+                            loop_index,
+                        );
+                        if let Some(k) = outcome.error_kind {
+                            a.record_error_kind(&outcome.step_id, k);
+                        }
+                        if measure_phases {
+                            if let Some(dl) = outcome.download {
+                                a.record_phase(
+                                    &outcome.step_id,
+                                    "download",
+                                    dl.as_micros().min(u64::MAX as u128) as u64,
+                                );
+                            }
+                            if let Some(w) = outcome.wait {
+                                a.record_phase(
+                                    &outcome.step_id,
+                                    "wait",
+                                    w.as_micros().min(u64::MAX as u128) as u64,
+                                );
+                            }
+                            if let Some(d) = outcome.dns {
+                                a.record_phase(
+                                    &outcome.step_id,
+                                    "dns",
+                                    d.as_micros().min(u64::MAX as u128) as u64,
+                                );
+                            }
+                            if let Some(c) = outcome.connect {
+                                a.record_phase(
+                                    &outcome.step_id,
+                                    "connect",
+                                    c.as_micros().min(u64::MAX as u128) as u64,
+                                );
+                            }
+                        }
+                    } // drop the aggregator guard before the (possibly long) think-time sleep
+                    if let Some(samples) = cond_pass {
+                        let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
+                        if g.len() < LOOP_SPLIT_PASS_SAMPLE_CAP {
+                            g.push(PassSample {
+                                step_id: std::mem::take(&mut outcome.step_id),
+                                latency_us: outcome.latency.as_micros().min(u64::MAX as u128)
+                                    as u64,
+                                is_error: outcome.error.is_some(),
+                            });
+                        }
                     }
                 }
                 if let Some(tt) = http.think_time.or(default_think) {
@@ -721,6 +753,7 @@ async fn execute_steps(
                             client,
                             &lp.do_,
                             iter_vars,
+                            blanked,
                             agg,
                             deadline,
                             env,
@@ -800,6 +833,7 @@ async fn execute_steps(
                             client,
                             &lp.do_,
                             iter_vars,
+                            blanked,
                             agg,
                             deadline,
                             env,
@@ -849,6 +883,7 @@ async fn execute_steps(
                     client,
                     taken,
                     iter_vars,
+                    blanked,
                     agg,
                     deadline,
                     env,
@@ -873,6 +908,7 @@ async fn execute_steps(
                 // branches can't share &mut iter_vars). Reads see entry; writes
                 // (extracts) stay branch-local and are merged back namespaced (§3.2).
                 let entry: BTreeMap<String, String> = iter_vars.clone();
+                let entry_blanked: BlankTable = blanked.clone();
                 // One deterministic seed per branch, drawn in declaration order from
                 // the VU rng (reproducible given think_seed). Concurrent branches
                 // can't share &mut rng, so each gets an independent StdRng.
@@ -887,6 +923,7 @@ async fn execute_steps(
                 let futs = par.branches.iter().zip(seeds).zip(branch_reqs).map(
                     |((branch, seed), branch_req)| {
                         let mut branch_vars = entry.clone();
+                        let mut branch_blanked = entry_blanked.clone();
                         let mut branch_rng = StdRng::seed_from_u64(seed);
                         let mut branch_req = branch_req;
                         async move {
@@ -895,6 +932,7 @@ async fn execute_steps(
                                 client,
                                 &branch.steps,
                                 &mut branch_vars,
+                                &mut branch_blanked,
                                 agg,
                                 deadline,
                                 env,
@@ -914,7 +952,7 @@ async fn execute_steps(
                             ))
                             .await;
                             let branch_us = bt0.elapsed().as_micros() as u64;
-                            (branch, branch_vars, flow, branch_us)
+                            (branch, branch_vars, branch_blanked, flow, branch_us)
                         }
                     },
                 );
@@ -932,7 +970,7 @@ async fn execute_steps(
                 let mut deadline_hit = false;
                 let mut end_iteration = false;
                 let mut branch_samples: Vec<(&str, u64)> = Vec::new();
-                for (branch, branch_vars, flow, branch_us) in results {
+                for (branch, branch_vars, branch_table, flow, branch_us) in results {
                     match flow? {
                         StepFlow::Continue => {}
                         StepFlow::DeadlineReached => deadline_hit = true,
@@ -948,6 +986,13 @@ async fn execute_steps(
                             }
                         }
                     }
+                    blank_guard::merge_branch(
+                        blanked,
+                        &branch_table,
+                        &branch.name,
+                        &branch.output_var_names(),
+                        &branch_vars,
+                    );
                     branch_samples.push((branch.name.as_str(), branch_us));
                 }
                 // Record page-load latency only on a clean block — a deadline/abort cut a
@@ -1533,6 +1578,7 @@ async fn run_vu_curve(
             // Per-iteration flow vars: lockstep with run_vu.
             let mut iter_vars: BTreeMap<String, String> =
                 crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+            let mut blanked = BlankTable::new();
             let mut req = reqgen
                 .as_ref()
                 .map(|p| ReqGen::new(p.clone(), &mut gen_rng));
@@ -1566,6 +1612,7 @@ async fn run_vu_curve(
                 &client,
                 &scenario.steps,
                 &mut iter_vars,
+                &mut blanked,
                 &agg,
                 deadline,
                 &env,
@@ -1933,6 +1980,7 @@ async fn run_arrival(
     let mut gen_rng = StdRng::from_entropy();
     let mut iter_vars: BTreeMap<String, String> =
         crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+    let mut blanked = BlankTable::new();
     let mut req = reqgen.map(|p| ReqGen::new(p.clone(), &mut gen_rng));
     // Inject every binding in declared order (single arrival, no per-VU loop).
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
@@ -1960,6 +2008,7 @@ async fn run_arrival(
         client,
         &scenario.steps,
         &mut iter_vars,
+        &mut blanked,
         agg,
         deadline,
         env,

@@ -142,6 +142,7 @@ async fn vu_curve_flushes_error_kinds_periodically() {
 #[tokio::test]
 async fn error_kind_totals_match_status0_window_counts() {
     // 불변식: send-실패 1건 = 윈도 status "0" 1건 = error_kind 1건.
+    // (보내지 않은 요청 `blank_var`는 status가 없어 등식에서 뺀다 — 이 파일 시나리오엔 차단이 없다.)
     // 새 send-guard 항(`|| !error_kind_stats.is_empty()`)을 지우면 "윈도는 비었는데
     // 에러 delta만 있는" 틱(초 중간 틱)에서 드레인된 delta가 send 없이 버려져
     // 등식이 깨진다 — 가드 삭제 회귀의 결정적 검출 (리뷰 P5 축 a).
@@ -149,6 +150,7 @@ async fn error_kind_totals_match_status0_window_counts() {
     let kinds: u64 = flushes
         .iter()
         .flat_map(|f| f.error_kind_stats.iter())
+        .filter(|s| s.kind != ErrorKind::BlankVar)
         .map(|s| s.count)
         .sum();
     let status0: u64 = flushes
@@ -180,6 +182,7 @@ async fn short_run_final_flush_carries_error_kinds() {
     let kinds: u64 = flushes
         .iter()
         .flat_map(|f| f.error_kind_stats.iter())
+        .filter(|s| s.kind != ErrorKind::BlankVar)
         .map(|s| s.count)
         .sum();
     let status0: u64 = flushes
