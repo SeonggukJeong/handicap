@@ -358,3 +358,25 @@ describe("PreviewResult loop judge rows", () => {
     expect(screen.getByText(LP)).toBeInTheDocument();
   });
 });
+
+describe("PreviewResult 보내지 않은 요청", () => {
+  const STEP2 = "01HZZZZZZZZZZZZZZZZZZZZZB2";
+  it("blocked 스텝은 한국어 문구, 원문은 안 보인다", () => {
+    const p = preview("");
+    const first = p.trace!.steps[0];
+    p.trace!.steps = [
+      {
+        ...first,
+        step_id: STEP2,
+        response: null,
+        error: "not sent: blank value in url",
+        blocked: { vars: ["orderId"], by_step: STEP },
+      },
+    ];
+    render(<PreviewResult preview={p} stepNames={{ [STEP]: "로그인", [STEP2]: "조회" }} />);
+    expect(
+      screen.getByText("앞 스텝 로그인이(가) orderId 값을 주지 않아 요청을 보내지 않음"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/not sent: blank value in url/)).not.toBeInTheDocument();
+  });
+});

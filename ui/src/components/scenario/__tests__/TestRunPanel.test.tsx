@@ -370,3 +370,53 @@ describe("TestRunPanel — 조건 반복 판정 줄", () => {
     expect(screen.getByText(LP)).toBeInTheDocument();
   });
 });
+
+describe("TestRunPanel 보내지 않은 요청", () => {
+  const S1 = "01HX0000000000000000000041";
+  const S2 = "01HX0000000000000000000042";
+  const blockedTrace: ScenarioTrace = {
+    ok: false,
+    total_ms: 5,
+    truncated: false,
+    error: null,
+    final_vars: {},
+    steps: [
+      {
+        step_id: S2,
+        kind: "http",
+        loop_index: null,
+        branch: null,
+        request: null,
+        response: null,
+        extracted: {},
+        unbound_vars: [],
+        error: "not sent: blank value in url",
+        blocked: { vars: ["orderId"], by_step: S1 },
+      },
+    ],
+  };
+  const named: Step[] = [
+    {
+      id: S1,
+      name: "상태 조회",
+      type: "http",
+      request: { method: "GET", url: "/poll", headers: {} },
+      assert: [],
+      extract: [],
+    },
+  ];
+
+  it("blocked 행은 한국어 문구만 보이고 원문과 unbound 칩은 없다", () => {
+    render(<TestRunPanel trace={blockedTrace} steps={named} />);
+    expect(
+      screen.getByText("앞 스텝 상태 조회이(가) orderId 값을 주지 않아 요청을 보내지 않음"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/not sent: blank value in url/)).not.toBeInTheDocument();
+    expect(screen.queryByText("unbound:")).not.toBeInTheDocument();
+  });
+
+  it("steps가 없으면 이름 자리에 step_id", () => {
+    render(<TestRunPanel trace={blockedTrace} />);
+    expect(screen.getByText(new RegExp(`앞 스텝 ${S1}이\\(가\\) orderId`))).toBeInTheDocument();
+  });
+});

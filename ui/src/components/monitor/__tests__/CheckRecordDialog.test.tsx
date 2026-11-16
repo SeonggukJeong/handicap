@@ -526,3 +526,27 @@ describe("CheckRecordDialog", () => {
     expect(btn).toHaveTextContent("GET https://h/x");
   });
 });
+
+describe("CheckRecordDialog 보내지 않은 요청", () => {
+  it("blocked 스텝은 한국어 문구, 원문은 안 보인다 (blocked 없는 에러는 원문)", async () => {
+    getRecord.mockResolvedValue(
+      rec({}, [
+        http({
+          step_id: S2,
+          request: null,
+          response: null,
+          error: "not sent: blank value in url",
+          blocked: { vars: ["orderId", "code"], by_step: S1 },
+        }),
+        http({ step_id: S1, error: "연결 거부" }),
+      ]),
+    );
+    wrap(dlg());
+    const msg = await screen.findByText(
+      "앞 스텝 로그인이(가) orderId, code 값을 주지 않아 요청을 보내지 않음",
+    );
+    expect(msg.className).toMatch(/red/);
+    expect(screen.queryByText(/not sent: blank value in url/)).not.toBeInTheDocument();
+    expect(screen.getByText("연결 거부")).toBeInTheDocument();
+  });
+});

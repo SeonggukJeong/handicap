@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import type { Condition, DisplayItem, PreviewResult as Preview } from "../../api/monitors";
 import { ko } from "../../i18n/ko";
 import { formatMs } from "../../monitor/logic";
+import { traceErrorText } from "../../scenario/blockedText";
 import {
   defaultCondition,
   isSecretName,
@@ -121,6 +122,7 @@ function AddChoice({
 function StepRow({
   step: s,
   name,
+  stepNames,
   onAddCondition,
   conditionCount,
   displayItems,
@@ -128,6 +130,7 @@ function StepRow({
 }: {
   step: TraceStep;
   name: string;
+  stepNames: Record<string, string>;
   onAddCondition?: (c: Condition) => void;
   conditionCount: number;
   displayItems: DisplayItem[];
@@ -198,7 +201,7 @@ function StepRow({
         {s.error != null && (
           <>
             <dt className="text-slate-500">{k.previewError}</dt>
-            <dd className="break-all text-red-700">{s.error}</dd>
+            <dd className="break-all text-red-700">{traceErrorText(s, (id) => stepNames[id])}</dd>
           </>
         )}
       </dl>
@@ -338,6 +341,7 @@ export function PreviewResult({
                 key={`${s.step_id}-${i}`}
                 step={s}
                 name={stepNames[s.step_id] ?? s.step_id}
+                stepNames={stepNames}
                 onAddCondition={addable ? onAddCondition : undefined}
                 conditionCount={conditionCount}
                 displayItems={displayItems}

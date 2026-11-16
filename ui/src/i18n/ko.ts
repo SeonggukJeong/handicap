@@ -12,6 +12,8 @@ export const ko = {
     loadingRuns: "실행 목록 불러오는 중…",
     failedToLoad: (msg: string) => `불러오기 실패: ${msg}`,
     notFound: "찾을 수 없습니다.",
+    blockedByBlank: (step: string, vars: string) =>
+      `앞 스텝 ${step}이(가) ${vars} 값을 주지 않아 요청을 보내지 않음`,
     save: "저장",
     saving: "저장 중…",
     cancel: "취소",
@@ -741,7 +743,7 @@ export const ko = {
     loopKeepThinkHelp:
       "도착률 기준 실행·시험 실행·운영 모니터처럼 think time을 무시하는 실행에서도 이 반복 안에서는 쉽니다. 운영 모니터에서는 재시도와 대기 시간만큼 점검 제한 시간을 넉넉히 잡으세요.",
     loopLenientExtractHelp:
-      "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값은 뒤 스텝의 요청 주소에도 그대로 들어가므로(예: /orders/{{orderId}} → /orders/), 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
+      "이 반복 안에서는 응답에 없는 값을 빈 값으로 두고 에러로 세지 않습니다. 요청이 실패한 스텝이 뽑는 값도 빈 값이 됩니다. 빈 값이 된 값을 뒤 스텝의 요청 주소에 쓰면(예: /orders/{{orderId}}) 그 요청은 보내지 않고 에러로 셉니다. 헤더·본문에는 빈 값이 그대로 들어가므로, 뒤에서 그 값을 쓰기 전에 조건 분기로 확인하세요.",
     loopCondLabelMax: (n: number) => `조건 반복 · 최대 ${n}`,
     loopCondLabelUnlimited: "조건 반복 · 무제한",
     loopJudgeAgain: "조건이 참 → 다시 실행",
@@ -1096,6 +1098,7 @@ export const ko = {
         dns: "DNS 실패",
         tls: "TLS 실패",
         local_port_exhaustion: "테스터 포트 고갈",
+        blank_var: "보내지 않음 (앞 스텝 값 없음)",
         other: "기타",
       } as Record<string, string>,
     },

@@ -5,6 +5,7 @@ import { suggestVarName } from "../../scenario/jsonPath";
 import type { Extract } from "../../scenario/model";
 import { branchText } from "../../scenario/chipResults";
 import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
+import { traceErrorText } from "../../scenario/blockedText";
 import { Callout } from "../ui/Callout";
 import { LoopJudgeRow } from "./LoopJudgeRow";
 import { BodyBlock } from "../response/BodyBlock";
@@ -32,11 +33,16 @@ function chip(text: string, cls: string) {
 
 function HttpRow({
   step,
+  steps,
   onAddExtract,
 }: {
   step: StepTrace;
+  steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
 }) {
+  const errorText = traceErrorText(step, (id) =>
+    steps ? findStepById(steps, id)?.name : undefined,
+  );
   const [open, setOpen] = useState(false);
   // Pending extract shown in an ExtractConfirmRow (header, cookie, or status).
   const [pendingExtract, setPendingExtract] = useState<Extract | null>(null);
@@ -65,7 +71,7 @@ function HttpRow({
         )}
         {extracted.map(([k, v]) => chip(`${k}=${v}`, "bg-indigo-100 text-indigo-800"))}
       </button>
-      {step.error && <div className="mt-1 text-xs text-red-700">{step.error}</div>}
+      {errorText && <div className="mt-1 text-xs text-red-700">{errorText}</div>}
       {step.unbound_vars.length > 0 && (
         <div className="mt-1 flex flex-wrap items-center gap-1">
           <span className="text-xs text-amber-700">unbound:</span>
@@ -232,7 +238,7 @@ export function TraceStepList({
               </li>
             );
           }
-          return <HttpRow key={key} step={step} onAddExtract={onAddExtract} />;
+          return <HttpRow key={key} step={step} steps={steps} onAddExtract={onAddExtract} />;
         })}
       </ul>
     </>

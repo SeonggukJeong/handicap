@@ -12,6 +12,7 @@ import { ko } from "../../i18n/ko";
 import { formatDateHms } from "../../monitor/time";
 import { branchText } from "../../scenario/chipResults";
 import { flattenHttpSteps } from "../../scenario/model";
+import { traceErrorText } from "../../scenario/blockedText";
 import { loopJudgeMeta, type LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { LoopJudgeRow } from "../scenario/LoopJudgeRow";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
@@ -176,6 +177,7 @@ function RecordSteps({
             key={i}
             step={st}
             name={stepNames[st.step_id] ?? st.step_id}
+            stepNames={stepNames}
             defaultOpen={focusIdx >= 0 ? i === focusIdx : only}
             clippedReq={record.clipped.some((c) => c.step === i && c.side === "request")}
             clippedResp={record.clipped.some((c) => c.step === i && c.side === "response")}
@@ -190,6 +192,7 @@ function RecordSteps({
 function StepRow({
   step,
   name,
+  stepNames,
   defaultOpen,
   clippedReq,
   clippedResp,
@@ -197,6 +200,7 @@ function StepRow({
 }: {
   step: StepTrace;
   name: string;
+  stepNames: Record<string, string>;
   defaultOpen: boolean;
   clippedReq: boolean;
   clippedResp: boolean;
@@ -207,6 +211,7 @@ function StepRow({
   const bodyId = useId();
   const req = step.request;
   const resp = step.response;
+  const errorText = traceErrorText(step, (id) => stepNames[id]);
   const summary = [
     name,
     req ? `${req.method} ${req.url}` : null,
@@ -236,7 +241,7 @@ function StepRow({
         )}
         <span className="font-mono">{summary}</span>
       </button>
-      {step.error && <div className="px-2 pb-1 text-xs text-red-600">{step.error}</div>}
+      {errorText && <div className="px-2 pb-1 text-xs text-red-600">{errorText}</div>}
       {open && (
         <div className="space-y-2 border-t border-slate-200 p-2">
           <HeaderTable title={ko.monitor.recordReqHeaders} rows={reqHeaders} />
