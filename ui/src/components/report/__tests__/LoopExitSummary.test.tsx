@@ -50,6 +50,10 @@ describe("LoopExitSummary", () => {
     expect(note).toHaveTextContent("재시도 = ");
     expect(note).toHaveTextContent("중단 = ");
     expect(note).toHaveTextContent("마치지 못함 = ");
+    // 앞 스텝 값이 없어 반복 안 요청을 못 보내 끝난 경우도 마치지 못함이다(blank-var-url-guard).
+    expect(note).toHaveTextContent(
+      "앞 스텝 값이 없어 요청을 보내지 못해 조건 반복 도중에 끊긴 횟수.",
+    );
   });
   it("빈 배열이면 아무것도 그리지 않는다", () => {
     const { container } = render(<LoopExitSummary views={[]} />);

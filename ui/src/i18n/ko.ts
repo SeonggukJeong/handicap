@@ -1049,7 +1049,7 @@ export const ko = {
       summaryHelpExhausted:
         "중단 = 최대 횟수까지 조건이 풀리지 않아 이번 시나리오 반복을 끝낸 횟수.",
       summaryHelpTruncated:
-        "마치지 못함 = run이 끝나거나 중지되어, 또는 오류로 조건 반복 도중에 끊긴 횟수.",
+        "마치지 못함 = run이 끝나거나 중지되어, 오류로, 또는 앞 스텝 값이 없어 요청을 보내지 못해 조건 반복 도중에 끊긴 횟수.",
       panelTitle: "조건 반복",
       panelLabel: "조건 반복 회차 분포",
       panelHeading: (name: string, entered: string) =>
@@ -1063,7 +1063,8 @@ export const ko = {
       kindRetried: "재시도 후 끝남",
       exhaustedNote: (n: string) => `최대 ${n}번까지 조건이 풀리지 않아 이번 반복을 끝냄`,
       exhaustedNoteNoMax: "최대 횟수까지 조건이 풀리지 않아 이번 반복을 끝냄",
-      truncatedNote: "run이 끝나거나 중지되어, 또는 오류로 조건 반복 도중에 끊김",
+      truncatedNote:
+        "run이 끝나거나 중지되어, 오류로, 또는 앞 스텝 값이 없어 요청을 보내지 못해 조건 반복 도중에 끊김",
       legendFirst: "1번째 = 재시도 없이 끝남",
       legendRetried: "2번째 이후 = 재시도 후 끝남",
       barLabel: (row: string, kind: string, count: string, pct: string) =>

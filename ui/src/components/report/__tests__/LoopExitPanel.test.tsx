@@ -79,7 +79,9 @@ describe("LoopExitPanel", () => {
       screen.getByText("최대 5번까지 조건이 풀리지 않아 이번 반복을 끝냄"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("run이 끝나거나 중지되어, 또는 오류로 조건 반복 도중에 끊김"),
+      screen.getByText(
+        "run이 끝나거나 중지되어, 오류로, 또는 앞 스텝 값이 없어 요청을 보내지 못해 조건 반복 도중에 끊김",
+      ),
     ).toBeInTheDocument();
     rerender(<LoopExitPanel views={[view({ maxPasses: null })]} />);
     expect(
