@@ -562,7 +562,7 @@ pub fn pick_other_step(name: &str) -> String {
 }
 pub const PICK_NO_RESPONSE: &str = "응답이 없어 고를 값이 없습니다";
 
-/// `ko.ts` trace 행 문구 — 값은 싣지 않고 변수 이름과 스텝 이름/id만.
+/// `ko.common.blockedByBlank` — 값은 싣지 않고 변수 이름과 스텝 이름/id만.
 pub fn blocked_by_blank(step: &str, vars: &[String]) -> String {
     format!(
         "앞 스텝 {step}이(가) {} 값을 주지 않아 요청을 보내지 않음",

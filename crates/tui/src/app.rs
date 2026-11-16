@@ -4789,3 +4789,101 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
     }
     code
 }
+
+#[cfg(test)]
+mod body_input_tests {
+    use super::*;
+    use crate::inspect::{BodyLineKind, body_lines, step_lines};
+    use crate::names::Names;
+    use handicap_controller::monitor::check::{CheckResult, Verdict};
+    use handicap_engine::{BlockedInfo, ScenarioTrace, StepKind, StepTrace, TracedRequest};
+    use std::collections::BTreeMap;
+
+    const RAW: &str = "not sent: blank value in url";
+    const SENTENCE: &str = "앞 스텝 ZZZ이(가) orderId 값을 주지 않아 요청을 보내지 않음";
+
+    fn row(id: &str, error: &str, blocked: Option<BlockedInfo>) -> StepTrace {
+        StepTrace {
+            step_id: id.into(),
+            kind: StepKind::Http,
+            loop_index: None,
+            branch: None,
+            request: Some(TracedRequest {
+                method: "DELETE".into(),
+                url: "http://h/orders/".into(),
+                headers: BTreeMap::new(),
+                body: None,
+            }),
+            response: None,
+            extracted: BTreeMap::new(),
+            unbound_vars: vec![],
+            error: Some(error.into()),
+            branch_eval: vec![],
+            timed_out: false,
+            blocked,
+        }
+    }
+
+    fn record(steps: Vec<StepTrace>) -> CheckRecord {
+        CheckRecord {
+            at_ms: 1_700_000_000_000,
+            limit_kb: 16,
+            result: CheckResult {
+                at_ms: 1_700_000_000_000,
+                verdict: Verdict::Fail,
+                latency_ms: None,
+                reason: None,
+                detail: None,
+                display: vec![],
+            },
+            trace: Some(ScenarioTrace {
+                ok: false,
+                total_ms: 0,
+                steps,
+                final_vars: BTreeMap::new(),
+                truncated: false,
+                error: None,
+                ended_by_loop: None,
+            }),
+            clipped: vec![],
+        }
+    }
+
+    /// 목록 줄 → 실제 `body_input` → `body_lines`. (blocked_text, Error 줄들)
+    fn through_body_input(rec: &CheckRecord) -> (Option<String>, Vec<String>) {
+        let names = Names::from_bundle(b"{}");
+        let lines = step_lines(rec.trace.as_ref().unwrap(), &names, "S1", None);
+        let input = body_input("점검", rec, lines.first()).expect("http line");
+        let blocked = input.blocked_text.map(str::to_string);
+        let errors = body_lines(&input, 120)
+            .into_iter()
+            .filter(|b| b.kind == BodyLineKind::Error)
+            .map(|b| b.text)
+            .collect();
+        (blocked, errors)
+    }
+
+    #[test]
+    fn blocked_row_body_shows_korean_via_real_body_input() {
+        let rec = record(vec![row(
+            "A02",
+            RAW,
+            Some(BlockedInfo {
+                vars: vec!["orderId".into()],
+                by_step: "ZZZ".into(),
+            }),
+        )]);
+        let (blocked, errors) = through_body_input(&rec);
+        assert_eq!(blocked.as_deref(), Some(SENTENCE));
+        assert_eq!(errors, vec![SENTENCE.to_string()]);
+        assert!(errors.iter().all(|e| !e.contains(RAW)));
+    }
+
+    #[test]
+    fn plain_error_row_body_keeps_raw_via_real_body_input() {
+        let rec = record(vec![row("A02", "boom", None)]);
+        let (blocked, errors) = through_body_input(&rec);
+        assert_eq!(blocked, None);
+        assert_eq!(errors, vec!["boom".to_string()]);
+    }
+}
