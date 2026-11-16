@@ -270,16 +270,18 @@ fn panel_view(
 }
 
 /// 보드 설정 + 폴링 스냅샷 → 칸별 뷰. 스냅샷이 다른 보드 것이면 "status 아직 없음"으로 취급한다.
-/// 머리 줄 점검 간격 원에 필요한 값.
+/// 머리 줄의 다음 점검까지 막대·남은 초에 필요한 값.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dial {
     pub interval_sec: u32,
-    /// 마지막 점검 뒤 지난 시간 ÷ 간격을 4등분한 값(0~4).
-    pub quarters: u8,
+    /// 찬 막대 칸 수(0~`text::DIAL_CELLS`) — 마지막 점검 뒤 지난 시간 ÷ 간격.
+    pub filled: u8,
+    /// 다음 점검까지 남은 초(올림, 지났으면 0).
+    pub remaining_sec: u32,
 }
 
-/// 머리 줄의 (마지막 점검 시각, 점검 간격 원). 마지막 점검 = 칸들의 최근 결과 중 가장 늦은 시작 시각,
-/// 간격 = 칸들 중 가장 짧은 점검 주기. 서버가 끊겼거나 보드가 꺼져 있으면 원은 없다.
+/// 머리 줄의 (마지막 점검 시각, 다음 점검까지 막대). 마지막 점검 = 칸들의 최근 결과 중 가장 늦은 시작 시각,
+/// 간격 = 칸들 중 가장 짧은 점검 주기. 서버가 끊겼거나 보드가 꺼져 있으면 막대는 없다.
 pub fn header_times(board: &BoardResponse, snap: &PollSnapshot) -> (Option<i64>, Option<Dial>) {
     let Some(st) = snap.last.as_ref().filter(|_| snap.board_id == board.id) else {
         return (None, None);
@@ -292,11 +294,13 @@ pub fn header_times(board: &BoardResponse, snap: &PollSnapshot) -> (Option<i64>,
     let interval = board.config.panels.iter().map(|p| p.interval_seconds).min();
     let dial = match (last, interval) {
         (Some(last), Some(interval_sec)) if st.enabled && !snap.server_down && interval_sec > 0 => {
-            let elapsed = st.now_ms.saturating_sub(last).max(0);
-            let quarters = (elapsed.saturating_mul(4) / (i64::from(interval_sec) * 1000)).min(4);
+            let total = i64::from(interval_sec) * 1000;
+            let elapsed = st.now_ms.saturating_sub(last).clamp(0, total);
+            let cells = i64::from(text::DIAL_CELLS);
             Some(Dial {
                 interval_sec,
-                quarters: quarters as u8,
+                filled: (elapsed * cells / total) as u8,
+                remaining_sec: ((total - elapsed + 999) / 1000) as u32,
             })
         }
         _ => None,

@@ -33,16 +33,20 @@ pub fn consecutive(n: u32, hms: &str) -> String {
 /// 머리 줄 점검 상태(끊김이면 `SERVER_DOWN`)
 pub const MONITOR_RUNNING: &str = "점검 중";
 
-/// 머리 줄 오른쪽 끝의 점검 간격 원 — 마지막 점검 뒤 지난 시간만큼 4분의 1씩 차오른다.
-pub fn dial(quarters: u8, interval_sec: u32) -> String {
-    let glyph = match quarters {
-        0 => '○',
-        1 => '◔',
-        2 => '◑',
-        3 => '◕',
-        _ => '●',
-    };
-    format!("{glyph} {interval_sec}초")
+/// 머리 줄 시각 앞 이름표 — 이 시각이 현재 시각이 아니라는 표시.
+pub const LAST_CHECK: &str = "마지막 점검";
+/// 머리 줄 막대 칸 수.
+pub const DIAL_CELLS: u8 = 6;
+
+/// 머리 줄 오른쪽 끝의 다음 점검까지 막대 + 남은 초. 숫자 자리는 간격 자릿수로 고정(줄 끝이 흔들리지 않게).
+pub fn dial(filled: u8, remaining_sec: u32, interval_sec: u32) -> String {
+    let filled = usize::from(filled.min(DIAL_CELLS));
+    let width = interval_sec.to_string().len();
+    format!(
+        "{}{} {remaining_sec:>width$}초",
+        "▰".repeat(filled),
+        "▱".repeat(usize::from(DIAL_CELLS) - filled),
+    )
 }
 
 /// 키 안내 줄 조각 — 좁으면 앞에서부터 통째로 뺀다(마지막 `q 종료`는 끝까지 남는다).
