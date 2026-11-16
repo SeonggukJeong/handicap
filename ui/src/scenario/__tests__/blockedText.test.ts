@@ -20,6 +20,15 @@ describe("traceErrorText", () => {
     const t = traceErrorText({ error: RAW, blocked: { vars: ["a"], by_step: "S9" } }, names);
     expect(t).toContain("S9");
   });
+  it("이름이 빈 문자열/공백이면 id로 대체", () => {
+    const b = { error: RAW, blocked: { vars: ["a"], by_step: "S1" } };
+    expect(traceErrorText(b, () => "")).toBe(
+      "앞 스텝 S1이(가) a 값을 주지 않아 요청을 보내지 않음",
+    );
+    expect(traceErrorText(b, () => "  ")).toBe(
+      "앞 스텝 S1이(가) a 값을 주지 않아 요청을 보내지 않음",
+    );
+  });
   it("blocked 없으면 error 그대로", () => {
     expect(traceErrorText({ error: "status 500 != 200" }, names)).toBe("status 500 != 200");
   });

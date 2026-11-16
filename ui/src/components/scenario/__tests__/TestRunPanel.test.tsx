@@ -389,7 +389,7 @@ describe("TestRunPanel 보내지 않은 요청", () => {
         request: null,
         response: null,
         extracted: {},
-        unbound_vars: [],
+        unbound_vars: ["x"],
         error: "not sent: blank value in url",
         blocked: { vars: ["orderId"], by_step: S1 },
       },
@@ -413,6 +413,20 @@ describe("TestRunPanel 보내지 않은 요청", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/not sent: blank value in url/)).not.toBeInTheDocument();
     expect(screen.queryByText("unbound:")).not.toBeInTheDocument();
+  });
+
+  it("blocked 아닌 http 행은 unbound 칩을 그대로 보인다", () => {
+    render(
+      <TestRunPanel
+        trace={{
+          ...blockedTrace,
+          steps: [{ ...blockedTrace.steps[0], blocked: undefined, error: "boom" }],
+        }}
+        steps={named}
+      />,
+    );
+    expect(screen.getByText("unbound:")).toBeInTheDocument();
+    expect(screen.getByText("x")).toBeInTheDocument();
   });
 
   it("steps가 없으면 이름 자리에 step_id", () => {

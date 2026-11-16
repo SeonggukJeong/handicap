@@ -9,7 +9,8 @@ export function traceErrorText(
   if (!step.error) return null;
   if (step.blocked) {
     const { vars, by_step } = step.blocked;
-    return ko.common.blockedByBlank(stepName(by_step) ?? by_step, vars.join(", "));
+    const name = stepName(by_step);
+    return ko.common.blockedByBlank(name && name.trim() !== "" ? name : by_step, vars.join(", "));
   }
   return step.error;
 }

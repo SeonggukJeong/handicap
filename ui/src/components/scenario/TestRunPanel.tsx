@@ -72,7 +72,7 @@ function HttpRow({
         {extracted.map(([k, v]) => chip(`${k}=${v}`, "bg-indigo-100 text-indigo-800"))}
       </button>
       {errorText && <div className="mt-1 text-xs text-red-700">{errorText}</div>}
-      {step.unbound_vars.length > 0 && (
+      {!step.blocked && step.unbound_vars.length > 0 && (
         <div className="mt-1 flex flex-wrap items-center gap-1">
           <span className="text-xs text-amber-700">unbound:</span>
           {step.unbound_vars.map((v) => chip(v, "bg-amber-100 text-amber-800"))}
