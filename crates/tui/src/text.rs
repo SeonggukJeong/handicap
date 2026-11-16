@@ -570,6 +570,24 @@ pub fn blocked_by_blank(step: &str, vars: &[String]) -> String {
     )
 }
 
+/// `ko.common.defaultedNames` — 기본값이 들어간 변수 이름만(값은 싣지 않는다).
+pub fn defaulted_names(names: &[String]) -> String {
+    format!("기본값 사용: {}", names.join(", "))
+}
+
+#[cfg(test)]
+mod defaulted_tests {
+    use super::*;
+
+    #[test]
+    fn defaulted_names_joins() {
+        assert_eq!(
+            defaulted_names(&["orderId".to_string(), "cursor".to_string()]),
+            "기본값 사용: orderId, cursor"
+        );
+    }
+}
+
 #[cfg(test)]
 mod blocked_tests {
     use super::*;

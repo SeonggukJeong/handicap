@@ -1603,6 +1603,43 @@ fn request_body_hidden_until_reveal() {
 }
 
 #[test]
+fn body_lines_defaulted_note_between_summary_and_headers() {
+    let mut s = body_step(None, Some("x"));
+    s.defaulted = vec!["orderId".into()];
+    let l = body_lines(&binput(&s), 80);
+    let notes: Vec<usize> = (0..l.len())
+        .filter(|&i| l[i].kind == BodyLineKind::Note && l[i].text == "기본값 사용: orderId")
+        .collect();
+    assert_eq!(notes.len(), 1, "{l:?}");
+    let sum = l
+        .iter()
+        .position(|b| b.kind == BodyLineKind::Summary)
+        .unwrap();
+    let head = l.iter().position(|b| b.text == "요청 헤더").unwrap();
+    assert!(
+        sum < notes[0] && notes[0] < head,
+        "{sum} {} {head}",
+        notes[0]
+    );
+
+    let s2 = body_step(None, Some("x"));
+    let l2 = body_lines(&binput(&s2), 80);
+    assert!(!l2.iter().any(|b| b.text.contains("기본값 사용")), "{l2:?}");
+}
+
+#[test]
+fn body_lines_defaulted_names_are_sanitized() {
+    let mut s = body_step(None, Some("x"));
+    s.defaulted = vec!["a\u{202e}b".into()];
+    let l = body_lines(&binput(&s), 80);
+    assert!(
+        l.iter().any(|b| b.text.starts_with("기본값 사용: a")),
+        "{l:?}"
+    );
+    assert!(l.iter().all(|b| !b.text.contains('\u{202e}')), "{l:?}");
+}
+
+#[test]
 fn body_lines_sections_and_notes() {
     let s = body_step(None, Some("line1\nline2"));
     let l = body_lines(&binput(&s), 80);

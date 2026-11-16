@@ -536,6 +536,17 @@ mod tests {
     }
 
     #[test]
+    fn record_keeps_defaulted_names_but_clears_values() {
+        let mut s = step(Some(req("https://h", &[], None)), None);
+        s.extracted.insert("orderId".into(), "none".into());
+        s.defaulted = vec!["orderId".into()];
+        let body = build_record_body(Some(trace(vec![s])), BIG);
+        let s = &body.trace.as_ref().unwrap().steps[0];
+        assert!(s.extracted.is_empty());
+        assert_eq!(s.defaulted, vec!["orderId".to_string()]);
+    }
+
+    #[test]
     fn budget_exact_not_clipped() {
         let body = "a".repeat(16 * 1024);
         let rec = build_record(

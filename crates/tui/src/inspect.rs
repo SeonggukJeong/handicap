@@ -815,6 +815,9 @@ pub fn body_lines(i: &BodyInput, width: usize) -> Vec<BodyLine> {
     if let Some(e) = i.blocked_text.or(step.error.as_deref()) {
         l.wrapped(BodyLineKind::Error, e);
     }
+    if !step.defaulted.is_empty() {
+        l.wrapped(BodyLineKind::Note, &text::defaulted_names(&step.defaulted));
+    }
     if step.timed_out {
         l.fixed(BodyLineKind::Note, text::TIMED_OUT);
     }
