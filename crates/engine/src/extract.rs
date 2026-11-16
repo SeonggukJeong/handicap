@@ -31,66 +31,70 @@ pub fn evaluate(
 ) -> Result<BTreeMap<String, String>> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut body_json: Option<serde_json::Value> = None;
-
     for e in extracts {
-        match e {
-            Extract::Body {
-                var,
-                path,
-                decode,
-                claim,
-            } => {
-                let json = match body_json.as_ref() {
-                    Some(v) => v,
-                    None => {
-                        let v: serde_json::Value =
-                            serde_json::from_slice(facts.body).map_err(|e| {
-                                EngineError::ExtractFailed(format!("body not JSON: {e}"))
-                            })?;
-                        body_json = Some(v);
-                        body_json.as_ref().unwrap()
-                    }
-                };
-                let value = jsonpath_first(json, path)
-                    .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
-                let v = post_process(var, stringify(&value), *decode, claim.as_deref())?;
-                out.insert(var.clone(), v);
-            }
-            Extract::Header {
-                var,
-                name,
-                decode,
-                claim,
-            } => {
-                let value = facts
-                    .headers
-                    .iter()
-                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                    .map(|(_, v)| v.clone())
-                    .ok_or_else(|| EngineError::ExtractFailed(format!("no header: {name}")))?;
-                let v = post_process(var, value, *decode, claim.as_deref())?;
-                out.insert(var.clone(), v);
-            }
-            Extract::Cookie {
-                var,
-                name,
-                decode,
-                claim,
-            } => {
-                let value = facts
-                    .set_cookies
-                    .iter()
-                    .find_map(|sc| parse_cookie_value(sc, name))
-                    .ok_or_else(|| EngineError::ExtractFailed(format!("no cookie: {name}")))?;
-                let v = post_process(var, value, *decode, claim.as_deref())?;
-                out.insert(var.clone(), v);
-            }
-            Extract::Status { var } => {
-                out.insert(var.clone(), facts.status.to_string());
-            }
-        }
+        let v = strict_item(e, facts, &mut body_json)?;
+        out.insert(e.var().to_string(), v);
     }
     Ok(out)
+}
+
+/// One item under the strict rules (body JSON parsed once, lazily).
+fn strict_item(
+    e: &Extract,
+    facts: &ResponseFacts<'_>,
+    body_json: &mut Option<serde_json::Value>,
+) -> Result<String> {
+    match e {
+        Extract::Body {
+            var,
+            path,
+            decode,
+            claim,
+            ..
+        } => {
+            let json = match body_json {
+                Some(v) => v,
+                None => {
+                    let v: serde_json::Value = serde_json::from_slice(facts.body)
+                        .map_err(|e| EngineError::ExtractFailed(format!("body not JSON: {e}")))?;
+                    body_json.insert(v)
+                }
+            };
+            let value = jsonpath_first(json, path)
+                .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
+            post_process(var, stringify(&value), *decode, claim.as_deref())
+        }
+        Extract::Header {
+            var,
+            name,
+            decode,
+            claim,
+            ..
+        } => {
+            let value = facts
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.clone())
+                .ok_or_else(|| EngineError::ExtractFailed(format!("no header: {name}")))?;
+            post_process(var, value, *decode, claim.as_deref())
+        }
+        Extract::Cookie {
+            var,
+            name,
+            decode,
+            claim,
+            ..
+        } => {
+            let value = facts
+                .set_cookies
+                .iter()
+                .find_map(|sc| parse_cookie_value(sc, name))
+                .ok_or_else(|| EngineError::ExtractFailed(format!("no cookie: {name}")))?;
+            post_process(var, value, *decode, claim.as_deref())
+        }
+        Extract::Status { .. } => Ok(facts.status.to_string()),
+    }
 }
 
 /// Lenient sibling of [`evaluate`]: each item is evaluated on its own; found
@@ -105,90 +109,166 @@ pub fn evaluate_lenient(
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     // Body JSON parse outcome, computed once and shared by every Body item.
     let mut body_json: Option<Option<serde_json::Value>> = None;
-
     for e in extracts {
-        match e {
-            Extract::Body {
-                var,
-                path,
-                decode,
-                claim,
-            } => {
-                let json = body_json
-                    .get_or_insert_with(|| serde_json::from_slice(facts.body).ok())
-                    .as_ref();
-                let Some(json) = json else { continue };
-                // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
-                // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
-                let Some(value) = jsonpath_first(json, path).filter(|v| !v.is_null()) else {
-                    continue;
-                };
-                if let Some(v) =
-                    post_process_lenient(var, stringify(&value), *decode, claim.as_deref())
-                {
-                    out.insert(var.clone(), v);
-                }
-            }
-            Extract::Header {
-                var,
-                name,
-                decode,
-                claim,
-            } => {
-                let Some(value) = facts
-                    .headers
-                    .iter()
-                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                    .map(|(_, v)| v.clone())
-                else {
-                    continue;
-                };
-                if let Some(v) = post_process_lenient(var, value, *decode, claim.as_deref()) {
-                    out.insert(var.clone(), v);
-                }
-            }
-            Extract::Cookie {
-                var,
-                name,
-                decode,
-                claim,
-            } => {
-                let Some(value) = facts
-                    .set_cookies
-                    .iter()
-                    .find_map(|sc| parse_cookie_value(sc, name))
-                else {
-                    continue;
-                };
-                if let Some(v) = post_process_lenient(var, value, *decode, claim.as_deref()) {
-                    out.insert(var.clone(), v);
-                }
-            }
-            Extract::Status { var } => {
-                out.insert(var.clone(), facts.status.to_string());
-            }
+        if let Some(v) = lenient_item(e, facts, &mut body_json) {
+            out.insert(e.var().to_string(), v);
         }
     }
     out
 }
 
-/// Names declared by `step.extract` that are absent from `extracted` get `""` in
-/// both `iter_vars` and `extracted`. Returns the names filled.
-pub fn blank_missing_extracts(
+/// One item under the lenient rules; `None` = "could not extract".
+fn lenient_item(
+    e: &Extract,
+    facts: &ResponseFacts<'_>,
+    body_json: &mut Option<Option<serde_json::Value>>,
+) -> Option<String> {
+    match e {
+        Extract::Body {
+            var,
+            path,
+            decode,
+            claim,
+            ..
+        } => {
+            let json = body_json
+                .get_or_insert_with(|| serde_json::from_slice(facts.body).ok())
+                .as_ref()?;
+            // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
+            // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
+            let value = jsonpath_first(json, path).filter(|v| !v.is_null())?;
+            post_process_lenient(var, stringify(&value), *decode, claim.as_deref())
+        }
+        Extract::Header {
+            var,
+            name,
+            decode,
+            claim,
+            ..
+        } => {
+            let value = facts
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.clone())?;
+            post_process_lenient(var, value, *decode, claim.as_deref())
+        }
+        Extract::Cookie {
+            var,
+            name,
+            decode,
+            claim,
+            ..
+        } => {
+            let value = facts
+                .set_cookies
+                .iter()
+                .find_map(|sc| parse_cookie_value(sc, name))?;
+            post_process_lenient(var, value, *decode, claim.as_deref())
+        }
+        Extract::Status { .. } => Some(facts.status.to_string()),
+    }
+}
+
+/// Result of [`evaluate_with_defaults`].
+#[derive(Debug)]
+pub struct StrictOutcome {
+    pub extracted: BTreeMap<String, String>,
+    pub error: Option<EngineError>,
+}
+
+/// Strict evaluation where items with a `default` are lenient (a failure just
+/// skips them so [`fill_missing_extracts`] can supply the default). Every item
+/// is evaluated in declaration order. Items without a `default` follow
+/// [`evaluate`]'s rules and messages; the first such failure becomes `error`.
+/// On error `extracted` keeps only values from `default` items.
+pub fn evaluate_with_defaults(extracts: &[Extract], facts: &ResponseFacts<'_>) -> StrictOutcome {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    let mut from_default_items: BTreeMap<String, String> = BTreeMap::new();
+    let mut error: Option<EngineError> = None;
+    let mut strict_json: Option<serde_json::Value> = None;
+    let mut lenient_json: Option<Option<serde_json::Value>> = None;
+    for e in extracts {
+        if e.default_value().is_some() {
+            if let Some(v) = lenient_item(e, facts, &mut lenient_json) {
+                from_default_items.insert(e.var().to_string(), v.clone());
+                out.insert(e.var().to_string(), v);
+            }
+            continue;
+        }
+        match strict_item(e, facts, &mut strict_json) {
+            Ok(v) => {
+                out.insert(e.var().to_string(), v);
+            }
+            Err(err) => {
+                if error.is_none() {
+                    error = Some(err);
+                }
+            }
+        }
+    }
+    StrictOutcome {
+        extracted: if error.is_some() {
+            from_default_items
+        } else {
+            out
+        },
+        error,
+    }
+}
+
+/// True when any item declares a `default`.
+pub fn has_default(extracts: &[Extract]) -> bool {
+    extracts.iter().any(|e| e.default_value().is_some())
+}
+
+/// Names filled by [`fill_missing_extracts`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Filled {
+    pub blanked: Vec<String>,
+    pub defaulted: Vec<String>,
+}
+
+/// Declared names absent from `extracted` get their `default` (the last item
+/// of that name that has one) in both `extracted` and `iter_vars`; otherwise,
+/// when `blank`, `""`. Duplicate names are handled once, in first-seen order.
+pub fn fill_missing_extracts(
     step: &HttpStep,
     extracted: &mut BTreeMap<String, String>,
     iter_vars: &mut BTreeMap<String, String>,
-) -> Vec<String> {
-    let mut blanked = Vec::new();
+    blank: bool,
+) -> Filled {
+    if !blank && !has_default(&step.extract) {
+        return Filled::default();
+    }
+    let mut filled = Filled::default();
+    let mut seen: Vec<&str> = Vec::new();
     for e in &step.extract {
         let var = e.var();
-        if !extracted.contains_key(var) {
+        if seen.contains(&var) {
+            continue;
+        }
+        seen.push(var);
+        if extracted.contains_key(var) {
+            continue;
+        }
+        let default = step
+            .extract
+            .iter()
+            .rev()
+            .filter(|x| x.var() == var)
+            .find_map(Extract::default_value);
+        if let Some(d) = default {
+            extracted.insert(var.to_string(), d.to_string());
+            iter_vars.insert(var.to_string(), d.to_string());
+            filled.defaulted.push(var.to_string());
+        } else if blank {
             extracted.insert(var.to_string(), String::new());
             iter_vars.insert(var.to_string(), String::new());
-            blanked.push(var.to_string());
+            filled.blanked.push(var.to_string());
         }
     }
-    blanked
+    filled
 }
 
 pub fn jsonpath_first(json: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
@@ -470,6 +550,7 @@ mod tests {
             path: path.into(),
             decode: None,
             claim: None,
+            default: None,
         }
     }
 
@@ -494,6 +575,7 @@ mod tests {
                 name: "X-Rid".into(),
                 decode: None,
                 claim: None,
+                default: None,
             },
         ];
         let headers = vec![("x-rid".to_string(), "R1".to_string())];
@@ -511,6 +593,7 @@ mod tests {
                 path: "$.t".into(),
                 decode: Some(Decode::Jwt),
                 claim: Some("sub".into()),
+                default: None,
             },
             body_extract("code", "$.code"),
         ];
@@ -560,18 +643,21 @@ mod tests {
                 path: "$.t".into(),
                 decode: Some(Decode::Jwt),
                 claim: Some(claim.into()),
+                default: None,
             },
             Extract::Header {
                 var: "h".into(),
                 name: "X-T".into(),
                 decode: Some(Decode::Jwt),
                 claim: Some(claim.into()),
+                default: None,
             },
             Extract::Cookie {
                 var: "c".into(),
                 name: "t".into(),
                 decode: Some(Decode::Jwt),
                 claim: Some(claim.into()),
+                default: None,
             },
         ]
     }
@@ -656,7 +742,7 @@ mod tests {
             ("orderId".to_string(), "old".to_string()),
             ("other".to_string(), "x".to_string()),
         ]);
-        let blanked = blank_missing_extracts(&step, &mut extracted, &mut iter_vars);
+        let blanked = fill_missing_extracts(&step, &mut extracted, &mut iter_vars, true).blanked;
         assert_eq!(blanked, vec!["orderId".to_string()]);
         assert_eq!(iter_vars.get("orderId").map(String::as_str), Some(""));
         assert_eq!(iter_vars.get("other").map(String::as_str), Some("x"));
@@ -784,6 +870,7 @@ mod tests {
                 claim: None,
                 var: "v".into(),
                 path: "$.v".into(),
+                default: None,
             }];
             let out = evaluate(&xs, &facts).unwrap();
             assert_eq!(out["v"], want, "text for {lit}");
@@ -804,6 +891,7 @@ mod tests {
             claim: None,
             var: "token".into(),
             path: "$.access_token".into(),
+            default: None,
         }];
         let out = evaluate(&xs, &facts).unwrap();
         assert_eq!(out.get("token").map(String::as_str), Some("T0K3N"));
@@ -817,6 +905,7 @@ mod tests {
             claim: None,
             var: "id".into(),
             path: "$.id".into(),
+            default: None,
         }];
         let out = evaluate(&xs, &facts).unwrap();
         assert_eq!(out.get("id").map(String::as_str), Some("42"));
@@ -830,6 +919,7 @@ mod tests {
             claim: None,
             var: "t".into(),
             path: "$.nope".into(),
+            default: None,
         }];
         assert!(matches!(
             evaluate(&xs, &facts),
@@ -845,6 +935,7 @@ mod tests {
             claim: None,
             var: "t".into(),
             path: "$.a".into(),
+            default: None,
         }];
         assert!(matches!(
             evaluate(&xs, &facts),
@@ -866,6 +957,7 @@ mod tests {
             claim: None,
             var: "tr".into(),
             name: "x-trace".into(),
+            default: None,
         }];
         let out = evaluate(&xs, &facts).unwrap();
         assert_eq!(out.get("tr").map(String::as_str), Some("abc"));
@@ -879,6 +971,7 @@ mod tests {
             claim: None,
             var: "x".into(),
             name: "X-None".into(),
+            default: None,
         }];
         assert!(matches!(
             evaluate(&xs, &facts),
@@ -900,6 +993,7 @@ mod tests {
             claim: None,
             var: "jsession".into(),
             name: "JSESSIONID".into(),
+            default: None,
         }];
         let out = evaluate(&xs, &facts).unwrap();
         assert_eq!(out.get("jsession").map(String::as_str), Some("abc123"));
@@ -913,6 +1007,7 @@ mod tests {
             claim: None,
             var: "x".into(),
             name: "None".into(),
+            default: None,
         }];
         assert!(matches!(
             evaluate(&xs, &facts),
@@ -943,12 +1038,14 @@ mod tests {
                 claim: None,
                 var: "first".into(),
                 path: "$.a".into(),
+                default: None,
             },
             Extract::Body {
                 decode: None,
                 claim: None,
                 var: "second".into(),
                 path: "$.b".into(),
+                default: None,
             },
         ];
         let out = evaluate(&xs, &facts).unwrap();
@@ -971,6 +1068,7 @@ mod tests {
             name: "X-V".into(),
             decode: Some(decode),
             claim: claim.map(Into::into),
+            default: None,
         }
     }
 
@@ -1133,6 +1231,7 @@ mod tests {
             name: "X-V".into(),
             decode: None,
             claim: Some("$.k".into()),
+            default: None,
         };
         let m = err_msg(evaluate(&[x], &header_facts(&headers)));
         assert_no_leak(&m, "h", Some("$.k"), &["zq9Xw8"]);
@@ -1153,6 +1252,7 @@ mod tests {
             name: "SID".into(),
             decode: Some(Decode::Base64),
             claim: None,
+            default: None,
         };
         let out = evaluate(&[x], &facts).unwrap();
         assert_eq!(out.get("sid").map(String::as_str), Some("tok:42"));
@@ -1166,6 +1266,7 @@ mod tests {
             path: "$.access_token".into(),
             decode: Some(Decode::Jwt),
             claim: Some("$.sub".into()),
+            default: None,
         };
         let out = evaluate(&[x], &body_facts(&body)).unwrap();
         assert_eq!(out.get("uid").map(String::as_str), Some("u-9f3k"));
@@ -1179,8 +1280,159 @@ mod tests {
             name: "X-None".into(),
             decode: Some(Decode::Jwt),
             claim: Some("$.sub".into()),
+            default: None,
         };
         let m = err_msg(evaluate(&[x], &body_facts("")));
         assert_eq!(m, "no header: X-None");
+    }
+
+    fn ys(y: &str) -> Vec<Extract> {
+        serde_yaml::from_str(y).unwrap()
+    }
+
+    fn step_with(extract: Vec<Extract>) -> HttpStep {
+        use crate::scenario::{DisabledRows, HttpMethod, Request};
+        HttpStep {
+            id: "01HX0000000000000000000001".into(),
+            name: "s".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: "http://x".into(),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract,
+            timeout_seconds: None,
+            think_time: None,
+        }
+    }
+
+    #[test]
+    fn strict_default_items_skip_all_seven_failures() {
+        let jwt = jwt_with(r#"{"n":null}"#);
+        let body = format!(r#"{{"a":"A","n":null,"bad":"!!!","jwt":"{jwt}"}}"#);
+        let items = ys(r#"
+- {var: f_path, from: body, path: $.zz, default: d}
+- {var: f_null, from: body, path: $.n, default: d}
+- {var: f_header, from: header, name: X-None, default: d}
+- {var: f_cookie, from: cookie, name: none, default: d}
+- {var: f_decode, from: body, path: $.bad, decode: base64, default: d}
+- {var: f_claim_missing, from: body, path: $.jwt, decode: jwt, claim: $.missing, default: d}
+- {var: f_claim_null, from: body, path: $.jwt, decode: jwt, claim: $.n, default: d}
+"#);
+        let facts = body_facts(&body);
+        let o = evaluate_with_defaults(&items, &facts);
+        assert!(o.error.is_none(), "{:?}", o.error);
+        for v in [
+            "f_path",
+            "f_null",
+            "f_header",
+            "f_cookie",
+            "f_decode",
+            "f_claim_missing",
+            "f_claim_null",
+        ] {
+            assert!(!o.extracted.contains_key(v), "{v}: {:?}", o.extracted);
+        }
+        assert!(o.extracted.is_empty(), "{:?}", o.extracted);
+        // 일곱째 실패 종류: 본문이 JSON이 아님.
+        let items = ys("- {var: f_nonjson, from: body, path: $.a, default: d}\n");
+        let o = evaluate_with_defaults(&items, &body_facts("not json"));
+        assert!(o.error.is_none(), "{:?}", o.error);
+        assert!(!o.extracted.contains_key("f_nonjson"));
+    }
+
+    #[test]
+    fn strict_keeps_later_default_item_value_on_err() {
+        let items = ys(r#"
+- {var: x, from: body, path: $.zz}
+- {var: a, from: body, path: $.a, default: d}
+"#);
+        let facts = body_facts(r#"{"a":"A"}"#);
+        let want = evaluate(&items[..1], &facts).unwrap_err().to_string();
+        let o = evaluate_with_defaults(&items, &facts);
+        assert_eq!(o.error.unwrap().to_string(), want);
+        assert_eq!(o.extracted.get("a").map(String::as_str), Some("A"));
+        assert!(!o.extracted.contains_key("x"));
+    }
+
+    #[test]
+    fn strict_err_drops_values_of_items_without_default() {
+        let items = ys(r#"
+- {var: k, from: body, path: $.a}
+- {var: x, from: body, path: $.zz}
+- {var: a, from: body, path: $.a, default: d}
+"#);
+        let o = evaluate_with_defaults(&items, &body_facts(r#"{"a":"A"}"#));
+        assert!(o.error.is_some());
+        assert_eq!(
+            o.extracted,
+            BTreeMap::from([("a".to_string(), "A".to_string())])
+        );
+    }
+
+    #[test]
+    fn strict_without_failure_matches_evaluate_for_non_default_items() {
+        let items = ys(r#"
+- {var: k, from: body, path: $.a}
+- {var: n, from: body, path: $.n}
+- {var: a, from: body, path: $.n, default: d}
+"#);
+        let o = evaluate_with_defaults(&items, &body_facts(r#"{"a":"A","n":null}"#));
+        assert!(o.error.is_none());
+        assert_eq!(
+            o.extracted,
+            BTreeMap::from([
+                ("k".to_string(), "A".to_string()),
+                ("n".to_string(), String::new())
+            ])
+        );
+    }
+
+    #[test]
+    fn fill_table_four_cells_and_duplicate_rule() {
+        let step = step_with(ys(r#"
+- {var: a, from: body, path: $.a, default: d1}
+- {var: a, from: body, path: $.a, default: d2}
+- {var: b, from: body, path: $.b}
+- {var: c, from: body, path: $.c, default: dc}
+"#));
+        for blank in [true, false] {
+            let mut extracted = BTreeMap::from([("c".to_string(), "C".to_string())]);
+            let mut iter_vars = BTreeMap::new();
+            let f = fill_missing_extracts(&step, &mut extracted, &mut iter_vars, blank);
+            assert_eq!(f.defaulted, vec!["a".to_string()], "blank={blank}");
+            assert_eq!(extracted.get("a").map(String::as_str), Some("d2"));
+            assert_eq!(iter_vars.get("a").map(String::as_str), Some("d2"));
+            assert_eq!(extracted.get("c").map(String::as_str), Some("C"));
+            assert!(!iter_vars.contains_key("c"));
+            if blank {
+                assert_eq!(f.blanked, vec!["b".to_string()]);
+                assert_eq!(extracted.get("b").map(String::as_str), Some(""));
+                assert_eq!(iter_vars.get("b").map(String::as_str), Some(""));
+            } else {
+                assert!(f.blanked.is_empty());
+                assert!(!extracted.contains_key("b"));
+                assert!(!iter_vars.contains_key("b"));
+            }
+        }
+        // 한 이름을 [default d1, default 없음]으로 선언하고 못 뽑으면 default 있는 마지막 항목.
+        let step = step_with(ys(r#"
+- {var: a, from: body, path: $.a, default: d1}
+- {var: a, from: body, path: $.a}
+"#));
+        let mut extracted = BTreeMap::new();
+        let mut iter_vars = BTreeMap::new();
+        let f = fill_missing_extracts(&step, &mut extracted, &mut iter_vars, true);
+        assert_eq!(extracted.get("a").map(String::as_str), Some("d1"));
+        assert_eq!(f.defaulted, vec!["a".to_string()]);
+        assert!(f.blanked.is_empty());
+        // 조건 반복 밖 + 기본값 없음 = 아무것도 안 한다.
+        let step = step_with(ys("- {var: b, from: body, path: $.b}\n"));
+        let mut extracted = BTreeMap::new();
+        let f = fill_missing_extracts(&step, &mut extracted, &mut iter_vars, false);
+        assert!(f.blanked.is_empty() && f.defaulted.is_empty() && extracted.is_empty());
     }
 }

@@ -49,36 +49,42 @@ fn arb_extract() -> impl Strategy<Value = Extract> {
             "[a-zA-Z_][a-zA-Z0-9_.$]{0,16}",
             option::of(arb_decode()),
             option::of("\\$\\.[a-z]{1,8}"),
+            option::of("[a-z0-9_-]{1,12}"),
         )
-            .prop_map(|(var, path, decode, claim)| Extract::Body {
+            .prop_map(|(var, path, decode, claim, default)| Extract::Body {
                 var,
                 path: format!("${path}"),
                 decode,
                 claim,
+                default,
             }),
         (
             arb_ident(),
             "[A-Za-z][A-Za-z0-9-]{0,20}",
             option::of(arb_decode()),
             option::of("\\$\\.[a-z]{1,8}"),
+            option::of("[a-z0-9_-]{1,12}"),
         )
-            .prop_map(|(var, name, decode, claim)| Extract::Header {
+            .prop_map(|(var, name, decode, claim, default)| Extract::Header {
                 var,
                 name,
                 decode,
-                claim
+                claim,
+                default
             }),
         (
             arb_ident(),
             "[A-Za-z][A-Za-z0-9_]{0,20}",
             option::of(arb_decode()),
             option::of("\\$\\.[a-z]{1,8}"),
+            option::of("[a-z0-9_-]{1,12}"),
         )
-            .prop_map(|(var, name, decode, claim)| Extract::Cookie {
+            .prop_map(|(var, name, decode, claim, default)| Extract::Cookie {
                 var,
                 name,
                 decode,
-                claim
+                claim,
+                default
             }),
         arb_ident().prop_map(|var| Extract::Status { var }),
     ]
@@ -367,8 +373,8 @@ proptest! {
             body: body.as_bytes(),
         };
         let xs = vec![
-            Extract::Header { var: "h".into(), name: "X-T".into(), decode: None, claim: None },
-            Extract::Cookie { var: "c".into(), name: name.clone(), decode: None, claim: None },
+            Extract::Header { var: "h".into(), name: "X-T".into(), decode: None, claim: None, default: None },
+            Extract::Cookie { var: "c".into(), name: name.clone(), decode: None, claim: None, default: None },
             Extract::Status { var: "s".into() },
         ];
         let a = evaluate_extracts(&xs, &facts);

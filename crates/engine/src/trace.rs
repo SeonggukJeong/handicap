@@ -186,7 +186,7 @@ use std::time::Instant;
 
 use crate::blank_guard::{self, BLOCKED_ERROR, BlankTable};
 use crate::executor::{ExtractMode, VuClient, execute_step_traced_with, method_parts};
-use crate::extract::blank_missing_extracts;
+use crate::extract::fill_missing_extracts;
 use crate::pacing::ThinkTime;
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::runner::select_branch;
@@ -520,7 +520,8 @@ async fn trace_steps(
                 if let Some(b) = blocked {
                     let mut extracted = BTreeMap::new();
                     if in_cond_loop {
-                        let names = blank_missing_extracts(http, &mut extracted, iter_vars);
+                        let names =
+                            fill_missing_extracts(http, &mut extracted, iter_vars, true).blanked;
                         blank_guard::note_step(blanked, &http.id, &extracted, &names);
                     }
                     state.requests += 1;
@@ -564,7 +565,7 @@ async fn trace_steps(
                         rg.mark_written(t.extracted.keys());
                     }
                     let names = if in_cond_loop {
-                        blank_missing_extracts(http, &mut t.extracted, iter_vars)
+                        fill_missing_extracts(http, &mut t.extracted, iter_vars, true).blanked
                     } else {
                         Vec::new()
                     };

@@ -696,6 +696,7 @@ mod tests {
             claim: None,
             var: var.into(),
             path: path.into(),
+            default: None,
         };
         HttpStep {
             id: "01HX0000000000000000000009".into(),
@@ -905,6 +906,7 @@ mod tests {
                 claim: None,
                 var: "token".into(),
                 path: "$.access_token".into(),
+                default: None,
             }],
             timeout_seconds: None,
             think_time: None,
@@ -962,12 +964,14 @@ mod tests {
                     path: "$.access_token".into(),
                     decode: Some(Decode::Jwt),
                     claim: Some("$.sub".into()),
+                    default: None,
                 },
                 Extract::Header {
                     var: "tenant".into(),
                     name: "Authorization".into(),
                     decode: Some(Decode::Jwt),
                     claim: Some("$.tenant".into()),
+                    default: None,
                 },
             ],
             timeout_seconds: None,
@@ -1023,6 +1027,7 @@ mod tests {
                 claim: None,
                 var: "t".into(),
                 path: "$.no".into(),
+                default: None,
             }],
             timeout_seconds: None,
             think_time: None,

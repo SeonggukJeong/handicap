@@ -22,7 +22,7 @@ use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result, safe_cause};
 use crate::error_kind::ErrorKind;
 use crate::executor::{ExtractMode, VuClient, execute_step_with};
-use crate::extract::blank_missing_extracts;
+use crate::extract::fill_missing_extracts;
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::scenario::{Scenario, Step};
@@ -662,7 +662,7 @@ async fn execute_steps(
                 if blocked {
                     if let Some(samples) = cond_pass {
                         let mut none = BTreeMap::new();
-                        let names = blank_missing_extracts(http, &mut none, iter_vars);
+                        let names = fill_missing_extracts(http, &mut none, iter_vars, true).blanked;
                         blank_guard::note_step(blanked, &http.id, &none, &names);
                         mark_pass(
                             samples,
@@ -696,7 +696,7 @@ async fn execute_steps(
                         rg.mark_written(outcome.extracted.keys());
                     }
                     let names = if cond_pass.is_some() {
-                        blank_missing_extracts(http, &mut outcome.extracted, iter_vars)
+                        fill_missing_extracts(http, &mut outcome.extracted, iter_vars, true).blanked
                     } else {
                         Vec::new()
                     };

@@ -431,6 +431,12 @@ pub enum Extract {
         decode: Option<Decode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         claim: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "de_extract_default"
+        )]
+        default: Option<String>,
     },
     Header {
         var: String,
@@ -439,6 +445,12 @@ pub enum Extract {
         decode: Option<Decode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         claim: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "de_extract_default"
+        )]
+        default: Option<String>,
     },
     Cookie {
         var: String,
@@ -447,6 +459,12 @@ pub enum Extract {
         decode: Option<Decode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         claim: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "de_extract_default"
+        )]
+        default: Option<String>,
     },
     // No decode for status: a 3-digit code has nothing to decode (spec §3.6);
     // enum-level deny_unknown_fields rejects `decode` here at parse time.
@@ -465,6 +483,46 @@ impl Extract {
             | Extract::Status { var } => var,
         }
     }
+
+    /// 값을 못 뽑을 때 대신 쓸 글자(extract-default). `status`에는 없다.
+    pub fn default_value(&self) -> Option<&str> {
+        match self {
+            Extract::Body { default, .. }
+            | Extract::Header { default, .. }
+            | Extract::Cookie { default, .. } => default.as_deref(),
+            Extract::Status { .. } => None,
+        }
+    }
+}
+
+/// 추출 기본값 글자 수 상한(코드포인트).
+pub const EXTRACT_DEFAULT_MAX_CHARS: usize = 256;
+
+/// 추출 기본값 규칙: 빈 값 → `{{`/`${` → 길이 → 제어 문자 순으로 검사한다.
+/// 거절 문구는 값을 싣지 않는다.
+pub fn validate_extract_default(s: &str) -> std::result::Result<(), &'static str> {
+    if s.is_empty() {
+        return Err("extract default must not be empty");
+    }
+    if s.contains("{{") || s.contains("${") {
+        return Err("extract default must not contain {{ or ${");
+    }
+    if s.chars().count() > EXTRACT_DEFAULT_MAX_CHARS {
+        return Err("extract default too long (max 256)");
+    }
+    if s.chars().any(char::is_control) {
+        return Err("extract default must not contain control characters");
+    }
+    Ok(())
+}
+
+fn de_extract_default<'de, D>(d: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    validate_extract_default(&s).map_err(de::Error::custom)?;
+    Ok(Some(s))
 }
 
 /// Comparison operator for a condition leaf. Plain unit-variant enum → `derive`
@@ -950,6 +1008,7 @@ steps:
                 path: "$.access_token".into(),
                 decode: Some(Decode::Jwt),
                 claim: Some("$.sub".into()),
+                default: None,
             }
         );
         assert_eq!(
@@ -959,6 +1018,7 @@ steps:
                 name: "X-Blob".into(),
                 decode: Some(Decode::Base64),
                 claim: None,
+                default: None,
             }
         );
         let yaml = s.to_yaml().unwrap();
@@ -1595,6 +1655,7 @@ steps:
                         claim: None,
                         var: "id".into(),
                         path: "$.id".into(),
+                        default: None,
                     },
                     Extract::Status { var: "code".into() },
                 ],
@@ -1624,6 +1685,7 @@ steps:
                 claim: None,
                 var: var.into(),
                 path: format!("$.{var}"),
+                default: None,
             }],
             timeout_seconds: None,
             think_time: None,
@@ -1846,5 +1908,55 @@ steps: []
         let y = "version: 1\nname: g\nvariables:\n  d: {gen: date, offset: \"+7d\", tz: Asia/Seoul}\nsteps: []";
         let s = Scenario::from_yaml(y).unwrap();
         assert_eq!(Scenario::from_yaml(&s.to_yaml().unwrap()).unwrap(), s);
+    }
+
+    #[test]
+    fn extract_default_roundtrips_and_is_absent_when_none() {
+        let y = "- {var: a, from: body, path: $.a, default: none}\n- {var: b, from: header, name: X-B}\n";
+        let v: Vec<Extract> = serde_yaml::from_str(y).unwrap();
+        assert_eq!(v[0].default_value(), Some("none"));
+        assert_eq!(v[1].default_value(), None);
+        let out = serde_yaml::to_string(&v).unwrap();
+        assert_eq!(out.matches("default:").count(), 1);
+    }
+
+    #[test]
+    fn extract_default_rejections_are_value_free() {
+        let long = "x".repeat(257);
+        for (bad, want) in [
+            ("\"\"", "extract default must not be empty"),
+            ("\"a{{b}}\"", "extract default must not contain {{ or ${"),
+            (
+                "\"${SECRET_ENV}\"",
+                "extract default must not contain {{ or ${",
+            ),
+            (long.as_str(), "extract default too long (max 256)"),
+            (
+                "\"a\\nb\"",
+                "extract default must not contain control characters",
+            ),
+        ] {
+            let y = format!("{{var: a, from: cookie, name: c, default: {bad}}}");
+            let e = serde_yaml::from_str::<Extract>(&y).unwrap_err().to_string();
+            assert!(e.contains(want), "{e}");
+            assert!(!e.contains("SECRET_ENV"), "{e}");
+        }
+        // 256자는 통과, 멀티바이트는 코드포인트로 센다.
+        let ok = "가".repeat(256);
+        assert!(
+            serde_yaml::from_str::<Extract>(&format!(
+                "{{var: a, from: cookie, name: c, default: {ok}}}"
+            ))
+            .is_ok()
+        );
+        // 따옴표 붙은 숫자꼴은 문자열로 읽는다(UI가 이렇게 쓴다). 따옴표 없는 `default: 0`은 타입 에러로 거절된다(손 YAML — 수용).
+        let v: Extract =
+            serde_yaml::from_str("{var: a, from: cookie, name: c, default: \"0x1F\"}").unwrap();
+        assert_eq!(v.default_value(), Some("0x1F"));
+        assert!(
+            serde_yaml::from_str::<Extract>("{var: a, from: cookie, name: c, default: 0}").is_err()
+        );
+        // status에는 default가 없다.
+        assert!(serde_yaml::from_str::<Extract>("{var: s, from: status, default: x}").is_err());
     }
 }

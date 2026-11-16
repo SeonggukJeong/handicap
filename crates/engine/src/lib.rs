@@ -33,7 +33,8 @@ pub use executor::{
     execute_step_traced_with, execute_step_with,
 };
 pub use extract::{
-    ResponseFacts, blank_missing_extracts, evaluate as evaluate_extracts, evaluate_lenient,
+    Filled, ResponseFacts, StrictOutcome, evaluate as evaluate_extracts, evaluate_lenient,
+    evaluate_with_defaults, fill_missing_extracts, has_default,
 };
 pub use genvars::{
     GenSpec, PICK_ARRAY_MAX_LEN, POSITIONS_MAX_CHARS, PickArrayGen, RandomIntGen, RandomStringGen,
