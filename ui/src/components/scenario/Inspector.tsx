@@ -676,6 +676,8 @@ type DecodeDraft = {
   default?: string;
   defaultOk?: string;
   defaultTouched?: boolean;
+  // 기본값 칸이 열려 있는가(편집 UI 상태 — YAML에는 안 간다). default가 있으면 열린 채 시드.
+  defaultOpen?: boolean;
 };
 type DraftExtract =
   | ({ var: string; from: "body"; path: string } & DecodeDraft)
@@ -685,7 +687,7 @@ type DraftExtract =
 
 function draftFromExtract(e: Extract): DraftExtract {
   if (e.from !== "status" && e.default !== undefined) {
-    return { ...e, defaultOk: e.default } as DraftExtract;
+    return { ...e, defaultOk: e.default, defaultOpen: true } as DraftExtract;
   }
   return e as DraftExtract;
 }
@@ -769,12 +771,18 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   };
 
   // 기본값 칸 blur: touched 표시 + 유효하면 defaultOk 갱신 후 커밋(유효하지 않으면 직전 값 유지).
-  const commitDefaultBlur = (idx: number) => {
+  // 빈 채로 blur하고 포커스가 같은 칸 묶음(도움말 버튼) 안으로 가지 않았으면 다시 접는다.
+  const commitDefaultBlur = (idx: number, collapse: boolean) => {
     const x = drafts[idx];
     if (x.from === "status") return;
     const next: DraftExtract = { ...x, defaultTouched: true };
-    if (x.default === undefined || x.default === "") delete next.defaultOk;
-    else if (extractDefaultIssue(x.default) === null) next.defaultOk = x.default;
+    if (x.default === undefined || x.default === "") {
+      delete next.defaultOk;
+      if (collapse) {
+        next.defaultOpen = false;
+        next.defaultTouched = false;
+      }
+    } else if (extractDefaultIssue(x.default) === null) next.defaultOk = x.default;
     const list = drafts.slice();
     list[idx] = next;
     setDrafts(list);
@@ -789,6 +797,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
       ...(x.from !== "status" && x.default !== undefined
         ? { default: x.default, defaultOk: x.defaultOk, defaultTouched: x.defaultTouched }
         : {}),
+      ...(x.from !== "status" && x.defaultOpen ? { defaultOpen: true } : {}),
     };
     const list = drafts.slice();
     if (from === "body")
@@ -827,6 +836,14 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   };
 
   const alertBase = useId();
+  // 「+ 기본값」으로 열린 칸에 포커스를 주기 위한 표시(ref 콜백이 마운트 때 한 번 쓴다).
+  const focusDefaultIdx = useRef<number | null>(null);
+  const openDefault = (idx: number) => {
+    const x = drafts[idx];
+    if (x.from === "status") return;
+    focusDefaultIdx.current = idx;
+    updateDraft(idx, { ...x, defaultOpen: true });
+  };
   const append = () => {
     const list: DraftExtract[] = [...drafts, { var: "", from: "body", path: "$." }];
     setDrafts(list);
@@ -923,8 +940,22 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                   />
                 </div>
               )}
-              {x.from !== "status" && (
-                <div className="flex min-w-0 flex-1 basis-[140px] items-center gap-1">
+              {x.from !== "status" && !x.defaultOpen && (
+                <button
+                  type="button"
+                  aria-label={ko.editor.extractDefaultAddAria(idx)}
+                  className="shrink-0 px-1.5 py-0.5 text-xs text-slate-500 border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-50"
+                  disabled={yamlError !== null}
+                  onClick={() => openDefault(idx)}
+                >
+                  {ko.editor.extractDefaultAdd}
+                </button>
+              )}
+              {x.from !== "status" && x.defaultOpen && (
+                <div
+                  data-default-group
+                  className="flex min-w-0 flex-1 basis-[140px] items-center gap-1"
+                >
                   <div className="min-w-0 flex-1">
                     <Input
                       size="sm"
@@ -937,7 +968,20 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                       value={x.default ?? ""}
                       disabled={yamlError !== null}
                       onChange={(e) => updateDraft(idx, { ...x, default: e.target.value })}
-                      onBlur={() => commitDefaultBlur(idx)}
+                      ref={(el) => {
+                        if (el && focusDefaultIdx.current === idx) {
+                          focusDefaultIdx.current = null;
+                          el.focus();
+                        }
+                      }}
+                      onBlur={(e) =>
+                        commitDefaultBlur(
+                          idx,
+                          !e.currentTarget
+                            .closest("[data-default-group]")
+                            ?.contains(e.relatedTarget as Node | null),
+                        )
+                      }
                     />
                   </div>
                   <HelpTip label={ko.editor.extractDefaultHelpAria(idx)}>

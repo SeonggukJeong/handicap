@@ -303,19 +303,91 @@ describe("Inspector — ExtractEditor", () => {
     return st.extract[0] as Record<string, unknown>;
   };
 
-  it("기본값 칸: 본문 줄에는 있고 상태 줄에는 없다, maxLength 256", async () => {
+  const openDefault = async (user: ReturnType<typeof userEvent.setup>, sec: HTMLElement) => {
+    await user.click(within(sec).getByRole("button", { name: "추출 0 기본값 추가" }));
+    return within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+  };
+
+  it("기본값이 없으면 접혀 있다: 입력 없음·「+ 기본값」 버튼, 상태 줄에는 둘 다 없다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
-    expect(input).toHaveAttribute("maxLength", "256");
+    expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+    const add = within(sec).getByRole("button", { name: "추출 0 기본값 추가" });
+    expect(add).toHaveTextContent("+ 기본값");
     await user.selectOptions(within(sec).getByLabelText(ko.editor.extractFromAria(0)), "status");
     expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+    expect(within(sec).queryByRole("button", { name: "추출 0 기본값 추가" })).toBeNull();
+  });
+
+  it("버튼을 누르면 입력이 열리고 포커스가 가며 버튼은 사라진다; maxLength 256", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = await openDefault(user, sec);
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("maxLength", "256");
+    expect(within(sec).queryByRole("button", { name: "추출 0 기본값 추가" })).toBeNull();
+  });
+
+  it("default가 이미 있는 항목은 열린 채 값이 보이고 버튼이 없다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        DECODE_YAML.replace(
+          "        claim: $.sub\n",
+          '        claim: $.sub\n        default: "none"\n',
+        ),
+      );
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+    const sec = extractSectionOf();
+    expect(within(sec).getByLabelText(ko.editor.extractDefaultAria(0))).toHaveValue("none");
+    expect(within(sec).queryByRole("button", { name: "추출 0 기본값 추가" })).toBeNull();
+  });
+
+  it("열었다가 빈 채 blur하면 다시 접히고 YAML·오류는 그대로다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const before = yamlText();
+    const input = await openDefault(user, sec);
+    await user.click(within(sec).getByPlaceholderText("var")); // 다른 칸으로 — 도움말 버튼(Tab)은 접지 않는다
+    expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+    expect(within(sec).getByRole("button", { name: "추출 0 기본값 추가" })).toBeInTheDocument();
+    expect(input).not.toBeInTheDocument();
+    expect(yamlText()).toBe(before);
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+  });
+
+  it("빈 채로 Tab해 도움말 버튼으로 가도 접히지 않는다(도움말을 쓸 수 있다)", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await openDefault(user, sec);
+    await user.tab();
+    expect(
+      within(sec).getByRole("button", { name: ko.editor.extractDefaultHelpAria(0) }),
+    ).toHaveFocus();
+    expect(within(sec).getByLabelText(ko.editor.extractDefaultAria(0))).toBeInTheDocument();
+  });
+
+  it("값을 적고 blur하면 열려 있고, 비우고 blur하면 접히며 키가 사라진다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = await openDefault(user, sec);
+    await user.type(input, "none");
+    await user.tab();
+    expect(within(sec).getByLabelText(ko.editor.extractDefaultAria(0))).toBeInTheDocument();
+    expect(extractOf().default).toBe("none");
+    await user.clear(input);
+    await user.click(within(sec).getByPlaceholderText("var"));
+    expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+    expect("default" in extractOf()).toBe(false);
   });
 
   it("기본값 입력은 blur에 커밋되고, 비우면 키가 사라진다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    const input = await openDefault(user, sec);
     await user.type(input, "none");
     expect(yamlText()).not.toMatch(/default:/);
     await user.tab();
@@ -330,7 +402,7 @@ describe("Inspector — ExtractEditor", () => {
   it("{{x}}를 적고 blur해도 편집기는 잠기지 않고 직전 유효 값이 남는다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    const input = await openDefault(user, sec);
     await user.type(input, "none");
     await user.tab();
     fireEvent.change(input, { target: { value: "{{x}}" } }); // user-event는 `{{`를 이스케이프로 먹는다
@@ -342,9 +414,7 @@ describe("Inspector — ExtractEditor", () => {
     // 삭제 버튼은 경고 문단보다 앞(같은 줄 유지) — 경고가 아래 전체 폭 줄로 간다.
     const remove = within(sec).getByRole("button", { name: ko.editor.removeExtract(0) });
     const alert = within(sec).getByRole("alert");
-    expect(
-      remove.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(remove.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(useScenarioEditor.getState().yamlError).toBeNull();
     expect(extractOf().default).toBe("none");
     // 같은 줄의 다른 칸 편집은 여전히 커밋된다.
@@ -360,7 +430,7 @@ describe("Inspector — ExtractEditor", () => {
   it("제어 문자 안내도 blur 뒤에 뜬다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    const input = await openDefault(user, sec);
     fireEvent.change(input, { target: { value: "a\tb" } });
     expect(within(sec).queryByRole("alert")).toBeNull();
     fireEvent.blur(input);
@@ -371,7 +441,7 @@ describe("Inspector — ExtractEditor", () => {
   it("종류를 바꿔도 기본값은 header/cookie 사이에서 유지되고 status에서 버려진다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), "none");
+    await user.type(await openDefault(user, sec), "none");
     await user.tab();
     const from = within(sec).getByLabelText(ko.editor.extractFromAria(0));
     await user.selectOptions(from, "cookie");
@@ -386,7 +456,7 @@ describe("Inspector — ExtractEditor", () => {
   it("header → body: 경로를 적어 blur하면 기본값이 유지된다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), "none");
+    await user.type(await openDefault(user, sec), "none");
     await user.tab();
     await user.selectOptions(within(sec).getByLabelText(ko.editor.extractFromAria(0)), "body");
     const path = within(sec).getByPlaceholderText("$.path");
@@ -401,7 +471,7 @@ describe("Inspector — ExtractEditor", () => {
   it("body → header: 이름을 적어 blur하면 기본값이 유지된다", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), "none");
+    await user.type(await openDefault(user, sec), "none");
     await user.tab();
     const from = within(sec).getByLabelText(ko.editor.extractFromAria(0));
     await user.selectOptions(from, "body");
@@ -424,7 +494,7 @@ describe("Inspector — ExtractEditor", () => {
     async (v) => {
       const user = userEvent.setup();
       const sec = await addHeaderRow(user);
-      await user.type(within(sec).getByLabelText(ko.editor.extractDefaultAria(0)), v);
+      await user.type(await openDefault(user, sec), v);
       await user.tab();
       expect(yamlText()).toContain(`default: "${v}"`);
       expect(extractOf().default).toBe(v);
@@ -441,7 +511,7 @@ describe("Inspector — ExtractEditor", () => {
   it("도움말 버튼은 입력의 형제이고 글로서리 네 문장을 연다; 입력 접근명은 그대로", async () => {
     const user = userEvent.setup();
     const sec = await addHeaderRow(user);
-    const input = within(sec).getByLabelText(ko.editor.extractDefaultAria(0));
+    const input = await openDefault(user, sec);
     const help = within(sec).getByRole("button", { name: ko.editor.extractDefaultHelpAria(0) });
     expect(help.closest("label")).toBeNull();
     expect(input.closest("label")).toBeNull();

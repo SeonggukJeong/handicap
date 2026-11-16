@@ -925,6 +925,8 @@ export const ko = {
     extractFromAria: (n: number) => `추출 ${n} 종류`,
     extractDecodeAria: (n: number) => `추출 ${n} 디코딩`,
     extractClaimAria: (n: number) => `추출 ${n} claim 경로`,
+    extractDefaultAdd: "+ 기본값",
+    extractDefaultAddAria: (n: number) => `추출 ${n} 기본값 추가`,
     extractDefaultPlaceholder: "값이 없을 때",
     extractDefaultAria: (n: number) => `추출 ${n} 값이 없을 때 쓸 값`,
     extractDefaultHelpAria: (n: number) => `추출 ${n} 기본값 도움말`,
