@@ -365,6 +365,19 @@ describe("TestRunPanel — 조건 반복 판정 줄", () => {
     expect(screen.getByText("최대 3회 → 이번 반복 종료")).toBeInTheDocument();
   });
 
+  it("최대 횟수 판정 줄 없이 ended_by_loop이면(보내지 못한 회차) 안내 문구가 다르다", () => {
+    render(
+      <TestRunPanel
+        trace={{ ...base, ended_by_loop: LP, steps: [http(0), judge("again", 0)] }}
+        steps={loopSteps}
+      />,
+    );
+    expect(
+      screen.getByText("조건 반복 「주문 재시도」 안의 요청을 보내지 못해 여기서 끝났습니다."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/최대 횟수까지 풀리지 않아/)).not.toBeInTheDocument();
+  });
+
   it("steps가 없으면 이름 자리에 step_id가 나온다", () => {
     render(<TestRunPanel trace={{ ...base, steps: [judge("done", 0)] }} />);
     expect(screen.getByText(LP)).toBeInTheDocument();

@@ -215,11 +215,17 @@ export function TraceStepList({
     return <p className="text-sm text-slate-500">실행할 스텝이 없습니다.</p>;
   }
   const endedId = trace.ended_by_loop;
+  // 최대 횟수로 끝나면 그 loop의 `exhausted` 판정 줄이 있다. 없으면 요청을 못 보낸 회차로 끝난 것.
+  const exhausted = trace.steps.some(
+    (s) => s.kind === "loop" && s.step_id === endedId && s.branch === "exhausted",
+  );
   return (
     <>
       {endedId !== undefined && (
         <Callout variant="warn" className="mb-2">
-          {ko.editor.endedByLoop(meta[endedId]?.name ?? endedId)}
+          {(exhausted ? ko.editor.endedByLoop : ko.editor.endedByLoopNotSent)(
+            meta[endedId]?.name ?? endedId,
+          )}
         </Callout>
       )}
       <ul>

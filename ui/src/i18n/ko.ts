@@ -752,6 +752,8 @@ export const ko = {
     loopJudgePass: (i: number) => `${i}회차`,
     endedByLoop: (name: string) =>
       `조건 반복 「${name}」이(가) 최대 횟수까지 풀리지 않아 여기서 끝났습니다.`,
+    endedByLoopNotSent: (name: string) =>
+      `조건 반복 「${name}」 안의 요청을 보내지 못해 여기서 끝났습니다.`,
     loopWarnNoThink:
       "대기 없이 재시도합니다. 응답이 빠르면 초당 수백 번 다시 요청할 수 있습니다. 반복 안 스텝에 think time을 넣으세요.",
     loopWarnThinkNotKept:

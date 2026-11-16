@@ -89,9 +89,27 @@ describe("SequentialRunPanel", () => {
         ],
       },
     ];
+    // 최대 횟수로 끝난 trace는 그 loop의 exhausted 판정 줄을 항상 갖는다(엔진 trace.rs).
+    const base = rowTrace("http://x/a0", true);
+    const judge: SequentialTrace["rows"][number]["trace"]["steps"][number] = {
+      step_id: LP,
+      kind: "loop",
+      loop_index: 2,
+      branch: "exhausted",
+      request: null,
+      response: null,
+      extracted: {},
+      unbound_vars: [],
+      error: null,
+    };
     const ended: SequentialTrace = {
       ...seq,
-      rows: [{ row_index: 0, trace: { ...rowTrace("http://x/a0", true), ended_by_loop: LP } }],
+      rows: [
+        {
+          row_index: 0,
+          trace: { ...base, steps: [...base.steps, judge], ended_by_loop: LP },
+        },
+      ],
     };
     render(
       <SequentialRunPanel
