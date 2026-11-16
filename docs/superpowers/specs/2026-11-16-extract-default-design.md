@@ -47,6 +47,7 @@
   3. 길이 256 코드포인트 이하(엔진 `chars().count()`, UI `[...s].length`).
   4. 제어 문자(`char::is_control`, CR·LF·탭 포함) 금지 — 헤더에 쓰이면 `HeaderValue` 거절로 VU가 죽는다.
 - 엔진 거절 문구는 값을 싣지 않는다(고정 사유만 — 400 응답·로그에 나간다). 구현 방식(필드 `deserialize_with` 또는 newtype)은 plan이 정한다.
+- 기본값은 문자열이다. 편집 화면은 YAML에 항상 큰따옴표로 쓴다(`0`·`0x1F`·`true`·`null` 같은 글자가 serde_yaml에서 숫자·불리언으로 읽히지 않게 — `ui/src/scenario/CLAUDE.md` pick-array 줄과 같은 함정). 손으로 쓴 따옴표 없는 `default: 0`은 엔진이 타입 에러로 거절한다(수용 — 따옴표를 붙이면 된다).
 - `decode`·`claim`은 기본값에 적용하지 않는다. `:num` 같은 캐스트는 쓰는 자리의 일이라 기본값에도 그대로 적용된다(`default: "0"` + `{{n:num}}` → 숫자 0).
 
 ### R2 — 채우기 규칙 (엔진)
