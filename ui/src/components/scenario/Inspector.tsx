@@ -771,22 +771,43 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   };
 
   // 기본값 칸 blur: touched 표시 + 유효하면 defaultOk 갱신 후 커밋(유효하지 않으면 직전 값 유지).
-  // 빈 채로 blur하고 포커스가 같은 칸 묶음(도움말 버튼) 안으로 가지 않았으면 다시 접는다.
-  const commitDefaultBlur = (idx: number, collapse: boolean) => {
+  // 기본값 칸 blur: touched 표시 + 유효하면 defaultOk 갱신 후 커밋(유효하지 않으면 직전 값 유지).
+  // 비어 있고 직전에 커밋된 기본값도 없으면 바뀐 게 없으므로 저장소에는 아무것도 보내지 않는다.
+  const commitDefaultBlur = (idx: number) => {
     const x = drafts[idx];
     if (x.from === "status") return;
     const next: DraftExtract = { ...x, defaultTouched: true };
-    if (x.default === undefined || x.default === "") {
-      delete next.defaultOk;
-      if (collapse) {
-        next.defaultOpen = false;
-        next.defaultTouched = false;
-      }
-    } else if (extractDefaultIssue(x.default) === null) next.defaultOk = x.default;
+    const cur = x.default;
+    const empty = cur === undefined || cur === "";
+    if (cur === undefined || cur === "") delete next.defaultOk;
+    else if (extractDefaultIssue(cur) === null) next.defaultOk = cur;
     const list = drafts.slice();
     list[idx] = next;
     setDrafts(list);
+    if (empty && x.defaultOk === undefined) return;
     commitDrafts(list);
+  };
+
+  // 줄 밖으로 포커스가 나가면 빈 기본값 칸을 다시 접는다. 같은 줄 안의 조작(×·도움말·다른 칸 등)은
+  // 브라우저가 클릭한 버튼에 포커스를 안 줘도(Safari) 접지 않는다 — mousedown을 줄 단위로 기록해 거른다.
+  const rowPointerIdx = useRef<number | null>(null);
+  const markRowPointer = (idx: number) => {
+    rowPointerIdx.current = idx;
+    setTimeout(() => {
+      if (rowPointerIdx.current === idx) rowPointerIdx.current = null;
+    }, 0);
+  };
+  const collapseIfLeft = (idx: number, e: FocusEvent<HTMLLIElement>) => {
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+    if (rowPointerIdx.current === idx) return;
+    setDrafts((prev) => {
+      const x = prev[idx];
+      if (!x || x.from === "status" || !x.defaultOpen) return prev;
+      if (x.default !== undefined && x.default !== "") return prev;
+      const list = prev.slice();
+      list[idx] = { ...x, defaultOpen: false, defaultTouched: false };
+      return list;
+    });
   };
 
   // Structural from-kind change: update draft AND commit immediately.
@@ -859,7 +880,12 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             x.from !== "status" && x.defaultTouched ? defaultMsg(x.default) : null;
           const alertId = `${alertBase}-${idx}`;
           return (
-            <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
+            <li
+              key={idx}
+              className="flex flex-wrap gap-2 items-center text-xs"
+              onMouseDownCapture={() => markRowPointer(idx)}
+              onBlur={(e) => collapseIfLeft(idx, e)}
+            >
               <div className="w-24">
                 <Input
                   size="sm"
@@ -952,10 +978,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                 </button>
               )}
               {x.from !== "status" && x.defaultOpen && (
-                <div
-                  data-default-group
-                  className="flex min-w-0 flex-1 basis-[140px] items-center gap-1"
-                >
+                <div className="flex min-w-0 flex-1 basis-[140px] items-center gap-1">
                   <div className="min-w-0 flex-1">
                     <Input
                       size="sm"
@@ -974,14 +997,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                           el.focus();
                         }
                       }}
-                      onBlur={(e) =>
-                        commitDefaultBlur(
-                          idx,
-                          !e.currentTarget
-                            .closest("[data-default-group]")
-                            ?.contains(e.relatedTarget as Node | null),
-                        )
-                      }
+                      onBlur={() => commitDefaultBlur(idx)}
                     />
                   </div>
                   <HelpTip label={ko.editor.extractDefaultHelpAria(idx)}>

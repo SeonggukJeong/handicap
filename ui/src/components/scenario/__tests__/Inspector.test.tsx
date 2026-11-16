@@ -351,7 +351,7 @@ describe("Inspector — ExtractEditor", () => {
     const sec = await addHeaderRow(user);
     const before = yamlText();
     const input = await openDefault(user, sec);
-    await user.click(within(sec).getByPlaceholderText("var")); // 다른 칸으로 — 도움말 버튼(Tab)은 접지 않는다
+    await user.click(document.body); // 줄 밖을 눌러야 접힌다(같은 줄 컨트롤은 접지 않는다)
     expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
     expect(within(sec).getByRole("button", { name: "추출 0 기본값 추가" })).toBeInTheDocument();
     expect(input).not.toBeInTheDocument();
@@ -379,9 +379,62 @@ describe("Inspector — ExtractEditor", () => {
     expect(within(sec).getByLabelText(ko.editor.extractDefaultAria(0))).toBeInTheDocument();
     expect(extractOf().default).toBe("none");
     await user.clear(input);
-    await user.click(within(sec).getByPlaceholderText("var"));
+    await user.click(document.body);
     expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
     expect("default" in extractOf()).toBe(false);
+  });
+
+  it("빈 칸을 연 채 같은 줄의 ×를 한 번 누르면 줄이 지워진다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await openDefault(user, sec);
+    await user.click(within(sec).getByRole("button", { name: ko.editor.removeExtract(0) }));
+    expect(within(sec).queryByPlaceholderText("var")).toBeNull();
+    expect(yamlText()).not.toMatch(/var:\s*uid/);
+  });
+
+  it("포커스가 안 옮겨지는 브라우저(Safari)에서도 도움말 클릭은 칸을 접지 않는다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    const input = await openDefault(user, sec);
+    const help = within(sec).getByRole("button", { name: ko.editor.extractDefaultHelpAria(0) });
+    fireEvent.mouseDown(help);
+    fireEvent.blur(input, { relatedTarget: null });
+    fireEvent.click(help);
+    expect(within(sec).getByLabelText(ko.editor.extractDefaultAria(0))).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(ko.glossary.extractDefault1);
+  });
+
+  it("같은 줄의 다른 칸을 눌러도 접히지 않고, 다른 줄·줄 밖을 누르면 접힌다", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await openDefault(user, sec);
+    await user.click(within(sec).getByPlaceholderText(ko.editor.headerNamePlaceholder));
+    expect(within(sec).getByLabelText(ko.editor.extractDefaultAria(0))).toBeInTheDocument();
+    await user.click(document.body);
+    expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+  });
+
+  it("손으로 쓴 flow 스타일 extract는 열었다 닫아도 YAML이 그대로다(저장소 디스패치 없음)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        VALID_YAML.replace(
+          "    assert:\n      - status: 200\n",
+          "    assert:\n      - status: 200\n    extract: [{ var: a, from: body, path: $.a }]\n",
+        ),
+      );
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+    const sec = extractSectionOf();
+    const before = yamlText();
+    expect(before).toContain("extract: [ { var: a, from: body, path: $.a } ]");
+    await openDefault(user, sec);
+    await user.click(document.body);
+    expect(within(sec).queryByLabelText(ko.editor.extractDefaultAria(0))).toBeNull();
+    expect(yamlText()).toBe(before);
   });
 
   it("기본값 입력은 blur에 커밋되고, 비우면 키가 사라진다", async () => {
