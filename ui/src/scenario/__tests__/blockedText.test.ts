@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ScenarioTraceSchema } from "../../api/schemas";
-import { traceErrorText } from "../blockedText";
+import { ScenarioTraceSchema, StepTraceSchema } from "../../api/schemas";
+import { defaultedText, traceErrorText } from "../blockedText";
 
 const RAW = "not sent: blank value in url";
 const names = (id: string) => (id === "S1" ? "상태 조회" : undefined);
@@ -73,5 +73,37 @@ describe("ScenarioTraceSchema blocked", () => {
     expect(withB.steps[0].blocked).toEqual({ vars: ["orderId"], by_step: "S1" });
     const without = ScenarioTraceSchema.parse({ ...base, steps: [step] });
     expect(without.steps[0].blocked).toBeUndefined();
+  });
+});
+
+describe("defaultedText", () => {
+  it("없거나 비면 null", () => {
+    expect(defaultedText({})).toBeNull();
+    expect(defaultedText({ defaulted: [] })).toBeNull();
+  });
+  it("이름을 쉼표로 잇는다", () => {
+    expect(defaultedText({ defaulted: ["orderId", "cursor"] })).toBe(
+      "기본값 사용: orderId, cursor",
+    );
+  });
+});
+
+describe("StepTraceSchema defaulted", () => {
+  const base = {
+    step_id: "S1",
+    kind: "http",
+    loop_index: null,
+    branch: null,
+    request: null,
+    response: null,
+    extracted: {},
+    unbound_vars: [],
+    error: null,
+  };
+  it("키가 없어도 있어도 통과한다", () => {
+    expect(StepTraceSchema.parse(base).defaulted).toBeUndefined();
+    expect(StepTraceSchema.parse({ ...base, defaulted: ["orderId"] }).defaulted).toEqual([
+      "orderId",
+    ]);
   });
 });

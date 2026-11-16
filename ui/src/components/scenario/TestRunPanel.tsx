@@ -69,7 +69,19 @@ function HttpRow({
             TTFB {resp.latency_ms}ms / 다운로드 {resp.download_ms ?? "—"}ms
           </span>
         )}
-        {extracted.map(([k, v]) => chip(`${k}=${v}`, "bg-indigo-100 text-indigo-800"))}
+        {extracted.map(([k, v]) => (
+          <span
+            key={k}
+            className="inline-block rounded bg-indigo-100 px-2 py-0.5 text-xs font-medium break-all text-indigo-800"
+          >
+            {`${k}=${v}`}
+            {step.defaulted?.includes(k) && (
+              <span className="ml-1 rounded bg-white/70 px-1 text-[10px] font-medium">
+                {ko.common.defaultedTag}
+              </span>
+            )}
+          </span>
+        ))}
       </button>
       {errorText && <div className="mt-1 text-xs text-red-700">{errorText}</div>}
       {!step.blocked && step.unbound_vars.length > 0 && (

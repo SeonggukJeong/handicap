@@ -550,3 +550,14 @@ describe("CheckRecordDialog 보내지 않은 요청", () => {
     expect(screen.getByText("연결 거부")).toBeInTheDocument();
   });
 });
+
+describe("CheckRecordDialog 기본값 사용", () => {
+  it("defaulted 스텝에만 「기본값 사용: 이름」 줄이 보인다", async () => {
+    getRecord.mockResolvedValue(
+      rec({}, [http({ step_id: S1, defaulted: ["orderId"] }), http({ step_id: S2 })]),
+    );
+    wrap(dlg());
+    expect(await screen.findByText("기본값 사용: orderId")).toBeInTheDocument();
+    expect(screen.getAllByText(/기본값 사용/)).toHaveLength(1);
+  });
+});

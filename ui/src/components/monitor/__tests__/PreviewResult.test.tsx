@@ -380,3 +380,15 @@ describe("PreviewResult 보내지 않은 요청", () => {
     expect(screen.queryByText(/not sent: blank value in url/)).not.toBeInTheDocument();
   });
 });
+
+describe("PreviewResult 기본값 사용", () => {
+  it("defaulted 스텝에만 「기본값 사용: 이름」 줄이 보인다", () => {
+    const p = preview("");
+    p.trace!.steps = [{ ...p.trace!.steps[0], defaulted: ["orderId"] }];
+    const { unmount } = render(<PreviewResult preview={p} stepNames={{ [STEP]: "로그인" }} />);
+    expect(screen.getByText("기본값 사용: orderId")).toBeInTheDocument();
+    unmount();
+    render(<PreviewResult preview={preview("")} stepNames={{ [STEP]: "로그인" }} />);
+    expect(screen.queryByText(/기본값 사용/)).not.toBeInTheDocument();
+  });
+});

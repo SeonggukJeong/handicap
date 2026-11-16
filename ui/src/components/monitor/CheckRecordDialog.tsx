@@ -12,7 +12,7 @@ import { ko } from "../../i18n/ko";
 import { formatDateHms } from "../../monitor/time";
 import { branchText } from "../../scenario/chipResults";
 import { flattenHttpSteps } from "../../scenario/model";
-import { traceErrorText } from "../../scenario/blockedText";
+import { defaultedText, traceErrorText } from "../../scenario/blockedText";
 import { loopJudgeMeta, type LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { LoopJudgeRow } from "../scenario/LoopJudgeRow";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
@@ -212,6 +212,7 @@ function StepRow({
   const req = step.request;
   const resp = step.response;
   const errorText = traceErrorText(step, (id) => stepNames[id]);
+  const defaulted = defaultedText(step);
   const summary = [
     name,
     req ? `${req.method} ${req.url}` : null,
@@ -242,6 +243,7 @@ function StepRow({
         <span className="font-mono">{summary}</span>
       </button>
       {errorText && <div className="px-2 pb-1 text-xs text-red-600">{errorText}</div>}
+      {defaulted && <div className="px-2 pb-1 text-xs break-all text-slate-600">{defaulted}</div>}
       {open && (
         <div className="space-y-2 border-t border-slate-200 p-2">
           <HeaderTable title={ko.monitor.recordReqHeaders} rows={reqHeaders} />

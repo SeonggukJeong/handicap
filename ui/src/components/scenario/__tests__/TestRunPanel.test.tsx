@@ -447,3 +447,28 @@ describe("TestRunPanel 보내지 않은 요청", () => {
     expect(screen.getByText(new RegExp(`앞 스텝 ${S1}이\\(가\\) orderId`))).toBeInTheDocument();
   });
 });
+
+describe("TestRunPanel 기본값 표지", () => {
+  const withExtracted = (defaulted?: string[]): ScenarioTrace => ({
+    ...TRACE,
+    steps: [
+      {
+        ...TRACE.steps[1],
+        error: null,
+        extracted: { orderId: "none", state: "WAIT" },
+        ...(defaulted ? { defaulted } : {}),
+      },
+    ],
+  });
+  it("기본값이 들어간 칩에만 「기본값」 글자가 있다", () => {
+    render(<TestRunPanel trace={withExtracted(["orderId"])} />);
+    const orderChip = screen.getByText("orderId=none");
+    const stateChip = screen.getByText("state=WAIT");
+    expect(within(orderChip).getByText("기본값")).toBeInTheDocument();
+    expect(within(stateChip).queryByText("기본값")).not.toBeInTheDocument();
+  });
+  it("defaulted 키가 없으면 「기본값」 글자가 화면에 없다", () => {
+    render(<TestRunPanel trace={withExtracted()} />);
+    expect(screen.queryByText("기본값")).not.toBeInTheDocument();
+  });
+});

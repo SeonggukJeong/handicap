@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import type { Condition, DisplayItem, PreviewResult as Preview } from "../../api/monitors";
 import { ko } from "../../i18n/ko";
 import { formatMs } from "../../monitor/logic";
-import { traceErrorText } from "../../scenario/blockedText";
+import { defaultedText, traceErrorText } from "../../scenario/blockedText";
 import {
   defaultCondition,
   isSecretName,
@@ -205,6 +205,9 @@ function StepRow({
           </>
         )}
       </dl>
+      {defaultedText(s) && (
+        <p className="mt-1 text-xs break-all text-slate-600">{defaultedText(s)}</p>
+      )}
       {interactive && (
         <div className="mt-2">
           <HeaderTable

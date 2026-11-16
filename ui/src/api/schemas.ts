@@ -619,6 +619,8 @@ export const StepTraceSchema = z.object({
   error: z.string().nullable(),
   // 앞 스텝이 비워 둔 값을 주소에 써서 보내지 않은 행 — 서버는 아니면 키를 생략한다(null 아님).
   blocked: z.object({ vars: z.array(z.string()), by_step: z.string() }).optional(),
+  // 기본값이 들어간 추출 이름 — 서버는 비면 키를 생략한다(null 아님).
+  defaulted: z.array(z.string()).optional(),
 });
 export type StepTrace = z.infer<typeof StepTraceSchema>;
 

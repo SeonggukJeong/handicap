@@ -16,3 +16,9 @@ export function traceErrorText(
   }
   return step.error;
 }
+
+/** 기본값이 들어간 추출 이름 한 줄 — 없거나 비면 null (값은 싣지 않는다). */
+export function defaultedText(step: Pick<StepTrace, "defaulted">): string | null {
+  const names = step.defaulted ?? [];
+  return names.length > 0 ? ko.common.defaultedNames(names.join(", ")) : null;
+}
