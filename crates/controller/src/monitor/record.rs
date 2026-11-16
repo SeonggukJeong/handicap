@@ -346,6 +346,7 @@ mod tests {
             branch_eval: Vec::new(),
             timed_out: false,
             blocked: None,
+            defaulted: Vec::new(),
         }
     }
 

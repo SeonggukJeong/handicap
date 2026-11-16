@@ -4821,6 +4821,7 @@ mod body_input_tests {
             branch_eval: vec![],
             timed_out: false,
             blocked,
+            defaulted: Vec::new(),
         }
     }
 

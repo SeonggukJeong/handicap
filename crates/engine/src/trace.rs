@@ -155,6 +155,9 @@ pub struct StepTrace {
     /// http 행 전용: 비워진 값이 주소에 쓰여 보내지 않았다(없으면 직렬화 생략).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked: Option<BlockedInfo>,
+    /// http 행 전용: 값을 못 뽑아 `default`가 들어간 이름(선언 순서, 없으면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaulted: Vec<String>,
 }
 
 /// 보내지 않은 http 행의 사유 — 변수 이름과 값을 못 준 스텝 id만 싣는다(값 없음).
@@ -519,11 +522,12 @@ async fn trace_steps(
                 };
                 if let Some(b) = blocked {
                     let mut extracted = BTreeMap::new();
-                    if in_cond_loop {
-                        let names =
-                            fill_missing_extracts(http, &mut extracted, iter_vars, true).blanked;
-                        blank_guard::note_step(blanked, &http.id, &extracted, &names);
+                    let filled =
+                        fill_missing_extracts(http, &mut extracted, iter_vars, in_cond_loop);
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(filled.defaulted.iter());
                     }
+                    blank_guard::note_step(blanked, &http.id, &extracted, &filled.blanked);
                     state.requests += 1;
                     state.steps.push(StepTrace {
                         step_id: http.id.clone(),
@@ -546,6 +550,7 @@ async fn trace_steps(
                             vars: b.vars,
                             by_step: b.by_step,
                         }),
+                        defaulted: filled.defaulted,
                     });
                 } else {
                     let ctx = TemplateContext {
@@ -564,12 +569,12 @@ async fn trace_steps(
                     if let Some(rg) = req.as_mut() {
                         rg.mark_written(t.extracted.keys());
                     }
-                    let names = if in_cond_loop {
-                        fill_missing_extracts(http, &mut t.extracted, iter_vars, true).blanked
-                    } else {
-                        Vec::new()
-                    };
-                    blank_guard::note_step(blanked, &http.id, &t.extracted, &names);
+                    let filled =
+                        fill_missing_extracts(http, &mut t.extracted, iter_vars, in_cond_loop);
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(filled.defaulted.iter());
+                    }
+                    blank_guard::note_step(blanked, &http.id, &t.extracted, &filled.blanked);
                     iter_vars.extend(t.extracted.clone());
                     state.requests += 1;
                     state.steps.push(StepTrace {
@@ -585,6 +590,7 @@ async fn trace_steps(
                         branch_eval: Vec::new(),
                         timed_out: t.timed_out,
                         blocked: None,
+                        defaulted: filled.defaulted,
                     });
                 }
                 if opts.apply_think_time || force_think {
@@ -683,6 +689,7 @@ async fn trace_steps(
                             branch_eval: vec![eval],
                             timed_out: false,
                             blocked: None,
+                            defaulted: Vec::new(),
                         });
                         state.judge_rows += 1;
                         if charge_judge_row(state, opts) {
@@ -778,6 +785,7 @@ async fn trace_steps(
                     branch_eval,
                     timed_out: false,
                     blocked: None,
+                    defaulted: Vec::new(),
                 });
                 state.if_rows += 1;
                 if charge_judge_row(state, opts) {
@@ -905,6 +913,7 @@ mod tests {
                 branch_eval: vec![],
                 timed_out: false,
                 blocked: None,
+                defaulted: Vec::new(),
             }],
             final_vars: BTreeMap::new(),
             truncated: false,
@@ -1473,6 +1482,7 @@ steps:
             }],
             timed_out: false,
             blocked: None,
+            defaulted: Vec::new(),
         }
     }
 

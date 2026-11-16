@@ -7,7 +7,10 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::cast::{Cast, coerce_bool, coerce_json, coerce_num, parse_cast_leaf};
 use crate::error::{EngineError, Result};
-use crate::extract::{ResponseFacts, evaluate as evaluate_extracts, evaluate_lenient};
+use crate::extract::{
+    ResponseFacts, evaluate as evaluate_extracts, evaluate_lenient, evaluate_with_defaults,
+    has_default,
+};
 use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
 use crate::template::{TemplateContext, render, render_collecting};
 use crate::trace::{HttpTrace, TracedRequest, TracedResponse};
@@ -307,6 +310,13 @@ pub async fn execute_step_with(
                     body: &body_bytes,
                 };
                 match mode {
+                    ExtractMode::Strict if has_default(&step.extract) => {
+                        let o = evaluate_with_defaults(&step.extract, &facts);
+                        extracted = o.extracted;
+                        if let Some(e) = o.error {
+                            error = Some(e.to_string());
+                        }
+                    }
                     ExtractMode::Strict => match evaluate_extracts(&step.extract, &facts) {
                         Ok(map) => extracted = map,
                         Err(e) => error = Some(e.to_string()),
@@ -656,6 +666,13 @@ pub async fn execute_step_traced_with(
             body: &body_bytes,
         };
         match mode {
+            ExtractMode::Strict if has_default(&step.extract) => {
+                let o = evaluate_with_defaults(&step.extract, &facts);
+                extracted = o.extracted;
+                if let Some(e) = o.error {
+                    error = Some(e.to_string());
+                }
+            }
             ExtractMode::Strict => match evaluate_extracts(&step.extract, &facts) {
                 Ok(map) => extracted = map,
                 Err(e) => error = Some(e.to_string()),

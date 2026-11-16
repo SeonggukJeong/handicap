@@ -660,10 +660,14 @@ async fn execute_steps(
                     blank_guard::check(&http.request.url, &ctx, blanked).is_some()
                 };
                 if blocked {
+                    let mut none = BTreeMap::new();
+                    let filled =
+                        fill_missing_extracts(http, &mut none, iter_vars, cond_pass.is_some());
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(filled.defaulted.iter());
+                    }
+                    blank_guard::note_step(blanked, &http.id, &none, &filled.blanked);
                     if let Some(samples) = cond_pass {
-                        let mut none = BTreeMap::new();
-                        let names = fill_missing_extracts(http, &mut none, iter_vars, true).blanked;
-                        blank_guard::note_step(blanked, &http.id, &none, &names);
                         mark_pass(
                             samples,
                             PassActivity {
@@ -695,12 +699,16 @@ async fn execute_steps(
                     if let Some(rg) = req.as_mut() {
                         rg.mark_written(outcome.extracted.keys());
                     }
-                    let names = if cond_pass.is_some() {
-                        fill_missing_extracts(http, &mut outcome.extracted, iter_vars, true).blanked
-                    } else {
-                        Vec::new()
-                    };
-                    blank_guard::note_step(blanked, &http.id, &outcome.extracted, &names);
+                    let filled = fill_missing_extracts(
+                        http,
+                        &mut outcome.extracted,
+                        iter_vars,
+                        cond_pass.is_some(),
+                    );
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(filled.defaulted.iter());
+                    }
+                    blank_guard::note_step(blanked, &http.id, &outcome.extracted, &filled.blanked);
                     iter_vars.extend(outcome.extracted.clone());
                     {
                         let mut a = agg.lock().await;

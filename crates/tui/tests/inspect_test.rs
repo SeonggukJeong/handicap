@@ -728,6 +728,7 @@ fn http(
         branch_eval: vec![],
         timed_out: false,
         blocked: None,
+        defaulted: Vec::new(),
     }
 }
 
@@ -745,6 +746,7 @@ fn if_row(step: &str, branch: &str) -> StepTrace {
         branch_eval: vec![],
         timed_out: false,
         blocked: None,
+        defaulted: Vec::new(),
     }
 }
 

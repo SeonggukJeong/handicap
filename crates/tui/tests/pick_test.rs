@@ -760,6 +760,7 @@ fn http_step(id: &str, status: Option<u16>) -> StepTrace {
         branch_eval: vec![],
         timed_out: false,
         blocked: None,
+        defaulted: Vec::new(),
     }
 }
 fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {
