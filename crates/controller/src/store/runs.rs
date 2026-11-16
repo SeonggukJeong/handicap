@@ -436,6 +436,22 @@ pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
     Ok(())
 }
 
+/// 활성(`pending`/`running`) run만 `aborted`로 바꾸고 사유 message를 남긴다. 행이 바뀌면 `true`.
+/// 가드 단일 UPDATE라 이미 terminal인 run을 클로버하지 않는다(`mark_failed_if_active`와 동형).
+pub async fn mark_aborted_if_active(db: &Db, id: &str, message: &str) -> sqlx::Result<bool> {
+    let now = super::now_ms();
+    let res = sqlx::query(
+        "UPDATE runs SET status = 'aborted', ended_at = ?, message = ? \
+         WHERE id = ? AND status IN ('pending', 'running')",
+    )
+    .bind(now)
+    .bind(message)
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected() == 1)
+}
+
 /// Mark a single run `failed` with a message and stamp `ended_at`. Used when
 /// worker dispatch fails at run-create time so the failure is authoritative and
 /// immediate (with a useful cause) instead of leaving the run `pending` for the

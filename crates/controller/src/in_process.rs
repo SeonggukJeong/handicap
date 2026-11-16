@@ -160,6 +160,11 @@ async fn bounded_drain(mut handle: tokio::task::JoinHandle<()>, timeout: Duratio
     }
 }
 
+/// 역할(모드) 전환으로 활성 run을 중단할 때 남기는 사유.
+pub const ABORT_MSG_ROLE_SWITCH: &str = "모드 전환으로 중단";
+/// 앱 종료로 활성 run을 중단할 때 남기는 사유.
+pub const ABORT_MSG_APP_EXIT: &str = "앱 종료로 중단";
+
 /// 활성(`pending`/`running`) run에 in-memory Abort를 보낸다(send-only).
 /// `coord.abort(id)`는 in-memory 워커 엔트리가 없으면 `false`를 돌려주는데(아직 미등록 pending 등)
 /// 이는 **no-op이지 에러가 아니다** — 그런 run은 워커 self-cancel(R4b)·다음 startup
@@ -199,6 +204,42 @@ impl RunningController {
     }
     pub fn is_pool_mode(&self) -> bool {
         self.coord.is_pool_mode()
+    }
+
+    /// 활성(`pending`/`running`) run 개수.
+    pub async fn active_run_count(&self) -> anyhow::Result<usize> {
+        let n: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM runs WHERE status IN ('pending','running')")
+                .fetch_one(&self.db)
+                .await
+                .context("count active runs")?;
+        Ok(n as usize)
+    }
+
+    /// 활성 run을 가드 UPDATE로 `aborted`(사유 `message`) 기록 후 워커에 Abort를 보낸다.
+    /// 이미 terminal로 바뀐 run은 건드리지 않는다. 반환 = aborted로 바꾼 수.
+    pub async fn abort_active_runs(&self, message: &str) -> anyhow::Result<usize> {
+        let ids: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM runs WHERE status IN ('pending','running')")
+                .fetch_all(&self.db)
+                .await
+                .context("query active run ids")?;
+        let mut n = 0;
+        for id in &ids {
+            if crate::store::runs::mark_aborted_if_active(&self.db, id, message)
+                .await
+                .context("mark run aborted")?
+            {
+                let _ = self.coord.abort(id).await;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    /// 풀 워커 스냅샷(풀 모드 아니면 빈 목록).
+    pub async fn pool_workers(&self) -> Vec<crate::grpc::coordinator::PoolWorkerInfo> {
+        self.coord.pool_snapshot(tokio::time::Instant::now()).await
     }
 
     /// graceful 종료. 절대 무한 hang하지 않는다(스펙 §6): 활성 run abort(R4a) →
@@ -357,7 +398,7 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
         None
     };
 
-    // 9) heartbeat-reaper(pool 모드에서만; in-process는 Subprocess라 dormant — R6 충실 배선).
+    // 9) heartbeat-reaper(`worker_mode == Pool`일 때만 동작 — Subprocess 모드에선 `is_pool_mode()`가 거짓이라 아무것도 하지 않는다).
     let heartbeat_handle = if coord_state.is_pool_mode() {
         let coord = coord_state.clone();
         let settings = settings.clone();
@@ -585,6 +626,96 @@ mod tests {
         run_in_process(cfg).await.unwrap()
     }
 
+    async fn seed_scn(db: &Db) {
+        sqlx::query(
+            "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,?)",
+        )
+        .bind("scn-1")
+        .bind("test")
+        .bind("version: 1\nsteps: []\n")
+        .bind(0_i64)
+        .bind(0_i64)
+        .bind(1_i64)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    async fn status_msg(db: &Db, id: &str) -> (String, Option<String>) {
+        sqlx::query_as::<_, (String, Option<String>)>("SELECT status, message FROM runs WHERE id=?")
+            .bind(id)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    }
+
+    async fn temp_db() -> Db {
+        let tmp = tempfile::tempdir().unwrap();
+        let url = store::url_from_path(&tmp.path().join("g.db").display().to_string());
+        std::mem::forget(tmp);
+        store::connect(&url).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn guarded_abort_skips_terminal() {
+        let db = temp_db().await;
+        seed_scn(&db).await;
+        insert_active_run(&db, "A", "running").await;
+        insert_active_run(&db, "B", "completed").await;
+        assert!(
+            store::runs::mark_aborted_if_active(&db, "A", "m")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store::runs::mark_aborted_if_active(&db, "B", "m")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            status_msg(&db, "A").await,
+            ("aborted".into(), Some("m".into()))
+        );
+        assert_eq!(status_msg(&db, "B").await.0, "completed");
+    }
+
+    #[tokio::test]
+    async fn aborted_survives_orphan_sweep() {
+        let db = temp_db().await;
+        seed_scn(&db).await;
+        insert_active_run(&db, "A", "running").await;
+        assert!(
+            store::runs::mark_aborted_if_active(&db, "A", "m")
+                .await
+                .unwrap()
+        );
+        store::runs::mark_orphans_failed(&db, "orphan")
+            .await
+            .unwrap();
+        assert_eq!(status_msg(&db, "A").await.0, "aborted");
+    }
+
+    #[tokio::test]
+    async fn abort_active_runs_counts_only_active() {
+        let rc = start_test_controller().await;
+        seed_scn(&rc.db).await;
+        insert_active_run(&rc.db, "p", "pending").await;
+        insert_active_run(&rc.db, "r", "running").await;
+        insert_active_run(&rc.db, "c", "completed").await;
+        assert_eq!(rc.active_run_count().await.unwrap(), 2);
+        assert!(rc.pool_workers().await.is_empty());
+        assert_eq!(
+            rc.abort_active_runs(ABORT_MSG_ROLE_SWITCH).await.unwrap(),
+            2
+        );
+        assert_eq!(rc.active_run_count().await.unwrap(), 0);
+        assert_eq!(
+            status_msg(&rc.db, "r").await,
+            ("aborted".into(), Some(ABORT_MSG_ROLE_SWITCH.into()))
+        );
+        rc.shutdown().await;
+    }
+
     fn tmp_db() -> String {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("c.db").display().to_string();
@@ -651,7 +782,8 @@ mod tests {
             grpc_port_fallback: false,
             ..Default::default()
         };
-        assert!(run_in_process(cfg).await.is_err());
+        let e = run_in_process(cfg).await.err().expect("must fail");
+        assert!(format!("{e:#}").contains("bind gRPC"));
     }
 
     #[tokio::test]
