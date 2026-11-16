@@ -1,7 +1,7 @@
 # 데스크톱 앱 서버 모드 1차 (desktop-lan-mode) — 설계
 
 - 날짜: 2026-11-16
-- 상태: 설계
+- 상태: 완료 (2026-11-17, 코드 `81348247`..`c6f5d791`, 라이브 US1–US5 통과; 판단·연기 roadmap §B64, 2차 = 부하기 쪽 버튼 §8)
 - 유형: user-path (+ correctness-bug: 포터블 exe `--worker-mode pool` 무시)
 - 출처: 사용자 요청(2026-11-16) — "그냥 프로그램 열고 서버 버튼 누르면 서버가 되고, 부하기들은 접속 버튼 눌러서 접속하고 그렇게는 안되나?"
 - 관련: ADR-0041(LAN 풀 L1), ADR-0042(Tauri in-process 임베드), ADR-0039(라이트 Windows 배포), `docs/dev/lan-workers.md`
