@@ -625,9 +625,8 @@ async fn execute_steps(
                 if blocked {
                     if cond_pass.is_some() {
                         let mut none = BTreeMap::new();
-                        for n in blank_missing_extracts(http, &mut none, iter_vars) {
-                            blanked.insert(n, http.id.clone());
-                        }
+                        let names = blank_missing_extracts(http, &mut none, iter_vars);
+                        blank_guard::note_step(blanked, &http.id, &none, &names);
                     }
                     let mut a = agg.lock().await;
                     a.record_not_sent(&http.id, loop_index);
@@ -649,10 +648,12 @@ async fn execute_steps(
                     if let Some(rg) = req.as_mut() {
                         rg.mark_written(outcome.extracted.keys());
                     }
-                    if cond_pass.is_some() {
-                        let names = blank_missing_extracts(http, &mut outcome.extracted, iter_vars);
-                        blank_guard::note_step(blanked, &http.id, &outcome.extracted, &names);
-                    }
+                    let names = if cond_pass.is_some() {
+                        blank_missing_extracts(http, &mut outcome.extracted, iter_vars)
+                    } else {
+                        Vec::new()
+                    };
+                    blank_guard::note_step(blanked, &http.id, &outcome.extracted, &names);
                     iter_vars.extend(outcome.extracted.clone());
                     {
                         let mut a = agg.lock().await;

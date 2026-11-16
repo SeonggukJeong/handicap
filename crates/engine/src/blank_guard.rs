@@ -21,6 +21,10 @@ pub struct Blocked {
 /// R2: 주소가 읽는 이름 중 (비움 표에 있고 ∧ ctx.vars 값이 지금도 "")인 것이 있으면 Some.
 /// vars = 주소에 나온 순서·중복 제거, by_step = 첫 이름의 원인, url = lenient 렌더 결과.
 pub fn check(url_template: &str, ctx: &TemplateContext, table: &BlankTable) -> Option<Blocked> {
+    // 비움 표가 비면(조건 반복이 없는 시나리오 전부) 렌더하지 않는다 — 핫 패스 비용 0.
+    if table.is_empty() {
+        return None;
+    }
     let mut reads = Vec::new();
     let url = render_collecting_reads(url_template, ctx, &mut reads);
     let mut vars: Vec<String> = Vec::new();

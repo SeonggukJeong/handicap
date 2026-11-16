@@ -301,6 +301,38 @@ async fn real_empty_after_blank_clears_table() {
     assert_eq!(kind_count(&out, DEL_ID, ErrorKind::BlankVar), 0);
 }
 
+#[tokio::test]
+async fn strict_reextract_outside_loop_clears_table() {
+    let server = MockServer::start().await;
+    mount_empty_poll(&server).await;
+    Mock::given(path("/refetch"))
+        .respond_with(json_resp(r#"{"orderId":""}"#))
+        .mount(&server)
+        .await;
+    // 조건 반복이 orderId를 비운 뒤, 반복 밖(엄격 모드) 스텝이 응답의 실제 빈 문자열로 다시 뽑는다.
+    let refetch = http(
+        PRE_ID,
+        "refetch",
+        "GET",
+        r#"/refetch""#,
+        r#", extract: [{ var: orderId, from: body, path: "$.orderId" }]"#,
+    );
+    let y = scenario_yaml(
+        &server.uri(),
+        r#"code: """#,
+        &[
+            loop_block(&poll_step()),
+            refetch,
+            delete_step(""),
+            after_step(),
+        ],
+    );
+    let out = run_mode(&y, 800, Mode::Closed).await;
+    assert!(out.ok);
+    assert!(received(&server, "/orders/").await >= 1);
+    assert_eq!(kind_count(&out, DEL_ID, ErrorKind::BlankVar), 0);
+}
+
 async fn resets_case(mode: Mode) {
     let server = MockServer::start().await;
     mount_empty_poll(&server).await;
