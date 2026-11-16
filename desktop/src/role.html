@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>모드 전환</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --card: #ffffff; --fg: #18181b; --muted: #52525b; --line: #e4e4e7;
+    --accent: #4f46e5; --accent-fg: #ffffff; --warn-bg: #fffbeb; --warn-line: #f59e0b;
+    --err: #b91c1c; --code-bg: #f4f4f5; --ok: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111113; --card: #1c1c1f; --fg: #f4f4f5; --muted: #a1a1aa; --line: #3f3f46;
+      --accent: #818cf8; --accent-fg: #111113; --warn-bg: #2a2111; --warn-line: #b45309;
+      --err: #f87171; --code-bg: #27272a; --ok: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  h2 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .mode { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+  button { font: inherit; border-radius: 8px; padding: 7px 14px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button:disabled, input:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
+  select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  textarea.cmd { width: 100%; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px; resize: vertical; word-break: break-all; }
+  code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code-bg);
+    padding: 1px 4px; border-radius: 4px; word-break: break-all; }
+  .muted { color: var(--muted); }
+  .err { color: var(--err); }
+  .ok { color: var(--ok); }
+  .field { margin: 12px 0; }
+  .ips label { display: inline-flex; gap: 6px; align-items: center; margin-right: 16px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .notice { display: flex; gap: 8px; align-items: flex-start; background: var(--warn-bg);
+    border: 1px solid var(--warn-line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .notice span { flex: 1; }
+  .notice button { padding: 0 8px; border: none; background: transparent; font-size: 16px; line-height: 1.4; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
+    align-items: center; justify-content: center; z-index: 10; }
+  .overlay.on { display: flex; }
+  .overlay .box { background: var(--card); color: var(--fg); border-radius: 12px; padding: 24px 28px;
+    min-width: 260px; max-width: calc(100vw - 32px); text-align: center; }
+  .spinner { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent);
+    border-radius: 50%; margin: 0 auto 12px; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="app">
+  <h1>모드 전환</h1>
+  <div id="notices"></div>
+  <p id="err" class="err" hidden></p>
+  <section class="card">
+    <p id="mode" class="mode" hidden></p>
+    <div class="row">
+      <button id="switch" class="primary" type="button" hidden></button>
+      <button id="back" type="button" hidden>화면으로 돌아가기</button>
+    </div>
+  </section>
+  <section id="server" class="card" hidden>
+    <div class="field">
+      <h2>이 PC의 IP</h2>
+      <div id="ips" class="ips"></div>
+      <p id="no-ip" class="muted" hidden>이 PC의 망 주소를 찾지 못했습니다</p>
+    </div>
+    <div class="field">
+      <h2><label for="os">부하기 PC의 OS</label></h2>
+      <select id="os">
+        <option value="windows">Windows</option>
+        <option value="macos">macOS</option>
+        <option value="linux">Linux</option>
+      </select>
+    </div>
+    <div class="field">
+      <textarea id="cmd" class="cmd" rows="3" readonly aria-label="부하기 PC용 명령"></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="copy" type="button">부하기 PC용 명령 복사</button>
+        <span id="copy-msg" role="status"></span>
+      </div>
+      <p id="cmd-err" class="err" hidden></p>
+      <p id="os-guide" class="muted"></p>
+    </div>
+    <div class="field">
+      <label class="row"><input id="sw" type="checkbox"> 이 PC도 부하 내기</label>
+      <p id="sw-note" class="muted" hidden></p>
+    </div>
+    <div class="field">
+      <p id="firewall" class="muted"></p>
+    </div>
+  </section>
+</main>
+<div id="confirm" class="overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-text">
+  <div class="box">
+    <p id="confirm-text"></p>
+    <div class="row" style="justify-content:center">
+      <button id="confirm-ok" class="primary" type="button">중단하고 전환</button>
+      <button id="confirm-cancel" type="button">취소</button>
+    </div>
+  </div>
+</div>
+<div id="busy" class="overlay" aria-busy="true" role="status">
+  <div class="box"><div class="spinner"></div><p id="busy-text"></p></div>
+</div>
+<script>
+if (window.top !== window.self) { document.documentElement.textContent = ""; throw new Error("framed"); }
+(function () {
+  "use strict";
+  var I = window.__TAURI_INTERNALS__;
+  function invoke(cmd, args) {
+    if (!I || typeof I.invoke !== "function") return Promise.reject("셸 연결이 없습니다");
+    return I.invoke(cmd, args || {});
+  }
+  function $(id) { return document.getElementById(id); }
+  function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function errText(e) { return typeof e === "string" ? e : (e && e.message) || String(e); }
+
+  var OS_GUIDE = {
+    windows: [["같은 버전의 포터블 exe를 받아 두고 그 폴더의 PowerShell에 붙여넣으세요"]],
+    macos: [["같은 버전의 앱을 응용 프로그램 폴더에 설치하고 한 번 열어 허용한 뒤(또는 "],
+            ["xattr -dr com.apple.quarantine /Applications/Handicap.app", true],
+            [") 터미널에 붙여넣으세요"]],
+    linux: [["AppImage 폴더에서 붙여넣으세요(실행 권한 필요)"]]
+  };
+  function firewallGuide(os, port) {
+    if (os === "windows") return [["처음에 묻는 「액세스 허용」을 눌러 주세요 — 놓쳤다면 docs/dev/lan-workers.md §1"]];
+    if (os === "macos") return [["「들어오는 네트워크 연결을 허용하겠습니까?」 창이 뜨면 허용을 눌러 주세요"]];
+    return [["방화벽(ufw)을 쓰고 있다면 "], ["sudo ufw allow " + port + "/tcp", true]];
+  }
+  function fill(el, parts) {
+    el.textContent = "";
+    parts.forEach(function (p) {
+      if (p[1]) { var c = document.createElement("code"); c.textContent = p[0]; el.appendChild(c); }
+      else el.appendChild(document.createTextNode(p[0]));
+    });
+  }
+
+  var cur = null;          // 마지막 role_state
+  var overlayOn = false;   // 전환 덮개
+  var confirmOpen = false;
+  var selIp = null, selOs = null, ipsKey = null, cmdKey = null;
+  var swPending = false, swErr = "";
+  var copyTimer = null;
+
+  function noticeList(st) {
+    var n = st.notices, out = [];
+    if (n.port_changed) out.push(["port_changed", "부하기 접속 포트 " + n.port_changed[0] + "을 다른 프로그램이 쓰고 있어 " + n.port_changed[1] + "로 열었습니다 — 부하기들에 새 명령을 주세요"]);
+    if (n.save_failed) out.push(["save_failed", "역할을 저장하지 못했습니다 — 다음 실행 때 이전 역할로 열립니다"]);
+    if (n.self_worker_excluded) out.push(["self_worker_excluded", "워커 화면에서 이 PC를 제외해 꺼졌습니다"]);
+    if (n.config_warning) out.push(["config_warning", "저장된 역할 설정을 읽지 못해 혼자 쓰기로 열었습니다"]);
+    if (n.start_error != null) out.push(["start_error", "서버로 열지 못했습니다: " + n.start_error]);
+    return out;
+  }
+
+  function setAllDisabled(on) {
+    document.querySelectorAll("button, input, select").forEach(function (el) {
+      if (on) el.disabled = true;
+    });
+  }
+
+  function showErr(msg) { var e = $("err"); e.textContent = msg; e.hidden = !msg; }
+
+  function render(st) {
+    cur = st;
+    var locked = overlayOn || st.switching;
+
+    // 안내
+    var box = $("notices");
+    box.textContent = "";
+    noticeList(st).forEach(function (it) {
+      var d = document.createElement("div"); d.className = "notice"; d.setAttribute("role", "alert");
+      var s = document.createElement("span"); s.textContent = it[1];
+      var b = document.createElement("button"); b.type = "button"; b.textContent = "✕";
+      b.setAttribute("aria-label", "안내 닫기"); b.disabled = locked;
+      b.addEventListener("click", function () {
+        invoke("dismiss_notice", { kind: it[0] }).catch(function () {}).then(refresh);
+      });
+      d.appendChild(s); d.appendChild(b); box.appendChild(d);
+    });
+
+    // 현재 모드 · 버튼 (컨트롤러가 떠 있을 때만 "열려 있음"을 말한다)
+    var mode = $("mode");
+    mode.hidden = !st.app_url;
+    mode.textContent = st.role === "server" ? "현재 모드: 서버로 열려 있음" : "현재 모드: 혼자 쓰기 (이 PC만 부하를 냅니다)";
+    var sw = $("switch");
+    sw.hidden = false;
+    sw.textContent = st.role === "server" ? "혼자 쓰기로 돌아가기" : "서버로 열기";
+    sw.disabled = locked;
+    $("back").hidden = !st.app_url;
+    $("back").disabled = locked;
+
+    // 서버 영역
+    var server = st.role === "server" && !!st.app_url;
+    $("server").hidden = !server;
+    if (server) renderServer(st, locked);
+
+    if (locked) setAllDisabled(true);
+  }
+
+  function renderServer(st, locked) {
+    var key = st.ips.join(",");
+    if (key !== ipsKey) {
+      ipsKey = key;
+      if (st.ips.indexOf(selIp) < 0) selIp = st.ips.length ? st.ips[0] : null;
+      var box = $("ips"); box.textContent = "";
+      st.ips.forEach(function (ip) {
+        var l = document.createElement("label");
+        var r = document.createElement("input"); r.type = "radio"; r.name = "ip"; r.value = ip;
+        r.checked = ip === selIp;
+        r.addEventListener("change", function () { selIp = ip; updateCommand(); });
+        l.appendChild(r); l.appendChild(document.createTextNode(ip)); box.appendChild(l);
+      });
+    }
+    document.querySelectorAll('input[name="ip"]').forEach(function (r) { r.disabled = locked; });
+    $("no-ip").hidden = st.ips.length > 0;
+
+    if (selOs == null) { selOs = st.server_os; $("os").value = selOs; }
+    $("os").disabled = locked;
+    fill($("os-guide"), OS_GUIDE[selOs] || []);
+    fill($("firewall"), firewallGuide(st.server_os, st.grpc_port));
+
+    $("copy").disabled = locked || !$("cmd").value;
+    updateCommand();
+
+    // 이 PC도 부하 내기
+    var cb = $("sw"), note = $("sw-note");
+    if (!swPending) cb.checked = st.self_worker;
+    var why = "";
+    if (st.self_worker_busy) why = "이 PC가 테스트를 실행하는 중이라 끝난 뒤 바꿀 수 있습니다";
+    else if (st.self_worker_unavailable) why = st.self_worker_unavailable;
+    cb.disabled = locked || swPending || !!why;
+    var noteText = why || swErr;
+    note.textContent = noteText; note.hidden = !noteText;
+    note.className = why ? "muted" : "err";
+  }
+
+  function updateCommand() {
+    var st = cur;
+    if (!st) return;
+    var cmd = $("cmd"), cerr = $("cmd-err");
+    if (!selIp) {
+      cmdKey = null; cmd.value = ""; cerr.hidden = true; $("copy").disabled = true;
+      return;
+    }
+    var key = selIp + "|" + selOs + "|" + st.grpc_port;
+    if (key === cmdKey) return;
+    cmdKey = key;
+    invoke("worker_command", { ip: selIp, os: selOs }).then(function (text) {
+      if (cmdKey !== key) return;
+      cmd.value = text; cerr.hidden = true;
+      $("copy").disabled = overlayOn || (cur && cur.switching);
+    }, function (e) {
+      if (cmdKey !== key) return;
+      cmdKey = null; cmd.value = ""; $("copy").disabled = true;
+      cerr.textContent = errText(e); cerr.hidden = false;
+    });
+  }
+
+  function refresh() {
+    return invoke("role_state").then(render, function (e) { showErr(errText(e)); });
+  }
+
+  // 복사: 클릭 → navigator.clipboard.writeText → 숨은 textarea + execCommand("copy")
+  function copyFallback(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.left = "-9999px"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    ta.remove();
+    return ok;
+  }
+  function copyMsg(ok) {
+    var m = $("copy-msg");
+    clearTimeout(copyTimer);
+    if (ok) {
+      m.className = "ok"; m.textContent = "복사됨";
+      copyTimer = setTimeout(function () { m.textContent = ""; }, 2000);
+    } else {
+      m.className = "err"; m.textContent = "복사하지 못했습니다 — 칸을 선택해 직접 복사하세요";
+    }
+  }
+  $("copy").addEventListener("click", function () {
+    var text = $("cmd").value;
+    if (!text) return;
+    var p;
+    try {
+      p = navigator.clipboard && navigator.clipboard.writeText
+        ? navigator.clipboard.writeText(text) : Promise.reject("no clipboard");
+    } catch (e) { p = Promise.reject(e); }
+    p.then(function () { copyMsg(true); }, function () { copyMsg(copyFallback(text)); });
+  });
+
+  $("os").addEventListener("change", function () {
+    selOs = $("os").value;
+    if (cur) render(cur);
+  });
+
+  $("sw").addEventListener("change", function () {
+    var want = $("sw").checked;
+    swPending = true; swErr = "";
+    if (cur) render(cur);
+    invoke("set_self_worker", { enabled: want }).then(function () { swErr = ""; }, function (e) { swErr = errText(e); })
+      .then(function () { swPending = false; return refresh(); });
+  });
+
+  $("back").addEventListener("click", function () {
+    if (cur && cur.app_url) location.assign(cur.app_url);
+  });
+
+  function askConfirm(n) {
+    return new Promise(function (resolve) {
+      confirmOpen = true;
+      $("confirm-text").textContent = "실행 중인 테스트 " + n + "개가 중단됩니다";
+      var dlg = $("confirm");
+      dlg.classList.add("on");
+      $("confirm-cancel").focus();
+      function done(v) {
+        dlg.classList.remove("on"); confirmOpen = false;
+        $("confirm-ok").removeEventListener("click", yes);
+        $("confirm-cancel").removeEventListener("click", no);
+        resolve(v);
+      }
+      function yes() { done(true); }
+      function no() { done(false); }
+      $("confirm-ok").addEventListener("click", yes);
+      $("confirm-cancel").addEventListener("click", no);
+    });
+  }
+
+  function setOverlay(text) {
+    overlayOn = !!text;
+    $("busy-text").textContent = text || "";
+    $("busy").classList.toggle("on", overlayOn);
+    $("app").setAttribute("aria-busy", overlayOn ? "true" : "false");
+    if (overlayOn) setAllDisabled(true);
+  }
+
+  $("switch").addEventListener("click", function () {
+    if (!cur || overlayOn) return;
+    var target = cur.role === "server" ? "local" : "server";
+    showErr("");
+    invoke("active_run_count").then(function (n) {
+      return n > 0 ? askConfirm(n) : true;
+    }).then(function (go) {
+      if (!go) return;
+      setOverlay(target === "server" ? "서버 모드로 전환 중…" : "혼자 쓰기로 돌아가는 중…");
+      return Promise.allSettled([invoke("switch_role", { target: target }), delay(600)]).then(function (rs) {
+        setOverlay("");
+        cmdKey = null; ipsKey = null;
+        return refresh().then(function () {
+          if (rs[0].status === "rejected") showErr("전환하지 못했습니다: " + errText(rs[0].reason));
+        });
+      });
+    }, function (e) {
+      showErr("전환하지 못했습니다: " + errText(e));
+      return refresh();
+    });
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && !overlayOn) refresh();
+  });
+  setInterval(function () {
+    if (cur && (cur.role === "server" || cur.switching) && !document.hidden && !overlayOn && !confirmOpen && !swPending) refresh();
+  }, 3000);
+  refresh();
+})();
+</script>
+</body>
+</html>

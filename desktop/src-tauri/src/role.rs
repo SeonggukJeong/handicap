@@ -48,6 +48,8 @@ pub struct Env {
     pub hostname: fn() -> String,
     /// 테스트 전용 문: 있으면 `switch`가 정지 뒤·시작 전에 `notified().await`로 멈춘다.
     pub start_gate: Option<Arc<Notify>>,
+    /// 테스트 전용 실패 주입: 이 역할의 시작은 컨트롤러를 띄우지 않고 실패한다(운영은 `None`).
+    pub fail_start: Option<Role>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -173,10 +175,13 @@ pub async fn start_running(
     config: &mut DesktopConfig,
     notices: &mut Notices,
 ) -> Result<Running, String> {
-    let (db, hostname) = {
+    let (db, hostname, fail_start) = {
         let st = shell.state.lock().await;
-        (st.env.db.clone(), st.env.hostname)
+        (st.env.db.clone(), st.env.hostname, st.env.fail_start)
     };
+    if fail_start == Some(config.role) {
+        return Err("시작 실패(테스트 주입)".into());
+    }
     match config.role {
         Role::Local => {
             let rc = run_in_process(InProcessConfig {
@@ -346,16 +351,21 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
     let mut attempt = config.clone();
     attempt.role = target;
     let mut n = notices.clone();
-    let (installed, new_config, mut new_notices, result) =
+    // `save`: 성공이면 저장. 실패 뒤 **이전 역할**로 되살렸는데 그 시작이 config를 바꿨으면
+    // (서버 복구가 다른 포트로 열림 등) 그것도 저장한다 — 역할은 전환 전 저장값과 같다(R3).
+    // 혼자 쓰기 강제 복구는 저장하지 않는다(R1 성공 후 저장).
+    let (installed, new_config, mut new_notices, result, save) =
         match start_running(shell, &mut attempt, &mut n).await {
             Ok(r) => {
                 n.start_error = None;
-                (Some(r), attempt, n, Ok(()))
+                (Some(r), attempt, n, Ok(()), true)
             }
             Err(e) => {
                 eprintln!("desktop: 역할 전환 실패: {e}");
-                let (r, c, nn) = restore_after_failure(shell, &config, &notices).await;
-                (r, c, nn, Err(e))
+                let (r, c, nn, restored_prev) =
+                    restore_after_failure(shell, &config, &notices).await;
+                let save = restored_prev && c != config;
+                (r, c, nn, Err(e), save)
             }
         };
     if let Err(e) = &result {
@@ -366,7 +376,7 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
     st.running = installed;
     st.config = new_config;
     st.notices = new_notices;
-    if result.is_ok() {
+    if save {
         persist(&mut st);
     }
     st.switching = false;
@@ -376,28 +386,29 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
 }
 
 /// 전환 실패 뒤 복구: 이전 역할로 다시 시작, 그것도 실패하면 혼자 쓰기. 둘 다 실패면 `None`.
+/// 마지막 값 = 이전 역할로 되살렸는지(저장 판단용).
 async fn restore_after_failure(
     shell: &Shell,
     config: &DesktopConfig,
     notices: &Notices,
-) -> (Option<Running>, DesktopConfig, Notices) {
+) -> (Option<Running>, DesktopConfig, Notices, bool) {
     let mut fb = config.clone();
     let mut fbn = notices.clone();
     match start_running(shell, &mut fb, &mut fbn).await {
-        Ok(r) => return (Some(r), fb, fbn),
+        Ok(r) => return (Some(r), fb, fbn, true),
         Err(e) => eprintln!("desktop: 이전 역할 복구 실패: {e}"),
     }
     if fb.role == Role::Local {
-        return (None, fb, fbn);
+        return (None, fb, fbn, false);
     }
     let mut lc = config.clone();
     lc.role = Role::Local;
     let mut ln = notices.clone();
     match start_running(shell, &mut lc, &mut ln).await {
-        Ok(r) => (Some(r), lc, ln),
+        Ok(r) => (Some(r), lc, ln, false),
         Err(e) => {
             eprintln!("desktop: 혼자 쓰기 복구 실패: {e}");
-            (None, lc, ln)
+            (None, lc, ln, false)
         }
     }
 }
@@ -437,6 +448,7 @@ pub async fn set_self_worker(shell: &Shell, enabled: bool) -> Result<(), String>
     if st.config.role != Role::Server {
         return Err("서버 모드에서만 바꿀 수 있습니다".into());
     }
+    reap_finished_self_worker(st);
     let Some(running) = st.running.as_mut() else {
         return Err("서버가 실행 중이 아닙니다".into());
     };
@@ -474,9 +486,22 @@ pub async fn set_self_worker(shell: &Shell, enabled: bool) -> Result<(), String>
     }
 }
 
-/// 이 PC 부하기가 지금 run을 실행 중인지(토글 잠금 표시용).
-pub async fn self_worker_busy(shell: &Shell) -> bool {
-    let st = shell.state.lock().await;
+/// 이미 끝난 이 PC 부하기(패닉·에러 종료로 `Some`이 남은 것)를 비운다 — 실행 중이 아니므로
+/// 토글은 꺼짐으로 보이고 다시 켜면 새로 띄운다. 잠금 안에서 부른다.
+pub fn reap_finished_self_worker(st: &mut ShellState) {
+    if let Some(r) = st.running.as_mut() {
+        if r.self_worker
+            .as_ref()
+            .is_some_and(|w| w.handle.is_finished())
+        {
+            r.self_worker = None;
+        }
+    }
+}
+
+/// 잠금 안에서: 끝난 부하기를 비운 뒤 이 PC 부하기가 지금 run을 실행 중인지.
+pub async fn self_worker_busy_locked(st: &mut ShellState) -> bool {
+    reap_finished_self_worker(st);
     let Some(running) = st.running.as_ref() else {
         return false;
     };
@@ -484,6 +509,12 @@ pub async fn self_worker_busy(shell: &Shell) -> bool {
         return false;
     };
     is_busy(&running.controller.pool_workers().await, &sw.worker_id)
+}
+
+/// 이 PC 부하기가 지금 run을 실행 중인지(토글 잠금 표시용).
+pub async fn self_worker_busy(shell: &Shell) -> bool {
+    let mut st = shell.state.lock().await;
+    self_worker_busy_locked(&mut st).await
 }
 
 #[cfg(test)]
@@ -539,6 +570,7 @@ mod tests {
             db: Some(db_path(d.path())),
             hostname,
             start_gate,
+            fail_start: None,
         };
         let loaded = Loaded {
             config: cfg,
@@ -882,10 +914,22 @@ mod tests {
         addr
     }
 
-    /// 서버 + 이 PC 부하기 등록 → `taddr`를 치는 run(closed vus 1, 60s)이 이 PC 부하기에서
-    /// running이 될 때까지 → `switch(Local)` → 같은 DB를 직접 열어 그 run 행을 돌려준다.
     async fn run_then_switch_to_local(
         taddr: std::net::SocketAddr,
+    ) -> handicap_controller::store::runs::RunRow {
+        run_then_stop(taddr, Stop::SwitchToLocal).await
+    }
+
+    enum Stop {
+        SwitchToLocal,
+        Shutdown,
+    }
+
+    /// 서버 + 이 PC 부하기 등록 → `taddr`를 치는 run(closed vus 1, 60s)이 이 PC 부하기에서
+    /// running이 될 때까지 → `stop`(전환 또는 앱 종료) → 같은 DB를 직접 열어 그 run 행을 돌려준다.
+    async fn run_then_stop(
+        taddr: std::net::SocketAddr,
+        stop: Stop,
     ) -> handicap_controller::store::runs::RunRow {
         let (s, d) = shell(server(free_port()));
         boot(&s).await.unwrap();
@@ -957,7 +1001,10 @@ mod tests {
         })
         .await;
 
-        switch(&s, Role::Local).await.unwrap();
+        match stop {
+            Stop::SwitchToLocal => switch(&s, Role::Local).await.unwrap(),
+            Stop::Shutdown => shutdown(&s).await,
+        }
 
         let db = handicap_controller::store::connect(&handicap_controller::store::url_from_path(
             &db_path(d.path()),
@@ -981,6 +1028,109 @@ mod tests {
         let row = run_then_switch_to_local(taddr).await;
         assert_eq!(row.status.as_str(), "aborted");
         assert_eq!(row.message.as_deref(), Some(ABORT_MSG_ROLE_SWITCH));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn shutdown_marks_self_worker_run_aborted_with_app_exit() {
+        let taddr = spawn_target(Some(Duration::from_millis(100))).await;
+        let row = run_then_stop(taddr, Stop::Shutdown).await;
+        assert_eq!(row.status.as_str(), "aborted");
+        assert_eq!(row.message.as_deref(), Some(ABORT_MSG_APP_EXIT));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_switch_restoring_server_on_new_port_persists_it() {
+        // 서버(p)로 시작 → 혼자 쓰기로 전환(시작 실패 주입) → 이전 역할(서버) 복구 때 p가
+        // 다른 프로그램에 잡혀 새 포트로 열림 → 그 실제 포트가 저장돼야 한다(R3).
+        let gate = Arc::new(Notify::new());
+        let p = free_port();
+        let d = tempfile::tempdir().unwrap();
+        let env = Env {
+            config_dir: d.path().to_path_buf(),
+            db: Some(db_path(d.path())),
+            hostname: host,
+            start_gate: Some(gate.clone()),
+            fail_start: Some(Role::Local),
+        };
+        let s = Shell::new(ShellState::new(
+            Loaded {
+                config: server(p),
+                warning: false,
+            },
+            env,
+        ));
+        boot(&s).await.unwrap();
+        let s2 = s.clone();
+        let a = tokio::spawn(async move { switch(&s2, Role::Local).await });
+        // 정지가 끝나 문 앞에 멈출 때까지(= running이 비고 p가 풀림) 기다린 뒤 p를 잡는다.
+        let sr = &s;
+        wait_until(|| async move {
+            let st = sr.state.lock().await;
+            st.switching && st.running.is_none()
+        })
+        .await;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let held = loop {
+            if let Ok(l) = std::net::TcpListener::bind(("0.0.0.0", p)) {
+                break l;
+            }
+            assert!(Instant::now() < deadline, "p를 5s 안에 다시 잡지 못함");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        gate.notify_one();
+        assert!(a.await.unwrap().is_err(), "주입한 실패");
+        let actual = {
+            let st = s.state.lock().await;
+            assert_eq!(st.config.role, Role::Server);
+            assert_eq!(st.notices.port_changed.map(|x| x.0), Some(p));
+            st.running.as_ref().unwrap().controller.grpc_addr().port()
+        };
+        assert_ne!(actual, p);
+        let saved = config_store::load(d.path()).config;
+        assert_eq!(saved.role, Role::Server);
+        assert_eq!(saved.server.grpc_port, actual);
+        shutdown(&s).await;
+        drop(held);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn finished_self_worker_is_treated_as_stopped() {
+        // 패닉 등으로 끝난 이 PC 부하기(`Some`이 남음)는 실행 중이 아니다 — 비우고 다시 켤 수 있어야.
+        let (s, _d) = shell(server(free_port()));
+        boot(&s).await.unwrap();
+        let sr = &s;
+        wait_for(Duration::from_secs(5), "self worker 등록", || async move {
+            self_worker_registered(sr).await
+        })
+        .await;
+        let real = running(&s).await.self_worker.take().unwrap();
+        stop_self_worker(real).await;
+        let done = tokio::spawn(async {});
+        wait_until(|| {
+            let f = done.is_finished();
+            async move { f }
+        })
+        .await;
+        running(&s).await.self_worker = Some(SelfWorker {
+            generation: 0,
+            parent: CancellationToken::new(),
+            child: CancellationToken::new(),
+            handle: done,
+            worker_id: "test-host".into(),
+        });
+        assert!(!self_worker_busy(&s).await);
+        assert!(
+            running(&s).await.self_worker.is_none(),
+            "끝난 부하기는 비움"
+        );
+        set_self_worker(&s, true).await.unwrap();
+        wait_for(
+            Duration::from_secs(5),
+            "self worker 재시작",
+            || async move { self_worker_registered(sr).await },
+        )
+        .await;
+        shutdown(&s).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

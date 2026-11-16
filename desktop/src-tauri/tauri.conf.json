@@ -8,7 +8,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Handicap", "url": "splash.html", "width": 1280, "height": 860 }
+      { "label": "main", "title": "Handicap", "url": "splash.html", "width": 1280, "height": 860, "create": false }
     ],
     "security": { "csp": null }
   },

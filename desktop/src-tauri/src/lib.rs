@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod config_store;
 mod launch;
 pub mod role;
@@ -20,32 +21,73 @@ pub fn run() {
                     db: std::env::var("HANDICAP_DB").ok(),
                     hostname: handicap_worker::resolve_hostname,
                     start_gate: None,
+                    fail_start: None,
                 },
             ));
             app.manage(shell.clone());
+
+            // 창은 conf(`create: false`)의 정의로 여기서 직접 만든다 — conf가 만드는 창엔
+            // 초기화 스크립트를 달 수 없다(Task 1 스파이크). label "main" 유지 = capability 매치.
+            let role_page = launch::role_page_url();
+            let win_cfg = app
+                .config()
+                .app
+                .windows
+                .first()
+                .cloned()
+                .ok_or("tauri.conf.json에 창 정의가 없습니다")?;
+            let win = tauri::WebviewWindowBuilder::from_config(app.handle(), &win_cfg)?
+                .initialization_script(launch::marker_script(&role_page))
+                .build()?;
+            match win.url() {
+                Ok(u) if launch::origin_of(&u) == launch::shell_origin() => {}
+                Ok(u) => eprintln!(
+                    "desktop: 경고 — 셸 origin 예상 {} 와 실제 {} 가 다름(「모드 전환」 링크가 틀린 곳을 가리킴)",
+                    launch::shell_origin(),
+                    launch::origin_of(&u)
+                ),
+                Err(e) => eprintln!("desktop: 경고 — 창 주소를 읽지 못함: {e}"),
+            }
+
             tauri::async_runtime::spawn(async move {
+                let Some(win) = handle.get_webview_window("main") else {
+                    return;
+                };
                 match role::boot(&shell).await {
                     Ok(url) => {
-                        if let Some(win) = handle.get_webview_window("main") {
-                            if let Ok(u) = url.parse::<tauri::Url>() {
-                                let _ = win.navigate(u);
-                            }
+                        if let Ok(u) = url.parse::<tauri::Url>() {
+                            let _ = win.navigate(u);
                         }
                     }
                     Err(e) => {
-                        // 창의 스플래시에 에러 표시(navigate 금지). Task 7이 역할 화면으로 바꾼다.
-                        if let Some(win) = handle.get_webview_window("main") {
-                            let js = format!(
-                                "window.__setError && window.__setError({})",
-                                serde_json::to_string(&e).unwrap_or_else(|_| "\"error\"".into())
-                            );
-                            let _ = win.eval(&js);
+                        // 시작 실패 → 「모드 전환」 화면(사유는 notices.start_error로 보인다).
+                        eprintln!("desktop: 시작 실패: {e}");
+                        match role_page.parse::<tauri::Url>() {
+                            Ok(u) => {
+                                let _ = win.navigate(u);
+                            }
+                            Err(_) => {
+                                let js = format!(
+                                    "window.__setError && window.__setError({})",
+                                    serde_json::to_string(&e)
+                                        .unwrap_or_else(|_| "\"error\"".into())
+                                );
+                                let _ = win.eval(&js);
+                            }
                         }
                     }
                 }
             });
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            commands::role_state,
+            commands::worker_command,
+            commands::active_run_count,
+            commands::switch_role,
+            commands::set_self_worker,
+            commands::dismiss_notice,
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
