@@ -617,6 +617,7 @@ async fn trace_steps(
                             state.truncated = true;
                             return;
                         }
+                        let pass_start = state.steps.len();
                         Box::pin(trace_steps(
                             client,
                             &lp.do_,
@@ -635,6 +636,15 @@ async fn trace_steps(
                         .await;
                         if state.truncated || state.ended_by_loop.is_some() {
                             return;
+                        }
+                        // runner와 같은 규칙: 보낸 요청 없이 막히기만 한 회차(안쪽 if·loop·parallel
+                        // 행 포함)면 판정 행 없이 반복 뒤로 간다 — 잘림 아님(blank-var-url-guard F2).
+                        let pass_rows = &state.steps[pass_start..];
+                        let http_rows = || pass_rows.iter().filter(|s| s.kind == StepKind::Http);
+                        if http_rows().any(|s| s.blocked.is_some())
+                            && http_rows().all(|s| s.blocked.is_some())
+                        {
+                            break;
                         }
                         pass = pass.saturating_add(1);
                         let (eval, again) = {

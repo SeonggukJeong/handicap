@@ -11,11 +11,22 @@ pub type BlankTable = BTreeMap<String, String>;
 /// 차단된 스텝의 고정 에러 문자열(값·이름 없음).
 pub const BLOCKED_ERROR: &str = "not sent: blank value in url";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Blocked {
     pub vars: Vec<String>,
     pub by_step: String,
+    /// lenient 렌더 결과 — 풀린 `${ENV}` 값·userinfo·쿼리 비밀이 들 수 있다(Debug에 싣지 않는다).
     pub url: String,
+}
+
+impl std::fmt::Debug for Blocked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Blocked")
+            .field("vars", &self.vars)
+            .field("by_step", &self.by_step)
+            .field("url", &"<redacted>")
+            .finish()
+    }
 }
 
 /// R2: 주소가 읽는 이름 중 (비움 표에 있고 ∧ ctx.vars 값이 지금도 "")인 것이 있으면 Some.
@@ -132,6 +143,21 @@ mod tests {
                 url: "/orders/".into()
             })
         );
+    }
+
+    #[test]
+    fn blocked_debug_omits_url() {
+        let b = Blocked {
+            vars: vec!["orderId".into()],
+            by_step: "S1".into(),
+            url: "https://user:pw@host/orders/?token=SECRET".into(),
+        };
+        let s = format!("{b:?}");
+        assert_eq!(
+            s,
+            r#"Blocked { vars: ["orderId"], by_step: "S1", url: "<redacted>" }"#
+        );
+        assert!(!s.contains("SECRET") && !s.contains("host/orders"), "{s}");
     }
 
     #[test]

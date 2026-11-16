@@ -543,18 +543,55 @@ struct PassSample {
     is_error: bool,
 }
 
+/// 조건 반복 회차 하나의 기록: 응답 표본과, 그 회차 본문(안쪽 if·loop·parallel 포함)에서
+/// 요청을 보냈는가 / 막힌 http 스텝이 있었는가.
+#[derive(Default)]
+struct PassBuf {
+    samples: Vec<PassSample>,
+    activity: PassActivity,
+}
+
+#[derive(Default, Clone, Copy)]
+struct PassActivity {
+    sent: bool,
+    blocked: bool,
+}
+
+impl PassActivity {
+    /// 아무것도 안 보내고 막히기만 한 회차 — 다음 회차도 새로 뽑을 값이 없어 같다
+    /// (blank-var-url-guard F2: 반복을 끝낸다).
+    fn dead(self) -> bool {
+        self.blocked && !self.sent
+    }
+
+    fn or(self, other: PassActivity) -> PassActivity {
+        PassActivity {
+            sent: self.sent || other.sent,
+            blocked: self.blocked || other.blocked,
+        }
+    }
+}
+
 /// 조건 반복 진입마다 하나. parallel 분기가 `join_all`로 같은 참조를 함께 쓰므로 잠금이다
 /// (std 잠금 — `await`를 넘겨 쥐지 않는다).
-type PassSamples = std::sync::Mutex<Vec<PassSample>>;
+type PassSamples = std::sync::Mutex<PassBuf>;
 
-/// 회차 버퍼를 `scratch`와 맞바꿔 가져온다(새 `Vec` 할당 없음). 오염된 잠금은 그대로 쓴다.
-fn take_pass(samples: &PassSamples, scratch: &mut Vec<PassSample>) {
+/// 회차 버퍼를 `scratch`와 맞바꿔 가져오고(새 `Vec` 할당 없음) 회차 표지를 비우며 돌려준다.
+/// 오염된 잠금은 그대로 쓴다.
+fn take_pass(samples: &PassSamples, scratch: &mut Vec<PassSample>) -> PassActivity {
     debug_assert!(
         scratch.is_empty(),
         "take_pass: the receiving scratch Vec must be empty before the swap"
     );
     let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
-    std::mem::swap(&mut *g, scratch);
+    std::mem::swap(&mut g.samples, scratch);
+    std::mem::take(&mut g.activity)
+}
+
+/// 회차 표지에 `add`를 더한다(안쪽 조건 반복이 끝나며 바깥 회차에 알릴 때도 쓴다).
+fn mark_pass(samples: &PassSamples, add: PassActivity) {
+    let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
+    g.activity = g.activity.or(add);
 }
 
 /// `scratch`의 표본을 전부 `class`로 기록하고 비운다.
@@ -623,10 +660,17 @@ async fn execute_steps(
                     blank_guard::check(&http.request.url, &ctx, blanked).is_some()
                 };
                 if blocked {
-                    if cond_pass.is_some() {
+                    if let Some(samples) = cond_pass {
                         let mut none = BTreeMap::new();
                         let names = blank_missing_extracts(http, &mut none, iter_vars);
                         blank_guard::note_step(blanked, &http.id, &none, &names);
+                        mark_pass(
+                            samples,
+                            PassActivity {
+                                sent: false,
+                                blocked: true,
+                            },
+                        );
                     }
                     let mut a = agg.lock().await;
                     a.record_not_sent(&http.id, loop_index);
@@ -703,8 +747,9 @@ async fn execute_steps(
                     } // drop the aggregator guard before the (possibly long) think-time sleep
                     if let Some(samples) = cond_pass {
                         let mut g = samples.lock().unwrap_or_else(|e| e.into_inner());
-                        if g.len() < LOOP_SPLIT_PASS_SAMPLE_CAP {
-                            g.push(PassSample {
+                        g.activity.sent = true;
+                        if g.samples.len() < LOOP_SPLIT_PASS_SAMPLE_CAP {
+                            g.samples.push(PassSample {
                                 step_id: std::mem::take(&mut outcome.step_id),
                                 latency_us: outcome.latency.as_micros().min(u64::MAX as u128)
                                     as u64,
@@ -730,8 +775,10 @@ async fn execute_steps(
                     let max = lp.max_passes();
                     let mut pass: u32 = 0;
                     // 이 진입의 회차 표본 버퍼(본문이 `Some(&samples)`로 받는다)와 비우기용 빈 `Vec`.
-                    let samples: PassSamples = std::sync::Mutex::new(Vec::new());
+                    let samples: PassSamples = std::sync::Mutex::new(PassBuf::default());
                     let mut scratch: Vec<PassSample> = Vec::new();
+                    // 이 진입 전체의 표지 — 반복을 나오며 바깥 조건 반복 회차에 더한다(중첩 반복).
+                    let mut entry_activity = PassActivity::default();
                     loop {
                         if Instant::now() >= deadline {
                             if pass > 0 {
@@ -790,6 +837,19 @@ async fn execute_steps(
                             }
                         }
                         pass = pass.saturating_add(1);
+                        let activity = take_pass(&samples, &mut scratch);
+                        entry_activity = entry_activity.or(activity);
+                        if activity.dead() {
+                            // 보낸 요청 없이 막히기만 한 회차: 다음 회차도 같다 — 조건이 거짓이 된
+                            // 것처럼 반복 뒤로 간다(「마치지 못함」, blank-var-url-guard F2).
+                            // 보낸 표본이 없으니 scratch는 비어 있다.
+                            agg.lock().await.record_loop_exit(
+                                &lp.id,
+                                pass,
+                                LoopExitOutcome::Truncated,
+                            );
+                            break;
+                        }
                         let again = {
                             let ctx = TemplateContext {
                                 vars: iter_vars,
@@ -800,7 +860,6 @@ async fn execute_steps(
                             };
                             eval_condition(cond, &ctx)
                         };
-                        take_pass(&samples, &mut scratch);
                         if !again {
                             let mut a = agg.lock().await;
                             flush_pass(&mut a, &mut scratch, LoopSplitClass::Ended);
@@ -824,6 +883,9 @@ async fn execute_steps(
                         }
                         // 요청 없는 본문이어도 같은 실행기의 다른 task가 굶지 않게 한다.
                         tokio::task::yield_now().await;
+                    }
+                    if let Some(outer) = cond_pass {
+                        mark_pass(outer, entry_activity);
                     }
                 } else {
                     for i in 0..lp.plain_repeat() {

@@ -95,7 +95,8 @@ pub fn evaluate(
 
 /// Lenient sibling of [`evaluate`]: each item is evaluated on its own; found
 /// values are kept and failed items (missing path/header/cookie, non-JSON body,
-/// decode/claim failure) are simply absent. Never errors.
+/// a body path that finds JSON `null`, decode/claim failure) are simply absent.
+/// Never errors.
 pub fn evaluate_lenient(
     extracts: &[Extract],
     facts: &ResponseFacts<'_>,
@@ -116,7 +117,9 @@ pub fn evaluate_lenient(
                     .get_or_insert_with(|| serde_json::from_slice(facts.body).ok())
                     .as_ref();
                 let Some(json) = json else { continue };
-                let Some(value) = jsonpath_first(json, path) else {
+                // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
+                // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
+                let Some(value) = jsonpath_first(json, path).filter(|v| !v.is_null()) else {
                     continue;
                 };
                 if let Ok(v) = post_process(var, stringify(&value), *decode, claim.as_deref()) {
@@ -480,6 +483,30 @@ mod tests {
         let out = evaluate_lenient(&extracts, &facts);
         assert!(!out.contains_key("t"));
         assert_eq!(out.get("code").map(String::as_str), Some("OK"));
+    }
+
+    #[test]
+    fn lenient_json_null_is_not_extracted() {
+        let extracts = vec![body_extract("orderId", "$.orderId")];
+        let facts = lenient_facts(br#"{"orderId":null}"#, &[]);
+        let out = evaluate_lenient(&extracts, &facts);
+        assert!(!out.contains_key("orderId"), "{out:?}");
+    }
+
+    #[test]
+    fn lenient_real_empty_string_is_extracted() {
+        let extracts = vec![body_extract("orderId", "$.orderId")];
+        let facts = lenient_facts(br#"{"orderId":""}"#, &[]);
+        let out = evaluate_lenient(&extracts, &facts);
+        assert_eq!(out.get("orderId").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn strict_json_null_still_extracts_empty() {
+        let extracts = vec![body_extract("orderId", "$.orderId")];
+        let facts = lenient_facts(br#"{"orderId":null}"#, &[]);
+        let out = evaluate(&extracts, &facts).expect("strict null is a match");
+        assert_eq!(out.get("orderId").map(String::as_str), Some(""));
     }
 
     #[test]

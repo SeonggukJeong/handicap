@@ -153,6 +153,11 @@ pub enum ExtractMode {
     Lenient,
 }
 
+/// [`execute_step_with`] in [`ExtractMode::Strict`].
+///
+/// Sends unconditionally: the blank-URL guard ([`crate::blank_guard::check`]) is
+/// applied by the callers (`runner.rs` `Step::Http`, `trace.rs`), not here — any
+/// new caller must apply it before calling.
 pub async fn execute_step(
     client: &VuClient,
     step: &HttpStep,
@@ -161,6 +166,11 @@ pub async fn execute_step(
     execute_step_with(client, step, ctx, ExtractMode::Strict).await
 }
 
+/// Render, send and extract one http step.
+///
+/// Sends unconditionally: the blank-URL guard ([`crate::blank_guard::check`]) is
+/// applied by the callers (`runner.rs` `Step::Http`, `trace.rs`), not here — any
+/// new caller must apply it before calling.
 pub async fn execute_step_with(
     client: &VuClient,
     step: &HttpStep,
@@ -456,6 +466,10 @@ pub(crate) fn method_parts(m: &HttpMethod) -> (&'static str, reqwest::Method) {
 /// Trace sibling of [`execute_step`]: renders leniently (collecting unbound tokens)
 /// and KEEPS the resolved request + response detail. Never errors — failures are
 /// captured in the returned `HttpTrace.error`. Does not touch the load hot path.
+///
+/// Sends unconditionally: the blank-URL guard ([`crate::blank_guard::check`]) is
+/// applied by the callers (`runner.rs` `Step::Http`, `trace.rs`), not here — any
+/// new caller must apply it before calling.
 pub async fn execute_step_traced(
     client: &VuClient,
     step: &HttpStep,
@@ -465,6 +479,10 @@ pub async fn execute_step_traced(
 }
 
 /// [`execute_step_traced`] with an explicit [`ExtractMode`].
+///
+/// Sends unconditionally: the blank-URL guard ([`crate::blank_guard::check`]) is
+/// applied by the callers (`runner.rs` `Step::Http`, `trace.rs`), not here — any
+/// new caller must apply it before calling.
 pub async fn execute_step_traced_with(
     client: &VuClient,
     step: &HttpStep,

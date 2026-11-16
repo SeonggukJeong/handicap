@@ -481,6 +481,104 @@ async fn real_empty_string_not_blocked() {
 }
 
 #[tokio::test]
+async fn null_extract_in_loop_blocks_url() {
+    let server = MockServer::start().await;
+    Mock::given(path("/poll"))
+        .respond_with(json_resp(r#"{"orderId":null,"code":null}"#))
+        .mount(&server)
+        .await;
+    let out = run_mode(&y1(&server.uri()), 800, Mode::Closed).await;
+    assert!(out.ok);
+    assert_eq!(received(&server, "/orders/").await, 0, "null url was sent");
+    assert!(kind_count(&out, DEL_ID, ErrorKind::BlankVar) > 0);
+}
+
+/// 자기 잠금 반복: `while state ne DONE`(최대 횟수 없음) 본문 = 자기 주소에 자기가 뽑는 `etag`를
+/// 쓰는 스텝 하나. `etag`가 빠진 응답 한 번이면 다음 회차부터 그 스텝은 늘 막힌다.
+fn self_lock_yaml(base: &str) -> String {
+    let jobs = http(
+        DETAIL_ID,
+        "jobs",
+        "GET",
+        r#"/jobs/{{id}}?since={{etag}}""#,
+        r#", extract: [{ var: etag, from: body, path: "$.etag" }, { var: state, from: body, path: "$.state" }]"#,
+    );
+    let lp = format!(
+        "- id: \"{LOOP_ID}\"\n  name: lp\n  type: loop\n  while: {{ left: \"{{{{state}}}}\", op: ne, right: \"DONE\" }}\n  do:\n{}",
+        indent(&jobs, 4)
+    );
+    scenario_yaml(base, r#"id: "1", etag: "", state: """#, &[lp, after_step()])
+}
+
+#[tokio::test]
+async fn self_locking_loop_exits_instead_of_spinning() {
+    use handicap_engine::LoopExitOutcome;
+    let server = MockServer::start().await;
+    Mock::given(path("/jobs/1"))
+        .respond_with(json_resp(r#"{"state":"WAIT"}"#))
+        .mount(&server)
+        .await;
+    let out = run_mode(&self_lock_yaml(&server.uri()), 1000, Mode::Closed).await;
+    assert!(out.ok);
+    let after = win(&out, AFTER_ID).count;
+    let body = win(&out, DETAIL_ID).count;
+    let sent = received(&server, "/jobs/").await as u64;
+    assert!(
+        after >= 1,
+        "step after the loop never reached (body count {body})"
+    );
+    assert!(body <= 3 * after, "body={body} after={after}");
+    // 회차 1은 보내고 회차 2는 막힌다 — 반복마다 한 번 보내고 뒤 스텝에 닿는다(끝 반복은 잘릴 수 있다).
+    assert!(sent.abs_diff(after) <= 1, "sent={sent} after={after}");
+    let truncated: Vec<_> = out
+        .flushes
+        .iter()
+        .flat_map(|f| f.loop_exit_stats.iter())
+        .filter(|s| s.step_id == LOOP_ID && s.outcome == LoopExitOutcome::Truncated)
+        .collect();
+    assert!(!truncated.is_empty(), "no Truncated loop exit");
+    assert!(
+        truncated.iter().any(|s| s.pass_bucket == 2),
+        "dead pass not counted: {truncated:?}"
+    );
+}
+
+/// 바깥 조건 반복의 회차가 안쪽 조건 반복 하나뿐이어도, 안쪽이 막히기만 하고 끝나면 바깥 회차도
+/// 막힌 회차다 — 안쪽 반복이 바깥 회차 표지에 알린다.
+#[tokio::test]
+async fn nested_self_locking_loop_exits() {
+    let server = MockServer::start().await;
+    Mock::given(path("/jobs/1"))
+        .respond_with(json_resp(r#"{"state":"WAIT"}"#))
+        .mount(&server)
+        .await;
+    let inner = self_lock_yaml(&server.uri());
+    // self_lock_yaml의 반복 블록만 떼어 바깥 반복 본문으로 감싼다.
+    let inner_loop: String = inner
+        .lines()
+        .skip_while(|l| !l.starts_with("  - id:"))
+        .take_while(|l| !l.contains(AFTER_ID))
+        .map(|l| l.strip_prefix("  ").unwrap_or(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let outer = format!(
+        "- id: \"{PRE_ID}\"\n  name: outer\n  type: loop\n  while: {{ left: \"{{{{state}}}}\", op: ne, right: \"DONE\" }}\n  do:\n{}",
+        indent(&inner_loop, 4)
+    );
+    let y = scenario_yaml(
+        &server.uri(),
+        r#"id: "1", etag: "", state: """#,
+        &[outer, after_step()],
+    );
+    let out = run_mode(&y, 1000, Mode::Closed).await;
+    assert!(out.ok);
+    let after = win(&out, AFTER_ID).count;
+    let body = win(&out, DETAIL_ID).count;
+    assert!(after >= 1, "outer loop never left (body count {body})");
+    assert!(body <= 4 * after, "body={body} after={after}");
+}
+
+#[tokio::test]
 async fn later_body_step_blocked_in_same_pass() {
     let server = MockServer::start().await;
     mount_empty_poll(&server).await;

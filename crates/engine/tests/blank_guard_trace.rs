@@ -164,6 +164,26 @@ async fn trace_blocks_and_marks_row() {
     assert!(after.blocked.is_none());
 }
 
+#[tokio::test]
+async fn null_extract_in_loop_blocks_url_trace() {
+    let server = MockServer::start().await;
+    Mock::given(path("/poll"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"orderId":null,"code":null}"#))
+        .mount(&server)
+        .await;
+    let sc = Scenario::from_yaml(&y1(&server.uri())).unwrap();
+    let t = trace_scenario(&sc, &opts(50, Duration::from_secs(20))).await;
+    let del = row(&t.steps, DEL_ID);
+    assert_eq!(
+        del.blocked,
+        Some(BlockedInfo {
+            vars: vec!["orderId".into()],
+            by_step: POLL_ID.into()
+        })
+    );
+    assert_eq!(received(&server, "/orders/").await, 0, "null url was sent");
+}
+
 async fn blocked_trace_ids(yaml: &str) -> BTreeSet<String> {
     let sc = Scenario::from_yaml(yaml).unwrap();
     let t = trace_scenario(&sc, &opts(50, Duration::from_secs(20))).await;
@@ -175,6 +195,16 @@ async fn blocked_trace_ids(yaml: &str) -> BTreeSet<String> {
 }
 
 async fn blocked_runner_ids(yaml: &str) -> BTreeSet<String> {
+    runner_flushes(yaml)
+        .await
+        .iter()
+        .flat_map(|f| f.error_kind_stats.iter())
+        .filter(|s| s.kind == ErrorKind::BlankVar && s.count > 0)
+        .map(|s| s.step_id.clone())
+        .collect()
+}
+
+async fn runner_flushes(yaml: &str) -> Vec<MetricFlush> {
     let scenario = Arc::new(Scenario::from_yaml(yaml).unwrap());
     let plan = RunPlan {
         vus: 1,
@@ -204,18 +234,82 @@ async fn blocked_runner_ids(yaml: &str) -> BTreeSet<String> {
     }
     h.await.unwrap().unwrap();
     flushes
+}
+
+/// 자기 잠금 반복(runner 쪽 `tests/blank_guard.rs::self_lock_yaml`과 같은 모양).
+fn self_lock_yaml(base: &str) -> String {
+    let jobs = http(
+        DETAIL_ID,
+        "jobs",
+        "GET",
+        r#"/jobs/{{id}}?since={{etag}}""#,
+        r#", extract: [{ var: etag, from: body, path: "$.etag" }, { var: state, from: body, path: "$.state" }]"#,
+    );
+    let lp = format!(
+        "- id: \"{LOOP_ID}\"\n  name: lp\n  type: loop\n  while: {{ left: \"{{{{state}}}}\", op: ne, right: \"DONE\" }}\n  do:\n{}",
+        indent(&jobs, 4)
+    );
+    scenario_yaml(base, r#"id: "1", etag: "", state: """#, &[lp, after_step()])
+}
+
+async fn mount_wait_jobs(server: &MockServer) {
+    Mock::given(path("/jobs/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"state":"WAIT"}"#))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn self_locking_loop_trace_stops_without_truncation() {
+    let server = MockServer::start().await;
+    mount_wait_jobs(&server).await;
+    let sc = Scenario::from_yaml(&self_lock_yaml(&server.uri())).unwrap();
+    let t = trace_scenario(&sc, &opts(500, Duration::from_secs(20))).await;
+    assert!(!t.truncated, "trace spun into a cap");
+    assert_eq!(t.ended_by_loop, None);
+    let blocked: Vec<_> = t
+        .steps
         .iter()
-        .flat_map(|f| f.error_kind_stats.iter())
-        .filter(|s| s.kind == ErrorKind::BlankVar && s.count > 0)
-        .map(|s| s.step_id.clone())
-        .collect()
+        .filter(|s| s.step_id == DETAIL_ID && s.blocked.is_some())
+        .collect();
+    assert_eq!(blocked.len(), 1, "blocked rows");
+    assert_eq!(blocked[0].loop_index, Some(1));
+    let after = row(&t.steps, AFTER_ID);
+    assert!(after.blocked.is_none());
+    assert_eq!(after.error, None);
+    assert_eq!(received(&server, "/jobs/").await, 1);
+}
+
+/// 두 엔진 모두 막힌 회차에서 반복을 나와 뒤 스텝에 닿는다(lockstep).
+#[tokio::test]
+async fn trace_and_runner_both_leave_self_locking_loop() {
+    let server = MockServer::start().await;
+    mount_wait_jobs(&server).await;
+    let yaml = self_lock_yaml(&server.uri());
+    let sc = Scenario::from_yaml(&yaml).unwrap();
+    let t = trace_scenario(&sc, &opts(500, Duration::from_secs(20))).await;
+    assert!(!t.truncated);
+    assert!(t.steps.iter().any(|s| s.step_id == AFTER_ID), "trace");
+    let after: u64 = runner_flushes(&yaml)
+        .await
+        .iter()
+        .flat_map(|f| f.windows.iter())
+        .filter(|w| w.step_id == AFTER_ID)
+        .map(|w| w.count)
+        .sum();
+    assert!(after >= 1, "runner never left the loop");
 }
 
 #[tokio::test]
 async fn trace_and_runner_block_same_steps() {
     let server = MockServer::start().await;
     mount_empty_poll(&server).await;
-    for yaml in [y1(&server.uri()), parallel_yaml(&server.uri())] {
+    mount_wait_jobs(&server).await;
+    for yaml in [
+        y1(&server.uri()),
+        parallel_yaml(&server.uri()),
+        self_lock_yaml(&server.uri()),
+    ] {
         let t = blocked_trace_ids(&yaml).await;
         let r = blocked_runner_ids(&yaml).await;
         assert!(!t.is_empty(), "trace blocked nothing");
