@@ -333,6 +333,68 @@ async fn strict_reextract_outside_loop_clears_table() {
     assert_eq!(kind_count(&out, DEL_ID, ErrorKind::BlankVar), 0);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn blocked_spin_yields_to_other_tasks() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let server = MockServer::start().await;
+    mount_empty_poll(&server).await;
+    // 조건 반복이 orderId를 비운 뒤, while 없는 큰 반복 안의 차단 스텝(think time 없음)이 돈다.
+    let lp = format!(
+        "- id: \"{PRE_ID}\"\n  name: spin\n  type: loop\n  repeat: 200000\n  do:\n{}",
+        indent(&delete_step(""), 4)
+    );
+    let y = scenario_yaml(
+        &server.uri(),
+        r#"code: """#,
+        &[loop_block(&poll_step()), lp],
+    );
+    let counter = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let ticker = {
+        let (counter, stop) = (counter.clone(), stop.clone());
+        tokio::spawn(async move {
+            while !stop.load(Ordering::Relaxed) {
+                counter.fetch_add(1, Ordering::Relaxed);
+                tokio::task::yield_now().await;
+            }
+        })
+    };
+    let out = run_mode(&y, 1000, Mode::Closed).await;
+    stop.store(true, Ordering::Relaxed);
+    ticker.await.unwrap();
+    assert!(out.ok);
+    let passes = win(&out, DEL_ID).count;
+    let ticks = counter.load(Ordering::Relaxed);
+    assert!(passes > 1000, "too few blocked passes: {passes}");
+    // 차단 패스마다 양보하면 다른 task가 패스와 거의 같은 횟수로 돈다(양보가 없으면 코루틴 예산
+    // 강제 양보로 passes/128 안팎).
+    assert!(ticks * 4 >= passes, "ticks={ticks} passes={passes}");
+}
+
+#[tokio::test]
+async fn refreshed_generated_var_is_not_blocked() {
+    let server = MockServer::start().await;
+    mount_empty_poll(&server).await;
+    let y = scenario_yaml(
+        &server.uri(),
+        r#"code: "", orderId: { gen: uuid, refresh: request }"#,
+        &[loop_block(&poll_step()), delete_step(""), after_step()],
+    );
+    let out = run_mode(&y, 800, Mode::Closed).await;
+    assert!(out.ok);
+    let sent: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.url.path().to_string())
+        .filter(|p| p.starts_with("/orders/"))
+        .collect();
+    assert!(!sent.is_empty(), "refreshed value should not be blocked");
+    assert!(sent.iter().all(|p| p.len() > "/orders/".len()), "{sent:?}");
+    assert_eq!(kind_count(&out, DEL_ID, ErrorKind::BlankVar), 0);
+}
+
 async fn resets_case(mode: Mode) {
     let server = MockServer::start().await;
     mount_empty_poll(&server).await;

@@ -631,6 +631,9 @@ async fn execute_steps(
                     let mut a = agg.lock().await;
                     a.record_not_sent(&http.id, loop_index);
                     a.record_error_kind(&http.id, ErrorKind::BlankVar);
+                    drop(a);
+                    // 보내지 않은 스텝은 await할 곳이 없다 — 같은 실행기의 다른 task가 굶지 않게 한다.
+                    tokio::task::yield_now().await;
                 } else {
                     let ctx = TemplateContext {
                         vars: iter_vars,
