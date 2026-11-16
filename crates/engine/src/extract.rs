@@ -243,29 +243,39 @@ pub fn fill_missing_extracts(
     iter_vars: &mut BTreeMap<String, String>,
     blank: bool,
 ) -> Filled {
-    if !blank && !has_default(&step.extract) {
+    let any_default = has_default(&step.extract);
+    if !blank && !any_default {
         return Filled::default();
     }
     let mut filled = Filled::default();
-    let mut seen: Vec<&str> = Vec::new();
+    if !any_default {
+        // 기본값 항목이 없다: 못 뽑은 이름만 비운다(실제로 비울 때만 할당).
+        for e in &step.extract {
+            let var = e.var();
+            if !extracted.contains_key(var) {
+                extracted.insert(var.to_string(), String::new());
+                iter_vars.insert(var.to_string(), String::new());
+                filled.blanked.push(var.to_string());
+            }
+        }
+        return filled;
+    }
+    // 이름별 "기본값 있는 마지막 항목"을 한 번에 모은다(뒤 항목이 덮어쓴다).
+    let mut defaults: BTreeMap<&str, &str> = BTreeMap::new();
+    for e in &step.extract {
+        if let Some(d) = e.default_value() {
+            defaults.insert(e.var(), d);
+        }
+    }
+    // 첫 항목에서 채운 이름은 extracted에 들어가므로 같은 이름의 뒤 항목은 건너뛴다.
     for e in &step.extract {
         let var = e.var();
-        if seen.contains(&var) {
-            continue;
-        }
-        seen.push(var);
         if extracted.contains_key(var) {
             continue;
         }
-        let default = step
-            .extract
-            .iter()
-            .rev()
-            .filter(|x| x.var() == var)
-            .find_map(Extract::default_value);
-        if let Some(d) = default {
-            extracted.insert(var.to_string(), d.to_string());
-            iter_vars.insert(var.to_string(), d.to_string());
+        if let Some(d) = defaults.get(var) {
+            extracted.insert(var.to_string(), (*d).to_string());
+            iter_vars.insert(var.to_string(), (*d).to_string());
             filled.defaulted.push(var.to_string());
         } else if blank {
             extracted.insert(var.to_string(), String::new());
@@ -1442,6 +1452,67 @@ mod tests {
     }
 
     #[test]
+    fn fill_scale_many_items_keeps_order_and_duplicate_rule() {
+        // 규모 확인용 정확성 고정(성능 단언 아님 — 느슨한 5초 상한만).
+        let n = 20_000usize;
+        let mut items = Vec::new();
+        for i in 0..n {
+            items.push(Extract::Body {
+                var: format!("v{i}"),
+                path: "$.zz".to_string(),
+                decode: None,
+                claim: None,
+                default: Some(format!("d{i}")),
+            });
+            if i % 1000 == 0 {
+                // 같은 이름을 기본값 없이 다시 선언: 기본값 있는 마지막 항목이 이긴다.
+                items.push(Extract::Body {
+                    var: format!("v{i}"),
+                    path: "$.zz".to_string(),
+                    decode: None,
+                    claim: None,
+                    default: None,
+                });
+            }
+            if i % 1000 == 1 {
+                // 같은 이름을 다른 기본값으로 다시 선언: 마지막 기본값이 이긴다.
+                items.push(Extract::Body {
+                    var: format!("v{i}"),
+                    path: "$.zz".to_string(),
+                    decode: None,
+                    claim: None,
+                    default: Some("last".to_string()),
+                });
+            }
+        }
+        items.push(Extract::Body {
+            var: "plain".to_string(),
+            path: "$.p".to_string(),
+            decode: None,
+            claim: None,
+            default: None,
+        });
+        let step = step_with(items);
+        let start = std::time::Instant::now();
+        let mut extracted = BTreeMap::from([("v7".to_string(), "kept".to_string())]);
+        let mut iter_vars = BTreeMap::new();
+        let f = fill_missing_extracts(&step, &mut extracted, &mut iter_vars, true);
+        let elapsed = start.elapsed();
+        let want: Vec<String> = (0..n)
+            .filter(|i| *i != 7)
+            .map(|i| format!("v{i}"))
+            .collect();
+        assert_eq!(f.defaulted, want);
+        assert_eq!(f.blanked, vec!["plain".to_string()]);
+        assert_eq!(extracted.get("v0").map(String::as_str), Some("d0"));
+        assert_eq!(extracted.get("v1").map(String::as_str), Some("last"));
+        assert_eq!(extracted.get("v7").map(String::as_str), Some("kept"));
+        assert_eq!(iter_vars.len(), n);
+        assert!(elapsed.as_secs() < 5, "{elapsed:?}");
+        eprintln!("fill_scale elapsed = {elapsed:?}");
+    }
+
+    #[test]
     fn strict_non_json_body_reports_first_error_and_keeps_no_values() {
         let items = ys(r#"
 - {var: x, from: body, path: $.a}
@@ -1456,7 +1527,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_mixed_default_and_plain_body_items_share_one_parse() {
+    fn strict_mixed_default_and_plain_body_items_values() {
         let items = ys(r#"
 - {var: k, from: body, path: $.a}
 - {var: d1, from: body, path: $.zz, default: d}

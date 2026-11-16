@@ -59,9 +59,17 @@ pub fn note_step(
     extracted: &BTreeMap<String, String>,
     blanked: &[String],
 ) {
-    for k in extracted.keys() {
-        if !blanked.contains(k) {
+    if blanked.is_empty() {
+        for k in extracted.keys() {
             table.remove(k);
+        }
+    } else {
+        let blanked_set: std::collections::BTreeSet<&str> =
+            blanked.iter().map(String::as_str).collect();
+        for k in extracted.keys() {
+            if !blanked_set.contains(k.as_str()) {
+                table.remove(k);
+            }
         }
     }
     for k in blanked {
@@ -212,6 +220,25 @@ mod tests {
             &["b".to_string()],
         );
         assert_eq!(t, m(&[("b", "S1")]));
+    }
+
+    #[test]
+    fn note_step_large_inputs_same_result() {
+        let n = 20_000usize;
+        let extracted: BTreeMap<String, String> =
+            (0..n).map(|i| (format!("k{i}"), String::new())).collect();
+        let blanked: Vec<String> = (0..n).step_by(2).map(|i| format!("k{i}")).collect();
+        let mut t: BlankTable = (0..n)
+            .map(|i| (format!("k{i}"), "OLD".to_string()))
+            .collect();
+        let start = std::time::Instant::now();
+        note_step(&mut t, "S1", &extracted, &blanked);
+        eprintln!("note_step large elapsed = {:?}", start.elapsed());
+        assert_eq!(t.len(), n / 2);
+        assert!(
+            t.iter()
+                .all(|(k, v)| v == "S1" && k[1..].parse::<usize>().unwrap() % 2 == 0)
+        );
     }
 
     #[test]
