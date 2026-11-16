@@ -109,7 +109,7 @@ fn worker_id_is_stable(explicit: &Option<String>) -> bool {
 
 /// Best-effort machine hostname for pool dashboard display. Empty on
 /// failure / non-UTF8 (display-only; never load-bearing).
-fn resolve_hostname() -> String {
+pub fn resolve_hostname() -> String {
     gethostname::gethostname()
         .to_str()
         .map(str::to_owned)
@@ -478,10 +478,18 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
 /// Pool mode: register idle (empty run_id), wait for assignment, execute,
 /// then reconnect to become idle again (reconnect-per-run, R1).
 pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
-    let worker_id = resolve_pool_worker_id(args.worker_id.clone());
-    let stable = worker_id_is_stable(&args.worker_id);
     let cancel = CancellationToken::new(); // process-level (SIGTERM)
     let signal_task = spawn_sigterm(cancel.clone());
+    let res = run_pool_until(args, cancel).await;
+    signal_task.abort();
+    res
+}
+
+/// Pool loop with an externally owned cancel token (no signal handler
+/// installed) — used by `run_pool` (SIGTERM) and the desktop shell.
+pub async fn run_pool_until(args: WorkerArgs, cancel: CancellationToken) -> anyhow::Result<()> {
+    let worker_id = resolve_pool_worker_id(args.worker_id.clone());
+    let stable = worker_id_is_stable(&args.worker_id);
     let token = args.token.as_deref().unwrap_or("");
     let hostname = resolve_hostname();
     info!(version = env!("CARGO_PKG_VERSION"), %worker_id, "pool worker starting (idle)");
@@ -515,7 +523,6 @@ pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
             }
         }
     }
-    signal_task.abort();
     info!("pool worker exiting");
     Ok(())
 }
@@ -754,6 +761,48 @@ pub(crate) async fn abort_listener_loop(
 mod tests {
     use super::*;
     use handicap_engine::EngineError;
+
+    fn closed_port() -> u16 {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    }
+
+    fn args_for(p: u16) -> WorkerArgs {
+        WorkerArgs {
+            controller: format!("http://127.0.0.1:{p}"),
+            run_id: None,
+            worker_id: Some("t".into()),
+            capacity_vus: 1000,
+            token: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn run_pool_until_returns_when_precancelled() {
+        let c = CancellationToken::new();
+        c.cancel();
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            run_pool_until(args_for(closed_port()), c),
+        )
+        .await
+        .expect("must return")
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_pool_until_stops_on_cancel_during_backoff() {
+        let c = CancellationToken::new();
+        let c2 = c.clone();
+        let h = tokio::spawn(run_pool_until(args_for(closed_port()), c));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        c2.cancel();
+        tokio::time::timeout(Duration::from_secs(2), h)
+            .await
+            .expect("must stop")
+            .unwrap()
+            .unwrap();
+    }
 
     #[test]
     fn phase_for_aborted_is_aborted() {
