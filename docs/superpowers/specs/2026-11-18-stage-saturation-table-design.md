@@ -228,8 +228,9 @@ stair: {
             reasons: [{kind: "achieved"|"dropped"|"errors"|"p99_cap"|"p99_relative", value}],
             knee: bool, slot_limited: bool, head_p99_ratio|null, discard_warning: bool }],
   headline: { kind: "saturated"|"unconfirmed"|"all_ok"|"ok_then_unmeasured"|"no_data",
-              saturated_target|null, last_ok_target|null, through_target|null },
+              saturated_target|null, last_ok_target|null, through_target|null, first_fail_hint: bool },
   knee_target|null, spike_targets: [u32],
+  max_in_flight|null, dropped_total|null,     // 머리말 문구용(§5.7 M·N) — profile·run 합계 그대로
   dropped_explained: bool, slot_limited_targets: [u32],   // §5.7 (steps[].slot_limited도 둔다)
   notes: { t0_estimated: bool, open_loop_unknown: bool },
   seconds, bands, target_line
@@ -253,7 +254,7 @@ dropped > 0이면 `load_gen_saturated` 인사이트 → 신뢰도 `load_not_deli
 
 ### 6.1 RunDialog 「계단」 탭 (목업 ①, 꼬리표 a만)
 
-- `rateMode`를 `"fixed" | "curve" | "stair"`로 넓힌다. 유니언 확장은 기존 `rateMode === "curve"` 분기를 TypeScript가 잡아 주지 않는다(리뷰 R6) → **모든 `rateMode` 비교·캐스트 지점 전수 sweep**, 각각 stair 처리를 정한다. sweep 명령은 `grep -rni "ratemode" ui/src` + `grep -rn '"fixed" | "curve"' ui/src`(대소문자·`setRateMode(v as …)` 캐스트 포함, 리뷰 2차 2). 토글은 두 갈래 — 세그먼트(`loadModelTiles`)와 라디오(ScheduleForm이 쓰는 비-tiles 분기) — **둘 다**에 「계단」을 넣는다. 리뷰 실측 목록: `loadModel.ts:6·169`, `LoadModelFields.tsx:24·451·498·750·791`(사이징 도우미 `targetRps` — stair면 최대 목표), `RunDialog.tsx:90·187`(`opensDetailed`)·`430–440`(상세 개수)·`476·494`(`canSubmit`)·`757`(미리보기), `runSummary.ts:22`, `openLoopChecks.ts:18·86·94`(유휴 워커 경고 — stair면 최소 목표 기준), `ScheduleForm.tsx:75·248·251`.
+- `rateMode`를 `"fixed" | "curve" | "stair"`로 넓힌다. 유니언 확장은 기존 `rateMode === "curve"` 분기를 TypeScript가 잡아 주지 않는다(리뷰 R6) → **모든 `rateMode` 비교·캐스트 지점 전수 sweep**, 각각 stair 처리를 정한다. sweep 명령은 `grep -rni "ratemode" ui/src` + `grep -rn '"fixed" | "curve"' ui/src`(대소문자·`setRateMode(v as …)` 캐스트 포함, 리뷰 2차 2). 토글은 두 갈래 — 세그먼트(`loadModelTiles`)와 라디오(ScheduleForm이 쓰는 비-tiles 분기) — **둘 다**에 「계단」을 넣는다. 리뷰 실측 목록: `loadModel.ts:6·169`, `LoadModelFields.tsx:24·451·498·750·791`(사이징 도우미 `targetRps` — stair면 최대 목표), `RunDialog.tsx:90·187`(`opensDetailed`)·`430–440`(상세 개수)·`476·494`(`canSubmit`)·`757`(미리보기), `runSummary.ts:22`, `openLoopChecks.ts:18·86·94`(유휴 워커·무의미 슬롯 경고 — stair면 최대 목표를 peak로; run 전체에서 몫이 0인 워커만 유휴), `ScheduleForm.tsx:75·248·251`. `deriveLoadMode`가 `"stair"`를 내므로 그 소비처도 같이(plan 리뷰 R1): 인쇄 조건란 `print/conditions.ts`(「열린 루프 계단 · N계단 min–max req/s」), run 목록 요약 `runs/profileSummary.ts`(「계단 N개 · 최대 X/s」), run 목록 필터 `runs/runFilterSort.ts`·`RunListControls.tsx`(ModeKey `open_stair` + 라벨 「계단」). 단순 모드로 바꿨는데 계단이 선택돼 있으면 곡선의 읽기 전용 카드(`RunDialog.tsx:757`)처럼 계단 요약 카드 + 「상세에서 수정」.
 - **상세 모드 전용**【부재 중 판단, 리뷰 M4】: 단순 모드는 고정|곡선 토글도 숨기므로(`LoadModelFields.tsx` simpleMode) 「계단」도 숨긴다. stair가 든 프리셋·재실행은 `opensDetailed`가 상세 모드로 연다. 「계단」 세그먼트는 open-loop일 때만 보인다.
 - 입력: 목표 목록(쉼표 구분 문자열 draft), 계단 유지(초, 기본 60), 상승(초, 기본 5), 앞부분 버림(초, 기본 15, HelpTip — "목표를 올린 직후 시스템이 적응하는 시간. 이 구간은 판정에서 빼고 차트에 회색으로 보여 줍니다. 자동 확장(HPA)이 있으면 늘리세요."), `max_in_flight`·`worker_count`(기존 open-loop 필드 재사용).
 - **목표 목록 도우미**: 「목표(req/s)」 + 「최대 배수」(1.5×·2×·2.5×·3×, 기본 1.5×) + 「목록 만들기」. 생성 = 목표의 25%·50%·75%·100%, 이후 25%p씩 최대 배수까지, 반올림 정수·0 제거·중복 제거. HelpTip "버텨야 할 요청 수 — 운영 피크 데이터가 있으면 그 값을 넣으세요." 만든 목록은 손으로 고칠 수 있다.
