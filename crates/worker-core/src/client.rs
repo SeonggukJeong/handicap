@@ -33,13 +33,69 @@ pub struct WorkerLink {
     /// controller has processed the outbound EOF we sent by dropping `tx`).
     /// Awaiting this after `drop(tx)` ensures the tokio runtime does not shut
     /// down before tonic has flushed the final HTTP/2 DATA frame and
-    /// END_STREAM to the wire.
-    pub inbound_fwd: tokio::task::JoinHandle<()>,
+    /// END_STREAM to the wire. Dropping it aborts the forwarder, so a bounded
+    /// wait that times out cannot leave it running on the old connection.
+    pub inbound_fwd: ForwarderTask,
     /// Set by `main` just before it drops `tx` (after sending the terminal
     /// RunStatus). Lets the inbound forwarder distinguish the expected
     /// end-of-run stream close from an unexpected mid-run transport drop when
     /// choosing a log level. (codex eval item 4.)
     pub shutdown: Arc<AtomicBool>,
+}
+
+/// Owns the inbound forwarder task and **aborts it on drop**. A plain
+/// `JoinHandle` drop only detaches the task, so a bounded `timeout(…, handle)`
+/// that expires — or a caller future dropped mid-run — would leave the
+/// forwarder alive on the old connection, answering controller Pings forever
+/// (desktop-worker-mode 2b leak). Awaiting it yields the task's `JoinHandle`
+/// output.
+pub struct ForwarderTask(tokio::task::JoinHandle<()>);
+
+impl std::future::Future for ForwarderTask {
+    type Output = Result<(), tokio::task::JoinError>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(&mut self.0).poll(cx)
+    }
+}
+
+impl Drop for ForwarderTask {
+    fn drop(&mut self) {
+        // No-op if the task already finished.
+        self.0.abort();
+    }
+}
+
+/// Spawn `forward_inbound` over `inbound`. Returns the consumer receiver, the
+/// abort-on-drop task handle, and the shutdown flag the forwarder reads.
+fn spawn_forwarder<S>(
+    inbound: S,
+    out_tx: &mpsc::Sender<WorkerMessage>,
+    cancel: CancellationToken,
+) -> (
+    mpsc::Receiver<ServerMessage>,
+    ForwarderTask,
+    Arc<AtomicBool>,
+)
+where
+    S: futures::Stream<Item = Result<ServerMessage, tonic::Status>> + Unpin + Send + 'static,
+{
+    let (fwd_tx, fwd_rx) = mpsc::channel::<ServerMessage>(16);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    // Weak, not `clone()`: a strong sender here would keep the outbound stream open
+    // after main drops `tx`, so END_STREAM is never sent and the controller never
+    // closes its side (desktop-worker-mode 2b leak).
+    let handle = tokio::spawn(forward_inbound(
+        inbound,
+        fwd_tx,
+        shutdown.clone(),
+        out_tx.downgrade(),
+        cancel,
+    ));
+    (fwd_rx, ForwarderTask(handle), shutdown)
 }
 
 /// Forward post-assignment inbound messages to `fwd_tx` until the stream ends.
@@ -54,7 +110,7 @@ async fn forward_inbound<S>(
     mut inbound: S,
     fwd_tx: mpsc::Sender<ServerMessage>,
     shutdown: Arc<AtomicBool>,
-    out_tx: mpsc::Sender<WorkerMessage>,
+    out_tx: mpsc::WeakSender<WorkerMessage>,
     cancel: CancellationToken,
 ) where
     S: futures::Stream<Item = Result<ServerMessage, tonic::Status>> + Unpin,
@@ -72,13 +128,17 @@ async fn forward_inbound<S>(
                 // Answer heartbeat pings here (the single always-running drainer)
                 // so the controller's reaper sees liveness regardless of whether
                 // load_datasets or abort_listener is the active consumer. Do NOT
-                // forward Ping to fwd_tx. (R2, §4.3-(2))
+                // forward Ping to fwd_tx. (R2, §4.3-(2)) `out_tx` is weak: once main
+                // has dropped `tx` the upgrade fails and the Pong is skipped, so the
+                // outbound stream can end.
                 if let Some(ServerPayload::Ping(p)) = &m.payload {
-                    let _ = out_tx
-                        .send(WorkerMessage {
-                            payload: Some(WorkerPayload::Pong(Pong { nonce: p.nonce })),
-                        })
-                        .await;
+                    if let Some(out_tx) = out_tx.upgrade() {
+                        let _ = out_tx
+                            .send(WorkerMessage {
+                                payload: Some(WorkerPayload::Pong(Pong { nonce: p.nonce })),
+                            })
+                            .await;
+                    }
                     continue;
                 }
                 tracing::debug!(?m.payload, "controller msg");
@@ -241,15 +301,7 @@ pub async fn connect_and_register_opts(
 
     // Forward all remaining inbound messages through a channel so that
     // `main` can listen for AbortRun without blocking on the raw gRPC stream.
-    let (fwd_tx, fwd_rx) = mpsc::channel::<ServerMessage>(16);
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let fwd_handle = tokio::spawn(forward_inbound(
-        inbound,
-        fwd_tx,
-        shutdown.clone(),
-        tx.clone(),
-        cancel.clone(),
-    ));
+    let (fwd_rx, fwd_handle, shutdown) = spawn_forwarder(inbound, &tx, cancel.clone());
 
     Ok(WorkerLink {
         tx,
@@ -352,10 +404,69 @@ mod forward_tests {
                 "h2 protocol error: error reading a body",
             ))]);
             let (out_tx, _out_rx) = mpsc::channel::<WorkerMessage>(8);
-            forward_inbound(stream, fwd_tx, shutdown, out_tx, CancellationToken::new()).await;
+            forward_inbound(
+                stream,
+                fwd_tx,
+                shutdown,
+                out_tx.downgrade(),
+                CancellationToken::new(),
+            )
+            .await;
         });
         drop(guard);
         levels.lock().unwrap().clone()
+    }
+
+    fn ping(nonce: u64) -> ServerMessage {
+        ServerMessage {
+            payload: Some(ServerPayload::Ping(pb::Ping { nonce })),
+        }
+    }
+
+    // desktop-worker-mode 2b leak: the forwarder answers Pings while main holds `tx`,
+    // but once main drops the only strong `tx` the outbound channel must close even
+    // though the inbound stream is still open and still sending Pings — otherwise the
+    // worker never sends END_STREAM and the controller never closes its side.
+    #[tokio::test]
+    async fn forwarder_does_not_keep_outbound_open_after_tx_dropped() {
+        let (in_tx, in_rx) = mpsc::channel::<Result<ServerMessage, tonic::Status>>(8);
+        let (tx, mut out_rx) = mpsc::channel::<WorkerMessage>(8);
+        let (_fwd_rx, _task, _shutdown) =
+            spawn_forwarder(ReceiverStream::new(in_rx), &tx, CancellationToken::new());
+        in_tx.send(Ok(ping(1))).await.unwrap();
+        let pong = tokio::time::timeout(Duration::from_secs(1), out_rx.recv())
+            .await
+            .expect("pong while tx alive")
+            .expect("channel open");
+        assert!(matches!(pong.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 1));
+        drop(tx);
+        in_tx.send(Ok(ping(2))).await.unwrap();
+        let closed = tokio::time::timeout(Duration::from_secs(1), async {
+            while out_rx.recv().await.is_some() {}
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "outbound channel must close once main drops tx (forwarder must not hold a strong sender)"
+        );
+        drop(in_tx);
+    }
+
+    // Dropping the forwarder handle aborts the task (a plain JoinHandle drop detaches it).
+    #[tokio::test]
+    async fn forwarder_task_drop_aborts_task() {
+        let (in_tx, in_rx) = mpsc::channel::<Result<ServerMessage, tonic::Status>>(8);
+        let (tx, _out_rx) = mpsc::channel::<WorkerMessage>(8);
+        let (mut fwd_rx, task, _shutdown) =
+            spawn_forwarder(ReceiverStream::new(in_rx), &tx, CancellationToken::new());
+        drop(task);
+        // The aborted task drops its `fwd_tx`, so the consumer side sees the close.
+        let closed = tokio::time::timeout(Duration::from_secs(1), fwd_rx.recv()).await;
+        assert!(
+            matches!(closed, Ok(None)),
+            "dropping ForwarderTask must abort the forwarder, got {closed:?}"
+        );
+        drop((in_tx, tx));
     }
 
     #[test]
@@ -401,7 +512,7 @@ mod forward_tests {
             inbound,
             fwd_tx,
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            out_tx,
+            out_tx.downgrade(),
             CancellationToken::new(),
         )
         .await;
@@ -435,7 +546,7 @@ mod forward_tests {
             stream,
             fwd_tx,
             Arc::new(AtomicBool::new(false)),
-            out_tx,
+            out_tx.downgrade(),
             cancel.clone(),
         )
         .await;

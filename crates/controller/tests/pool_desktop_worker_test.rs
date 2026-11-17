@@ -601,6 +601,42 @@ async fn run_abort_keeps_worker_and_emits_no_excluded() {
     rc.shutdown().await;
 }
 
+// desktop-worker-mode 2b leak: a worker that disconnects mid-run (desktop 「접속 끊기」)
+// must close its old stream, so the controller drops it from the pool. Before the fix the
+// inbound forwarder held a strong outbound sender and outlived the run, answering Pings on
+// the old connection — the entry stayed `busy` with the old run id indefinitely.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancel_mid_run_removes_worker_from_pool() {
+    let port = free_port();
+    let rc = start_pool(port).await;
+    let t = target().await;
+    let desk = spawn_desktop(port, TOKEN);
+    assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
+    pool_worker_now(&rc).await;
+    let sid = create_scenario(&rc, "lv-desktop", &t.uri()).await;
+    start_run(&rc, &sid, 30).await;
+    assert!(
+        desk.wait_until(WAIT, |e| e
+            .iter()
+            .any(|x| matches!(x, PoolEvent::RunStarted { .. })))
+            .await,
+        "{:?}",
+        desk.snapshot()
+    );
+    desk.stop().await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut last = pool_worker(&rc).await;
+    while last.is_some() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        last = pool_worker(&rc).await;
+    }
+    assert!(
+        last.is_none(),
+        "worker must leave the pool after disconnecting mid-run, still listed: {last:?}"
+    );
+    rc.shutdown().await;
+}
+
 const LOOPBACK_2: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 2);
 
 /// 127.0.0.2에 바인드되면(리눅스) 그 주소. macOS는 127.0.0.1만 있어 `None`.

@@ -426,6 +426,8 @@ async fn execute_assignment(
     // The await is capped at 2s so a misbehaving controller can't hang the
     // worker process forever; that ceiling matches the previous sleep's
     // worst-case behavior while letting the happy path exit in milliseconds.
+    // `inbound_fwd` is a `ForwarderTask` moved into the timeout: if the wait
+    // expires (or this future is dropped) the forwarder is aborted, not detached.
     shutdown.store(true, Ordering::Relaxed);
     drop(tx);
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
