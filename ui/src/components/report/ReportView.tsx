@@ -165,6 +165,19 @@ export function ReportView({ report, profile }: Props) {
                     "text/csv",
                   ).catch((e) => setDlErr((e as Error).message)),
               },
+              ...(report.stair
+                ? [
+                    {
+                      label: ko.report.downloadStairsCsv,
+                      onSelect: () =>
+                        downloadFile(
+                          api.reportStairsCsvUrl(report.run.id),
+                          `run-${report.run.id}-stairs.csv`,
+                          "text/csv",
+                        ).catch((e) => setDlErr((e as Error).message)),
+                    },
+                  ]
+                : []),
             ]}
           />
           <HelpTip label={ko.report.downloadHelpAria}>
@@ -180,6 +193,11 @@ export function ReportView({ report, profile }: Props) {
             <span className="block">
               <b>{ko.report.downloadInsightsCsv}</b> — {ko.report.downloadHelp.insights}
             </span>
+            {report.stair && (
+              <span className="block">
+                <b>{ko.report.downloadStairsCsv}</b> — {ko.report.downloadHelp.stairs}
+              </span>
+            )}
           </HelpTip>
         </div>
       </div>

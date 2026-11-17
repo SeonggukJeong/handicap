@@ -28,6 +28,7 @@ import { CalloutLine, Callouts, FoldNotes, Legend, UnreadableNote } from "./comp
 import { ErrorChart } from "./components/ErrorChart";
 import { ConditionsSection } from "./components/ConditionsSection";
 import { GlossarySection } from "./components/GlossarySection";
+import { StairHeadline, StairPrintTable, StairTableTitle } from "./components/StairPrintTable";
 import { SignatureBlock } from "./components/SignatureBlock";
 import { PageFooter } from "./components/PageFooter";
 
@@ -71,6 +72,10 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return <VerdictSection doc={doc} short />;
     case "kpis":
       return <KpiGrid kpis={doc.kpis} />;
+    case "stair:headline":
+      return doc.stair ? <StairHeadline stair={doc.stair} /> : null;
+    case "stair:headline:short":
+      return doc.stair ? <StairHeadline stair={doc.stair} short /> : null;
     case "other:standard":
       return <OtherCriteria rows={doc.otherRows} mode="standard" />;
     case "other:summary3":
@@ -151,6 +156,14 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
             </div>
           );
         }
+        if (b.id === "stair" && doc.stair) {
+          return (
+            <div key={b.id}>
+              <StairTableTitle continued={false} measure />
+              <StairPrintTable stair={doc.stair} from={0} to={doc.stair.steps.length} measure />
+            </div>
+          );
+        }
         return (
           <div key={b.id}>
             <StepTableTitle continued={false} measure />
@@ -209,6 +222,14 @@ function PageView(props: {
             <div key={`${it.id}:${it.from}`}>
               <AppendixTitle continued={it.continued} />
               <AppendixTable rows={doc.otherRows} from={it.from} to={it.to} />
+            </div>
+          );
+        }
+        if (it.id === "stair" && doc.stair) {
+          return (
+            <div key={`${it.id}:${it.from}`}>
+              <StairTableTitle continued={it.continued} />
+              <StairPrintTable stair={doc.stair} from={it.from} to={it.to} />
             </div>
           );
         }

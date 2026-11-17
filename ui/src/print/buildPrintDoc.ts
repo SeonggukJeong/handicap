@@ -1,7 +1,13 @@
 // 보고서 뷰 모델 · 블록 목록 (순수). spec §5·§5.1·§5.2·§9.
 
 import { ko } from "../i18n/ko";
-import { ProfileSchema, type Criteria, type Report, type Run } from "../api/schemas";
+import {
+  ProfileSchema,
+  type Criteria,
+  type Report,
+  type Run,
+  type StairReport,
+} from "../api/schemas";
 import { envValueToRecord } from "../api/runPrefill";
 import { runShortLabel } from "../compare/runLabel";
 import { fmtDate } from "./format";
@@ -58,6 +64,7 @@ export type PrintDoc = {
   conditions: ReturnType<typeof conditionsBox>;
   claims: { can: string[]; cannot: string[] } | null;
   glossary: ReturnType<typeof buildGlossary>;
+  stair: StairReport | null;
 };
 
 function boxText(box: BoxState): { big: string; sub: string } {
@@ -163,6 +170,7 @@ export function buildPrintDoc(a: {
     }),
     claims: can.length === 0 && cannot.length === 0 ? null : { can, cannot },
     glossary: buildGlossary(table, ranked, report.error_kinds),
+    stair: report.stair ?? null,
   };
 }
 
@@ -178,6 +186,9 @@ export const MEASURE_IDS = {
   rowId: (stepId: string): string => `row:${stepId}`,
   remainderId: (n: number): string => `table:remainder:${n}`,
   appendixRowId: (i: number): string => `appendix:row:${i}`,
+  stairTitle: "stair:title",
+  stairHeader: "stair:header",
+  stairRowId: (i: number): string => `stair:row:${i}`,
 } as const;
 
 const atom = (h: Heights, id: string): Block => ({
@@ -191,6 +202,15 @@ const hasCallouts = (doc: PrintDoc): boolean =>
 
 export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
   const out: Block[] = [atom(h, "header"), atom(h, "verdict:full"), atom(h, "kpis")];
+  if (doc.stair !== null) {
+    out.push(atom(h, "stair:headline"), {
+      kind: "table",
+      id: "stair",
+      titleMm: h.get(MEASURE_IDS.stairTitle) ?? 0,
+      headerMm: h.get(MEASURE_IDS.stairHeader) ?? 0,
+      rowsMm: doc.stair.steps.map((_, i) => h.get(MEASURE_IDS.stairRowId(i)) ?? 0),
+    });
+  }
   if (doc.otherRows.length > 0) out.push(atom(h, "other:standard"));
   out.push({
     kind: "table",
@@ -232,6 +252,7 @@ export function summaryBlocks(doc: PrintDoc, h: Heights, level: LadderLevel): Bl
     atom(h, level >= 6 ? "verdict:short" : "verdict:full"),
     atom(h, "kpis"),
   ];
+  if (doc.stair !== null) out.push(atom(h, "stair:headline:short"));
   if (doc.otherRows.some((r) => r.judgement === "fail")) {
     out.push(atom(h, level >= 5 ? "other:line" : level >= 4 ? "other:summary1" : "other:summary3"));
   }

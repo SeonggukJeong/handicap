@@ -397,6 +397,9 @@
 .p-root .p-callout + .p-callout {
   margin-top: 1.5mm;
 }
+.p-root .p-bold {
+  font-weight: 700;
+}
 .p-root .p-note {
   font-size: 7.5pt;
   color: var(--sub);

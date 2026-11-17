@@ -1314,11 +1314,13 @@ export const ko = {
     downloadMenu: "내려받기",
     downloadHelpAria: "파일 형식 설명",
     downloadInsightsCsv: "인사이트 CSV",
+    downloadStairsCsv: "계단 표 CSV",
     downloadHelp: {
       json: "원시 전체 데이터 — 프로그램·재분석용",
       csv: "표 형식 요약 — 엑셀·구글시트로 열기",
       xlsx: "엑셀 통합문서 — 서식 포함",
       insights: "자동 분석 결과만 표로",
+      stairs: "계단별 판정 표(계단 run 전용)",
     },
     // ── 빈 상태 ──
     noStatusData: "상태 코드 데이터가 없습니다.",
@@ -2312,6 +2314,11 @@ export const ko = {
     previewNoTrace: "시나리오를 실행하지 못했습니다(시간 초과 또는 설정 오류).",
   },
   print: {
+    stair: {
+      title: "계단별 결과",
+      continued: " (이어짐)",
+      summaryNote: "계단 표는 표준 보고서에 있습니다.",
+    },
     page: {
       openPrint: "보고서 인쇄",
       kindGroup: "보고서 종류",

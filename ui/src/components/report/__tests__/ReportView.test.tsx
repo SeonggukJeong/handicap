@@ -10,7 +10,9 @@ import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { ReportView } from "../ReportView";
-import type { Profile, Report } from "../../../api/schemas";
+import { readFileSync } from "node:fs";
+import nodePath from "node:path";
+import { StairReportSchema, type Profile, type Report } from "../../../api/schemas";
 import { api } from "../../../api/client";
 
 import { ko } from "../../../i18n/ko";
@@ -277,6 +279,34 @@ describe("ReportView", () => {
         `run-${FIXTURE.run.id}-insights.csv`,
         "text/csv",
       );
+    });
+
+    it("stair run: 「계단 표 CSV」 항목이 stairs CSV를 내려받는다", async () => {
+      const user = userEvent.setup();
+      vi.mocked(downloadFile).mockClear();
+      const stair = StairReportSchema.parse(
+        JSON.parse(
+          readFileSync(
+            nodePath.resolve(__dirname, "../../../../../testdata/stair_report_golden.json"),
+            "utf8",
+          ),
+        ),
+      );
+      render(<ReportView report={{ ...FIXTURE, stair }} profile={TEST_PROFILE} />);
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      await user.click(screen.getByRole("menuitem", { name: ko.report.downloadStairsCsv }));
+      expect(downloadFile).toHaveBeenCalledWith(
+        api.reportStairsCsvUrl(FIXTURE.run.id),
+        `run-${FIXTURE.run.id}-stairs.csv`,
+        "text/csv",
+      );
+    });
+
+    it("stair 없는 run: 「계단 표 CSV」 항목 없음", async () => {
+      const user = userEvent.setup();
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      expect(screen.queryByRole("menuitem", { name: ko.report.downloadStairsCsv })).toBeNull();
     });
 
     it("downloads JSON via the downloadJson helper", async () => {
