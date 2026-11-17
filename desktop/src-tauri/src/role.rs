@@ -165,8 +165,9 @@ fn code_readable(c: &DesktopConfig) -> bool {
 }
 
 /// 붙여넣은 접속 코드로 부하기 역할 접속. 해석 실패면 아무것도 멈추지 않고 그 문구로 `Err`
-/// (문구는 입력을 되풀이하지 않는다).
+/// (문구는 입력을 되풀이하지 않는다). 앞뒤 공백·줄바꿈은 떼고 저장한다.
 pub async fn connect_worker(shell: &Shell, code: String) -> Result<(), String> {
+    let code = code.trim().to_owned();
     switch_with(shell, move |c| {
         decode(&code).map_err(|e| e.to_string())?;
         c.role = Role::Worker;
@@ -398,7 +399,7 @@ pub async fn start_running(
 /// (동기 콜백 — 셸 잠금 금지). 루프가 끝난 뒤 추적기가 「제외됨」이면 `on_worker_excluded`가 잠금을
 /// 잡는다 — 셸이 멈춘 경우(`parent` 취소)는 루프가 `Excluded`를 내지 않아 잠금을 잡지 않으므로
 /// 잠금 밖에서 `handle`을 기다리는 쪽과 교착이 없다. `ips_override`는 테스트 전용(`Env`).
-pub fn spawn_desktop_worker(
+fn spawn_desktop_worker(
     shell: &Shell,
     code: &ConnectCode,
     ips_override: Option<Vec<Ipv4Addr>>,
@@ -1722,9 +1723,14 @@ mod tests {
         let (s, d) = shell(local());
         boot(&s).await.unwrap();
         let code = code_for(port, &t);
-        connect_worker(&s, code.clone()).await.unwrap();
+        // 메신저가 앞뒤에 붙인 공백·줄바꿈은 저장하지 않는다.
+        connect_worker(&s, format!("  {code}\r\n")).await.unwrap();
         assert!(s.state.lock().await.running.is_none());
         wait_idle(&s, port).await;
+        assert_eq!(
+            s.state.lock().await.config.worker.code.as_deref(),
+            Some(code.as_str())
+        );
         let saved = config_store::load(d.path()).config;
         assert_eq!(saved.role, Role::Worker);
         assert_eq!(saved.worker.code.as_deref(), Some(code.as_str()));
@@ -1891,6 +1897,34 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn exclusion_of_older_generation_is_ignored() {
+        // 늦게 끝난 옛 부하기의 「제외됨」이 지금 부하기의 connected를 끄면 안 된다.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = worker_cfg(1, &tok(), true);
+        config_store::save(dir.path(), &cfg).unwrap();
+        let (s, _d) = shell_with_dir(cfg, dir.path().to_path_buf());
+        let g = 1000;
+        let w = WorkerRun {
+            generation: g,
+            parent: CancellationToken::new(),
+            handle: tokio::spawn(async {}),
+            tracker: Arc::new(std::sync::Mutex::new(StatusTracker::new())),
+            servers: vec![],
+            worker_id: "x".into(),
+        };
+        s.state.lock().await.worker = Some(w);
+        on_worker_excluded(&s, g - 1).await;
+        assert!(s.state.lock().await.config.worker.connected, "메모리");
+        assert!(
+            config_store::load(dir.path()).config.worker.connected,
+            "저장"
+        );
+        // 대조: 현재 세대면 끈다.
+        on_worker_excluded(&s, g).await;
+        assert!(!s.state.lock().await.config.worker.connected);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn switch_from_worker_to_server_stops_worker() {
         let t = tok();
         let (rc, _cd) = pool_controller(&t).await;
@@ -1987,17 +2021,24 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn failed_worker_start_restores_worker_nothing_not_local() {
-        let (s, _d) = shell(worker_cfg(1, &tok(), false));
+        let (s, d) = shell(worker_cfg(1, &tok(), false));
         boot(&s).await.unwrap();
         // boot 전에 세우면 start_running 첫머리 검사가 boot부터 실패시킨다.
         s.state.lock().await.env.fail_start = Some(Role::Worker);
+        let saved_before = config_store::load(d.path()).config;
         assert!(reconnect_worker(&s).await.is_err());
         {
             let st = s.state.lock().await;
             assert_eq!(st.config.role, Role::Worker);
+            assert!(!st.config.worker.connected, "connected는 전환 전 그대로");
             assert!(st.running.is_none(), "혼자 쓰기 컨트롤러로 떨어지지 않음");
             assert!(st.worker.is_none());
         }
+        assert_eq!(
+            config_store::load(d.path()).config,
+            saved_before,
+            "저장 무변화"
+        );
         shutdown(&s).await;
     }
 
