@@ -10,6 +10,10 @@ pub use coordinator::v1;
 
 use coordinator::v1::Profile;
 
+/// `AbortRun.reason` the controller sends when a worker's `Register.token` does not match.
+/// Shared so the worker side can recognise an authentication failure without string drift.
+pub const AUTH_FAILED_REASON: &str = "authentication failed";
+
 /// Total run duration the engine will run for: VU-curve stage sum > rate-curve
 /// stage sum > flat `duration_seconds`. **Invariant: engine deadline = this value.**
 /// Single source shared by the worker (builds `RunPlan.duration`) and the

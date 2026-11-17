@@ -1326,7 +1326,7 @@ impl Coordinator for CoordinatorService {
                                 .send(Ok(ServerMessage {
                                     payload: Some(ServerPayload::Abort(AbortRun {
                                         run_id: reg.run_id.clone(),
-                                        reason: "authentication failed".to_string(),
+                                        reason: handicap_proto::AUTH_FAILED_REASON.to_string(),
                                     })),
                                 }))
                                 .await;
@@ -1336,6 +1336,12 @@ impl Coordinator for CoordinatorService {
                         if reg.run_id.is_empty() {
                             // Pool mode: register idle, wait for push assignment from assign_pool_workers (Task 3).
                             info!(worker_id = %reg.worker_id, "pool worker registered idle");
+                            // 수락 신호: 배정 전에도 워커가 "등록됨"을 알 수 있게 Ping을 먼저 보낸다.
+                            let _ = tx
+                                .send(Ok(ServerMessage {
+                                    payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
+                                }))
+                                .await;
                             state
                                 .pool_register_idle(
                                     &reg.worker_id,
