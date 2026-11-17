@@ -348,7 +348,7 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     const { d, calls, logs } = await load(st);
     check("local: #join summary 부하기로 접속", d.querySelector("#join summary").textContent === "부하기로 접속");
     check("local: #join closed, switch-server/worker hidden", !d.getElementById("join").open && d.getElementById("switch-server").hidden && d.getElementById("worker").hidden);
-    d.getElementById("code-in").value = "junk";
+    d.getElementById("code-in").value = FAKE_CODE.slice(0, -1) + "c";
     d.getElementById("join-btn").click(); await sleep(30);
     check("bad code → join-err", d.getElementById("join-err").textContent === "접속 코드 형식이 아닙니다" && !d.getElementById("join-err").hidden);
     check("bad code: no code in console", logs.every((l) => !l.includes("HANDICAP1-")));
