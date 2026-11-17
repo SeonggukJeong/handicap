@@ -247,6 +247,10 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # linux-tui 잡의 같은 스텝 주석 참조(러너 이미지 툴체인 충돌).
+      - name: Remove preinstalled toolchain (runner image conflict)
+        run: rustup toolchain uninstall 1.99.1 || true
+
       - uses: dtolnay/rust-toolchain@1.99.1
 
       - uses: Swatinem/rust-cache@v2
@@ -293,6 +297,11 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 러너 이미지(ubuntu24 20261111.127)에 미리 깔린 1.99.1 툴체인 폴더에 등록 안 된 bin/cargo-fmt가 있어
+      # rust-toolchain.toml의 rustfmt 설치가 'detected conflict'로 실패했다(v0.15.0 linux-tui 2회). 지우고 새로 받는다.
+      - name: Remove preinstalled toolchain (runner image conflict)
+        run: rustup toolchain uninstall 1.99.1 || true
 
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
