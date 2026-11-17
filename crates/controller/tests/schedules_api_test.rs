@@ -319,3 +319,66 @@ async fn events_history_is_listed() {
     assert_eq!(evs[0]["kind"], "fired");
     assert_eq!(evs[0]["run_id"], "RUN1");
 }
+
+fn stair_profile() -> Value {
+    json!({
+        "max_in_flight": 50,
+        "duration_seconds": 0,
+        "stair": { "targets": [100, 200], "hold_seconds": 60, "ramp_seconds": 5, "discard_seconds": 10 }
+    })
+}
+
+#[tokio::test]
+async fn schedule_create_and_update_with_stair() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = seed_scenario(&app).await;
+    let body = |profile: Value| {
+        json!({
+            "name": "stair",
+            "scenario_id": sid,
+            "profile": profile,
+            "env": {},
+            "trigger": { "kind": "cron", "cron_expr": "0 3 * * *" },
+            "enabled": true
+        })
+    };
+    let (status, created) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(body(stair_profile())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    assert_eq!(created["profile"]["stages"].as_array().unwrap().len(), 4);
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/schedules/{id}"),
+        Some(body(stair_profile())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let mut bad = stair_profile();
+    bad["stair"]["hold_seconds"] = json!(19);
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(body(bad.clone())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/schedules/{id}"),
+        Some(body(bad)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

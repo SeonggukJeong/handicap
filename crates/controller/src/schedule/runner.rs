@@ -145,7 +145,25 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
                 continue;
             }
         };
-        let validated_meta = match validate_run_config(state, &sched.profile).await {
+        let mut profile = sched.profile.clone();
+        if let Err(e) = crate::stair::normalize_stair(&mut profile) {
+            let d = format!("검증 실패: {e}");
+            record(
+                state,
+                &sched.id,
+                "error",
+                None,
+                None,
+                Some(&d),
+                adv_next,
+                adv_enabled,
+                now_ms,
+            )
+            .await;
+            summary.errored += 1;
+            continue;
+        }
+        let validated_meta = match validate_run_config(state, &profile).await {
             Ok(m) => m,
             Err(e) => {
                 let d = format!("검증 실패: {e}");
@@ -167,7 +185,7 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
         };
         // step-criteria target은 시나리오 YAML 대조라 매 발사 재검증(시나리오 편집으로
         // target이 사라졌을 수 있음 — validate_run_config는 profile만 보므로 못 잡는다).
-        if let Err(e) = validate_step_criteria_targets(&sched.profile, &scenario.yaml) {
+        if let Err(e) = validate_step_criteria_targets(&profile, &scenario.yaml) {
             let d = format!("검증 실패: {e}");
             record(
                 state,
@@ -193,7 +211,7 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
         match spawn_run(
             state,
             &scenario,
-            &sched.profile,
+            &profile,
             validated_meta,
             &env,
             false,
@@ -321,6 +339,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         }
     }
 
@@ -520,5 +539,54 @@ mod tests {
             g.enabled && g.next_run_at.unwrap() > NOW,
             "cron advances to retry next slot"
         );
+    }
+
+    fn stair_profile() -> Profile {
+        let mut p = profile();
+        p.duration_seconds = 0;
+        p.vus = 0;
+        p.max_in_flight = Some(50);
+        p.stair = Some(crate::stair::StairConfig {
+            targets: vec![100, 200],
+            hold_seconds: 60,
+            ramp_seconds: 5,
+            discard_seconds: 10,
+            p99_cap_ms: None,
+        });
+        p
+    }
+
+    #[tokio::test]
+    async fn stair_schedule_fires_and_stores_expanded_stages() {
+        let state = test_state().await;
+        let sid = seed_scenario(&state.db).await;
+        let t = Trigger::Once {
+            run_at: NOW - 1_000,
+        };
+        let mut p = stair_profile();
+        crate::stair::normalize_stair(&mut p).unwrap();
+        let id = insert_sched(&state.db, &sid, &p, &t, Some(NOW - 1_000)).await;
+
+        let sum = process_due_schedules(&state, NOW).await;
+        assert_eq!(sum.fired, 1);
+        let g = schedules::get(&state.db, &id).await.unwrap().unwrap();
+        let run = crate::store::runs::get(&state.db, g.last_run_id.as_deref().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(run.profile.stair.is_some());
+        assert_eq!(run.profile.stages.unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn stair_schedule_with_unexpanded_stages_still_fires() {
+        let state = test_state().await;
+        let sid = seed_scenario(&state.db).await;
+        let t = Trigger::Once {
+            run_at: NOW - 1_000,
+        };
+        let id = insert_sched(&state.db, &sid, &stair_profile(), &t, Some(NOW - 1_000)).await;
+        let sum = process_due_schedules(&state, NOW).await;
+        assert_eq!(sum.fired, 1, "{:?}", schedules::get(&state.db, &id).await);
     }
 }

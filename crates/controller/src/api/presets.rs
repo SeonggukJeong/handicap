@@ -72,7 +72,7 @@ fn map_db_err(e: sqlx::Error) -> ApiError {
 pub async fn create(
     State(state): State<AppState>,
     Path(scenario_id): Path<String>,
-    Json(body): Json<PresetBody>,
+    Json(mut body): Json<PresetBody>,
 ) -> Result<(StatusCode, Json<PresetResponse>), ApiError> {
     let scenario = scenarios::get(&state.db, &scenario_id)
         .await?
@@ -81,6 +81,7 @@ pub async fn create(
     if name.is_empty() {
         return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
     }
+    crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
     crate::api::runs::validate_run_config(&state, &body.profile).await?;
     crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
         .map_err(ApiError::BadRequest)?;
@@ -128,7 +129,7 @@ pub async fn get(
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<PresetBody>,
+    Json(mut body): Json<PresetBody>,
 ) -> Result<Json<PresetResponse>, ApiError> {
     let name = body.name.trim();
     if name.is_empty() {
@@ -141,6 +142,7 @@ pub async fn update(
     let scenario = scenarios::get(&state.db, &preset.scenario_id)
         .await?
         .ok_or(ApiError::NotFound)?;
+    crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
     crate::api::runs::validate_run_config(&state, &body.profile).await?;
     crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
         .map_err(ApiError::BadRequest)?;

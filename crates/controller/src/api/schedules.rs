@@ -171,7 +171,10 @@ fn map_db_err(e: sqlx::Error) -> ApiError {
 
 /// 공통 검증 게이트: 시나리오 존재(404) → profile(`validate_run_config`, 400) →
 /// trigger(`validate_trigger`, 400). 통과 시 trigger + next_run_at 계산값 반환.
-async fn gate(state: &AppState, body: &ScheduleBody) -> Result<(Trigger, Option<i64>), ApiError> {
+async fn gate(
+    state: &AppState,
+    body: &mut ScheduleBody,
+) -> Result<(Trigger, Option<i64>), ApiError> {
     if body.name.trim().is_empty() {
         return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
     }
@@ -179,6 +182,7 @@ async fn gate(state: &AppState, body: &ScheduleBody) -> Result<(Trigger, Option<
         .await?
         .ok_or(ApiError::NotFound)?;
     // run/preset과 공유하는 권위 게이트(데이터셋/open-loop 검증).
+    crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
     crate::api::runs::validate_run_config(state, &body.profile).await?;
     crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
         .map_err(ApiError::BadRequest)?;
@@ -191,9 +195,9 @@ async fn gate(state: &AppState, body: &ScheduleBody) -> Result<(Trigger, Option<
 
 pub async fn create(
     State(state): State<AppState>,
-    Json(body): Json<ScheduleBody>,
+    Json(mut body): Json<ScheduleBody>,
 ) -> Result<(StatusCode, Json<ScheduleResponse>), ApiError> {
-    let (trigger, next_run_at) = gate(&state, &body).await?;
+    let (trigger, next_run_at) = gate(&state, &mut body).await?;
     let row = schedules::insert(
         &state.db,
         body.name.trim(),
@@ -243,9 +247,9 @@ pub async fn get(
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<ScheduleBody>,
+    Json(mut body): Json<ScheduleBody>,
 ) -> Result<Json<ScheduleResponse>, ApiError> {
-    let (trigger, next_run_at) = gate(&state, &body).await?;
+    let (trigger, next_run_at) = gate(&state, &mut body).await?;
     let row = schedules::update(
         &state.db,
         &id,

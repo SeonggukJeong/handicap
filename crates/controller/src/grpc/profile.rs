@@ -112,6 +112,7 @@ mod tests {
             connect_timeout_seconds: Some(199),
             worker_count: Some(211),
             apply_scenario_think_time: false,
+            stair: None,
         }
     }
 
@@ -240,6 +241,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
         let expected = pb::Profile {
             vus: 0,

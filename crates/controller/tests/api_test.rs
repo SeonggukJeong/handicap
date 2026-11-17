@@ -852,3 +852,61 @@ async fn put_run_label_sets_updates_and_clears() {
         "PUT label on a missing run id must 404"
     );
 }
+
+#[tokio::test]
+async fn create_stair_run_stores_stair_and_expanded_stages() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let yaml = "version: 1\nname: stair\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+    let post_run = |profile: Value| {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/runs")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "scenario_id": scenario_id, "profile": profile, "env": {} }).to_string(),
+            ))
+            .unwrap()
+    };
+    let stair = json!({ "targets": [100, 200], "hold_seconds": 60, "ramp_seconds": 5, "discard_seconds": 10 });
+
+    let resp = app
+        .clone()
+        .oneshot(post_run(
+            json!({ "max_in_flight": 50, "duration_seconds": 0, "stair": stair }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    let id = v["id"].as_str().unwrap();
+    let row = handicap_controller::store::runs::get(&db, id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.profile.stair.is_some());
+    assert_eq!(row.profile.stages.unwrap().len(), 4);
+
+    // max_in_flight 없음 → 기존 open-loop 규칙으로 400
+    let resp = app
+        .clone()
+        .oneshot(post_run(json!({ "duration_seconds": 0, "stair": stair })))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // 잘못된 stair → 400
+    let resp = app
+        .clone()
+        .oneshot(post_run(json!({
+            "max_in_flight": 50, "duration_seconds": 0,
+            "stair": { "targets": [100], "hold_seconds": 60, "ramp_seconds": 5, "discard_seconds": 10 }
+        })))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

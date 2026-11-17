@@ -16,5 +16,6 @@ pub mod monitor;
 pub mod report;
 pub mod schedule;
 pub mod settings;
+pub mod stair;
 pub mod store;
 pub mod validity;

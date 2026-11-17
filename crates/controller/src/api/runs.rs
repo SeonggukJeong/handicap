@@ -1008,12 +1008,13 @@ pub async fn create(
     State(state): State<AppState>,
     // Query MUST precede Json (axum: body extractor must be last). (L3 R4.)
     axum::extract::Query(q): axum::extract::Query<ForceQuery>,
-    Json(body): Json<CreateRunRequest>,
+    Json(mut body): Json<CreateRunRequest>,
 ) -> Result<(StatusCode, Json<RunResponse>), ApiError> {
     let scenario = scenarios::get(&state.db, &body.scenario_id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
     let validated_meta = validate_run_config(&state, &body.profile).await?;
     validate_step_criteria_targets(&body.profile, &scenario.yaml).map_err(ApiError::BadRequest)?;
     let label = normalize_label(body.label).map_err(ApiError::BadRequest)?;
@@ -1554,6 +1555,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         }
     }
 
@@ -1765,6 +1767,7 @@ steps:
                 connect_timeout_seconds: None,
                 worker_count: None,
                 apply_scenario_think_time: true,
+                stair: None,
             }
         }
         let mk = |target: &str| {
@@ -1838,6 +1841,7 @@ steps:
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -1890,6 +1894,7 @@ steps:
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         }
     }
 
@@ -1945,6 +1950,7 @@ steps:
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         }
     }
 
@@ -2710,6 +2716,7 @@ steps:
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         }
     }
 
@@ -2887,6 +2894,7 @@ steps:
             target_rps: Some(100),
             max_in_flight: Some(50),
             apply_scenario_think_time: apply,
+            stair: None,
             ..closed_min()
         };
         p.vus = 0;
@@ -2916,6 +2924,7 @@ steps:
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         }
     }
 

@@ -291,3 +291,61 @@ async fn run_can_be_created_from_a_preset_profile() {
     assert_eq!(s, StatusCode::CREATED);
     assert_eq!(run["profile"]["vus"], 2);
 }
+
+fn stair_profile() -> Value {
+    json!({
+        "max_in_flight": 50,
+        "duration_seconds": 0,
+        "stair": { "targets": [100, 200], "hold_seconds": 60, "ramp_seconds": 5, "discard_seconds": 10 }
+    })
+}
+
+#[tokio::test]
+async fn preset_create_and_update_with_stair() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, YAML).await;
+    let (s, created) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "stair", "profile": stair_profile(), "env": {} }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{created:?}");
+    assert_eq!(created["profile"]["stages"].as_array().unwrap().len(), 4);
+    assert!(created["profile"]["stair"].is_object());
+    let pid = created["id"].as_str().unwrap().to_string();
+
+    let put = |profile: Value| {
+        Request::builder()
+            .method(Method::PUT)
+            .uri(format!("/api/presets/{pid}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "name": "stair", "profile": profile, "env": {} }).to_string(),
+            ))
+            .unwrap()
+    };
+    let resp = app.clone().oneshot(put(stair_profile())).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let mut bad = stair_profile();
+    bad["stair"]["targets"] = json!([200, 100]);
+    let resp = app.clone().oneshot(put(bad)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn preset_create_rejects_invalid_stair() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, YAML).await;
+    let mut bad = stair_profile();
+    bad["stair"]["targets"] = json!([100]);
+    let (s, _) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "bad", "profile": bad, "env": {} }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

@@ -71,6 +71,7 @@ async fn seed_pending_run(db: &Db) -> String {
         connect_timeout_seconds: None,
         worker_count: None,
         apply_scenario_think_time: true,
+        stair: None,
     };
     runs::insert(db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
         .await

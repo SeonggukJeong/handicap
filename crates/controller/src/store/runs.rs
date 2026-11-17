@@ -179,6 +179,9 @@ pub struct Profile {
         skip_serializing_if = "apply_scenario_think_is_default"
     )]
     pub apply_scenario_think_time: bool,
+    /// 계단 시험 설정(controller-only). 있으면 `stages`는 `expand_stair` 결과와 같아야 한다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stair: Option<crate::stair::StairConfig>,
 }
 
 impl Profile {
@@ -587,6 +590,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
         f(&mut p);
         p
@@ -714,6 +718,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
 
         // Labeled insert -> get round-trip.
@@ -798,6 +803,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
             .await
@@ -853,6 +859,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
         insert(db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
             .await
@@ -1068,6 +1075,7 @@ mod tests {
             connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
+            stair: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();
