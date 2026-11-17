@@ -3916,14 +3916,33 @@ mod tests {
     #[tokio::test]
     async fn self_abort_fans_out_to_siblings_with_message() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
-        let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
+        let (coord, run_id, mut r0, mut r1) = two_worker_run(&db).await;
         coord.record_phase(&run_id, "w0", ABORTED, "").await;
         assert!(is_abort(r1.try_recv().expect("형제에 Abort")));
+        assert!(r0.try_recv().is_err(), "중단한 부하기 자신에겐 Abort 없음");
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Aborted);
         assert_eq!(
             row.message.as_deref(),
             Some("worker w0 stopped mid-run — run aborted (other workers stopped)")
+        );
+    }
+
+    #[tokio::test]
+    async fn self_abort_skips_terminal_sibling() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
+        // w1 finishes first (run not terminal: w0 still running), then w0 self-aborts.
+        coord
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        assert!(r1.try_recv().is_err(), "이미 끝난 형제엔 Abort 없음");
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert_eq!(
+            row.message.as_deref(),
+            Some("worker w0 stopped mid-run — run aborted")
         );
     }
 
@@ -4021,10 +4040,7 @@ mod tests {
         assert_eq!(row.message, None);
 
         // 정리: w1 수신자를 비워 abort()를 끝낸다.
-        while tokio::time::timeout(Duration::from_millis(200), r1.recv())
-            .await
-            .is_ok()
-        {}
+        while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), r1.recv()).await {}
         tokio::time::timeout(Duration::from_secs(2), aborter)
             .await
             .expect("abort() 종료")
