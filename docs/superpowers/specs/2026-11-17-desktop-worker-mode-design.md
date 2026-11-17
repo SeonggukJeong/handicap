@@ -70,7 +70,7 @@ US 문구 정정(사용자 승인 뒤, 리뷰 반영 — 2026-11-17): US2의 확
 - **사건**(통로가 알리는 것):
   - `Probing{후보 수}` — 접속 사이클 시작(IP 탐침 전)
   - `AttemptFailed{이유, 다음 시도까지 대기}` — 한 번의 시도가 **수락 전에** 실패(탐침 전부 실패 포함)
-  - `Accepted{주소}` — 등록 뒤 첫 `Ping` 또는 첫 `Assignment`(Assignment = 묵시적 수락 — R3 순서 보장의 이중 방어)
+  - `Accepted{주소}` — 등록 뒤 첫 `Ping` 또는 첫 `Assignment`(Assignment = 묵시적 수락 — R3: 동시 배정이 `Ping`보다 먼저 올 수 있다)
   - `SessionLost{이유}` — **수락된 뒤** 대기 중 스트림이 끊김(서버 재시작·망 끊김) — `AttemptFailed`와 구별
   - `RunStarted{run_id, 시나리오 이름}`(이름 = `scenario_yaml`의 `name`, 파싱 실패면 없음, **Rust에서 80자로 자름**) / `RunEnded`
   - `Excluded` — **대기 중이든 실행 중이든** 서버의 `Disconnect`(지금처럼 그 뒤 워커는 끝난다). 실행 중 `Disconnect`는 `forward_inbound`(`client.rs:66-69`)가 받아 넘겨준 취소 토큰을 cancel할 뿐이라, 새 루프는 `connect_and_register`에 **호출자 토큰의 자식 토큰**을 넘기고 "자식 취소 ∧ 호출자 미취소"를 제외로 판정한다(1차 `role.rs` parent/child 판정과 같은 방식 — `client.rs` 무변경). 이 경우 `RunEnded`보다 `Excluded`가 우선(유예로 「연결됨 · 대기」가 보이면 안 된다).
