@@ -14,6 +14,12 @@ export function floorPct1(ratio: number): string {
   return `${(Math.floor(ratio * 1000 + 1e-9) / 10).toFixed(1)}%`;
 }
 
+/** 표 오류율 칸: 0이 아닌데 내림하면 0.0%인 값은 「<0.1%」로 — 오류가 있었는데 없던 것처럼 읽히지 않게. */
+export function errorRateText(rate: number): string {
+  const txt = floorPct1(rate);
+  return rate > 0 && txt === "0.0%" ? t.tinyErrorRate : txt;
+}
+
 export function stateLabel(s: StairState): string {
   return t.states[s];
 }

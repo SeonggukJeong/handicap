@@ -1122,6 +1122,7 @@ export const ko = {
       noteOpenLoopUnknown:
         "ⓘ 예전 버전 부하기라 계단별 달성·dropped를 모릅니다 — 판정은 지연·오류로만 했습니다.",
       tableLabel: "계단 표",
+      tinyErrorRate: "<0.1%",
       cols: {
         index: "#",
         target: "목표(반복/초)",

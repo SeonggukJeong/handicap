@@ -1,7 +1,7 @@
 import type { StairReport, StairState } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 import { formatHms } from "../../../monitor/time";
-import { floorPct1, formatCount, formatMs, reasonTexts, stateLabel } from "./stairFormat";
+import { errorRateText, formatCount, formatMs, reasonTexts, stateLabel } from "./stairFormat";
 
 const PILL: Record<StairState, string> = {
   ok: "bg-emerald-100 text-emerald-800",
@@ -59,7 +59,7 @@ export function StairTable({ stair }: { stair: StairReport }) {
                   <td className={td}>{measured ? formatMs(s.p50_us) : DASH}</td>
                   <td className={td}>{measured ? formatMs(s.p95_us) : DASH}</td>
                   <td className={td}>{measured ? formatMs(s.p99_us) : DASH}</td>
-                  <td className={td}>{measured ? floorPct1(s.error_rate) : DASH}</td>
+                  <td className={td}>{measured ? errorRateText(s.error_rate) : DASH}</td>
                   <td className={td}>
                     {measured && s.dropped != null ? s.dropped.toLocaleString("en-US") : DASH}
                   </td>

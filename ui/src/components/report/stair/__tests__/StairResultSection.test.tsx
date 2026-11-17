@@ -204,6 +204,15 @@ describe("StairResultSection", () => {
     expect(cells[7]).toHaveTextContent(/^0\.9%$/);
   });
 
+  it("오류율 칸: 0이 아닌 미세값은 「<0.1%」, 진짜 0은 0.0%", () => {
+    const st = mk();
+    withStep(st, 0, { error_rate: 0.0004 });
+    withStep(st, 1, { error_rate: 0 });
+    render(<StairResultSection stair={st} />);
+    expect(within(rowsOf()[1]).getAllByRole("cell")[7]).toHaveTextContent(/^<0\.1%$/);
+    expect(within(rowsOf()[2]).getAllByRole("cell")[7]).toHaveTextContent(/^0\.0%$/);
+  });
+
   it("achieved 사유는 내림 — 94.96%는 94.9%", () => {
     const st = mk();
     withStep(st, 5, { reasons: [{ kind: "achieved", value: 0.9496 }] });
