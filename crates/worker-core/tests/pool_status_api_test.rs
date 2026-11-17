@@ -3,7 +3,7 @@ use std::sync::Arc;
 use handicap_worker_core::WorkerError;
 use handicap_worker_core::pool_status::{
     EventSink, FailReason, GRACE, PROBE_TIMEOUT, PoolEvent, PoolState, StatusTracker, classify,
-    clip, desktop_retry_delay, probe_first, tcp_reachable,
+    desktop_retry_delay, probe_first, sanitize_clip, tcp_reachable,
 };
 
 #[test]
@@ -31,7 +31,7 @@ async fn public_names_are_usable() {
         PROBE_TIMEOUT,
         GRACE,
         desktop_retry_delay(0),
-        clip("a", 1),
+        sanitize_clip("a", 1),
         PoolEvent::RunEnded,
     );
     assert_eq!(

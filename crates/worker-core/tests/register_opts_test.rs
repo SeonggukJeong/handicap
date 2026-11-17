@@ -98,6 +98,13 @@ async fn abort_reason_is_clipped_to_200_chars() {
 }
 
 #[tokio::test]
+async fn abort_reason_control_and_bidi_chars_are_replaced() {
+    let url = spawn_stub(vec![abort("a\nb\u{202E}c\u{1b}")]).await;
+    let e = reg(&url, RegisterOpts::default()).await.err().unwrap();
+    assert_eq!(e.abort_reason(), Some("a\u{FFFD}b\u{FFFD}c\u{FFFD}"));
+}
+
+#[tokio::test]
 async fn on_accepted_fires_once_on_first_ping() {
     let url = spawn_stub(vec![ping(1), ping(2), assign()]).await;
     let n = Arc::new(AtomicUsize::new(0));

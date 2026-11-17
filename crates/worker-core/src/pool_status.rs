@@ -177,9 +177,34 @@ pub fn desktop_retry_delay(attempt: usize) -> Duration {
     SCHEDULE[attempt.min(SCHEDULE.len() - 1)]
 }
 
-/// 글자(char) 단위로 `max_chars`까지 자른다.
-pub fn clip(s: &str, max_chars: usize) -> String {
-    s.chars().take(max_chars).collect()
+/// 배정 전 Abort 사유의 최대 글자 수.
+pub const ABORT_REASON_MAX_CHARS: usize = 200;
+/// 실행 시작 사건의 시나리오 이름 최대 글자 수.
+pub const SCENARIO_NAME_MAX_CHARS: usize = 80;
+/// 실행 시작 사건의 run id 최대 글자 수.
+pub const RUN_ID_MAX_CHARS: usize = 64;
+
+/// bidi 제어 글자(U+061C·200E/200F·202A–202E·2066–2069).
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
+/// 서버가 보낸 글자를 사건에 싣기 전에 다듬는다: 제어 글자(C0·DEL·C1, 줄바꿈·탭 포함)와
+/// bidi 제어 글자를 U+FFFD로 바꾸고 글자(char) 단위로 `max_chars`까지 자른다.
+pub fn sanitize_clip(s: &str, max_chars: usize) -> String {
+    s.chars()
+        .take(max_chars)
+        .map(|c| {
+            if c.is_control() || is_bidi_control(c) {
+                '\u{FFFD}'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// 모든 후보에 동시에 연결을 시도해 처음 성공한 주소를 돌려준다. 시도마다 `timeout` 상한.
@@ -254,6 +279,13 @@ mod tests {
                 reason: other.to_string()
             }),
             FailReason::Rejected(other.to_string())
+        );
+        let not_pool = "controller is not in pool mode";
+        assert_eq!(
+            classify(&WorkerError::AbortedBeforeAssignment {
+                reason: not_pool.to_string()
+            }),
+            FailReason::Rejected(not_pool.to_string())
         );
         assert_eq!(classify(&WorkerError::NoAssignment), FailReason::Protocol);
         assert_eq!(classify(&WorkerError::SendFailed), FailReason::Protocol);
@@ -532,9 +564,51 @@ mod tests {
     }
 
     #[test]
-    fn clip_respects_char_boundary() {
-        assert_eq!(clip("가나다라", 2), "가나");
-        assert_eq!(clip("ab", 5), "ab");
+    fn sanitize_clip_respects_char_boundary() {
+        assert_eq!(sanitize_clip("가나다라", 2), "가나");
+        assert_eq!(sanitize_clip("ab", 5), "ab");
+    }
+
+    #[test]
+    fn sanitize_clip_replaces_c0_c1_controls() {
+        for c in [
+            '\0', '\t', '\n', '\r', '\u{1b}', '\u{7f}', '\u{80}', '\u{85}', '\u{9f}',
+        ] {
+            assert_eq!(
+                sanitize_clip(&format!("a{c}b"), 10),
+                "a\u{FFFD}b",
+                "U+{:04X}",
+                c as u32
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_clip_replaces_bidi_controls() {
+        let bidi = [
+            '\u{200E}', '\u{200F}', '\u{061C}', '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}',
+            '\u{202E}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ];
+        for c in bidi {
+            assert_eq!(
+                sanitize_clip(&format!("a{c}b"), 10),
+                "a\u{FFFD}b",
+                "U+{:04X}",
+                c as u32
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_clip_keeps_ordinary_text() {
+        // ZWJ(U+200D)·U+2065(배정 안 됨, bidi 범위 밖)·한글·이모지는 그대로.
+        let s = "가👩\u{200D}💻\u{2065}x";
+        assert_eq!(sanitize_clip(s, 100), s);
+    }
+
+    #[test]
+    fn sanitize_clip_counts_replacements_as_chars() {
+        assert_eq!(sanitize_clip("\n\n\nabc", 4), "\u{FFFD}\u{FFFD}\u{FFFD}a");
     }
 
     #[tokio::test(start_paused = true)]

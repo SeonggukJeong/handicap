@@ -2,7 +2,7 @@
 //! 데스크톱 풀 진입점 `run_pool_desktop`: 탐침·포기 없는 재시도·상태 사건을 진짜 풀 컨트롤러에 붙여 검증한다.
 //! 사건은 모아 두고, 조건이 참이 될 때까지 기한 안에서 폴링한다(고정 sleep으로 단언하지 않는다).
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use handicap_controller::in_process::{
     InProcessConfig, InProcessWorkerMode, RunningController, run_in_process,
 };
 use handicap_worker::pool_status::{EventSink, FailReason, PoolEvent};
-use handicap_worker::{PoolTarget, run_pool_desktop};
+use handicap_worker::{PoolTarget, run_pool_desktop, run_pool_desktop_with};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -35,12 +35,16 @@ fn free_port() -> u16 {
 }
 
 async fn start_pool(grpc_port: u16) -> RunningController {
+    start_pool_at(Ipv4Addr::LOCALHOST, grpc_port, TOKEN).await
+}
+
+async fn start_pool_at(ip: Ipv4Addr, grpc_port: u16, token: &str) -> RunningController {
     run_in_process(InProcessConfig {
         db: Some(tmp_db()),
         scheduler_disabled: true,
         worker_mode: InProcessWorkerMode::Pool,
-        worker_token: Some(TOKEN.into()),
-        grpc: SocketAddr::from(([127, 0, 0, 1], grpc_port)),
+        worker_token: Some(token.into()),
+        grpc: SocketAddr::from((ip, grpc_port)),
         grpc_port_fallback: false,
         ..InProcessConfig::default()
     })
@@ -54,7 +58,7 @@ struct Desk {
     handle: JoinHandle<anyhow::Result<()>>,
 }
 
-fn spawn_desktop(port: u16, token: &str) -> Desk {
+fn event_sink() -> (Events, EventSink) {
     let events: Events = Arc::new(Mutex::new(Vec::new()));
     let sink_events = events.clone();
     let sink: EventSink = Arc::new(move |ev| {
@@ -63,15 +67,24 @@ fn spawn_desktop(port: u16, token: &str) -> Desk {
             .unwrap()
             .push((tokio::time::Instant::now(), ev));
     });
+    (events, sink)
+}
+
+fn pool_target(ips: Vec<Ipv4Addr>, port: u16, token: &str) -> PoolTarget {
+    PoolTarget {
+        ips,
+        port,
+        token: token.into(),
+        worker_id: WORKER_ID.into(),
+        capacity_vus: 10,
+    }
+}
+
+fn spawn_desktop(port: u16, token: &str) -> Desk {
+    let (events, sink) = event_sink();
     let cancel = CancellationToken::new();
     let handle = tokio::spawn(run_pool_desktop(
-        PoolTarget {
-            ips: vec![Ipv4Addr::LOCALHOST],
-            port,
-            token: token.into(),
-            worker_id: WORKER_ID.into(),
-            capacity_vus: 10,
-        },
+        pool_target(vec![Ipv4Addr::LOCALHOST], port, token),
         cancel.clone(),
         sink,
     ));
@@ -586,4 +599,88 @@ async fn run_abort_keeps_worker_and_emits_no_excluded() {
     );
     desk.stop().await;
     rc.shutdown().await;
+}
+
+/// 127.0.0.1과 다른, 이 PC에 바인드되는 IPv4: 127.0.0.2(리눅스), 없으면 기본 경로의 인터페이스 주소
+/// (UDP `connect`는 패킷을 보내지 않고 경로만 고른다).
+fn second_local_ipv4() -> Option<Ipv4Addr> {
+    let lo2 = Ipv4Addr::new(127, 0, 0, 2);
+    if std::net::TcpListener::bind((lo2, 0)).is_ok() {
+        return Some(lo2);
+    }
+    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("192.0.2.1:9").ok()?;
+    match s.local_addr().ok()?.ip() {
+        IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => Some(ip),
+        _ => None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wrong_host_candidate_is_skipped_for_the_next_candidate() {
+    let Some(other_ip) = second_local_ipv4() else {
+        eprintln!("skip: no second local IPv4 to bind");
+        return;
+    };
+    let port = free_port();
+    // 127.0.0.1 = 토큰이 다른 풀 컨트롤러(틀린 상대), other_ip = 진짜 컨트롤러.
+    let wrong = start_pool_at(Ipv4Addr::LOCALHOST, port, "other-token").await;
+    let real = start_pool_at(other_ip, port, TOKEN).await;
+    let real_addr = SocketAddr::from((other_ip, port));
+    let (events, sink) = event_sink();
+    let cancel = CancellationToken::new();
+    // 진짜 쪽 탐침만 늦춰, 틀린 상대가 후보에 있으면 늘 먼저 응답하게 한다.
+    let reachable = move |a: SocketAddr| async move {
+        if a == real_addr {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        handicap_worker::pool_status::tcp_reachable(a).await
+    };
+    let handle = tokio::spawn(run_pool_desktop_with(
+        pool_target(vec![Ipv4Addr::LOCALHOST, other_ip], port, TOKEN),
+        cancel.clone(),
+        sink,
+        reachable,
+    ));
+    let desk = Desk {
+        events,
+        cancel,
+        handle,
+    };
+    assert!(
+        desk.wait_until(WAIT, |e| e.iter().any(
+            |x| matches!(x, PoolEvent::Accepted { addr } if *addr == real_addr)
+        ))
+        .await,
+        "{:?}",
+        desk.snapshot()
+    );
+    let evs = desk.snapshot();
+    let first_auth = evs
+        .iter()
+        .position(|x| {
+            matches!(
+                x,
+                PoolEvent::AttemptFailed {
+                    reason: FailReason::AuthFailed,
+                    ..
+                }
+            )
+        })
+        .expect("the wrong host answered first");
+    let accepted = evs
+        .iter()
+        .position(|x| matches!(x, PoolEvent::Accepted { .. }))
+        .unwrap();
+    assert!(first_auth < accepted, "{evs:?}");
+    assert_eq!(
+        evs.iter()
+            .filter(|x| matches!(x, PoolEvent::Accepted { addr } if *addr != real_addr))
+            .count(),
+        0,
+        "{evs:?}"
+    );
+    desk.stop().await;
+    real.shutdown().await;
+    wrong.shutdown().await;
 }

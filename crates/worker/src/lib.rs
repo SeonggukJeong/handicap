@@ -13,8 +13,8 @@ use handicap_proto::run_duration_secs;
 use handicap_proto::v1 as pb;
 pub use handicap_worker_core::pool_status;
 use handicap_worker_core::pool_status::{
-    FailReason, PROBE_TIMEOUT, PoolEvent, classify, clip, desktop_retry_delay, probe_first,
-    tcp_reachable,
+    FailReason, PROBE_TIMEOUT, PoolEvent, RUN_ID_MAX_CHARS, SCENARIO_NAME_MAX_CHARS, classify,
+    desktop_retry_delay, probe_first, sanitize_clip, tcp_reachable,
 };
 use handicap_worker_core::{
     RegisterOpts, WorkerError, WorkerLink, connect_and_register_opts, connect_with_backoff,
@@ -574,6 +574,21 @@ fn log_failure(last: &mut Option<FailReason>, reason: &FailReason, msg: &str) {
     }
 }
 
+/// 배정 하나의 `RunStarted` 사건.
+fn run_started_event(a: &pb::RunAssignment) -> PoolEvent {
+    PoolEvent::RunStarted {
+        run_id: sanitize_clip(&a.run_id, RUN_ID_MAX_CHARS),
+        scenario_name: Scenario::from_yaml(&a.scenario_yaml)
+            .ok()
+            .map(|s| sanitize_clip(&s.name, SCENARIO_NAME_MAX_CHARS)),
+    }
+}
+
+/// 수락 전에 이 이유로 실패한 후보는 다음 탐침에서 뺀다(닿지 않은 후보는 빼지 않는다).
+fn excludes_candidate(reason: &FailReason) -> bool {
+    !matches!(reason, FailReason::Unreachable)
+}
+
 /// 데스크톱 전용 풀 루프: 사이클마다 IP 탐침 → 접속 → 배정 실행, 실패해도 포기하지 않고
 /// 1·2·4·8s 간격으로 다시 시도하며 상태 사건을 `events`로 알린다. `cancel`이 울리면 반환한다.
 /// 서버의 `Disconnect`(제외)는 호출자 토큰의 자식 토큰만 취소되는 것으로 알아본다.
@@ -582,6 +597,21 @@ pub async fn run_pool_desktop(
     cancel: CancellationToken,
     events: pool_status::EventSink,
 ) -> anyhow::Result<()> {
+    run_pool_desktop_with(target, cancel, events, tcp_reachable).await
+}
+
+/// `run_pool_desktop`과 같고, 탐침의 연결 함수만 주입받는다(테스트용).
+#[doc(hidden)]
+pub async fn run_pool_desktop_with<F, Fut>(
+    target: PoolTarget,
+    cancel: CancellationToken,
+    events: pool_status::EventSink,
+    reachable: F,
+) -> anyhow::Result<()>
+where
+    F: Fn(std::net::SocketAddr) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
     let PoolTarget {
         ips,
         port,
@@ -596,6 +626,9 @@ pub async fn run_pool_desktop(
         .collect();
     let mut attempt = 0usize;
     let mut last_reason: Option<FailReason> = None;
+    // 수락 전에 틀린 상대로 판명된 후보. 전부 빠지면 비우고 다시 모든 후보를 탐침한다.
+    let mut excluded: std::collections::HashSet<std::net::SocketAddr> =
+        std::collections::HashSet::new();
     info!(version = env!("CARGO_PKG_VERSION"), %worker_id, "desktop pool worker starting");
     loop {
         if cancel.is_cancelled() {
@@ -604,9 +637,18 @@ pub async fn run_pool_desktop(
         events(PoolEvent::Probing {
             candidates: addrs.len(),
         });
+        let mut round: Vec<std::net::SocketAddr> = addrs
+            .iter()
+            .copied()
+            .filter(|a| !excluded.contains(a))
+            .collect();
+        if round.is_empty() {
+            excluded.clear();
+            round = addrs.clone();
+        }
         let probed = tokio::select! {
             _ = cancel.cancelled() => break,
-            p = probe_first(&addrs, PROBE_TIMEOUT, tcp_reachable) => p,
+            p = probe_first(&round, PROBE_TIMEOUT, &reachable) => p,
         };
         let Some(addr) = probed else {
             let d = desktop_retry_delay(attempt);
@@ -648,20 +690,16 @@ pub async fn run_pool_desktop(
             },
         );
         let res = tokio::select! {
-            _ = cancel.cancelled() => break,
+            biased;
             r = register => r,
+            _ = cancel.cancelled() => break,
         };
         match res {
             Ok(link) => {
                 attempt = 0;
                 last_reason = None;
-                let scenario_name = Scenario::from_yaml(&link.assignment.scenario_yaml)
-                    .ok()
-                    .map(|s| clip(&s.name, 80));
-                events(PoolEvent::RunStarted {
-                    run_id: link.assignment.run_id.clone(),
-                    scenario_name,
-                });
+                excluded.clear();
+                events(run_started_event(&link.assignment));
                 if let Err(e) =
                     execute_assignment(link, worker_id.clone(), child.child_token()).await
                 {
@@ -688,11 +726,15 @@ pub async fn run_pool_desktop(
                 let d = if accepted.load(Ordering::SeqCst) {
                     attempt = 0;
                     last_reason = None;
+                    excluded.clear();
                     log_failure(&mut last_reason, &reason, "desktop pool session lost");
                     let d = desktop_retry_delay(0);
                     events(PoolEvent::SessionLost { reason });
                     d
                 } else {
+                    if excludes_candidate(&reason) {
+                        excluded.insert(addr);
+                    }
                     log_failure(&mut last_reason, &reason, "desktop pool attempt failed");
                     let d = desktop_retry_delay(attempt);
                     events(PoolEvent::AttemptFailed {
@@ -959,6 +1001,65 @@ mod tests {
         let d = format!("{t:?}");
         assert!(!d.contains("s3cret-token"), "{d}");
         assert!(d.contains("[REDACTED]"), "{d}");
+    }
+
+    /// `yaml_name`은 YAML 값 그대로(큰따옴표 이스케이프 가능).
+    fn assignment_with(run_id: &str, yaml_name: &str) -> pb::RunAssignment {
+        pb::RunAssignment {
+            run_id: run_id.into(),
+            scenario_yaml: format!("version: 1\nname: {yaml_name}\nsteps: []\n"),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn run_started_event_sanitizes_scenario_name_and_run_id() {
+        let ev = run_started_event(&assignment_with("r\n1\u{202E}", r#""a\u2066b\tc""#));
+        assert_eq!(
+            ev,
+            PoolEvent::RunStarted {
+                run_id: "r\u{FFFD}1\u{FFFD}".into(),
+                scenario_name: Some("a\u{FFFD}b\u{FFFD}c".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn run_started_event_clips_run_id_to_64_and_name_to_80() {
+        let ev = run_started_event(&assignment_with(&"r".repeat(100), &"가".repeat(100)));
+        let PoolEvent::RunStarted {
+            run_id,
+            scenario_name,
+        } = ev
+        else {
+            panic!("{ev:?}");
+        };
+        assert_eq!(run_id.chars().count(), 64);
+        assert_eq!(scenario_name.unwrap().chars().count(), 80);
+    }
+
+    #[test]
+    fn run_started_event_without_parsable_scenario_has_no_name() {
+        let a = pb::RunAssignment {
+            run_id: "r1".into(),
+            scenario_yaml: "not: [valid".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            run_started_event(&a),
+            PoolEvent::RunStarted {
+                run_id: "r1".into(),
+                scenario_name: None,
+            }
+        );
+    }
+
+    #[test]
+    fn excluded_candidate_reasons() {
+        assert!(!excludes_candidate(&FailReason::Unreachable));
+        assert!(excludes_candidate(&FailReason::AuthFailed));
+        assert!(excludes_candidate(&FailReason::Protocol));
+        assert!(excludes_candidate(&FailReason::Rejected("x".into())));
     }
 
     fn closed_port() -> u16 {

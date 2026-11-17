@@ -225,7 +225,10 @@ pub async fn connect_and_register_opts(
                     warn!(?other, "expected RunAssignment, got something else");
                     if let Some(ServerPayload::Abort(a)) = other {
                         return Err(WorkerError::AbortedBeforeAssignment {
-                            reason: a.reason.chars().take(200).collect(),
+                            reason: crate::pool_status::sanitize_clip(
+                                &a.reason,
+                                crate::pool_status::ABORT_REASON_MAX_CHARS,
+                            ),
                         });
                     }
                     return Err(WorkerError::NoAssignment);
@@ -377,75 +380,6 @@ mod forward_tests {
         );
     }
 
-    // idle-wait: a Ping while waiting for the assignment must NOT end the stream;
-    // the worker answers Pong and keeps waiting; a later Assignment resolves it. (R2b)
-    #[tokio::test]
-    async fn idle_wait_survives_repeated_pings() {
-        use handicap_proto::v1 as pb;
-        use tokio_util::sync::CancellationToken;
-
-        // Build fake gRPC stream: Ping, Ping, then RunAssignment.
-        // We simulate by driving connect_and_register with a mock inbound.
-        // We use the inner idle-wait loop directly by calling connect_and_register
-        // indirectly — but since we can't mock the gRPC transport, we test the
-        // loop logic inline by simulating what connect_and_register does with the
-        // stream after registration.
-
-        // Simulate the idle-wait loop: Ping × 2, then Assignment.
-        let assignment_val = pb::RunAssignment {
-            run_id: "r1".into(),
-            scenario_yaml: "version: 1\nname: t\nsteps: []".into(),
-            vu_count: 1,
-            vu_offset: 0,
-            ..Default::default()
-        };
-        let messages: Vec<Result<ServerMessage, tonic::Status>> = vec![
-            Ok(ServerMessage {
-                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 1 })),
-            }),
-            Ok(ServerMessage {
-                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 2 })),
-            }),
-            Ok(ServerMessage {
-                payload: Some(ServerPayload::Assignment(assignment_val.clone())),
-            }),
-        ];
-        let mut inbound = tokio_stream::iter(messages);
-        let (tx, mut out_rx) = mpsc::channel::<WorkerMessage>(8);
-        let cancel = CancellationToken::new();
-
-        // Run the idle-wait loop directly (mirrors client.rs idle-wait body).
-        let got_assignment = loop {
-            let next = tokio::select! {
-                _ = cancel.cancelled() => { panic!("cancelled unexpectedly"); }
-                m = inbound.next() => m,
-            };
-            match next {
-                Some(Ok(msg)) => match msg.payload {
-                    Some(ServerPayload::Assignment(a)) => break a,
-                    Some(ServerPayload::Ping(p)) => {
-                        tx.send(WorkerMessage {
-                            payload: Some(WorkerPayload::Pong(pb::Pong { nonce: p.nonce })),
-                        })
-                        .await
-                        .unwrap();
-                    }
-                    other => panic!("unexpected: {other:?}"),
-                },
-                Some(Err(e)) => panic!("error: {e}"),
-                None => panic!("stream ended without assignment"),
-            }
-        };
-
-        assert_eq!(got_assignment.run_id, "r1");
-        // Two Pong messages must have been sent.
-        let p1 = out_rx.try_recv().expect("pong 1");
-        assert!(matches!(p1.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 1));
-        let p2 = out_rx.try_recv().expect("pong 2");
-        assert!(matches!(p2.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 2));
-        assert!(out_rx.try_recv().is_err(), "no extra messages");
-    }
-
     // forward_inbound: a Ping is answered with Pong via out_tx and is NOT forwarded
     // to fwd_tx (consumer never sees it); a non-Ping (AbortRun) IS forwarded. (R2)
     #[tokio::test]
@@ -505,65 +439,6 @@ mod forward_tests {
             cancel.clone(),
         )
         .await;
-        assert!(
-            cancel.is_cancelled(),
-            "Disconnect must cancel the process token"
-        );
-    }
-
-    // R7 (b): idle-wait loop site — Disconnect cancels token and returns Cancelled.
-    // Mirrors idle_wait_survives_repeated_pings: inline the idle-wait loop body
-    // and feed a Disconnect instead of pings. (R5, R7)
-    #[tokio::test]
-    async fn idle_loop_disconnect_cancels_and_exits() {
-        use handicap_proto::v1 as pb;
-        use tokio_util::sync::CancellationToken;
-
-        let messages: Vec<Result<ServerMessage, tonic::Status>> = vec![Ok(ServerMessage {
-            payload: Some(ServerPayload::Disconnect(pb::Disconnect {
-                reason: "excluded".into(),
-            })),
-        })];
-        let mut inbound = tokio_stream::iter(messages);
-        let (tx, _out_rx) = mpsc::channel::<WorkerMessage>(8);
-        let cancel = CancellationToken::new();
-
-        // Run the idle-wait loop directly (mirrors client.rs idle-wait body, per
-        // the pattern established by idle_wait_survives_repeated_pings).
-        let result: Result<pb::RunAssignment, WorkerError> = loop {
-            let next = tokio::select! {
-                _ = cancel.cancelled() => break Err(WorkerError::Cancelled),
-                m = inbound.next() => m,
-            };
-            match next {
-                Some(Ok(msg)) => match msg.payload {
-                    Some(ServerPayload::Assignment(a)) => break Ok(a),
-                    Some(ServerPayload::Ping(p)) => {
-                        tx.send(WorkerMessage {
-                            payload: Some(WorkerPayload::Pong(pb::Pong { nonce: p.nonce })),
-                        })
-                        .await
-                        .unwrap();
-                    }
-                    Some(ServerPayload::Disconnect(d)) => {
-                        warn!(reason = %d.reason, "controller requested disconnect while idle; exiting");
-                        cancel.cancel();
-                        break Err(WorkerError::Cancelled);
-                    }
-                    other => {
-                        warn!(?other, "expected RunAssignment, got something else");
-                        break Err(WorkerError::NoAssignment);
-                    }
-                },
-                Some(Err(e)) => break Err(WorkerError::from(e)),
-                None => break Err(WorkerError::NoAssignment),
-            }
-        };
-
-        assert!(
-            matches!(result, Err(WorkerError::Cancelled)),
-            "idle Disconnect must return Err(Cancelled), got {result:?}"
-        );
         assert!(
             cancel.is_cancelled(),
             "Disconnect must cancel the process token"
