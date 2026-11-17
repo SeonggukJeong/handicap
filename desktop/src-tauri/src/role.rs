@@ -1,21 +1,23 @@
-//! 셸 역할 상태(혼자 쓰기 / 서버)와 시작·정지·전환·이 PC 부하기 (spec R1·R3·R4·R6·R8).
+//! 셸 역할 상태(혼자 쓰기 / 서버 / 부하기)와 시작·정지·전환·이 PC 부하기 (spec R1·R3·R4·R5·R6·R8).
 //!
 //! **잠금 규칙**: 긴 작업(`run_in_process`·정지)은 잠금 없이. 잠금 안에선 플래그·`take()`·설치만
 //! (풀 스냅샷 `pool_workers()`는 메모리 조회라 잠금 안에서 읽는다).
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use handicap_controller::grpc::coordinator::PoolWorkerInfo;
 use handicap_controller::in_process::{
     run_in_process, InProcessConfig, InProcessWorkerMode, RunningController, ABORT_MSG_APP_EXIT,
     ABORT_MSG_ROLE_SWITCH,
 };
+use handicap_desktop_core::code::{decode, ConnectCode};
 use handicap_desktop_core::config::{ensure_install_id, DesktopConfig, Loaded, Role};
 use handicap_desktop_core::token::{generate_token, is_usable_token};
+use handicap_worker::pool_status::{EventSink, PoolEvent, PoolState, StatusTracker};
 use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -28,6 +30,11 @@ pub const MSG_ALREADY_SWITCHING: &str = "이미 전환 중입니다";
 pub const MSG_SWITCHING: &str = "전환 중입니다";
 /// 이 PC 부하기가 run을 실행 중이라 토글이 잠겼을 때(R4).
 pub const MSG_SELF_WORKER_BUSY: &str = "이 PC가 테스트를 실행하는 중이라 끝난 뒤 바꿀 수 있습니다";
+/// 부하기 역할이 아닐 때 「접속 끊기」·「다시 접속」.
+pub const MSG_NOT_WORKER: &str = "부하기 모드에서만 쓸 수 있습니다";
+/// 저장된 접속 코드를 해석하지 못했을 때(없음 포함).
+pub const MSG_CODE_UNREADABLE: &str =
+    "저장된 접속 코드를 읽지 못했습니다 — 새 코드를 붙여넣어 주세요";
 
 /// 이 PC 부하기 정지 대기 상한.
 const SELF_WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -48,6 +55,9 @@ pub struct Env {
     pub start_gate: Option<Arc<Notify>>,
     /// 테스트 전용 실패 주입: 이 역할의 시작은 컨트롤러를 띄우지 않고 실패한다(운영은 `None`).
     pub fail_start: Option<Role>,
+    /// 테스트 전용(운영 `None`): 있으면 해석한 코드의 IP 대신 이 목록으로 접속한다 — 코드 해석기가
+    /// 루프백을 거절하므로 테스트 컨트롤러에 닿기 위함.
+    pub code_ips_override: Option<Vec<Ipv4Addr>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -56,6 +66,7 @@ pub struct Notices {
     pub save_failed: bool,
     pub self_worker_excluded: bool,
     pub start_error: Option<String>,
+    pub worker_code_unreadable: bool,
 }
 
 pub struct SelfWorker {
@@ -68,6 +79,18 @@ pub struct SelfWorker {
     pub worker_id: String,
 }
 
+/// 부하기 역할의 연결 루프(`run_pool_desktop`) 하나.
+pub struct WorkerRun {
+    pub generation: u64,
+    /// 셸이 쥔 토큰 — 셸이 멈출 때 취소한다(서버의 제외는 루프 안의 자식 토큰만 취소).
+    pub parent: CancellationToken,
+    pub handle: JoinHandle<()>,
+    pub tracker: Arc<std::sync::Mutex<StatusTracker>>,
+    /// 코드의 `ip:port` 목록(「연결 중」 표시용 — 비밀 아님).
+    pub servers: Vec<SocketAddr>,
+    pub worker_id: String,
+}
+
 pub struct Running {
     pub controller: RunningController,
     pub base_url: String,
@@ -75,18 +98,111 @@ pub struct Running {
 }
 
 /// `start_running`이 시작한 결과. `Nothing` = 컨트롤러도 부하기도 없는 역할(역할 화면만).
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "셸 상태에 한 번 설치될 뿐인 값 — 박싱 이득 없음"
+)]
 pub enum Started {
     Controller(Running),
+    Worker(WorkerRun),
     Nothing,
 }
 
-/// 시작 결과를 상태에 설치한다(잠금 안에서 — 대입뿐).
+/// 시작 결과를 상태에 설치한다(잠금 안에서 — 대입·짧은 저장만). **`st.config`에 새 config를 넣은
+/// 뒤에 부른다**(`settle`): 부하기가 설치 전에 제외됐으면(감시 블록의 세대 검사가 빗나감) 여기서
+/// `connected`를 끄고 저장하는데, 앞에서 부르면 뒤따르는 config 대입이 `connected:true`로 덮는다.
 fn install(st: &mut ShellState, s: Started) {
     match s {
-        Started::Controller(r) => st.running = Some(r),
-        Started::Nothing => st.running = None,
+        Started::Controller(r) => {
+            st.running = Some(r);
+            st.worker = None;
+        }
+        Started::Worker(w) => {
+            // 추적기의 「제외됨」은 끝 상태(이후 사건 무시)라 핸들 종료를 기다리지 않고 본다 — 감시 블록이
+            // 세대 검사에 빗나간 뒤 아직 끝나지 않은 틈도 덮는다(감시 블록과 겹치면 같은 값을 두 번 쓸 뿐).
+            let excluded = matches!(tracker_state(&w, Instant::now()), PoolState::Excluded);
+            st.running = None;
+            st.worker = Some(w);
+            if excluded {
+                st.config.worker.connected = false;
+                persist(st);
+            }
+        }
+        Started::Nothing => {
+            st.running = None;
+            st.worker = None;
+        }
     }
+}
+
+/// 시작 결과를 config·안내와 함께 상태에 넣는다(잠금 안에서) — config·안내가 먼저, 설치는 그 뒤.
+fn settle(st: &mut ShellState, config: DesktopConfig, notices: Notices, started: Started) {
+    st.config = config;
+    st.notices = notices;
+    install(st, started);
+}
+
+fn tracker_state(w: &WorkerRun, now: Instant) -> PoolState {
+    w.tracker
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .state(now)
+}
+
+/// 부하기 상태. 연결 루프가 끝났는데 「제외됨」이 아니면 `None`(= 끊김).
+pub fn worker_state(w: &WorkerRun, now: Instant) -> Option<PoolState> {
+    let state = tracker_state(w, now);
+    if w.handle.is_finished() && !matches!(state, PoolState::Excluded) {
+        None
+    } else {
+        Some(state)
+    }
+}
+
+/// 저장된 접속 코드를 해석할 수 있는가(없음 = 아니오).
+fn code_readable(c: &DesktopConfig) -> bool {
+    c.worker.code.as_deref().is_some_and(|k| decode(k).is_ok())
+}
+
+/// 붙여넣은 접속 코드로 부하기 역할 접속. 해석 실패면 아무것도 멈추지 않고 그 문구로 `Err`
+/// (문구는 입력을 되풀이하지 않는다).
+pub async fn connect_worker(shell: &Shell, code: String) -> Result<(), String> {
+    switch_with(shell, move |c| {
+        decode(&code).map_err(|e| e.to_string())?;
+        c.role = Role::Worker;
+        c.worker.code = Some(code);
+        c.worker.connected = true;
+        Ok(())
+    })
+    .await
+}
+
+/// 「접속 끊기」: 부하기를 멈추고 `connected:false`를 저장한다.
+pub async fn disconnect_worker(shell: &Shell) -> Result<(), String> {
+    switch_with(shell, |c| {
+        if c.role != Role::Worker {
+            return Err(MSG_NOT_WORKER.into());
+        }
+        c.worker.connected = false;
+        Ok(())
+    })
+    .await
+}
+
+/// 「다시 접속」: 저장된 코드로 다시 붙는다. 역할 검사·해석이 `switch_with` 첫 잠금 안에서 일어나
+/// 검사와 전환 사이에 틈이 없고, 깨진 코드면 아무것도 바뀌지 않는다.
+pub async fn reconnect_worker(shell: &Shell) -> Result<(), String> {
+    switch_with(shell, |c| {
+        if c.role != Role::Worker {
+            return Err(MSG_NOT_WORKER.into());
+        }
+        if !code_readable(c) {
+            return Err(MSG_CODE_UNREADABLE.into());
+        }
+        c.worker.connected = true;
+        Ok(())
+    })
+    .await
 }
 
 pub struct ShellState {
@@ -94,6 +210,7 @@ pub struct ShellState {
     pub config: DesktopConfig,
     pub config_warning: bool,
     pub running: Option<Running>,
+    pub worker: Option<WorkerRun>,
     pub switching: bool,
     pub notices: Notices,
 }
@@ -105,6 +222,7 @@ impl ShellState {
             config: loaded.config,
             config_warning: loaded.warning,
             running: None,
+            worker: None,
             switching: false,
             notices: Notices::default(),
         }
@@ -152,19 +270,24 @@ pub async fn boot(shell: &Shell) -> Result<String, String> {
         (st.config.clone(), st.notices.clone())
     };
     let original = config.clone();
-    let result = start_running(shell, &mut config, &mut notices).await;
+    // 저장된 코드가 깨졌으면 시작하지 않고 안내만 세운다(에러 문자열로 가르지 않는다).
+    let result =
+        if config.role == Role::Worker && config.worker.connected && !code_readable(&config) {
+            notices.worker_code_unreadable = true;
+            Ok(Started::Nothing)
+        } else {
+            start_running(shell, &mut config, &mut notices).await
+        };
 
     let mut st = shell.state.lock().await;
     let out = match result {
         Ok(started) => {
             let url = match &started {
                 Started::Controller(r) => r.base_url.clone(),
-                Started::Nothing => crate::launch::role_page_url(),
+                Started::Worker(_) | Started::Nothing => crate::launch::role_page_url(),
             };
             notices.start_error = None;
-            install(&mut st, started);
-            st.config = config;
-            st.notices = notices;
+            settle(&mut st, config, notices, started);
             if st.config != original {
                 persist(&mut st);
             }
@@ -193,9 +316,13 @@ pub async fn start_running(
     config: &mut DesktopConfig,
     notices: &mut Notices,
 ) -> Result<Started, String> {
-    let (db, fail_start) = {
+    let (db, fail_start, ips_override) = {
         let st = shell.state.lock().await;
-        (st.env.db.clone(), st.env.fail_start)
+        (
+            st.env.db.clone(),
+            st.env.fail_start,
+            st.env.code_ips_override.clone(),
+        )
     };
     if fail_start == Some(config.role) {
         return Err("시작 실패(테스트 주입)".into());
@@ -248,7 +375,114 @@ pub async fn start_running(
                 self_worker,
             }))
         }
-        Role::Worker => Ok(Started::Nothing),
+        Role::Worker => {
+            if !config.worker.connected {
+                return Ok(Started::Nothing);
+            }
+            let Some(code) = config.worker.code.as_deref().and_then(|k| decode(k).ok()) else {
+                return Err(MSG_CODE_UNREADABLE.into());
+            };
+            let id = ensure_install_id(config, &mut rand::rngs::OsRng);
+            notices.worker_code_unreadable = false;
+            Ok(Started::Worker(spawn_desktop_worker(
+                shell,
+                &code,
+                ips_override,
+                id,
+            )))
+        }
+    }
+}
+
+/// 부하기 역할의 연결 루프(`run_pool_desktop`)를 띄운다. 사건은 std `Mutex` 추적기에만 넣는다
+/// (동기 콜백 — 셸 잠금 금지). 루프가 끝난 뒤 추적기가 「제외됨」이면 `on_worker_excluded`가 잠금을
+/// 잡는다 — 셸이 멈춘 경우(`parent` 취소)는 루프가 `Excluded`를 내지 않아 잠금을 잡지 않으므로
+/// 잠금 밖에서 `handle`을 기다리는 쪽과 교착이 없다. `ips_override`는 테스트 전용(`Env`).
+pub fn spawn_desktop_worker(
+    shell: &Shell,
+    code: &ConnectCode,
+    ips_override: Option<Vec<Ipv4Addr>>,
+    worker_id: String,
+) -> WorkerRun {
+    let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let parent = CancellationToken::new();
+    let tracker = Arc::new(std::sync::Mutex::new(StatusTracker::new()));
+    let sink: EventSink = {
+        let tracker = tracker.clone();
+        Arc::new(move |ev: PoolEvent| {
+            tracker
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .apply(&ev, Instant::now())
+        })
+    };
+    let servers = code
+        .ips
+        .iter()
+        .map(|ip| SocketAddr::from((*ip, code.port)))
+        .collect();
+    let target = handicap_worker::PoolTarget {
+        ips: ips_override.unwrap_or_else(|| code.ips.clone()),
+        port: code.port,
+        token: code.token.clone(),
+        worker_id: worker_id.clone(),
+        capacity_vus: SELF_WORKER_CAPACITY_VUS,
+    };
+    let (sh, p, tr) = (shell.clone(), parent.clone(), tracker.clone());
+    let handle = tokio::spawn(async move {
+        if let Err(e) = handicap_worker::run_pool_desktop(target, p, sink).await {
+            eprintln!("desktop: 부하기가 에러로 끝남: {e:#}");
+        }
+        let excluded = matches!(
+            tr.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .state(Instant::now()),
+            PoolState::Excluded
+        );
+        if excluded {
+            on_worker_excluded(&sh, generation).await;
+        }
+    });
+    WorkerRun {
+        generation,
+        parent,
+        handle,
+        tracker,
+        servers,
+        worker_id,
+    }
+}
+
+/// 서버가 부하기를 제외했다 — 현재 세대일 때만 `connected` 끄기·저장. `st.worker`는 그대로 둬
+/// 「제외됨」이 보이게 한다(설치 전에 도착한 제외는 `install`이 맡는다).
+async fn on_worker_excluded(shell: &Shell, generation: u64) {
+    let mut st = shell.state.lock().await;
+    if !st
+        .worker
+        .as_ref()
+        .is_some_and(|w| w.generation == generation)
+    {
+        return;
+    }
+    st.config.worker.connected = false;
+    persist(&mut st);
+}
+
+/// 셸이 부하기 역할 워커를 멈춘다: `parent` 취소 → bounded 대기(초과 시 강제 중단).
+async fn stop_worker(w: WorkerRun) {
+    cancel_and_wait(&w.parent, w.handle, "부하기").await;
+}
+
+/// `parent` 취소 → `SELF_WORKER_STOP_TIMEOUT` 안에 끝나기를 기다리고, 넘으면 강제 중단.
+async fn cancel_and_wait(parent: &CancellationToken, mut handle: JoinHandle<()>, what: &str) {
+    parent.cancel();
+    if tokio::time::timeout(SELF_WORKER_STOP_TIMEOUT, &mut handle)
+        .await
+        .is_err()
+    {
+        eprintln!("desktop: {what}가 제한 시간 안에 멈추지 않아 강제 중단");
+        handle.abort();
+        let _ = handle.await;
     }
 }
 
@@ -308,16 +542,7 @@ async fn on_self_worker_excluded(shell: &Shell, generation: u64) {
 
 /// 셸이 이 PC 부하기를 멈춘다: `parent` 취소 → bounded 대기(초과 시 강제 중단).
 async fn stop_self_worker(sw: SelfWorker) {
-    sw.parent.cancel();
-    let mut handle = sw.handle;
-    if tokio::time::timeout(SELF_WORKER_STOP_TIMEOUT, &mut handle)
-        .await
-        .is_err()
-    {
-        eprintln!("desktop: 이 PC 부하기가 제한 시간 안에 멈추지 않아 강제 중단");
-        handle.abort();
-        let _ = handle.await;
-    }
+    cancel_and_wait(&sw.parent, sw.handle, "이 PC 부하기").await;
 }
 
 /// R8 정지 경로(전환·종료 공통): 활성 run `aborted` 기록·abort 전송 → 이 PC 부하기 정지 →
@@ -355,7 +580,7 @@ pub async fn switch_with<F>(shell: &Shell, edit: F) -> Result<(), String>
 where
     F: FnOnce(&mut DesktopConfig) -> Result<(), String>,
 {
-    let (prev, config, notices, gate, mut attempt) = {
+    let (prev, prev_worker, config, notices, gate, mut attempt) = {
         let mut st = shell.state.lock().await;
         if st.switching {
             return Err(MSG_ALREADY_SWITCHING.into());
@@ -365,6 +590,7 @@ where
         st.switching = true;
         (
             st.running.take(),
+            st.worker.take(),
             st.config.clone(),
             st.notices.clone(),
             st.env.start_gate.clone(),
@@ -373,6 +599,9 @@ where
     };
     if let Some(prev) = prev {
         stop_running(prev, ABORT_MSG_ROLE_SWITCH).await;
+    }
+    if let Some(w) = prev_worker {
+        stop_worker(w).await;
     }
     if let Some(g) = gate {
         g.notified().await;
@@ -391,6 +620,10 @@ where
                     // 서버 역할에만 뜻이 있는 안내 — 서버가 아닌 역할로 바뀌면 남기지 않는다.
                     n.port_changed = None;
                     n.self_worker_excluded = false;
+                }
+                if attempt.role != Role::Worker || attempt.worker.connected {
+                    // 다른 역할 화면·접속된 부하기 화면에 「코드를 읽지 못했습니다」가 남지 않게.
+                    n.worker_code_unreadable = false;
                 }
                 (Some(r), attempt, n, Ok(()), true)
             }
@@ -411,12 +644,12 @@ where
     }
 
     let mut st = shell.state.lock().await;
-    match started {
-        Some(r) => install(&mut st, r),
-        None => st.running = None,
-    }
-    st.config = new_config;
-    st.notices = new_notices;
+    settle(
+        &mut st,
+        new_config,
+        new_notices,
+        started.unwrap_or(Started::Nothing),
+    );
     if save {
         persist(&mut st);
     }
@@ -426,7 +659,8 @@ where
     result
 }
 
-/// 전환 실패 뒤 복구: 이전 역할로 다시 시작, 그것도 실패하면 혼자 쓰기. 둘 다 실패면 `None`.
+/// 전환 실패 뒤 복구: 이전 역할로 다시 시작, 그것도 실패하면 혼자 쓰기(이전 역할이 서버일 때만 —
+/// 부하기였으면 부하기 역할 그대로 아무것도 돌리지 않는다, 저장 안 함). 둘 다 실패면 `None`.
 /// 마지막 값 = 이전 역할로 되살렸는지(저장 판단용).
 async fn restore_after_failure(
     shell: &Shell,
@@ -441,6 +675,14 @@ async fn restore_after_failure(
     }
     if fb.role == Role::Local {
         return (None, fb, fbn, false);
+    }
+    if config.role == Role::Worker {
+        return (
+            Some(Started::Nothing),
+            config.clone(),
+            notices.clone(),
+            false,
+        );
     }
     let mut lc = config.clone();
     lc.role = Role::Local;
@@ -473,9 +715,15 @@ pub async fn shutdown(shell: &Shell) {
     {
         eprintln!("desktop: 종료 — 진행 중 전환이 10초 안에 끝나지 않아 그대로 정지");
     }
-    let r = shell.state.lock().await.running.take();
+    let (r, w) = {
+        let mut st = shell.state.lock().await;
+        (st.running.take(), st.worker.take())
+    };
     if let Some(r) = r {
         stop_running(r, ABORT_MSG_APP_EXIT).await;
+    }
+    if let Some(w) = w {
+        stop_worker(w).await;
     }
 }
 
@@ -609,6 +857,7 @@ mod tests {
             hostname,
             start_gate,
             fail_start: None,
+            code_ips_override: Some(vec![Ipv4Addr::LOCALHOST]),
         };
         let loaded = Loaded {
             config: cfg,
@@ -1085,7 +1334,43 @@ mod tests {
         let rest = running(&s).await.controller.rest_addr();
         let base = format!("http://{rest}");
         let http = reqwest::Client::new();
+        let run_id = create_run(&http, &base, taddr).await;
 
+        wait_for(Duration::from_secs(5), "이 PC 부하기 배정", || async move {
+            let st = sr.state.lock().await;
+            let id = st.config.install_id.clone().unwrap();
+            st.running
+                .as_ref()
+                .unwrap()
+                .controller
+                .pool_workers()
+                .await
+                .iter()
+                .any(|w| w.worker_id == id && w.assigned_run.is_some())
+        })
+        .await;
+        wait_run_status(&http, &base, &run_id, "running").await;
+
+        match stop {
+            Stop::SwitchToLocal => switch(&s, Role::Local).await.unwrap(),
+            Stop::Shutdown => shutdown(&s).await,
+        }
+
+        let db = handicap_controller::store::connect(&handicap_controller::store::url_from_path(
+            &db_path(d.path()),
+        ))
+        .await
+        .unwrap();
+        let row = handicap_controller::store::runs::get(&db, &run_id)
+            .await
+            .unwrap()
+            .unwrap();
+        shutdown(&s).await;
+        row
+    }
+
+    /// `base` 컨트롤러에 `taddr`를 치는 시나리오와 run(closed vus 1, 60s)을 만들고 run id를 돌려준다.
+    async fn create_run(http: &reqwest::Client, base: &str, taddr: std::net::SocketAddr) -> String {
         let yaml = format!(
             "version: 1\nname: abort-on-switch\nsteps:\n  \
              - id: \"01HX0000000000000000000042\"\n    name: hang\n    type: http\n    request:\n      \
@@ -1117,51 +1402,25 @@ mod tests {
             .unwrap();
         assert!(resp.status().is_success(), "run create {}", resp.status());
         let v: serde_json::Value = resp.json().await.unwrap();
-        let run_id = v["id"].as_str().unwrap().to_string();
+        v["id"].as_str().unwrap().to_string()
+    }
 
-        wait_for(Duration::from_secs(5), "이 PC 부하기 배정", || async move {
-            let st = sr.state.lock().await;
-            let id = st.config.install_id.clone().unwrap();
-            st.running
-                .as_ref()
-                .unwrap()
-                .controller
-                .pool_workers()
-                .await
-                .iter()
-                .any(|w| w.worker_id == id && w.assigned_run.is_some())
-        })
-        .await;
-        let (h, b, r) = (&http, &base, &run_id);
-        wait_for(Duration::from_secs(5), "run running", || async move {
-            let v: serde_json::Value = h
-                .get(format!("{b}/api/runs/{r}"))
-                .send()
-                .await
-                .unwrap()
-                .json()
-                .await
-                .unwrap();
-            v["status"] == "running"
-        })
-        .await;
-
-        match stop {
-            Stop::SwitchToLocal => switch(&s, Role::Local).await.unwrap(),
-            Stop::Shutdown => shutdown(&s).await,
-        }
-
-        let db = handicap_controller::store::connect(&handicap_controller::store::url_from_path(
-            &db_path(d.path()),
-        ))
-        .await
-        .unwrap();
-        let row = handicap_controller::store::runs::get(&db, &run_id)
+    async fn get_run(http: &reqwest::Client, base: &str, run_id: &str) -> serde_json::Value {
+        http.get(format!("{base}/api/runs/{run_id}"))
+            .send()
             .await
             .unwrap()
-            .unwrap();
-        shutdown(&s).await;
-        row
+            .json()
+            .await
+            .unwrap()
+    }
+
+    /// run 상태가 `want`가 될 때까지(5s).
+    async fn wait_run_status(http: &reqwest::Client, base: &str, run_id: &str, want: &str) {
+        wait_for(Duration::from_secs(5), want, || async move {
+            get_run(http, base, run_id).await["status"] == want
+        })
+        .await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1196,6 +1455,7 @@ mod tests {
             hostname: host,
             start_gate: Some(gate.clone()),
             fail_start: Some(Role::Local),
+            code_ips_override: None,
         };
         let s = Shell::new(ShellState::new(
             Loaded {
@@ -1294,5 +1554,521 @@ mod tests {
         assert!(t.elapsed() < Duration::from_secs(40));
         assert_eq!(row.status.as_str(), "aborted");
         assert_eq!(row.message.as_deref(), Some(ABORT_MSG_ROLE_SWITCH));
+    }
+
+    // ---- 부하기 역할(Task 4) ----
+
+    use handicap_controller::in_process::{InProcessConfig, InProcessWorkerMode};
+    use handicap_desktop_core::code::encode;
+    use handicap_desktop_core::config::WorkerSettings;
+    use handicap_worker::pool_status::{FailReason, PoolEvent};
+
+    fn tok() -> String {
+        generate_token(&mut rand::rngs::OsRng)
+    }
+
+    /// 테스트용 풀 모드 컨트롤러(gRPC `127.0.0.1:0`, 자체 임시 DB).
+    async fn pool_controller(token: &str) -> (RunningController, TempDir) {
+        let d = tempfile::tempdir().unwrap();
+        let rc = run_in_process(InProcessConfig {
+            db: Some(db_path(d.path())),
+            worker_token: Some(token.to_owned()),
+            worker_mode: InProcessWorkerMode::Pool,
+            scheduler_disabled: true,
+            ..InProcessConfig::default()
+        })
+        .await
+        .unwrap();
+        (rc, d)
+    }
+
+    fn code_for(port: u16, token: &str) -> String {
+        encode(&ConnectCode {
+            ips: vec![Ipv4Addr::new(10, 255, 0, 1)],
+            port,
+            token: token.into(),
+        })
+    }
+
+    /// 부하기 역할 설정. 서버 포트는 빈 포트 — 서버로 전환하는 테스트가 8081을 잡지 않게.
+    fn worker_cfg(port: u16, token: &str, connected: bool) -> DesktopConfig {
+        DesktopConfig {
+            role: Role::Worker,
+            server: ServerSettings {
+                token: None,
+                grpc_port: free_port(),
+                self_worker: true,
+            },
+            worker: WorkerSettings {
+                code: Some(code_for(port, token)),
+                connected,
+            },
+            install_id: None,
+        }
+    }
+
+    async fn cur_state(s: &Shell) -> Option<PoolState> {
+        let st = s.state.lock().await;
+        st.worker
+            .as_ref()
+            .and_then(|w| worker_state(w, Instant::now()))
+    }
+
+    async fn wait_state<P>(s: &Shell, what: &str, pred: P)
+    where
+        P: Fn(&Option<PoolState>) -> bool,
+    {
+        let p = &pred;
+        wait_for(Duration::from_secs(5), what, || async move {
+            p(&cur_state(s).await)
+        })
+        .await
+    }
+
+    async fn wait_idle(s: &Shell, port: u16) {
+        wait_state(
+            s,
+            "Idle",
+            |p| matches!(p, Some(PoolState::Idle { addr }) if addr.port() == port),
+        )
+        .await
+    }
+
+    async fn in_pool(rc: &RunningController, id: &str) -> bool {
+        rc.pool_workers().await.iter().any(|w| w.worker_id == id)
+    }
+
+    async fn wait_pool(rc: &RunningController, id: &str, present: bool) {
+        wait_for(Duration::from_secs(5), "풀 등록 여부", || async move {
+            in_pool(rc, id).await == present
+        })
+        .await
+    }
+
+    async fn the_install_id(s: &Shell) -> String {
+        s.state.lock().await.config.install_id.clone().unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_worker_starts_worker_without_controller() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, d) = shell(worker_cfg(port, &t, true));
+        let url = boot(&s).await.unwrap();
+        assert!(url.ends_with("role.html"), "{url}");
+        {
+            let st = s.state.lock().await;
+            assert!(st.running.is_none());
+            assert!(st.worker.is_some());
+        }
+        wait_idle(&s, port).await;
+        let id = the_install_id(&s).await;
+        assert!(is_usable_install_id(&id));
+        wait_pool(&rc, &id, true).await;
+        assert_eq!(
+            config_store::load(d.path()).config.install_id.as_deref(),
+            Some(id.as_str())
+        );
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_worker_disconnected_starts_nothing() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let (s, _d) = shell(worker_cfg(rc.grpc_addr().port(), &t, false));
+        let url = boot(&s).await.unwrap();
+        assert_eq!(url, crate::launch::role_page_url());
+        {
+            let st = s.state.lock().await;
+            assert!(st.running.is_none());
+            assert!(st.worker.is_none());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(rc.pool_workers().await.is_empty());
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_worker_unreadable_code_shows_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = worker_cfg(1, &tok(), true);
+        cfg.worker.code = Some("HANDICAP1-zz".into());
+        config_store::save(dir.path(), &cfg).unwrap();
+        let (s, _d) = shell_with_dir(cfg, dir.path().to_path_buf());
+        let url = boot(&s).await.unwrap();
+        assert_eq!(url, crate::launch::role_page_url());
+        {
+            let st = s.state.lock().await;
+            assert!(st.running.is_none());
+            assert!(st.worker.is_none());
+            assert!(st.notices.worker_code_unreadable);
+        }
+        assert_eq!(
+            config_store::load(dir.path()).config.worker.code.as_deref(),
+            Some("HANDICAP1-zz")
+        );
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_worker_from_local_stops_controller_and_saves() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, d) = shell(local());
+        boot(&s).await.unwrap();
+        let code = code_for(port, &t);
+        connect_worker(&s, code.clone()).await.unwrap();
+        assert!(s.state.lock().await.running.is_none());
+        wait_idle(&s, port).await;
+        let saved = config_store::load(d.path()).config;
+        assert_eq!(saved.role, Role::Worker);
+        assert_eq!(saved.worker.code.as_deref(), Some(code.as_str()));
+        assert!(saved.worker.connected);
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_worker_rejects_bad_code_without_switching() {
+        let (s, d) = shell(local());
+        boot(&s).await.unwrap();
+        let before = config_store::load(d.path()).config;
+        assert_eq!(
+            connect_worker(&s, "nope".into()).await.unwrap_err(),
+            "접속 코드 형식이 아닙니다"
+        );
+        {
+            let st = s.state.lock().await;
+            assert_eq!(st.config.role, Role::Local);
+            assert!(st.running.is_some());
+            assert!(st.worker.is_none());
+            assert!(!st.switching);
+        }
+        assert_eq!(config_store::load(d.path()).config, before);
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn disconnect_then_reconnect() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, d) = shell(worker_cfg(port, &t, true));
+        boot(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        let id = the_install_id(&s).await;
+        wait_pool(&rc, &id, true).await;
+        disconnect_worker(&s).await.unwrap();
+        assert!(s.state.lock().await.worker.is_none());
+        assert!(!config_store::load(d.path()).config.worker.connected);
+        wait_pool(&rc, &id, false).await;
+        reconnect_worker(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        assert!(config_store::load(d.path()).config.worker.connected);
+        wait_pool(&rc, &id, true).await;
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn disconnect_while_running_aborts_run_with_r8_message() {
+        // 100ms 뒤 200을 주는 대상 — 영영 응답 없는 대상이면 정지가 강제 abort로 가 공허해진다.
+        let taddr = spawn_target(Some(Duration::from_millis(100))).await;
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, d) = shell(worker_cfg(port, &t, true));
+        boot(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        let id = the_install_id(&s).await;
+        wait_pool(&rc, &id, true).await;
+        let base = format!("http://{}", rc.rest_addr());
+        let http = reqwest::Client::new();
+        let run_id = create_run(&http, &base, taddr).await;
+        let r = &run_id;
+        wait_state(
+            &s,
+            "Running",
+            |p| matches!(p, Some(PoolState::Running { run_id, .. }) if run_id == r),
+        )
+        .await;
+        wait_run_status(&http, &base, &run_id, "running").await;
+        disconnect_worker(&s).await.unwrap();
+        assert!(!config_store::load(d.path()).config.worker.connected);
+        wait_run_status(&http, &base, &run_id, "aborted").await;
+        let v = get_run(&http, &base, &run_id).await;
+        let msg = v["message"].as_str().unwrap_or_default().to_string();
+        assert!(
+            msg.contains("stopped mid-run — run aborted"),
+            "R8 사유가 아님: {msg:?}"
+        );
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn exclusion_shows_excluded_and_saves_disconnected() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, d) = shell(worker_cfg(port, &t, true));
+        boot(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        let id = the_install_id(&s).await;
+        wait_pool(&rc, &id, true).await;
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "http://{}/api/pool/workers/{id}/exclude",
+                rc.rest_addr()
+            ))
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success(), "exclude {}", resp.status());
+        wait_state(&s, "Excluded", |p| matches!(p, Some(PoolState::Excluded))).await;
+        let dp = d.path();
+        wait_for(
+            Duration::from_secs(5),
+            "connected:false 저장",
+            || async move { !config_store::load(dp).config.worker.connected },
+        )
+        .await;
+        {
+            let st = s.state.lock().await;
+            assert!(!st.config.worker.connected);
+            let w = st
+                .worker
+                .as_ref()
+                .expect("제외돼도 worker는 남아 「제외됨」을 보인다");
+            assert!(w.handle.is_finished());
+        }
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn exclusion_before_install_saves_disconnected() {
+        // 설치 전에 제외가 도착한 경우(감시 블록의 세대 검사가 빗나감) — 설치가 그 자리에서 끈다.
+        // config를 넣기 **전에** 설치하면 뒤따르는 config 대입이 connected:true로 덮는다.
+        let (s, d) = shell(worker_cfg(1, &tok(), true));
+        let tracker = Arc::new(std::sync::Mutex::new(StatusTracker::new()));
+        tracker
+            .lock()
+            .unwrap()
+            .apply(&PoolEvent::Excluded, Instant::now());
+        let handle = tokio::spawn(async {});
+        while !handle.is_finished() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let w = WorkerRun {
+            generation: 0,
+            parent: CancellationToken::new(),
+            handle,
+            tracker,
+            servers: vec![],
+            worker_id: "x".into(),
+        };
+        let attempt = s.state.lock().await.config.clone();
+        assert!(attempt.worker.connected);
+        {
+            let mut st = s.state.lock().await;
+            settle(&mut st, attempt, Notices::default(), Started::Worker(w));
+            assert!(!st.config.worker.connected, "메모리 config");
+            assert!(st.worker.is_some());
+            // boot·switch_with는 settle 뒤에 저장한다 — 다음 시작이 읽는 파일도 끊김이어야.
+            persist(&mut st);
+        }
+        assert!(
+            !config_store::load(d.path()).config.worker.connected,
+            "재시작 때 다시 붙지 않음"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn switch_from_worker_to_server_stops_worker() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, d) = shell(worker_cfg(port, &t, true));
+        boot(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        let id = the_install_id(&s).await;
+        wait_pool(&rc, &id, true).await;
+        switch(&s, Role::Server).await.unwrap();
+        {
+            let st = s.state.lock().await;
+            assert!(st.worker.is_none());
+            assert!(st.running.as_ref().unwrap().controller.is_pool_mode());
+        }
+        assert_eq!(config_store::load(d.path()).config.role, Role::Server);
+        wait_pool(&rc, &id, false).await;
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn wrong_token_retries_with_auth_failed() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let other = tok();
+        assert_ne!(t, other);
+        let (s, _d) = shell(worker_cfg(rc.grpc_addr().port(), &other, true));
+        boot(&s).await.unwrap();
+        wait_state(&s, "Retrying AuthFailed", |p| {
+            matches!(
+                p,
+                Some(PoolState::Retrying {
+                    reason: FailReason::AuthFailed,
+                    ..
+                })
+            )
+        })
+        .await;
+        shutdown(&s).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn shutdown_stops_worker_within_bound() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let (s, _d) = shell(worker_cfg(port, &t, true));
+        boot(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        tokio::time::timeout(Duration::from_secs(6), shutdown(&s))
+            .await
+            .expect("6s 안에 끝나야");
+        assert!(s.state.lock().await.worker.is_none());
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_while_switching_is_rejected() {
+        let gate = Arc::new(Notify::new());
+        let (s, _d) = shell_gated(local(), gate.clone());
+        boot(&s).await.unwrap();
+        let s2 = s.clone();
+        let a = tokio::spawn(async move { switch(&s2, Role::Server).await });
+        let sr = &s;
+        wait_until(|| async move { sr.state.lock().await.switching }).await;
+        assert_eq!(
+            connect_worker(&s, code_for(1, &tok())).await.unwrap_err(),
+            "이미 전환 중입니다"
+        );
+        gate.notify_one();
+        a.await.unwrap().unwrap();
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn reconnect_with_unreadable_code_does_not_switch() {
+        let mut cfg = worker_cfg(1, &tok(), true);
+        cfg.worker.code = Some("HANDICAP1-zz".into());
+        let (s, _d) = shell(cfg);
+        boot(&s).await.unwrap();
+        assert!(s.state.lock().await.notices.worker_code_unreadable);
+        assert_eq!(reconnect_worker(&s).await.unwrap_err(), MSG_CODE_UNREADABLE);
+        {
+            let st = s.state.lock().await;
+            assert_eq!(st.config.role, Role::Worker);
+            assert!(st.running.is_none());
+            assert!(st.worker.is_none());
+            assert!(!st.switching);
+        }
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_worker_start_restores_worker_nothing_not_local() {
+        let (s, _d) = shell(worker_cfg(1, &tok(), false));
+        boot(&s).await.unwrap();
+        // boot 전에 세우면 start_running 첫머리 검사가 boot부터 실패시킨다.
+        s.state.lock().await.env.fail_start = Some(Role::Worker);
+        assert!(reconnect_worker(&s).await.is_err());
+        {
+            let st = s.state.lock().await;
+            assert_eq!(st.config.role, Role::Worker);
+            assert!(st.running.is_none(), "혼자 쓰기 컨트롤러로 떨어지지 않음");
+            assert!(st.worker.is_none());
+        }
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn change_code_while_connected_moves_to_new_server() {
+        let (ta, tb) = (tok(), tok());
+        let (a, _ca) = pool_controller(&ta).await;
+        let (b, _cb) = pool_controller(&tb).await;
+        let (s, d) = shell(worker_cfg(a.grpc_addr().port(), &ta, true));
+        boot(&s).await.unwrap();
+        wait_idle(&s, a.grpc_addr().port()).await;
+        let id = the_install_id(&s).await;
+        wait_pool(&a, &id, true).await;
+        let code_b = code_for(b.grpc_addr().port(), &tb);
+        connect_worker(&s, code_b.clone()).await.unwrap();
+        wait_pool(&a, &id, false).await;
+        wait_pool(&b, &id, true).await;
+        assert_eq!(
+            config_store::load(d.path()).config.worker.code.as_deref(),
+            Some(code_b.as_str())
+        );
+        shutdown(&s).await;
+        a.shutdown().await;
+        b.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn worker_reboot_keeps_install_id() {
+        let t = tok();
+        let (rc, _cd) = pool_controller(&t).await;
+        let port = rc.grpc_addr().port();
+        let dir = tempfile::tempdir().unwrap();
+        let (s, _d) = shell_with_dir(worker_cfg(port, &t, true), dir.path().to_path_buf());
+        boot(&s).await.unwrap();
+        wait_idle(&s, port).await;
+        let a = the_install_id(&s).await;
+        wait_pool(&rc, &a, true).await;
+        shutdown(&s).await;
+        wait_pool(&rc, &a, false).await;
+
+        let reloaded = config_store::load(dir.path()).config;
+        let (s2, _d2) = shell_with_dir(reloaded, dir.path().to_path_buf());
+        boot(&s2).await.unwrap();
+        wait_pool(&rc, &a, true).await;
+        assert_eq!(the_install_id(&s2).await, a);
+        shutdown(&s2).await;
+        rc.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn leaving_worker_clears_unreadable_notice() {
+        let mut cfg = worker_cfg(1, &tok(), true);
+        cfg.worker.code = Some("HANDICAP1-zz".into());
+        let (s, _d) = shell(cfg);
+        boot(&s).await.unwrap();
+        assert!(s.state.lock().await.notices.worker_code_unreadable);
+        switch(&s, Role::Local).await.unwrap();
+        assert!(!s.state.lock().await.notices.worker_code_unreadable);
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn server_boot_without_self_worker_still_creates_install_id() {
+        // spec R1: ID는 토글과 무관하게 서버 첫 시작 때 만든다.
+        let mut cfg = server(free_port());
+        cfg.server.self_worker = false;
+        let (s, d) = shell(cfg);
+        boot(&s).await.unwrap();
+        let id = s.state.lock().await.config.install_id.clone();
+        assert!(id.as_deref().is_some_and(is_usable_install_id), "메모리");
+        assert_eq!(config_store::load(d.path()).config.install_id, id, "저장");
+        shutdown(&s).await;
     }
 }

@@ -270,6 +270,7 @@ mod tests {
                 hostname: host,
                 start_gate: None,
                 fail_start: None,
+                code_ips_override: None,
             },
         )
     }

@@ -22,6 +22,7 @@ pub fn run() {
                     hostname: handicap_worker::resolve_hostname,
                     start_gate: None,
                     fail_start: None,
+                    code_ips_override: None,
                 },
             ));
             app.manage(shell.clone());
