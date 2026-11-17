@@ -317,6 +317,11 @@ export function RunDetailPage() {
           <span className="font-semibold">{ko.runDetail.failReason}:</span> {r.message}
         </Callout>
       )}
+      {r.status === "aborted" && typeof r.message === "string" && r.message.length > 0 && (
+        <Callout variant="warn" className="mb-4">
+          <span className="font-semibold">{ko.runDetail.abortReason}:</span> {r.message}
+        </Callout>
+      )}
 
       {terminal && report.data ? (
         <ReportView report={report.data} profile={normalizeProfile(r.profile)} />

@@ -233,6 +233,7 @@ describe("WorkerDashboardPage", () => {
     // busy run failure warning includes run_id and "실패"
     expect(within(dialog).getByText(/r9/)).toBeInTheDocument();
     expect(within(dialog).getByText(/실패/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/「다시 접속」을 누르면 됩니다/)).toBeInTheDocument();
 
     // role-preservation: warn box is roleless (no role="alert") — Callout variant="warn"
     expect(within(dialog).queryByRole("alert")).toBeNull();

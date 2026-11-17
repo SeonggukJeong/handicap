@@ -752,6 +752,46 @@ describe("RunDetailPage — report on terminal", () => {
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.some((a) => a.textContent?.includes("실패 사유"))).toBe(true);
   });
+
+  function mockAborted(message: string | null) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/AB1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "AB1",
+            scenario_id: "S9",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "aborted",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+            message,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/AB1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "AB1", windows: [] }));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("shows aborted-run reason", async () => {
+    const msg = "worker w0 stopped mid-run — run aborted (other workers stopped)";
+    mockAborted(msg);
+    renderWithRouter("AB1");
+    expect(await screen.findByText(/중단 사유/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(msg.replace(/[()]/g, "\\$&")))).toBeInTheDocument();
+  });
+
+  it("hides aborted reason when message is null", async () => {
+    mockAborted(null);
+    renderWithRouter("AB1");
+    await screen.findAllByRole("alert"); // report 404 settles
+    expect(screen.queryByText(/중단 사유/)).toBeNull();
+  });
 });
 
 describe("RunDetailPage — mid-run stall banner (G1b)", () => {

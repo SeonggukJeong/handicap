@@ -360,7 +360,7 @@ export const ko = {
     // exclude confirm (destructive)
     excludeConfirmTitle: "워커 제외",
     excludeConfirmBody:
-      "이 워커를 풀에서 제외하고 워커 프로그램을 종료합니다. 다시 추가하려면 해당 PC에서 워커를 직접 재실행해야 합니다.",
+      "이 워커를 풀에서 제외하고 워커 프로그램을 종료합니다. 다시 추가하려면 해당 PC에서 워커를 직접 재실행해야 합니다. 앱의 「부하기로 접속」으로 붙은 PC는 그 PC의 앱에서 「다시 접속」을 누르면 됩니다.",
     excludeBusyWarn: (runId: string) =>
       `주의: 이 워커는 현재 run ${runId}을(를) 실행 중입니다. 제외하면 그 run이 실패합니다.`,
     // edit modals (apply note)
@@ -1349,6 +1349,7 @@ export const ko = {
     },
   },
   runDetail: {
+    abortReason: "중단 사유",
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)
     stalledRunning:
       "워커가 시작하지 못했을 수 있습니다 — 시나리오 URL과 컨트롤러 로그를 확인하세요.",
