@@ -418,16 +418,12 @@ async fn execute_assignment(
     // Drop the sender explicitly: the gRPC client's ReceiverStream drains the
     // buffered message first, then signals HTTP/2 END_STREAM. HTTP/2 guarantees
     // the DATA frame (final RunStatus) arrives before END_STREAM on the same
-    // stream. After the controller receives EOF it closes the inbound leg, which
-    // causes `inbound_fwd` to complete — we await that as the synchronization
-    // point. This replaces the previous fixed 200ms sleep with a deterministic
-    // signal: we exit only after the protocol confirms the far end received EOF.
-    //
-    // The await is capped at 2s so a misbehaving controller can't hang the
-    // worker process forever; that ceiling matches the previous sleep's
-    // worst-case behavior while letting the happy path exit in milliseconds.
-    // `inbound_fwd` is a `ForwarderTask` moved into the timeout: if the wait
-    // expires (or this future is dropped) the forwarder is aborted, not detached.
+    // stream. We then wait, capped at 2s, for `inbound_fwd` (the controller
+    // closing its leg). The controller currently does not close that leg (it
+    // keeps a copy of our stream's sender in its finished `RunWorkers`, roadmap
+    // §B66), so the wait runs to the 2s cap. `inbound_fwd` is a `ForwarderTask`
+    // moved into the timeout: when the wait expires (or this future is dropped)
+    // the forwarder is aborted, not detached.
     shutdown.store(true, Ordering::Relaxed);
     drop(tx);
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;

@@ -441,13 +441,22 @@ mod forward_tests {
         assert!(matches!(pong.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 1));
         drop(tx);
         in_tx.send(Ok(ping(2))).await.unwrap();
+        let mut after_drop = Vec::new();
         let closed = tokio::time::timeout(Duration::from_secs(1), async {
-            while out_rx.recv().await.is_some() {}
+            while let Some(m) = out_rx.recv().await {
+                after_drop.push(m);
+            }
         })
         .await;
         assert!(
             closed.is_ok(),
             "outbound channel must close once main drops tx (forwarder must not hold a strong sender)"
+        );
+        assert!(
+            !after_drop
+                .iter()
+                .any(|m| matches!(m.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 2)),
+            "no Pong may be sent after main dropped tx, got {after_drop:?}"
         );
         drop(in_tx);
     }

@@ -105,6 +105,12 @@ struct PoolEntry {
     /// Whether this worker has a stable, operator-assigned id (Register.stable_id).
     /// Only stable workers persist/re-attach control state (LAN ops). false = ephemeral.
     stable: bool,
+    /// The worker's stream closed cleanly after it finished its part of `assigned_run`;
+    /// the worker reconnects per run, so the entry is kept (operator control survives)
+    /// and stays unreservable (`assigned_run` is still `Some`) until it re-registers.
+    /// The reaper neither pings it nor evicts it for its dead `tx` — only `last_seen`
+    /// staleness evicts it if the worker never comes back.
+    awaiting_reregister: bool,
 }
 
 impl PoolEntry {
@@ -135,6 +141,9 @@ struct WorkerEntry {
     vu_count: u32,
     tx: WorkerTx,
     phase: pb::run_status::Phase,
+    /// This worker reported `Aborted` on its own (R8 — not a controller-requested
+    /// stop): it is leaving, so its pool entry is removed when its stream closes.
+    self_aborted: bool,
 }
 
 /// Per-run coordination state across N workers (replaces single-assignment
@@ -420,6 +429,7 @@ impl CoordinatorState {
                 e.capacity_vus = capacity_vus;
                 e.hostname = hostname;
                 e.assigned_run = None;
+                e.awaiting_reregister = false;
                 e.last_seen = tokio::time::Instant::now();
                 e.stable = stable;
                 // drained / capacity_override / label preserved in-memory (L7 R2; no DB re-apply).
@@ -441,6 +451,7 @@ impl CoordinatorState {
                         capacity_override,
                         label,
                         stable,
+                        awaiting_reregister: false,
                     },
                 );
             }
@@ -498,7 +509,7 @@ impl CoordinatorState {
     /// `.await`, drop the lock, then do all `.await` (Ping send / pool_disconnect)
     /// outside it. A dead tx (send Err) means the stream is gone → evict (R3).
     pub async fn pool_heartbeat_tick(&self, now: tokio::time::Instant, stale: std::time::Duration) {
-        let snapshot: Vec<(String, WorkerTx, bool)> = {
+        let snapshot: Vec<(String, WorkerTx, bool, bool)> = {
             let g = self.pool.lock().await;
             g.iter()
                 .map(|(id, e)| {
@@ -506,14 +517,20 @@ impl CoordinatorState {
                         id.clone(),
                         e.tx.clone(),
                         now.duration_since(e.last_seen) > stale,
+                        e.awaiting_reregister,
                     )
                 })
                 .collect()
         };
-        for (wid, tx, is_stale) in snapshot {
+        for (wid, tx, is_stale, awaiting) in snapshot {
             if is_stale {
                 // idle → silent remove; busy → worker_disconnected fail-fast (R3/R5).
-                self.pool_disconnect(&wid).await;
+                // Only the registration this snapshot saw (a re-register in between wins).
+                self.pool_evict_if_same(&wid, &tx).await;
+                continue;
+            }
+            if awaiting {
+                // Its stream is gone by design; wait for the re-register (or staleness).
                 continue;
             }
             let ping = ServerMessage {
@@ -523,7 +540,7 @@ impl CoordinatorState {
                 Ok(()) => {}
                 // Closed = stream gone → evict (현 dead-tx 의미 유지).
                 Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                    self.pool_disconnect(&wid).await;
+                    self.pool_evict_if_same(&wid, &tx).await;
                 }
                 // Full = 일시적 backpressure(워커가 안 읽음). evict 안 함 — last_seen 미갱신이라
                 // 다음 sweep stale 체크 + h2 keepalive가 죽은 연결을 자가치유(R8).
@@ -543,6 +560,70 @@ impl CoordinatorState {
         if let Some(run_id) = assigned {
             self.worker_disconnected(&run_id, worker_id).await;
         }
+    }
+
+    /// `pool_disconnect`, but only if the entry still belongs to the stream whose
+    /// sender is `tx`. A worker that already re-registered under the same id has a
+    /// new `tx`; an old stream (or a stale reaper snapshot) must not remove it.
+    async fn pool_evict_if_same(&self, worker_id: &str, tx: &WorkerTx) {
+        let assigned = {
+            let mut g = self.pool.lock().await;
+            match g.get(worker_id) {
+                Some(e) if e.tx.same_channel(tx) => {
+                    g.remove(worker_id).and_then(|e| e.assigned_run)
+                }
+                _ => return,
+            }
+        };
+        if let Some(run_id) = assigned {
+            self.worker_disconnected(&run_id, worker_id).await;
+        }
+    }
+
+    /// The pool stream whose sender is `stream_tx` closed. If the worker finished
+    /// its part of its assigned run (reported Completed/Failed, or Aborted because
+    /// the controller asked), it is reconnecting for the next run: keep the entry —
+    /// operator control (drained/capacity_override/label) must survive — and mark it
+    /// `awaiting_reregister` (still unreservable). Otherwise (idle close, mid-run
+    /// close, self-abort = leaving) remove it as before. Never touches a newer
+    /// registration of the same id.
+    pub async fn pool_stream_closed(&self, worker_id: &str, stream_tx: &WorkerTx) {
+        let assigned = {
+            let g = self.pool.lock().await;
+            match g.get(worker_id) {
+                Some(e) if e.tx.same_channel(stream_tx) => e.assigned_run.clone(),
+                _ => return,
+            }
+        };
+        // Runs lock is taken with the pool lock released (no nested locks).
+        let returning = match &assigned {
+            Some(run_id) => self.worker_finished_part(run_id, worker_id).await,
+            None => false,
+        };
+        if returning {
+            let mut g = self.pool.lock().await;
+            if let Some(e) = g.get_mut(worker_id) {
+                if e.tx.same_channel(stream_tx) {
+                    e.awaiting_reregister = true;
+                }
+            }
+            return;
+        }
+        self.pool_evict_if_same(worker_id, stream_tx).await;
+    }
+
+    /// Did `worker_id` report a terminal phase for `run_id` that means it stays in
+    /// the pool (Completed, Failed, or a controller-requested Aborted)?
+    async fn worker_finished_part(&self, run_id: &str, worker_id: &str) -> bool {
+        use pb::run_status::Phase;
+        let g = self.runs.lock().await;
+        g.get(run_id)
+            .and_then(|rw| rw.workers.get(worker_id))
+            .is_some_and(|e| match e.phase {
+                Phase::Completed | Phase::Failed => true,
+                Phase::Aborted => !e.self_aborted,
+                _ => false,
+            })
     }
 
     /// Apply operator control to a pool worker. Each Some(...) is applied; None
@@ -802,6 +883,7 @@ impl CoordinatorState {
                 vu_count,
                 tx,
                 phase: pb::run_status::Phase::Started,
+                self_aborted: false,
             },
         );
         if rw.workers.len() as u32 == rw.expected {
@@ -956,6 +1038,9 @@ impl CoordinatorState {
                 let self_abort = if rw.abort_requested {
                     None
                 } else {
+                    if let Some(e) = rw.workers.get_mut(worker_id) {
+                        e.self_aborted = true;
+                    }
                     Some(
                         rw.workers
                             .values()
@@ -1543,7 +1628,7 @@ impl Coordinator for CoordinatorService {
             // Stream closed: route to pool or legacy fail-fast based on connection mode.
             if pool_conn {
                 if let Some(wid) = worker_id.as_ref() {
-                    state.pool_disconnect(wid).await;
+                    state.pool_stream_closed(wid, &tx).await;
                 }
             } else if let (Some(rid), Some(wid)) = (run_id.as_ref(), worker_id.as_ref()) {
                 state.worker_disconnected(rid, wid).await;
@@ -3441,6 +3526,96 @@ mod tests {
         );
     }
 
+    /// An entry kept after a clean post-run stream close has a dead `tx` (Closed). The
+    /// reaper must not evict it for that — only staleness may — or the worker's
+    /// re-register lands on a fresh entry and loses operator control.
+    async fn awaiting_entry_with_closed_tx(coord: &CoordinatorState) {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
+        {
+            let mut g = coord.pool.lock().await;
+            let e = g.get_mut("w1").unwrap();
+            e.assigned_run = Some("r-done".into());
+            e.awaiting_reregister = true;
+            e.label = Some("keep".into());
+        }
+        drop(rx); // stream gone → tx Closed
+    }
+
+    #[tokio::test]
+    async fn awaiting_reregister_entry_not_evicted_for_closed_tx() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        awaiting_entry_with_closed_tx(&coord).await;
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        let snap = coord.pool_snapshot(tokio::time::Instant::now()).await;
+        assert_eq!(snap.len(), 1, "awaiting entry must survive a reaper sweep");
+        assert_eq!(snap[0].label.as_deref(), Some("keep"));
+    }
+
+    #[tokio::test]
+    async fn awaiting_reregister_entry_evicted_when_stale() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        awaiting_entry_with_closed_tx(&coord).await;
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(31),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert!(
+            coord
+                .pool_snapshot(tokio::time::Instant::now())
+                .await
+                .is_empty(),
+            "a worker that never re-registers is evicted by staleness"
+        );
+    }
+
+    /// A reaper snapshot (or old stream) holding the previous `tx` must not evict a
+    /// worker that re-registered under the same id in between.
+    #[tokio::test]
+    async fn evict_with_old_tx_keeps_newer_registration() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx1, _rx1) = tokio::sync::mpsc::channel(32);
+        let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
+        coord
+            .pool_register_idle("w1", tx1.clone(), 10, "h".into(), false)
+            .await;
+        coord
+            .pool_register_idle("w1", tx2.clone(), 10, "h".into(), false)
+            .await;
+        coord.pool_evict_if_same("w1", &tx1).await;
+        assert_eq!(coord.pool_idle_count().await, 1, "newer registration kept");
+        coord.pool_evict_if_same("w1", &tx2).await;
+        assert_eq!(coord.pool_idle_count().await, 0, "own registration evicted");
+    }
+
+    #[tokio::test]
+    async fn reregister_clears_awaiting_and_keeps_control() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        awaiting_entry_with_closed_tx(&coord).await;
+        let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
+        coord
+            .pool_register_idle("w1", tx2, 10, "h".into(), false)
+            .await;
+        let g = coord.pool.lock().await;
+        let e = g.get("w1").unwrap();
+        assert!(!e.awaiting_reregister);
+        assert_eq!(e.assigned_run, None, "re-registered worker is idle again");
+        assert_eq!(e.label.as_deref(), Some("keep"));
+    }
+
     #[tokio::test]
     async fn fresh_idle_pinged_not_evicted() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
@@ -3609,6 +3784,7 @@ mod tests {
             capacity_override: None,
             label: None,
             stable: false,
+            awaiting_reregister: false,
         };
         assert_eq!(e.effective_capacity_vus(), 25);
         let e2 = PoolEntry {
