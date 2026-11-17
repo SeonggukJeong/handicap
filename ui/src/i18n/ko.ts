@@ -1090,6 +1090,71 @@ export const ko = {
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   report: {
+    // 계단 시험 결과 섹션 (stage-saturation-table) — 보간 인자는 이미 형식화된 문자열.
+    // 머리말·사유 문구는 crates/controller/src/export.rs `stair_headline_text`와 같은 뜻(이중 소스).
+    stair: {
+      title: "계단 결과",
+      headlineSaturated: (t: string, last: string) =>
+        `포화 계단 ${t} req/s · 마지막 정상 ${last} req/s`,
+      headlineSaturatedNoLast: (t: string) =>
+        `포화 계단 ${t} req/s · 정상 계단 없음 — 첫 계단부터 실패`,
+      firstFailHint:
+        "첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요",
+      headlineUnconfirmed: (t: string, last: string) =>
+        `포화 의심 ${t} req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 ${last} req/s`,
+      headlineUnconfirmedNoLast: (t: string) =>
+        `포화 의심 ${t} req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음`,
+      headlineAllOk: (t: string) => `${t} req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)`,
+      headlineOkThenUnmeasured: (t: string) => `${t} req/s까지 정상 · 이후 계단은 측정 안 됨`,
+      headlineNoData: "판정할 수 없음 — 측정이 끝난 계단이 없습니다",
+      knee: (k: string, x: string) =>
+        `지연 상승 시작 ≈ ${k} req/s (p99가 아래 계단의 ${x}배 — 판정 기준 안이지만 참고)`,
+      kneeNoRatio: (k: string) => `지연 상승 시작 ≈ ${k} req/s (판정 기준 안이지만 참고)`,
+      spikes: (n: number, list: string) => `튄 계단 ${n}개(${list} req/s) 넘김`,
+      droppedExplained: (n: string) =>
+        `부하기가 못 보낸 요청 ${n}개는 모두 지연·오류로 무너진 계단에서 발생 — 시스템 포화로 판정에 반영됨`,
+      slotLimited: (list: string, m: string) =>
+        `계단 ${list} req/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도(max_in_flight = ${m})가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요`,
+      slotLimitedNoCap: (list: string) =>
+        `계단 ${list} req/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도(max_in_flight)가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요`,
+      noteT0:
+        "ⓘ 부하기 일부가 예전 버전이라 계단 시작 시각을 첫 데이터로 추정했습니다(±1초). 측정 구간 경계가 조금 어긋날 수 있습니다.",
+      noteOpenLoopUnknown:
+        "ⓘ 예전 버전 부하기라 계단별 달성·dropped를 모릅니다 — 판정은 지연·오류로만 했습니다.",
+      tableLabel: "계단 표",
+      cols: {
+        index: "#",
+        target: "목표(반복/초)",
+        achieved: "달성(반복/초)",
+        throughput: "처리량(요청/초)",
+        p50: "p50",
+        p95: "p95",
+        p99: "p99",
+        errorRate: "오류율",
+        dropped: "dropped",
+        window: "측정 구간",
+        state: "판정",
+      },
+      states: {
+        ok: "정상",
+        spike: "튄 계단",
+        saturated: "포화",
+        unconfirmed: "확인 못 한 실패",
+        after: "포화 이후",
+        not_measured: "측정 안 됨",
+      },
+      reasonAchieved: (pct: string) => `달성 ${pct}`,
+      reasonDropped: (n: string) => `dropped ${n}`,
+      reasonErrors: (pct: string) => `오류 ${pct}`,
+      reasonP99Relative: (x: string) => `p99 ${x}×`,
+      reasonP99Fast: "p99 5 ms 이상",
+      reasonP99Cap: "p99 상한 초과",
+      reasonSlotLimited: "슬롯 부족 의심",
+      discardWarning: (i: number, r: string, d: number) =>
+        `⚠ 계단 ${i}: 측정 구간 첫 10초 p99가 나머지의 ${r}배 — 앞부분 버림(${d}초)이 짧았을 수 있습니다.`,
+      unitsNote:
+        "단위: 반복/초·요청/초·ms. 측정 구간은 경계의 부분 초를 뺀 실제 구간입니다. 운영 환경 실사용자 트래픽은 handicap이 모릅니다.",
+    },
     // 조건 반복 리포트 표시 (loop-while-report) — 보간 인자는 이미 형식화된 문자열
     loopExit: {
       badge: "재시도 포함",

@@ -25,6 +25,7 @@ import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
 import { ValidityBanner } from "./ValidityBanner";
 import { LoopRetryNotice } from "./LoopRetryNotice";
+import { StairResultSection } from "./stair/StairResultSection";
 import { LoopExitSummary } from "./LoopExitSummary";
 import { LoopExitPanel } from "./LoopExitPanel";
 import { buildLoopExitViews, retriedStepIdSet } from "./loopExitView";
@@ -190,6 +191,7 @@ export function ReportView({ report, profile }: Props) {
       {/* spec §5.1: 유효성+해석 병합 → Verdict → Insight */}
       <ValidityBanner validity={report.validity} narrative={report.narrative} />
       <LoopRetryNotice views={loopExitViews} />
+      {report.stair ? <StairResultSection stair={report.stair} /> : null}
       {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       <AppliedTimeouts profile={profile} hasStepTimeoutOverride={hasStepTimeoutOverride} />
