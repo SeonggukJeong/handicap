@@ -108,7 +108,11 @@ impl Desk {
 
     async fn stop(self) {
         self.cancel.cancel();
-        let _ = tokio::time::timeout(Duration::from_secs(10), self.handle).await;
+        tokio::time::timeout(Duration::from_secs(10), self.handle)
+            .await
+            .expect("desktop loop must return after cancel")
+            .expect("desktop loop must not panic")
+            .expect("desktop loop returns Ok");
     }
 }
 
@@ -138,21 +142,13 @@ async fn pool_worker(rc: &RunningController) -> Option<Value> {
         .cloned()
 }
 
-/// `Accepted` 직후엔 Ping이 풀 등록보다 먼저라 아직 풀에 없을 수 있다 — REST로 무언가 하기 전에 호출.
-async fn wait_pool_idle(rc: &RunningController) -> Value {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(w) = pool_worker(rc).await {
-            if w["busy"] == false {
-                return w;
-            }
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "worker never appeared idle in the pool"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+/// `Accepted`(= 풀 등록 뒤 첫 Ping)를 본 직후의 풀 목록에서 이 워커를 찾는다. 기다리지 않는다.
+async fn pool_worker_now(rc: &RunningController) -> Value {
+    let w = pool_worker(rc)
+        .await
+        .expect("worker must be listed right after Accepted");
+    assert_eq!(w["busy"], false, "{w}");
+    w
 }
 
 async fn target() -> MockServer {
@@ -183,7 +179,7 @@ async fn create_scenario(rc: &RunningController, name: &str, base: &str) -> Stri
     v["id"].as_str().unwrap().to_string()
 }
 
-async fn start_run(rc: &RunningController, scenario_id: &str, seconds: u32) {
+async fn start_run(rc: &RunningController, scenario_id: &str, seconds: u32) -> String {
     let resp = reqwest::Client::new()
         .post(rest(rc, "/api/runs"))
         .json(&json!({
@@ -195,6 +191,8 @@ async fn start_run(rc: &RunningController, scenario_id: &str, seconds: u32) {
         .await
         .unwrap();
     assert!(resp.status().is_success(), "create run: {}", resp.status());
+    let v: Value = resp.json().await.unwrap();
+    v["id"].as_str().unwrap().to_string()
 }
 
 async fn exclude(rc: &RunningController) {
@@ -220,7 +218,7 @@ async fn events_idle_run_idle() {
         "{:?}",
         desk.snapshot()
     );
-    wait_pool_idle(&rc).await;
+    pool_worker_now(&rc).await;
     let sid = create_scenario(&rc, "lv-desktop", &t.uri()).await;
     start_run(&rc, &sid, 1).await;
     assert!(
@@ -267,7 +265,7 @@ async fn scenario_name_is_clipped_to_80() {
     let t = target().await;
     let desk = spawn_desktop(port, TOKEN);
     assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
-    wait_pool_idle(&rc).await;
+    pool_worker_now(&rc).await;
     let sid = create_scenario(&rc, &"가".repeat(100), &t.uri()).await;
     start_run(&rc, &sid, 1).await;
     assert!(
@@ -321,7 +319,7 @@ async fn wrong_token_reports_auth_failed() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn unreachable_reports_within_probe_timeout() {
+async fn unreachable_reports_promptly() {
     let desk = spawn_desktop(free_port(), TOKEN);
     assert!(
         desk.wait_until(Duration::from_secs(3), |e| e.iter().any(|x| matches!(
@@ -357,7 +355,7 @@ async fn retry_counter_resets_after_accept() {
         "{:?}",
         desk.snapshot()
     );
-    wait_pool_idle(&rc).await;
+    pool_worker_now(&rc).await;
     rc.shutdown().await;
     assert!(
         desk.wait_until(WAIT, |e| e
@@ -404,7 +402,7 @@ async fn controller_restart_emits_session_lost_then_accepted() {
     let rc = start_pool(port).await;
     let desk = spawn_desktop(port, TOKEN);
     assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
-    wait_pool_idle(&rc).await;
+    pool_worker_now(&rc).await;
     tokio::time::timeout(Duration::from_secs(15), rc.shutdown())
         .await
         .expect("shutdown must not hang");
@@ -434,7 +432,7 @@ async fn excluded_while_idle_emits_excluded() {
     let rc = start_pool(port).await;
     let mut desk = spawn_desktop(port, TOKEN);
     assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
-    wait_pool_idle(&rc).await;
+    pool_worker_now(&rc).await;
     exclude(&rc).await;
     assert!(
         desk.wait_until(WAIT, |e| e.iter().any(|x| matches!(x, PoolEvent::Excluded)))
@@ -456,7 +454,7 @@ async fn excluded_while_running_emits_excluded() {
     let t = target().await;
     let mut desk = spawn_desktop(port, TOKEN);
     assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
-    wait_pool_idle(&rc).await;
+    pool_worker_now(&rc).await;
     let sid = create_scenario(&rc, "lv-desktop", &t.uri()).await;
     start_run(&rc, &sid, 30).await;
     assert!(
@@ -519,9 +517,93 @@ async fn worker_id_is_stable() {
     let rc = start_pool(port).await;
     let desk = spawn_desktop(port, TOKEN);
     assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
-    let w = wait_pool_idle(&rc).await;
+    let w = pool_worker_now(&rc).await;
     assert_eq!(w["stable"], true);
     assert_eq!(w["worker_id"], WORKER_ID);
+    desk.stop().await;
+    rc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn accepted_means_listed_in_pool_with_stable_id() {
+    // 수락 Ping은 풀 등록 뒤에 간다: 반복해도 `Accepted` 직후 목록에 늘 보여야 한다.
+    for _ in 0..20 {
+        let port = free_port();
+        let rc = start_pool(port).await;
+        let desk = spawn_desktop(port, TOKEN);
+        // 촘촘히(1ms) 폴링해 `Accepted`를 보자마자 목록을 읽는다.
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while accepted_count(&desk.snapshot()) == 0 {
+            assert!(tokio::time::Instant::now() < deadline, "never accepted");
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let w = pool_worker_now(&rc).await;
+        assert_eq!(w["stable"], true);
+        desk.stop().await;
+        rc.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancel_during_retry_sleep_returns_promptly() {
+    let desk = spawn_desktop(free_port(), TOKEN);
+    assert!(
+        desk.wait_until(Duration::from_secs(3), |e| e
+            .iter()
+            .any(|x| matches!(x, PoolEvent::AttemptFailed { .. })))
+            .await
+    );
+    desk.cancel.cancel();
+    let t0 = tokio::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(1), desk.handle)
+        .await
+        .expect("must return within 1s of cancel")
+        .unwrap()
+        .unwrap();
+    assert!(t0.elapsed() < Duration::from_secs(1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn run_abort_keeps_worker_and_emits_no_excluded() {
+    let port = free_port();
+    let rc = start_pool(port).await;
+    let t = target().await;
+    let desk = spawn_desktop(port, TOKEN);
+    assert!(desk.wait_until(WAIT, |e| accepted_count(e) >= 1).await);
+    pool_worker_now(&rc).await;
+    let sid = create_scenario(&rc, "lv-desktop", &t.uri()).await;
+    let run_id = start_run(&rc, &sid, 30).await;
+    assert!(
+        desk.wait_until(WAIT, |e| e
+            .iter()
+            .any(|x| matches!(x, PoolEvent::RunStarted { .. })))
+            .await,
+        "{:?}",
+        desk.snapshot()
+    );
+    let resp = reqwest::Client::new()
+        .post(rest(&rc, &format!("/api/runs/{run_id}/abort")))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "abort: {}", resp.status());
+    assert!(
+        desk.wait_until(WAIT, |e| {
+            match e.iter().position(|x| matches!(x, PoolEvent::RunEnded)) {
+                Some(i) => accepted_count(&e[i..]) >= 1,
+                None => false,
+            }
+        })
+        .await,
+        "{:?}",
+        desk.snapshot()
+    );
+    assert!(
+        !desk
+            .snapshot()
+            .iter()
+            .any(|x| matches!(x, PoolEvent::Excluded))
+    );
     desk.stop().await;
     rc.shutdown().await;
 }

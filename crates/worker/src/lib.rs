@@ -564,6 +564,16 @@ async fn sleep_or_cancel(dur: Duration, cancel: &CancellationToken) -> bool {
     }
 }
 
+/// 이유가 직전과 달라졌을 때만 warn, 같으면 debug(영영 재시도하는 루프가 같은 경고를 반복하지 않게).
+fn log_failure(last: &mut Option<FailReason>, reason: &FailReason, msg: &str) {
+    if last.as_ref() == Some(reason) {
+        debug!(?reason, "{msg}");
+    } else {
+        warn!(?reason, "{msg}");
+        *last = Some(reason.clone());
+    }
+}
+
 /// 데스크톱 전용 풀 루프: 사이클마다 IP 탐침 → 접속 → 배정 실행, 실패해도 포기하지 않고
 /// 1·2·4·8s 간격으로 다시 시도하며 상태 사건을 `events`로 알린다. `cancel`이 울리면 반환한다.
 /// 서버의 `Disconnect`(제외)는 호출자 토큰의 자식 토큰만 취소되는 것으로 알아본다.
@@ -585,6 +595,7 @@ pub async fn run_pool_desktop(
         .map(|ip| std::net::SocketAddr::from((*ip, port)))
         .collect();
     let mut attempt = 0usize;
+    let mut last_reason: Option<FailReason> = None;
     info!(version = env!("CARGO_PKG_VERSION"), %worker_id, "desktop pool worker starting");
     loop {
         if cancel.is_cancelled() {
@@ -593,8 +604,17 @@ pub async fn run_pool_desktop(
         events(PoolEvent::Probing {
             candidates: addrs.len(),
         });
-        let Some(addr) = probe_first(&addrs, PROBE_TIMEOUT, tcp_reachable).await else {
+        let probed = tokio::select! {
+            _ = cancel.cancelled() => break,
+            p = probe_first(&addrs, PROBE_TIMEOUT, tcp_reachable) => p,
+        };
+        let Some(addr) = probed else {
             let d = desktop_retry_delay(attempt);
+            log_failure(
+                &mut last_reason,
+                &FailReason::Unreachable,
+                "desktop pool unreachable",
+            );
             events(PoolEvent::AttemptFailed {
                 reason: FailReason::Unreachable,
                 retry_in: d,
@@ -612,8 +632,9 @@ pub async fn run_pool_desktop(
             accepted.store(true, Ordering::SeqCst);
             events(PoolEvent::Accepted { addr });
         };
-        let res = connect_and_register_opts(
-            &format!("http://{addr}"),
+        let url = format!("http://{addr}");
+        let register = connect_and_register_opts(
+            &url,
             &worker_id,
             "",
             capacity_vus,
@@ -625,8 +646,11 @@ pub async fn run_pool_desktop(
                 connect_timeout: Some(PROBE_TIMEOUT),
                 on_accepted: Some(&on_accepted),
             },
-        )
-        .await;
+        );
+        let res = tokio::select! {
+            _ = cancel.cancelled() => break,
+            r = register => r,
+        };
         match res {
             Ok(link) => {
                 attempt = 0;
@@ -659,18 +683,18 @@ pub async fn run_pool_desktop(
                     events(PoolEvent::Excluded);
                     break;
                 }
-                warn!(error = %e, "desktop pool connect failed; retrying");
+                let reason = classify(&e);
                 let d = if accepted.load(Ordering::SeqCst) {
                     attempt = 0;
+                    log_failure(&mut last_reason, &reason, "desktop pool session lost");
                     let d = desktop_retry_delay(0);
-                    events(PoolEvent::SessionLost {
-                        reason: classify(&e),
-                    });
+                    events(PoolEvent::SessionLost { reason });
                     d
                 } else {
+                    log_failure(&mut last_reason, &reason, "desktop pool attempt failed");
                     let d = desktop_retry_delay(attempt);
                     events(PoolEvent::AttemptFailed {
-                        reason: classify(&e),
+                        reason,
                         retry_in: d,
                     });
                     d
@@ -920,6 +944,20 @@ pub(crate) async fn abort_listener_loop(
 mod tests {
     use super::*;
     use handicap_engine::EngineError;
+
+    #[test]
+    fn pool_target_debug_redacts_token() {
+        let t = PoolTarget {
+            ips: vec![std::net::Ipv4Addr::LOCALHOST],
+            port: 1,
+            token: "s3cret-token".into(),
+            worker_id: "w".into(),
+            capacity_vus: 1,
+        };
+        let d = format!("{t:?}");
+        assert!(!d.contains("s3cret-token"), "{d}");
+        assert!(d.contains("[REDACTED]"), "{d}");
+    }
 
     fn closed_port() -> u16 {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
