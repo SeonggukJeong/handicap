@@ -10,7 +10,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status, Streaming};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use handicap_proto::v1 as pb;
 use pb::coordinator_server::Coordinator;
@@ -117,9 +117,12 @@ struct PoolEntry {
     /// `last_seen` staleness evicts it if the worker never comes back.
     awaiting_reregister: bool,
     /// The worker reported a terminal phase that means it finished its part of
-    /// `assigned_run` (Completed/Failed, or Aborted on the controller's request). Set by
-    /// `record_phase`, cleared on re-register; `pool_stream_closed` keeps the entry
-    /// instead of removing it when this is set.
+    /// `assigned_run`: Completed/Failed, or an Aborted that is controller-requested
+    /// or arrives after the run already ended (finalization removed the run entry: a
+    /// reply to the sibling fan-out, or a run torn down by `cancel_dispatch_failed`).
+    /// An Aborted the worker sent on its own while the run was active does not count.
+    /// Set by `record_phase`, cleared on re-register and on reservation;
+    /// `pool_stream_closed` keeps the entry instead of removing it when this is set.
     finished_part: bool,
 }
 
@@ -149,7 +152,9 @@ struct WorkerEntry {
     shard_index: u32,
     vu_offset: u32,
     vu_count: u32,
-    tx: WorkerTx,
+    /// `None` once the worker reported its end phase: the run no longer holds a
+    /// sender to it, so its response stream can close without waiting for siblings.
+    tx: Option<WorkerTx>,
     phase: pb::run_status::Phase,
     /// This worker reported `Aborted` on its own (R8 — not a controller-requested
     /// stop): it is leaving, so its pool entry is removed when its stream closes.
@@ -165,7 +170,6 @@ struct RunWorkers {
     next_shard: u32,
     workers: HashMap<String, WorkerEntry>,
     reg_deadline: CancellationToken,
-    terminal: bool,
     /// Per-shard (vu_offset, vu_count) precomputed by the capacity-aware pool
     /// path. `None` → `register` falls back to even `shard_split` (legacy/open/
     /// curve/force, byte-identical L1). (spec R2/R5.)
@@ -217,7 +221,7 @@ pub enum RegisterOutcome {
         vu_offset: u32,
         vu_count: u32,
     },
-    /// Over-registration or already-terminal run: reply AbortRun, give no shard.
+    /// Over-registration: reply AbortRun, give no shard.
     Reject,
     /// No such run (never enqueued / already removed): break the stream.
     NoRun,
@@ -336,6 +340,7 @@ impl CoordinatorState {
         for id in ids {
             if let Some(e) = g.get_mut(&id) {
                 e.assigned_run = Some(run_id.to_string()); // 예약 락(같은 guard 내 원자적)
+                e.finished_part = false;
                 if let Some(tx) = &e.tx {
                     out.push((id, tx.clone()));
                 }
@@ -594,8 +599,10 @@ impl CoordinatorState {
     }
 
     /// The pool stream of registration `generation` closed. If the worker finished
-    /// its part of its assigned run (reported Completed/Failed, or Aborted because
-    /// the controller asked), it is reconnecting for the next run: keep the entry —
+    /// its part of its assigned run (`finished_part`: Completed/Failed, or an Aborted
+    /// that is controller-requested or arrives after the run ended and its entry was
+    /// removed — not one it sent on its own mid-run), it is reconnecting for the
+    /// next run: keep the entry —
     /// operator control (drained/capacity_override/label) must survive — and mark it
     /// `awaiting_reregister` (still unreservable). Otherwise (idle close, mid-run
     /// close, self-abort = leaving) remove it as before. Never touches a newer
@@ -676,8 +683,8 @@ impl CoordinatorState {
     }
 
     /// Hard-remove a pool worker and ask it to exit. Busy → existing fail-fast
-    /// (run failed); the worker's later Aborted/drop is absorbed by the terminal
-    /// guard. Push Disconnect via try_send (non-blocking; R14). Returns false if
+    /// (run failed and removed); the worker's later Aborted/drop finds no run and is
+    /// a no-op. Push Disconnect via try_send (non-blocking; R14). Returns false if
     /// not in pool. (spec R6)
     pub async fn pool_exclude(&self, worker_id: &str, reason: &str) -> bool {
         let captured = {
@@ -766,6 +773,7 @@ impl CoordinatorState {
         for (id, _) in idle.into_iter().take(n) {
             if let Some(e) = g.get_mut(&id) {
                 e.assigned_run = Some(run_id.to_string());
+                e.finished_part = false;
                 if let Some(tx) = &e.tx {
                     workers.push((id, tx.clone()));
                 }
@@ -829,7 +837,6 @@ impl CoordinatorState {
                     next_shard: 0,
                     workers: HashMap::new(),
                     reg_deadline: token.clone(),
-                    terminal: false,
                     precomputed_counts: precomputed,
                     first_load: first_load.clone(),
                     done: done.clone(),
@@ -861,9 +868,6 @@ impl CoordinatorState {
         let Some(rw) = g.get_mut(run_id) else {
             return RegisterOutcome::NoRun;
         };
-        if rw.terminal {
-            return RegisterOutcome::Reject;
-        }
         if let Some(e) = rw.workers.get(worker_id) {
             return RegisterOutcome::Resend {
                 shard_index: e.shard_index,
@@ -888,7 +892,7 @@ impl CoordinatorState {
                 shard_index,
                 vu_offset,
                 vu_count,
-                tx,
+                tx: Some(tx),
                 phase: pb::run_status::Phase::Started,
                 self_aborted: false,
             },
@@ -1008,19 +1012,11 @@ impl CoordinatorState {
                 break 'classify (Finalize::None, is_end_phase);
             };
             let Some(e) = rw.workers.get_mut(worker_id) else {
-                if rw.terminal {
-                    debug!(
-                        ?worker_id,
-                        ?run_id,
-                        "run status from a worker not in this run: ignored"
-                    );
-                } else {
-                    warn!(
-                        ?worker_id,
-                        ?run_id,
-                        "run status from a worker not in this run: ignored"
-                    );
-                }
+                warn!(
+                    ?worker_id,
+                    ?run_id,
+                    "run status from a worker not in this run: ignored"
+                );
                 break 'classify (Finalize::None, false);
             };
             e.phase = if phase == completed {
@@ -1032,21 +1028,22 @@ impl CoordinatorState {
             } else {
                 Phase::Started
             };
-            let decision = if rw.terminal {
-                Finalize::None
-            } else if phase == failed {
-                rw.terminal = true;
-                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
+            if is_end_phase {
+                // The worker is done with this run: release the run's sender clone so
+                // its response stream closes without waiting for siblings (spec R2).
+                e.tx.take();
+            }
+            let decision = if phase == failed {
+                rw.done.cancel(); // finalize → stop run_watchdog (G1a)
                 let siblings: Vec<WorkerTx> = rw
                     .workers
                     .iter()
                     .filter(|(wid, _)| wid.as_str() != worker_id)
-                    .map(|(_, e)| e.tx.clone())
+                    .filter_map(|(_, e)| e.tx.clone())
                     .collect();
                 Finalize::Failed(siblings)
             } else if phase == aborted {
-                rw.terminal = true;
-                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
+                rw.done.cancel(); // finalize → stop run_watchdog (G1a)
                 let self_abort = if rw.abort_requested {
                     None
                 } else {
@@ -1062,7 +1059,7 @@ impl CoordinatorState {
                                     Phase::Completed | Phase::Failed | Phase::Aborted
                                 )
                             })
-                            .map(|e| e.tx.clone())
+                            .filter_map(|e| e.tx.clone())
                             .collect(),
                     )
                 };
@@ -1071,13 +1068,13 @@ impl CoordinatorState {
                 && rw.workers.values().all(|e| e.phase == Phase::Completed)
                 && rw.workers.len() as u32 == rw.expected
             {
-                rw.terminal = true;
-                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
+                rw.done.cancel(); // finalize → stop run_watchdog (G1a)
                 Finalize::Completed
             } else {
                 Finalize::None
             };
-            // Read after the Aborted branch above, which sets `self_aborted`.
+            // Read after the Aborted branch above, which sets `self_aborted`, and
+            // before the run entry is removed below.
             let pool_mark = if phase == completed || phase == failed {
                 true
             } else if phase == aborted {
@@ -1085,6 +1082,10 @@ impl CoordinatorState {
             } else {
                 false
             };
+            if !matches!(decision, Finalize::None) {
+                // Finalized: later messages for this run take the run-absent paths.
+                g.remove(run_id);
+            }
             (decision, pool_mark)
         };
         if pool_mark {
@@ -1157,9 +1158,9 @@ impl CoordinatorState {
         }
     }
 
-    /// A worker's stream closed. If it never reported a terminal phase and the
-    /// run isn't already terminal, fail the run fast + abort siblings. Also
-    /// removes the worker from the run map. (Spec §8.2, §2.3 stream close.)
+    /// A worker's stream closed. If the run is still active and the worker never
+    /// reported a terminal phase, fail the run fast + abort siblings and remove
+    /// the run. (Spec §8.2, §2.3 stream close.)
     pub async fn worker_disconnected(&self, run_id: &str, worker_id: &str) {
         use pb::run_status::Phase;
         let siblings = {
@@ -1172,24 +1173,24 @@ impl CoordinatorState {
                 .get(worker_id)
                 .map(|e| matches!(e.phase, Phase::Completed | Phase::Failed | Phase::Aborted))
                 .unwrap_or(true); // unknown worker → treat as harmless
-            if rw.terminal || was_terminal_phase {
-                // Terminal worker (or already-finalized run): KEEP its entry so the
-                // completion gate (`workers.len() == expected` && all Completed) still
-                // counts it. Workers close their stream right after reporting a terminal
-                // phase, so removing here would make an N>=2 run never finalize.
+            if was_terminal_phase {
+                // Terminal worker: KEEP its entry so the completion gate
+                // (`workers.len() == expected` && all Completed) still counts it.
+                // Workers close their stream right after reporting a terminal phase,
+                // so removing here would make an N>=2 run never finalize.
                 // (A3a: code-review CRITICAL fix.)
                 None
             } else {
                 // Non-terminal disconnect = crash → fail-fast: drop it + abort siblings.
                 rw.workers.remove(worker_id);
-                rw.terminal = true;
-                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
-                Some(
-                    rw.workers
-                        .values()
-                        .map(|e| e.tx.clone())
-                        .collect::<Vec<_>>(),
-                )
+                rw.done.cancel(); // finalize → stop run_watchdog (G1a)
+                let siblings = rw
+                    .workers
+                    .values()
+                    .filter_map(|e| e.tx.clone())
+                    .collect::<Vec<_>>();
+                g.remove(run_id);
+                Some(siblings)
             }
         };
         if let Some(siblings) = siblings {
@@ -1207,25 +1208,21 @@ impl CoordinatorState {
         }
     }
 
-    /// Fail a run that cannot make progress and tear it down: terminal-guard +
-    /// snapshot siblings under the runs lock, then (lock-free) mark the run failed
-    /// with `reason`, abort registered workers with `abort_msg`, and release the
+    /// Fail a run that cannot make progress and tear it down: remove the run +
+    /// snapshot siblings under the runs lock (an absent run = already finalized,
+    /// no-op), then (lock-free) mark the run failed with `reason`, abort registered workers with `abort_msg`, and release the
     /// dispatcher. Shared by `fail_incomplete_registration` (registration timeout)
     /// and the run-progress watchdog A/B (no-load / backstop). R14 lock discipline.
     pub async fn fail_run_hung(&self, run_id: &str, reason: &str, abort_msg: &str) {
         let siblings = {
             let mut g = self.runs.lock().await;
-            let Some(rw) = g.get_mut(run_id) else {
+            let Some(rw) = g.remove(run_id) else {
                 return;
             };
-            if rw.terminal {
-                return;
-            }
-            rw.terminal = true;
-            rw.done.cancel(); // terminal → stop the other run_watchdog phase (G1a)
+            rw.done.cancel(); // finalize → stop the other run_watchdog phase (G1a)
             rw.workers
                 .values()
-                .map(|e| e.tx.clone())
+                .filter_map(|e| e.tx.clone())
                 .collect::<Vec<_>>()
         };
         let _ = runs::mark_failed_if_active(&self.db, run_id, &truncate_message(reason)).await;
@@ -1233,7 +1230,7 @@ impl CoordinatorState {
         self.cleanup_dispatcher(run_id).await;
     }
 
-    /// Registration deadline expired: if the run isn't terminal and fewer than
+    /// Registration deadline expired: if the run is still active and fewer than
     /// `expected` workers registered, fail it fast + abort whoever did register.
     /// (Spec §8.2 third bullet, §8.3.)
     pub async fn fail_incomplete_registration(&self, run_id: &str) {
@@ -1241,7 +1238,7 @@ impl CoordinatorState {
         let counts = {
             let g = self.runs.lock().await;
             match g.get(run_id) {
-                Some(rw) if !rw.terminal && (rw.workers.len() as u32) < rw.expected => {
+                Some(rw) if (rw.workers.len() as u32) < rw.expected => {
                     Some((rw.workers.len(), rw.expected))
                 }
                 _ => None,
@@ -1277,7 +1274,7 @@ impl CoordinatorState {
                 rw.done.cancel();
                 rw.workers
                     .values()
-                    .map(|e| e.tx.clone())
+                    .filter_map(|e| e.tx.clone())
                     .collect::<Vec<_>>()
             })
         };
@@ -1307,7 +1304,7 @@ impl CoordinatorState {
                     rw.abort_requested = true;
                     rw.workers
                         .values()
-                        .map(|e| e.tx.clone())
+                        .filter_map(|e| e.tx.clone())
                         .collect::<Vec<_>>()
                 }
                 None => return false,
@@ -1402,7 +1399,7 @@ async fn fan_out_abort(run_id: &str, txs: &[WorkerTx], reason: &str) {
 
 /// Per-run progress watchdog (3 phases). Phase 1 (registration) preserves the old
 /// `registration_watchdog` behavior; Phases 2/3 add startup (A) and backstop (B)
-/// liveness. All fail paths go through `fail_run_hung` (terminal-guarded).
+/// liveness. All fail paths go through `fail_run_hung` (no-op once the run is finalized).
 async fn run_watchdog(
     coord: CoordinatorState,
     run_id: String,
@@ -1577,7 +1574,7 @@ impl Coordinator for CoordinatorService {
                                     break;
                                 }
                                 RegisterOutcome::NoRun => {
-                                    error!(run_id = %reg.run_id, "no pending run for worker");
+                                    warn!(run_id = %reg.run_id, "no pending run for worker");
                                     break;
                                 }
                             };
@@ -3773,6 +3770,231 @@ mod tests {
         assert_eq!(pool_entry_awaiting(&coord, "w1").await, Some(true));
     }
 
+    /// The run's `done` token (cloned while the run is still in the map).
+    async fn run_done_token(coord: &CoordinatorState, run_id: &str) -> CancellationToken {
+        coord
+            .runs
+            .lock()
+            .await
+            .get(run_id)
+            .expect("run must be in the map")
+            .done
+            .clone()
+    }
+
+    async fn run_present(coord: &CoordinatorState, run_id: &str) -> bool {
+        coord.runs.lock().await.contains_key(run_id)
+    }
+
+    /// A fresh run expecting `n` direct (non-pool) workers `w0..`, all registered.
+    /// Returns the run id and the receivers (kept alive so sends succeed).
+    async fn run_with_workers(
+        coord: &CoordinatorState,
+        db: &Db,
+        n: u32,
+    ) -> (
+        String,
+        Vec<tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>>,
+    ) {
+        let run_id = seed_run(db).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), n, 4, None, LONG, LONG)
+            .await;
+        let mut rxs = Vec::new();
+        for i in 0..n {
+            let (tx, rx) = fake_tx();
+            coord.register(&run_id, &format!("w{i}"), tx).await;
+            rxs.push(rx);
+        }
+        (run_id, rxs)
+    }
+
+    /// Every sender is gone: drain what was already delivered, then the next
+    /// receive must report the channel closed (not time out).
+    async fn assert_response_closed(
+        rx: &mut tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
+    ) {
+        while rx.try_recv().is_ok() {}
+        let next = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;
+        assert!(
+            matches!(next, Ok(None)),
+            "response stream must close once the worker reported its end phase"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_completed_single() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 1).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_completed_two_workers() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 2).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        assert!(run_present(&coord, &run_id).await, "sibling still running");
+        assert!(!done.is_cancelled());
+        coord
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_failed() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 2).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32, "boom")
+            .await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_controller_abort() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 1).await;
+        let done = run_done_token(&coord, &run_id).await;
+        assert!(coord.abort(&run_id).await);
+        assert!(
+            run_present(&coord, &run_id).await,
+            "abort waits for Aborted"
+        );
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "")
+            .await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_self_abort() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 2).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "left")
+            .await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_worker_disconnected() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 2).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord.worker_disconnected(&run_id, "w0").await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_fail_run_hung() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 1).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord.fail_run_hung(&run_id, "stuck", "stuck").await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn run_removed_after_registration_deadline() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let run_id = seed_run(&db).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _rx0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        let done = run_done_token(&coord, &run_id).await;
+        coord.fail_incomplete_registration(&run_id).await;
+        assert!(!run_present(&coord, &run_id).await);
+        assert!(done.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn worker_response_closes_after_terminal_report() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, generation, stream_tx, mut rx0) = pool_worker_in_run(&coord, &db).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        coord.pool_stream_closed("w0", generation).await;
+        drop(stream_tx);
+        assert_response_closed(&mut rx0).await;
+    }
+
+    #[tokio::test]
+    async fn first_finisher_response_closes_before_sibling() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, [w0, _w1]) = two_pool_workers_in_run(&coord, &db).await;
+        let (_, g0, stream_tx0, mut rx0) = w0;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        coord.pool_stream_closed("w0", g0).await;
+        drop(stream_tx0);
+        assert_response_closed(&mut rx0).await;
+        assert!(run_present(&coord, &run_id).await, "w1 still running");
+    }
+
+    #[tokio::test]
+    async fn duplicate_terminal_report_after_removal_is_noop() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        coord.pool_stream_closed("w0", generation).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed
+        );
+    }
+
+    #[tokio::test]
+    async fn late_register_for_finished_run_is_norun() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _rxs) = run_with_workers(&coord, &db, 1).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        let (tx, _rx) = fake_tx();
+        let outcome = coord.register(&run_id, "w5", tx).await;
+        assert!(matches!(outcome, RegisterOutcome::NoRun), "{outcome:?}");
+    }
+
     #[tokio::test]
     async fn stream_closed_after_completed_keeps_entry() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
@@ -4693,7 +4915,7 @@ mod tests {
         let after = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(after.status, before.status);
         assert_eq!(after.message, before.message);
-        // 구성원의 정상 완료가 여전히 run을 끝낸다(terminal 표시가 안 섰다).
+        // 구성원의 정상 완료가 여전히 run을 끝낸다(무시한 보고가 run을 끝내지 않았다).
         let completed = pb::run_status::Phase::Completed as i32;
         coord.record_phase(&run_id, "w0", completed, "").await;
         coord.record_phase(&run_id, "w1", completed, "").await;
