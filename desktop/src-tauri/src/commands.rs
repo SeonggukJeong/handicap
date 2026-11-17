@@ -60,7 +60,7 @@ pub struct CodePreviewDto {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RoleStateDto {
-    /// `"local"` | `"server"`
+    /// `"local"` | `"server"` | `"worker"`
     pub role: &'static str,
     pub switching: bool,
     pub grpc_port: u16,
@@ -288,7 +288,6 @@ pub fn parse_target(t: &str) -> Result<Role, String> {
     match t {
         "local" => Ok(Role::Local),
         "server" => Ok(Role::Server),
-        "worker" => Ok(Role::Worker),
         _ => Err("알 수 없는 모드입니다".into()),
     }
 }
@@ -675,7 +674,12 @@ mod tests {
             connect_code_for(&local_state(), &[ip("10.0.0.1")]).unwrap_err(),
             "서버 모드에서만 만들 수 있습니다"
         );
-        for none in [vec![], vec![ip("127.0.0.1")]] {
+        for none in [
+            vec![],
+            vec![ip("127.0.0.1")],
+            // 대체 목록으로 남지만 접속 코드로는 허용되지 않는 주소.
+            vec![ip("0.1.2.3"), ip("224.0.0.1")],
+        ] {
             assert_eq!(
                 connect_code_for(&server_state(), &none).unwrap_err(),
                 "이 PC의 망 주소를 찾지 못했습니다"
@@ -1027,5 +1031,9 @@ mod tests {
         assert_eq!(parse_target("local").unwrap(), Role::Local);
         assert_eq!(parse_target("server").unwrap(), Role::Server);
         assert!(parse_target("Server").is_err());
+        assert!(
+            parse_target("worker").is_err(),
+            "부하기는 접속 코드가 필요해 connect_worker로만"
+        );
     }
 }
