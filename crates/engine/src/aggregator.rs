@@ -535,7 +535,7 @@ impl Aggregator {
     }
 }
 
-fn current_second() -> i64 {
+pub(crate) fn current_second() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

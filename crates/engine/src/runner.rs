@@ -23,6 +23,7 @@ use crate::error::{EngineError, Result, safe_cause};
 use crate::error_kind::ErrorKind;
 use crate::executor::{ExtractMode, VuClient, execute_step_with};
 use crate::extract::fill_missing_extracts;
+use crate::open_loop_counters::{CountKind, OpenLoopCounters};
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::scenario::{Scenario, Step};
@@ -131,6 +132,21 @@ pub struct MetricFlush {
     /// Per-(loop_id, pass_bucket, outcome) 조건 반복 진입 종료 델타 (loop-while-report).
     /// 조건 반복이 없는 run은 항상 빈 Vec.
     pub loop_exit_stats: Vec<LoopExitStat>,
+    /// open-loop 초 단위 시작·완료·버림 계수(계단 시험 a). 주기 flush는 끝난 초만,
+    /// 최종 flush는 나머지 전부. closed-loop·VU 곡선 경로는 항상 빈 Vec.
+    pub open_loop_seconds: Vec<OpenLoopSecond>,
+    /// open-loop 스케줄 t=0의 epoch ms(모든 open-loop flush에 실림). 다른 경로는 `None`.
+    pub open_loop_started_at_ms: Option<i64>,
+}
+
+/// 한 epoch 초의 open-loop 계수(계단 시험 a). `launched` = 슬롯을 얻어 시작한 도착,
+/// `dropped` = 슬롯이 없어 버린 도착, `completed` = 그 초에 반복이 끝난 도착(결과 무관).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenLoopSecond {
+    pub ts_second: i64,
+    pub launched: u64,
+    pub completed: u64,
+    pub dropped: u64,
 }
 
 /// One shared worker-local cursor per binding, `Some` only for `IterSequential`
@@ -328,6 +344,8 @@ pub async fn run_scenario(
                         active_vu_samples: vec![],
                         error_kind_stats,
                         loop_exit_stats,
+                        open_loop_seconds: vec![],
+                        open_loop_started_at_ms: None,
                     })
                     .await
                     .is_err()
@@ -387,6 +405,8 @@ pub async fn run_scenario(
                 active_vu_samples: vec![],
                 error_kind_stats: final_error_kinds,
                 loop_exit_stats: final_loop_exits,
+                open_loop_seconds: vec![],
+                open_loop_started_at_ms: None,
             })
             .await;
     }
@@ -1323,6 +1343,8 @@ pub async fn run_scenario_vu_curve(
                         active_vu_samples,
                         error_kind_stats,
                         loop_exit_stats,
+                        open_loop_seconds: vec![],
+                        open_loop_started_at_ms: None,
                     })
                     .await
                     .is_err()
@@ -1490,6 +1512,8 @@ pub async fn run_scenario_vu_curve(
                 active_vu_samples: final_active_vu,
                 error_kind_stats: final_error_kinds,
                 loop_exit_stats: final_loop_exits,
+                open_loop_seconds: vec![],
+                open_loop_started_at_ms: None,
             })
             .await;
     }
@@ -1760,7 +1784,13 @@ pub async fn run_scenario_open_loop(
     let target_rps = plan.target_rps.unwrap_or(1).max(1);
     let agg = Arc::new(Mutex::new(Aggregator::new(plan.loop_breakdown_cap)));
     let started_at = Instant::now();
+    // 스케줄 t=0(`started_at`, 고정 간격 첫 도착·`ArrivalSchedule` 시각의 기준)의 epoch ms.
+    // 계단 경계의 기준이라 모든 open-loop flush에 싣는다(계단 시험 a).
+    let started_at_ms = epoch_millis();
     let deadline = started_at + plan.duration;
+    let counters = Arc::new(std::sync::Mutex::new(OpenLoopCounters::new(
+        started_at_ms.div_euclid(1000),
+    )));
     let env = Arc::new(plan.env);
     let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
@@ -1797,8 +1827,10 @@ pub async fn run_scenario_open_loop(
 
     // Flusher: drain windows until the run ends. Sends dropped: 0 throughout; the
     // run-total drop count rides on the single final flush below (avoids per-window
-    // delta/double-count bookkeeping; per-second drop series is deferred, spec §9).
+    // delta/double-count bookkeeping). The per-second launched/completed/dropped rows
+    // ride `open_loop_seconds` (finished seconds only here, the rest on the final flush).
     let flush_agg = agg.clone();
+    let flush_counters = counters.clone();
     let flush_out = out.clone();
     let flusher = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_millis(500));
@@ -1806,6 +1838,10 @@ pub async fn run_scenario_open_loop(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
+            let open_loop_seconds = flush_counters
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .drain_completed(now_s);
             let (
                 drained,
                 loop_stats,
@@ -1832,7 +1868,8 @@ pub async fn run_scenario_open_loop(
                 || !group_stats.is_empty()
                 || !phase_stats.is_empty()
                 || !error_kind_stats.is_empty()
-                || !loop_exit_stats.is_empty();
+                || !loop_exit_stats.is_empty()
+                || !open_loop_seconds.is_empty();
             if has_data {
                 debug!(
                     count = drained.len(),
@@ -1852,6 +1889,8 @@ pub async fn run_scenario_open_loop(
                         active_vu_samples: vec![],
                         error_kind_stats,
                         loop_exit_stats,
+                        open_loop_seconds,
+                        open_loop_started_at_ms: Some(started_at_ms),
                     })
                     .await
                     .is_err()
@@ -1906,6 +1945,10 @@ pub async fn run_scenario_open_loop(
         }
         match slot_rx.try_recv() {
             Ok(slot) => {
+                counters
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .record(CountKind::Launched);
                 let vu_id = vu_offset.saturating_add(slot as u32);
                 let iter_id = arrival_counter as u32;
                 arrival_counter += 1;
@@ -1918,6 +1961,7 @@ pub async fn run_scenario_open_loop(
                 let seq_counters = seq_counters.clone();
                 let reqgen = reqgen.clone();
                 let exhausted = exhausted.clone();
+                let counters = counters.clone();
                 let slot_tx = slot_tx.clone();
                 set.spawn(async move {
                     // Return the slot on ALL exit paths (including panics) via Drop.
@@ -1951,6 +1995,7 @@ pub async fn run_scenario_open_loop(
                         &exhausted,
                         measure_phases,
                         reqgen.as_ref(),
+                        &counters,
                     )
                     .await
                     {
@@ -1961,6 +2006,10 @@ pub async fn run_scenario_open_loop(
             }
             Err(_) => {
                 dropped += 1;
+                counters
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .record(CountKind::Dropped);
                 // Pool full while behind schedule: yield so in-flight arrivals (which
                 // free slots) get scheduled instead of tight-spinning the catch-up backlog.
                 tokio::task::yield_now().await;
@@ -1974,6 +2023,11 @@ pub async fn run_scenario_open_loop(
             }
         }
     }
+    // 스케줄러가 끝난 초: 이 뒤의 빈 초는 0행으로 채우지 않는다(완료 계수만 남는다).
+    counters
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .end_scheduler(chrono_second());
 
     while let Some(res) = set.join_next().await {
         if let Err(e) = res {
@@ -2006,6 +2060,10 @@ pub async fn run_scenario_open_loop(
             g.drain_loop_exit_deltas(),
         )
     };
+    let final_open_loop_seconds = counters
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .drain_all();
     // open-loop final flush is UNGUARDED (always sent — carries run-total `dropped`
     // unconditionally, pre-existing behavior). No `|| !error_kind_stats.is_empty()`
     // guard term here by design (spec 2026-08-01 §3.3 — the 5 send-guards exclude this site);
@@ -2021,6 +2079,8 @@ pub async fn run_scenario_open_loop(
             active_vu_samples: vec![],
             error_kind_stats: final_error_kinds,
             loop_exit_stats: final_loop_exits,
+            open_loop_seconds: final_open_loop_seconds,
+            open_loop_started_at_ms: Some(started_at_ms),
         })
         .await;
     drop(out);
@@ -2050,6 +2110,7 @@ async fn run_arrival(
     exhausted: &AtomicBool,
     measure_phases: bool,
     reqgen: Option<&Arc<RequestGenPlan>>,
+    counters: &std::sync::Mutex<OpenLoopCounters>,
 ) -> Result<()> {
     // 생성기 전용 rng — think_rng(호출자가 넘긴 `rng` 파라미터)와 분리 (spec §4).
     // arrival=1 반복이므로 per-arrival 생성이 곧 per-iteration 재평가.
@@ -2080,7 +2141,7 @@ async fn run_arrival(
         }
     }
     // No run-level think time in open-loop (arrival rate governs inter-iteration pacing).
-    let _ = execute_steps(
+    let r = execute_steps(
         client,
         &scenario.steps,
         &mut iter_vars,
@@ -2098,7 +2159,13 @@ async fn run_arrival(
         &mut req,
         None,
     )
-    .await?;
+    .await;
+    // 결과와 무관하게 끝난 반복으로 센다 — 엔진 오류·취소도 `?`보다 먼저 기록한다(spec §4.2).
+    counters
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .record(CountKind::Completed);
+    r?;
     Ok(())
 }
 
@@ -2134,6 +2201,13 @@ fn chrono_second() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn epoch_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
 

@@ -9,6 +9,7 @@ pub mod error_kind;
 pub mod executor;
 pub mod extract;
 mod genvars;
+mod open_loop_counters;
 pub mod pacing;
 pub mod percentiles;
 mod reqgen;
@@ -42,7 +43,7 @@ pub use genvars::{
 };
 pub use pacing::{PaceOutcome, ThinkTime, pace};
 pub use runner::{
-    MetricFlush, RampDown, RunPlan, Stage, run_scenario, run_scenario_open_loop,
+    MetricFlush, OpenLoopSecond, RampDown, RunPlan, Stage, run_scenario, run_scenario_open_loop,
     run_scenario_vu_curve,
 };
 pub use scenario::{
