@@ -1,0 +1,154 @@
+<h2>계단 시험 — 화면 초안 v2</h2>
+<p class="subtitle">예시 데이터: 목표 400 × 2.5 → 100→1000 req/s, 10계단(8계단에서 자동 정지) · 계단마다 상승 5초 + 유지 60초 · 앞 15초 버림. 숫자는 지어낸 것입니다. 꼬리표 <span class="sl sl-a">a</span> = 이번 슬라이스(계단 입력·결과 표), <span class="sl sl-b">b</span> = 바로 다음 슬라이스(자동 정지). 꼬리표 없는 부분은 a.</p>
+
+<style>
+  .ok{color:#16a34a}.warn{color:#d97706}.bad{color:#dc2626}.muted{color:#6b7280}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .p-ok{background:#dcfce7;color:#166534}.p-warn{background:#fef3c7;color:#92400e}.p-bad{background:#fee2e2;color:#991b1b}.sl{text-transform:none;display:inline-block;font-size:10px;font-weight:700;border-radius:4px;padding:0 5px;vertical-align:middle}.sl-a{background:#e0e7ff;color:#3730a3}.sl-b{background:#fce7f3;color:#9d174d}
+  .p-knee{background:#ffedd5;color:#9a3412}
+  table.st{border-collapse:collapse;width:100%;font-size:13px}
+  table.st th,table.st td{border-bottom:1px solid #e5e7eb;padding:5px 8px;text-align:right;white-space:nowrap}
+  table.st th{background:#f9fafb;font-weight:600;color:#374151}
+  table.st td:first-child,table.st th:first-child{text-align:left}
+  table.st td.l{text-align:left}
+  .hl{font-size:20px;font-weight:700;margin:4px 0}
+  .sub{font-size:13px;color:#4b5563}
+  .box{border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:10px 0;background:#fff}
+  .tag{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px}
+  .fld{display:flex;flex-direction:column;gap:3px;font-size:12px;color:#374151}
+  .fld input{border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:13px;width:110px}
+  .seg span{border:1px solid #d1d5db;padding:4px 10px;font-size:12px}
+  .seg span.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">① 실행 창(RunDialog) — 부하 모양 「계단」</div>
+  <div class="mockup-body">
+    <div class="row seg" style="gap:0;margin-bottom:10px"><span>고정</span><span>곡선</span><span class="on">계단</span></div>
+
+    <div class="box" style="background:#f9fafb;margin-top:0">
+      <div class="tag">목표 목록 만들기 <span class="sl sl-a">a</span></div>
+      <div class="row" style="gap:16px;align-items:flex-end">
+        <div class="fld">목표 (req/s) ⓘ<input value="400"></div>
+        <div class="fld">최대 배수<select style="border:1px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:13px;width:110px"><option>1.5×</option><option>2×</option><option selected>2.5×</option><option>3×</option></select></div>
+        <button class="mock-button" style="padding:6px 12px;font-size:13px">목록 만들기</button>
+      </div>
+      <p class="sub muted" style="margin-top:6px">목표의 25%·50%·75%·100% 뒤로 25%씩 최대 배수까지. ⓘ 버텨야 할 요청 수 — 운영 피크 데이터가 있으면 그 값을 넣으세요.</p>
+    </div>
+
+    <div class="row" style="gap:16px;align-items:flex-end">
+      <div class="fld">목표 목록 (req/s)<input style="width:340px" value="100, 200, 300, 400, 500, 600, 700, 800, 900, 1000"></div>
+      <div class="fld">계단 유지 (초)<input value="60"></div>
+      <div class="fld">상승 (초)<input value="5"></div>
+      <div class="fld">앞부분 버림 (초) ⓘ<input value="15"></div>
+    </div>
+    <p class="sub" style="margin-top:8px">10계단 · 최대 10분 50초 · 계단마다 측정 45초 &nbsp;|&nbsp; <span class="muted">ⓘ 목표를 올린 직후 시스템이 적응하는 시간. 자동 확장(HPA)이 있으면 늘리세요.</span></p>
+    <p class="sub muted" style="margin-top:2px">판정 기준(접힘 ▸): 달성 ≥ 95% · dropped 0 · 오류율 &lt; 1% · p99 &lt; 아래 계단의 3배 · (선택) 절대 p99 상한 ___ ms</p>
+
+    <div class="box" style="margin-top:10px">
+      <div class="tag">자동 정지 <span class="sl sl-b">b</span></div>
+      <div class="row"><input type="checkbox" checked> <b>포화가 확정되면 남은 계단을 실행하지 않음</b> <span class="muted">(연속 두 계단 실패)</span></div>
+      <div class="row" style="margin-top:6px"><input type="checkbox" checked> <b>즉시 정지</b> — 오류율 &gt; <input class="mock-input" style="width:50px;padding:3px 6px" value="5"> % 또는 p99 &gt; <input class="mock-input" style="width:70px;padding:3px 6px" value="2000"> ms 가 <input class="mock-input" style="width:40px;padding:3px 6px" value="3"> 초 연속</div>
+      <p class="sub" style="margin-top:6px;color:#92400e">⚠ 자동 정지가 걸리면 설정한 계단을 다 돌지 않습니다. 실제로 준 부하와 멈춘 이유는 리포트 맨 위에 남습니다.</p>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:16px">
+  <div class="mockup-header">② 리포트 맨 위 — 계단 결과</div>
+  <div class="mockup-body">
+
+    <div class="box">
+      <div class="tag">계단 판정</div>
+      <div class="hl"><span class="bad">포화 계단 700 req/s</span> &nbsp;<span style="font-weight:500;font-size:16px">· 마지막 정상 600 req/s</span></div>
+      <div class="sub">지연 상승 시작 ≈ <b class="warn">600 req/s</b> (p99가 아래 계단의 1.6배 — 판정 기준 안이지만 참고) · 튄 계단 1개(400) 넘김</div>
+      <div class="sub" style="margin-top:6px;padding:6px 10px;background:#fef3c7;border-radius:6px;color:#92400e"><span class="sl sl-b">b</span> <b>8계단(800 req/s)에서 자동 정지</b> — 9·10계단(900, 1000) 실행 안 함 · 사유: 포화 확정(7·8계단 연속 실패) · 14:10:40</div>
+    </div>
+
+    <div class="box">
+      <div class="tag">계단 곡선 — 가로: 목표 req/s · 세로: 지연(ms, 로그)</div>
+      <svg viewBox="0 0 660 270" width="100%" style="max-width:720px;font-family:inherit">
+        <!-- grid -->
+        <g stroke="#eef0f3"><line x1="50" y1="20" x2="640" y2="20"/><line x1="50" y1="76.7" x2="640" y2="76.7"/><line x1="50" y1="133.3" x2="640" y2="133.3"/><line x1="50" y1="190" x2="640" y2="190"/></g>
+        <g font-size="10" fill="#6b7280" text-anchor="end"><text x="44" y="24">1000</text><text x="44" y="80">100</text><text x="44" y="137">10</text><text x="44" y="193">1</text></g>
+        <!-- verdict backgrounds -->
+        <rect x="530" y="20" width="110" height="170" fill="#fee2e2" opacity=".5"/>
+        <!-- p50 line -->
+        <polyline fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3" points="50,150 131,150 213,146 294,136 376,142 457,136 539,106 620,43"/>
+        <!-- p99 line -->
+        <polyline fill="none" stroke="#4f46e5" stroke-width="2" points="50,129 131,127 213,123 294,96 376,114 457,103 539,68 620,23"/>
+        <!-- points -->
+        <g stroke="#fff" stroke-width="1.5">
+          <circle cx="50" cy="129" r="6" fill="#16a34a"/><circle cx="131" cy="127" r="6" fill="#16a34a"/><circle cx="213" cy="123" r="6" fill="#16a34a"/>
+          <circle cx="294" cy="96" r="6" fill="#d97706"/><circle cx="376" cy="114" r="6" fill="#16a34a"/>
+          <circle cx="457" cy="103" r="6" fill="#16a34a"/><circle cx="457" cy="103" r="10" fill="none" stroke="#ea580c" stroke-width="2"/>
+          <circle cx="539" cy="68" r="6" fill="#dc2626"/><circle cx="620" cy="23" r="6" fill="#dc2626"/>
+        </g>
+        <g font-size="11" text-anchor="middle">
+          <text x="50" y="118" fill="#374151">12</text><text x="131" y="116" fill="#374151">13</text><text x="213" y="112" fill="#374151">15</text>
+          <text x="294" y="85" fill="#92400e">46 튐</text><text x="376" y="103" fill="#374151">22</text>
+          <text x="457" y="88" fill="#9a3412">35 ↑시작</text><text x="539" y="57" fill="#991b1b">140 포화</text><text x="606" y="40" fill="#991b1b">900</text>
+        </g>
+        <!-- achieved strip -->
+        <text x="40" y="203" font-size="10" fill="#6b7280">달성률 (목표 대비)</text>
+        <g font-size="11" text-anchor="middle">
+          <text x="50" y="218" fill="#16a34a">100%</text><text x="131" y="218" fill="#16a34a">100%</text><text x="213" y="218" fill="#16a34a">99.8%</text><text x="294" y="218" fill="#16a34a">99.6%</text>
+          <text x="376" y="218" fill="#16a34a">99.7%</text><text x="457" y="218" fill="#16a34a">99.5%</text><text x="539" y="218" fill="#d97706">97.1%</text><text x="620" y="218" fill="#dc2626">81%</text>
+        </g>
+        <g font-size="10" fill="#6b7280" text-anchor="middle">
+          <text x="50" y="245">100</text><text x="131" y="245">200</text><text x="213" y="245">300</text><text x="294" y="245">400</text><text x="376" y="245">500</text><text x="457" y="245">600</text><text x="539" y="245">700</text><text x="620" y="245">800</text>
+        </g>
+        <g font-size="10" fill="#374151"><line x1="60" y1="262" x2="80" y2="262" stroke="#4f46e5" stroke-width="2"/><text x="84" y="265">p99</text>
+          <line x1="120" y1="262" x2="140" y2="262" stroke="#9ca3af" stroke-dasharray="4 3"/><text x="144" y="265">p50</text>
+          <circle cx="185" cy="262" r="4" fill="#16a34a"/><text x="192" y="265">정상</text><circle cx="230" cy="262" r="4" fill="#d97706"/><text x="237" y="265">튄 계단</text>
+          <circle cx="290" cy="262" r="4" fill="#dc2626"/><text x="297" y="265">포화</text><circle cx="340" cy="262" r="6" fill="none" stroke="#ea580c" stroke-width="2"/><text x="350" y="265">지연 상승 시작</text></g>
+      </svg>
+    </div>
+
+    <div class="box">
+      <div class="tag">계단 표</div>
+      <table class="st">
+        <tr><th>#</th><th>목표</th><th>달성</th><th>p50</th><th>p95</th><th>p99</th><th>오류율</th><th>dropped</th><th>측정 구간</th><th style="text-align:left">판정</th></tr>
+        <tr><td>1</td><td>100</td><td>100.0</td><td>5</td><td>9</td><td>12</td><td>0%</td><td>0</td><td>14:02:20–14:03:05</td><td class="l"><span class="pill p-ok">정상</span></td></tr>
+        <tr><td>2</td><td>200</td><td>199.9</td><td>5</td><td>10</td><td>13</td><td>0%</td><td>0</td><td>14:03:25–14:04:10</td><td class="l"><span class="pill p-ok">정상</span></td></tr>
+        <tr><td>3</td><td>300</td><td>299.4</td><td>6</td><td>11</td><td>15</td><td>0%</td><td>0</td><td>14:04:30–14:05:15</td><td class="l"><span class="pill p-ok">정상</span></td></tr>
+        <tr><td>4</td><td>400</td><td>398.4</td><td>9</td><td>18</td><td><b>46</b></td><td>0%</td><td>0</td><td>14:05:35–14:06:20</td><td class="l"><span class="pill p-warn">튄 계단</span> <span class="muted">p99 3.1× (다음 계단 정상)</span></td></tr>
+        <tr><td>5</td><td>500</td><td>498.5</td><td>7</td><td>14</td><td>22</td><td>0%</td><td>0</td><td>14:06:40–14:07:25</td><td class="l"><span class="pill p-ok">정상</span></td></tr>
+        <tr><td>6</td><td>600</td><td>597.0</td><td>9</td><td>21</td><td>35</td><td>0.1%</td><td>0</td><td>14:07:45–14:08:30</td><td class="l"><span class="pill p-ok">정상</span> <span class="pill p-knee">지연 상승 시작</span></td></tr>
+        <tr><td>7</td><td>700</td><td>679.7</td><td>30</td><td>88</td><td><b>140</b></td><td>0.4%</td><td>212</td><td>14:08:50–14:09:35</td><td class="l"><span class="pill p-bad">포화</span> <span class="muted">p99 4.0× · dropped 212</span></td></tr>
+        <tr><td>8</td><td>800</td><td>648.0</td><td>400</td><td>720</td><td><b>900</b></td><td>2.3%</td><td>8,410</td><td>14:09:55–14:10:40</td><td class="l"><span class="pill p-bad">포화</span> <span class="muted">달성 81% · 오류 2.3%</span></td></tr>
+        <tr class="muted"><td>9 <span class="sl sl-b">b</span></td><td>900</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td class="l"><span class="pill" style="background:#f3f4f6;color:#6b7280">실행 안 함</span> <span class="muted">자동 정지</span></td></tr>
+        <tr class="muted"><td>10 <span class="sl sl-b">b</span></td><td>1000</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td class="l"><span class="pill" style="background:#f3f4f6;color:#6b7280">실행 안 함</span> <span class="muted">자동 정지</span></td></tr>
+      </table>
+      <p class="sub" style="margin-top:6px">⚠ 계단 7: 측정 구간 첫 10초 p99가 나머지의 2.4배 — 앞부분 버림(15초)이 짧았을 수 있습니다.</p>
+      <p class="sub muted">단위: req/s, ms. 측정 구간 시각은 서버 대시보드를 같은 구간으로 맞추는 용도. 운영 환경 실사용자 트래픽은 handicap이 모릅니다.</p>
+    </div>
+
+    <div class="box">
+      <div class="tag">기존 1초 차트 + 계단 띠 (회색 = 상승·버림, 색 = 측정)</div>
+      <svg viewBox="0 0 660 170" width="100%" style="max-width:720px">
+        <g>
+          <!-- 8 steps × 70px starting x=50; grey 22px, measured 48px -->
+          <rect x="50" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="72" y="10" width="48" height="130" fill="#dcfce7"/>
+          <rect x="120" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="142" y="10" width="48" height="130" fill="#dcfce7"/>
+          <rect x="190" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="212" y="10" width="48" height="130" fill="#dcfce7"/>
+          <rect x="260" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="282" y="10" width="48" height="130" fill="#fef3c7"/>
+          <rect x="330" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="352" y="10" width="48" height="130" fill="#dcfce7"/>
+          <rect x="400" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="422" y="10" width="48" height="130" fill="#dcfce7"/>
+          <rect x="470" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="492" y="10" width="48" height="130" fill="#fee2e2"/>
+          <rect x="540" y="10" width="22" height="130" fill="#e5e7eb"/><rect x="562" y="10" width="48" height="130" fill="#fee2e2"/>
+        </g>
+        <!-- RPS staircase -->
+        <polyline fill="none" stroke="#4f46e5" stroke-width="2" points="50,140 55,126 120,126 125,112 190,112 195,98 260,98 265,84 330,84 335,70 400,70 405,56 470,56 475,43 540,43 545,30 560,38 580,44 610,46"/>
+        <!-- p99 jagged -->
+        <polyline fill="none" stroke="#dc2626" stroke-width="1.3" points="50,128 60,120 72,127 120,127 130,118 142,126 190,126 200,116 212,125 260,124 270,100 282,104 300,102 330,106 340,112 352,121 400,121 410,108 422,117 470,116 480,70 492,82 520,90 540,92 550,40 562,36 610,34"/>
+        <g font-size="10" fill="#6b7280" text-anchor="middle"><text x="96" y="156">100</text><text x="166" y="156">200</text><text x="236" y="156">300</text><text x="306" y="156">400</text><text x="376" y="156">500</text><text x="446" y="156">600</text><text x="516" y="156">700</text><text x="586" y="156">800</text></g>
+        <g font-size="10" fill="#374151"><line x1="620" y1="20" x2="640" y2="20" stroke="#4f46e5" stroke-width="2"/><text x="620" y="32">RPS</text><line x1="620" y1="50" x2="640" y2="50" stroke="#dc2626"/><text x="620" y="62">p99</text></g>
+      </svg>
+      <p class="sub muted">계단 안에서 p99가 계속 오르는지(대기열이 쌓이는 중), 버린 구간에서 무슨 일이 있었는지 여기서 봅니다.</p>
+    </div>
+
+    <p class="sub muted">그 아래는 지금 리포트(요약·스텝 표·분포 …) 그대로.</p>
+  </div>
+</div>
