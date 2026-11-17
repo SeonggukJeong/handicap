@@ -1192,6 +1192,21 @@ pub async fn report_insights_csv(
     ))
 }
 
+pub async fn report_stairs_csv(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    ensure_terminal(&row)?;
+    let report = build_report_for_run(&state.db, &id).await?;
+    let bytes = crate::export::report_to_stairs_csv(&report).ok_or(ApiError::NotFound)?;
+    Ok(file_response(
+        "text/csv; charset=utf-8",
+        &format!("run-{id}-stairs.csv"),
+        bytes,
+    ))
+}
+
 #[derive(serde::Deserialize)]
 pub struct CompareParams {
     pub run_ids: String,

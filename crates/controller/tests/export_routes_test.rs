@@ -38,6 +38,13 @@ fn make_hdr_bytes(samples_us: &[u64]) -> Vec<u8> {
 }
 
 async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, String) {
+    seed_run_with_stair(db, None).await
+}
+
+async fn seed_run_with_stair(
+    db: &handicap_controller::store::Db,
+    stair: Option<handicap_controller::stair::StairConfig>,
+) -> (String, String) {
     let yaml = concat!(
         "version: 1\n",
         "name: export-test\n",
@@ -86,7 +93,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         connect_timeout_seconds: None,
         worker_count: None,
         apply_scenario_think_time: true,
-        stair: None,
+        stair,
     };
     let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env, None)
         .await
@@ -584,5 +591,67 @@ async fn comparison_insights_csv_returns_long_format() {
             .starts_with("run_id,kind,severity,"),
         "header: {}",
         text.lines().next().unwrap()
+    );
+}
+
+#[tokio::test]
+async fn report_stairs_csv_404_for_non_stair() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (run_id, _) = seed_run_with_metrics(&db).await;
+    let app = make_app(db);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report-stairs.csv"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn report_stairs_csv_200_for_stair() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let cfg = handicap_controller::stair::StairConfig {
+        targets: vec![100, 200],
+        hold_seconds: 1,
+        ramp_seconds: 0,
+        discard_seconds: 0,
+        p99_cap_ms: None,
+    };
+    let (run_id, _) = seed_run_with_stair(&db, Some(cfg)).await;
+    let app = make_app(db);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report-stairs.csv"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(cd.contains(&format!("run-{run_id}-stairs.csv")), "{cd}");
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        text.lines()
+            .nth(2)
+            .unwrap()
+            .starts_with("index,target_per_s"),
+        "{text}"
     );
 }
