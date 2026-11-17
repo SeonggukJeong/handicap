@@ -308,3 +308,84 @@ async fn old_stream_close_does_not_remove_newer_registration() {
     drop((tx2, in2));
     rc.shutdown().await;
 }
+
+/// run이 `completed`가 되는 순간을 20ms 간격으로 지켜보고 그 시각을 돌려준다.
+async fn wait_completed(rc: &RunningController, run_id: &str) -> tokio::time::Instant {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        if run_status(rc, run_id).await == "completed" {
+            return tokio::time::Instant::now();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "run never completed"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn worker_reregisters_promptly_after_run() {
+    let port = free_port();
+    let rc = start_pool(port).await;
+    let t = target().await;
+    let (cancel, h) = spawn_ephemeral_worker(port);
+    let id = wait_first_worker_id(&rc).await;
+    let sid = create_scenario(&rc, &t.uri()).await;
+    let run_id = start_run(&rc, &sid, 1).await;
+    wait_busy(&rc, &id).await;
+    let t0 = wait_completed(&rc, &run_id).await;
+    let deadline = t0 + Duration::from_secs(10);
+    let t1 = loop {
+        if worker(&rc, &id).await.is_some_and(|w| w["busy"] == false) {
+            break tokio::time::Instant::now();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "worker never came back idle"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let elapsed = t1 - t0;
+    eprintln!("reregister elapsed after completed: {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_millis(1000),
+        "worker should re-register promptly after the run, took {elapsed:?}"
+    );
+    cancel.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(10), h).await;
+    rc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn back_to_back_run_gets_the_worker() {
+    let port = free_port();
+    let rc = start_pool(port).await;
+    let t = target().await;
+    let (cancel, h) = spawn_ephemeral_worker(port);
+    let id = wait_first_worker_id(&rc).await;
+    let sid = create_scenario(&rc, &t.uri()).await;
+    let run_id = start_run(&rc, &sid, 1).await;
+    wait_busy(&rc, &id).await;
+    let t0 = wait_completed(&rc, &run_id).await;
+    let window = t0 + Duration::from_millis(500);
+    let second = loop {
+        let resp = post_run(&rc, &sid, 1).await;
+        if resp.status().is_success() {
+            break resp;
+        }
+        assert!(
+            tokio::time::Instant::now() < window,
+            "back-to-back run was not accepted within 500ms, last status {}",
+            resp.status()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    eprintln!("second run accepted after: {:?}", t0.elapsed());
+    let v: Value = second.json().await.unwrap();
+    assert!(v["id"].as_str().is_some(), "{v}");
+    wait_busy(&rc, &id).await;
+    cancel.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(10), h).await;
+    rc.shutdown().await;
+}
