@@ -1,7 +1,7 @@
 # 끝난 run 항목 정리 + 「제외」 틈 묘비 (run-workers-cleanup) — 설계
 
 - 날짜: 2026-11-17
-- 상태: 설계 — spec-plan-reviewer APPROVE (4라운드, 2026-11-17) · R9 편입 후 재검토 APPROVE (3라운드 추가)
+- 상태: **완료** (2026-11-17, 코드 `41198b75`..`c10ab48e`) — spec-plan-reviewer APPROVE (4라운드) · R9 편입 후 재검토 APPROVE · 최종 리뷰 READY-TO-MERGE · security APPROVE · 라이브 US1·US2·US4 통과(US3 가상 시계 테스트). 판단·연기 roadmap §B67
 - 유형: correctness-bug (조용한 부하 이탈 — 「제외」했는데 부하기가 다시 들어와 부하를 받음 · run 직후 다음 run이 부하기를 덜 받음) + internal-polish (끝난 run 메모리)
 - 출처: roadmap §B66 (3) 연기 3건 — ① `RunWorkers` 항목 미삭제 ② run 직후 틈의 「제외」 유실 ③ 재등록 대기 항목이 stale까지 「busy · 옛 run」. 사용자 결정(2026-11-17): ①②를 함께(§B66 원문 「같이」), ③도 같은 상태를 다루므로 이번 범위. spec 리뷰가 찾은 선재 버그(풀 배정 일부 실패 뒤 예약 워커가 「busy」로 굳음)도 사용자 결정(2026-11-17)으로 편입 — R9.
 - 범위: **컨트롤러** (`crates/controller/src/grpc/coordinator.rs` 중심 + `api/runs.rs` 두 곳) + 낡은 주석·함정 노트(R8). proto·migration·UI·셸·워커 동작 무변경.
@@ -88,7 +88,7 @@ US 정정(사용자 승인 뒤, spec 리뷰 반영 2026-11-17): 승인 초안 US
 - **등록 쪽**: `pool_register_idle`이 자기 락 구간 안에서 묘비를 먼저 보고, 있으면 묘비를 지우고(한 번만 씀) 항목을 넣지 않은 채 `Tombstoned(reason)` 결과를 돌려준다(아니면 `Registered { generation }`). 확인과 소비가 등록과 같은 락 구간이라 「제외 → 등록 확인(묘비 없음) → 묘비 삽입 → 새 항목 생존」 경쟁이 없다.
 - **핸들러**: 묘비 확인은 `check_token`·풀 모드 검사(`:1461-1483`, 묘비 확인은 `:1483` 뒤 `pool_register_idle` 직전) **뒤**에만 일어난다(인증 안 된 상대가 워커 ID만 알고 묘비를 소비해 제외된 워커를 들여보내지 못하게). `Tombstoned`면 그 스트림으로 `Disconnect{reason}`을 보내고(수락 Ping 없음) 다른 거절 경로처럼 **`break`** 한다 — `continue`하면 `worker_id`가 `Some`·`pool_conn`이 false라 종료 신호를 안 듣는 핸들러가 남는다(`:1442`). 워커는 대기 중 `Disconnect`를 받아 취소·종료한다(`worker-core/src/client.rs:279-283` — CLI는 프로세스 토큰이라 `run_pool_until` 종료, 데스크톱은 자식 토큰 취소 → `Err` 분기에서 `PoolEvent::Excluded`, `worker/src/lib.rs:720-724`).
 - 묘비를 늘 남기지 않는 이유: 정상 전달된 「제외」 뒤 사용자가 부하기에서 「다시 접속」을 누르면 다시 튕기기 때문이다. 같은 이유로 한 번 쓰면 지운다.
-- **만료**: `pool_heartbeat_tick`(주입된 `now`·`stale`)이 만든 지 stale보다 오래된 묘비를 지운다. **비용**: stale을 길게(최대 86400초) 둔 서버에서 몇 시간 뒤 일부러 다시 켠 그 부하기는 한 번 튕긴다(한 번 쓰면 지우므로 그다음 시작은 정상).
+- **만료**: `pool_heartbeat_tick`(주입된 `now`·`stale`)이 만든 지 `max(stale, 60초)`보다 오래된 묘비를 지운다(구현 중 최종 리뷰 반영 — 60초 하한 `TOMBSTONE_MIN_LIFETIME`은 워커 재접속 상한 `reconnect::TOTAL_CAP`과 같아, stale을 짧게 둔 서버에서도 백오프 중인 부하기가 묘비 만료 뒤에 돌아와 「제외」가 사라지지 않게 한다). **비용**: stale을 길게(최대 86400초) 둔 서버에서 몇 시간 뒤 일부러 다시 켠 그 부하기는 한 번 튕긴다(한 번 쓰면 지우므로 그다음 시작은 정상).
 - 묘비는 메모리에만(컨트롤러 재시작 = 풀도 비므로 같이 사라짐).
 
 ### R9 — 풀 배정 일부 실패 뒤 배정 못 받은 예약 워커 풀어 주기 (선재 버그, 사용자 결정 2026-11-17로 편입)
