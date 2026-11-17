@@ -76,6 +76,7 @@ async function load(state, opts = {}) {
           }
           if (cmd === "check_code") return state.preview ? Promise.resolve(state.preview) : Promise.reject("접속 코드 형식이 아닙니다");
           if (cmd === "connect_worker" || cmd === "disconnect_worker" || cmd === "reconnect_worker") {
+            if (cmd === "reconnect_worker" && state.reconnectFail) return Promise.reject(state.reconnectFail);
             if (cmd === "disconnect_worker" && state.disconnectFail) return Promise.reject(state.disconnectFail);
             if (state.after) state.value = state.after;
             return Promise.resolve(null);
@@ -536,6 +537,20 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     d.dispatchEvent(new w.Event("visibilitychange")); await sleep(30);
     check("xss servers: no img, text + bdi", d.querySelectorAll("img").length === 0 && d.getElementById("w-detail").textContent === evil + ", 10.0.0.8:8093" && [...d.querySelectorAll("#w-detail bdi")].some((b) => b.textContent === evil));
     check("xss servers: handler never ran", w.__pwn === undefined);
+  }
+  // 잠금 뒤에도 읽기 전용 명령 칸은 선택 가능해야 한다(복사 대체 경로)
+  {
+    const st = { value: base("local"), runs: 0, after: base("server") };
+    const { d } = await load(st);
+    d.getElementById("switch").click(); await sleep(800);
+    const cmd = d.getElementById("cmd");
+    check("local→server: #cmd has command and is not disabled", cmd && cmd.value === "CMD 192.168.0.12 macos 8093" && cmd.disabled === false);
+  }
+  {
+    const st = { value: workerBase({ state: "excluded" }), reconnectFail: "재접속 실패" };
+    const { d } = await load(st);
+    d.getElementById("w-reconnect").click(); await sleep(700);
+    check("reconnect failure text", d.getElementById("err").textContent === "다시 접속하지 못했습니다: 재접속 실패");
   }
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL`);
   process.exit(fails ? 1 : 0);

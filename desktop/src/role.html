@@ -216,7 +216,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
 
   // 본문(#app) 컨트롤만 잠근다 — 확인 상자(#confirm)의 버튼은 건드리지 않는다.
   function setAllDisabled(on) {
-    document.querySelectorAll("#app button, #app input, #app select, #app textarea").forEach(function (el) {
+    document.querySelectorAll("#app button, #app input, #app select, #app textarea:not([readonly])").forEach(function (el) {
       if (on) el.disabled = true;
     });
   }
