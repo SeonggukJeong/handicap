@@ -11,7 +11,15 @@ use handicap_engine::{
 };
 use handicap_proto::run_duration_secs;
 use handicap_proto::v1 as pb;
-use handicap_worker_core::{WorkerError, WorkerLink, connect_with_backoff, load_datasets};
+pub use handicap_worker_core::pool_status;
+use handicap_worker_core::pool_status::{
+    FailReason, PROBE_TIMEOUT, PoolEvent, classify, clip, desktop_retry_delay, probe_first,
+    tcp_reachable,
+};
+use handicap_worker_core::{
+    RegisterOpts, WorkerError, WorkerLink, connect_and_register_opts, connect_with_backoff,
+    load_datasets,
+};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{
@@ -524,6 +532,157 @@ pub async fn run_pool_until(args: WorkerArgs, cancel: CancellationToken) -> anyh
         }
     }
     info!("pool worker exiting");
+    Ok(())
+}
+
+/// 데스크톱 부하기가 접속할 풀 컨트롤러. 후보 IP마다 같은 포트를 시도한다.
+pub struct PoolTarget {
+    pub ips: Vec<std::net::Ipv4Addr>,
+    pub port: u16,
+    pub token: String,
+    pub worker_id: String,
+    pub capacity_vus: u32,
+}
+
+impl std::fmt::Debug for PoolTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PoolTarget")
+            .field("ips", &self.ips)
+            .field("port", &self.port)
+            .field("token", &"[REDACTED]")
+            .field("worker_id", &self.worker_id)
+            .field("capacity_vus", &self.capacity_vus)
+            .finish()
+    }
+}
+
+/// 취소 토큰이 울리면 `true`, `dur`이 먼저 지나면 `false`.
+async fn sleep_or_cancel(dur: Duration, cancel: &CancellationToken) -> bool {
+    tokio::select! {
+        _ = cancel.cancelled() => true,
+        _ = tokio::time::sleep(dur) => false,
+    }
+}
+
+/// 데스크톱 전용 풀 루프: 사이클마다 IP 탐침 → 접속 → 배정 실행, 실패해도 포기하지 않고
+/// 1·2·4·8s 간격으로 다시 시도하며 상태 사건을 `events`로 알린다. `cancel`이 울리면 반환한다.
+/// 서버의 `Disconnect`(제외)는 호출자 토큰의 자식 토큰만 취소되는 것으로 알아본다.
+pub async fn run_pool_desktop(
+    target: PoolTarget,
+    cancel: CancellationToken,
+    events: pool_status::EventSink,
+) -> anyhow::Result<()> {
+    let PoolTarget {
+        ips,
+        port,
+        token,
+        worker_id,
+        capacity_vus,
+    } = target;
+    let hostname = resolve_hostname();
+    let addrs: Vec<std::net::SocketAddr> = ips
+        .iter()
+        .map(|ip| std::net::SocketAddr::from((*ip, port)))
+        .collect();
+    let mut attempt = 0usize;
+    info!(version = env!("CARGO_PKG_VERSION"), %worker_id, "desktop pool worker starting");
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+        events(PoolEvent::Probing {
+            candidates: addrs.len(),
+        });
+        let Some(addr) = probe_first(&addrs, PROBE_TIMEOUT, tcp_reachable).await else {
+            let d = desktop_retry_delay(attempt);
+            events(PoolEvent::AttemptFailed {
+                reason: FailReason::Unreachable,
+                retry_in: d,
+            });
+            if sleep_or_cancel(d, &cancel).await {
+                break;
+            }
+            attempt += 1;
+            continue;
+        };
+
+        let child = cancel.child_token();
+        let accepted = std::sync::atomic::AtomicBool::new(false);
+        let on_accepted = || {
+            accepted.store(true, Ordering::SeqCst);
+            events(PoolEvent::Accepted { addr });
+        };
+        let res = connect_and_register_opts(
+            &format!("http://{addr}"),
+            &worker_id,
+            "",
+            capacity_vus,
+            &token,
+            &hostname,
+            true,
+            &child,
+            RegisterOpts {
+                connect_timeout: Some(PROBE_TIMEOUT),
+                on_accepted: Some(&on_accepted),
+            },
+        )
+        .await;
+        match res {
+            Ok(link) => {
+                attempt = 0;
+                let scenario_name = Scenario::from_yaml(&link.assignment.scenario_yaml)
+                    .ok()
+                    .map(|s| clip(&s.name, 80));
+                events(PoolEvent::RunStarted {
+                    run_id: link.assignment.run_id.clone(),
+                    scenario_name,
+                });
+                if let Err(e) =
+                    execute_assignment(link, worker_id.clone(), child.child_token()).await
+                {
+                    warn!(error = ?e, "desktop pool assignment ended with error; back to idle");
+                }
+                if cancel.is_cancelled() {
+                    break;
+                }
+                if child.is_cancelled() {
+                    events(PoolEvent::Excluded);
+                    break;
+                }
+                events(PoolEvent::RunEnded);
+            }
+            Err(e) => {
+                if cancel.is_cancelled() {
+                    break;
+                }
+                if child.is_cancelled() {
+                    events(PoolEvent::Excluded);
+                    break;
+                }
+                warn!(error = %e, "desktop pool connect failed; retrying");
+                let d = if accepted.load(Ordering::SeqCst) {
+                    attempt = 0;
+                    let d = desktop_retry_delay(0);
+                    events(PoolEvent::SessionLost {
+                        reason: classify(&e),
+                    });
+                    d
+                } else {
+                    let d = desktop_retry_delay(attempt);
+                    events(PoolEvent::AttemptFailed {
+                        reason: classify(&e),
+                        retry_in: d,
+                    });
+                    d
+                };
+                if sleep_or_cancel(d, &cancel).await {
+                    break;
+                }
+                attempt += 1;
+            }
+        }
+    }
+    info!("desktop pool worker exiting");
     Ok(())
 }
 
