@@ -60,7 +60,8 @@ US 문구 정정(사용자 승인 뒤, 리뷰 반영 — 2026-11-17): US2의 확
 
 ### R3 — 컨트롤러·워커 신호 (1차 §8 ②·③)
 
-- **등록 직후 Ping**: 풀 등록 경로에서 그 스트림의 `tx`로 `Ping`을 **`pool_register_idle` 호출 전에** 보낸다 — 풀에 들어간 뒤 동시 `assign_pool_workers`가 `Assignment`를 먼저 밀어 넣을 수 없게(같은 `tx` 큐 순서). 워커가 등록 뒤 처음 받는 `Ping` = 「서버가 받아 줌」(토큰 통과). 단위/통합 테스트: 등록 직후 첫 서버 메시지가 `Ping`.
+- **등록 직후 Ping**: 풀 등록 경로에서 그 스트림의 `tx`로 `Ping`을 **`pool_register_idle`이 끝난 뒤에** 보낸다 — 워커가 받는 첫 수락 신호 = 「서버 풀 목록에 들어감」(토큰 통과 + 목록 반영). 그 사이 동시 `assign_pool_workers`가 `Assignment`를 먼저 밀어 넣으면 워커는 그것을 묵시적 수락으로 받고(R4 `Accepted`), 뒤따른 `Ping`은 `forward_inbound`가 답한다. 단위/통합 테스트: 실행이 없을 때 등록 직후 첫 서버 메시지가 `Ping`, `Accepted` 직후 풀 목록에 그 워커가 있음.
+  - 구현 중 정정(2026-11-17, Task 5 리뷰): 처음 설계는 「`pool_register_idle` 호출 **전**」이었다. 그러면 고정 ID의 DB 읽기 동안 워커가 「연결됨」인데 서버 목록엔 없는 틈이 생겼고, 테스트가 그 틈을 변호하는 주석을 달았다. `pool_register_idle`엔 거절 경로가 없고 `Assignment`-먼저는 묵시적 수락이 이미 덮으므로 뒤로 옮겼다.
 - **배정 전 Abort 사유 보존**: `connect_and_register`의 배정 대기에서 `Abort`를 받으면 그 `reason`을 에러 값에 담는다. 에러 `Display`는 지금 그대로 `"missing assignment after register"`(로그 불변), 사유는 별도 접근자로. **사유 문자열 `"authentication failed"`는 `handicap-proto` 크레이트의 공개 상수 하나**로 두고 컨트롤러(`coordinator.rs:1329`)와 워커 분류가 함께 쓴다(두 크레이트 모두 이미 의존).
 
 ### R4 — 상태 사건 통로·연결 루프 (worker-core + worker, 1차 §8 ①·④)
