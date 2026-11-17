@@ -28,6 +28,10 @@ function base(role) {
   };
 }
 const FAKE_CODE = "HANDICAP1-" + "ab".repeat(40);
+const FAKE_TOKEN = "SECRETtok42SECRETtok42";
+const MASKED_CODE = "HANDICAP1-" + "•".repeat(12);
+const masked = (ip, os) => `CMD ${ip} ${os} 8093 --token ${"•".repeat(8)}`;
+const TRUST_LINE = "믿을 수 있는 서버의 코드만 붙여넣으세요 — 서버가 정한 주소로 이 PC가 요청을 보냅니다(이 PC가 닿는 사내 주소 포함)";
 function workerBase(w) {
   const st = base("worker");
   st.app_url = null;
@@ -55,7 +59,7 @@ async function load(state, opts = {}) {
             if (state.roleStateFailures > 0) { state.roleStateFailures--; return Promise.reject("상태를 읽지 못함"); }
             return Promise.resolve(JSON.parse(JSON.stringify(state.value)));
           }
-          if (cmd === "worker_command") return Promise.resolve(`CMD ${args.ip} ${args.os} ${state.value.grpc_port}`);
+          if (cmd === "worker_command") return Promise.resolve(`CMD ${args.ip} ${args.os} ${state.value.grpc_port} --token ${FAKE_TOKEN}`);
           if (cmd === "active_run_count") return state.runsFail ? Promise.reject(state.runsFail) : Promise.resolve(state.runs || 0);
           if (cmd === "switch_role") {
             if (state.switchFail) {
@@ -120,7 +124,8 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     const radios = d.querySelectorAll('input[name="ip"]');
     check("2 ip radios, first checked", radios.length === 2 && radios[0].checked && !radios[1].checked);
     check("os default = server_os", d.getElementById("os").value === "macos");
-    check("command filled", d.getElementById("cmd").value === "CMD 192.168.0.12 macos 8093");
+    check("command filled (token masked)", d.getElementById("cmd").value === masked("192.168.0.12", "macos"));
+    check("cmd show button", d.getElementById("cmd-show").textContent === "토큰 보기" && !d.getElementById("cmd-show").disabled);
     check("macos guide", d.getElementById("os-guide").textContent === "같은 버전의 앱을 응용 프로그램 폴더에 설치하고 한 번 열어 허용한 뒤(또는 xattr -dr com.apple.quarantine /Applications/Handicap.app) 터미널에 붙여넣으세요");
     check("macos firewall", d.getElementById("firewall").textContent === "「들어오는 네트워크 연결을 허용하겠습니까?」 창이 뜨면 허용을 눌러 주세요");
     check("port notice", noticeTexts(d).includes("부하기 접속 포트 8081을 다른 프로그램이 쓰고 있어 8093로 열었습니다 — 부하기들에 새 접속 코드(또는 명령)를 주세요"));
@@ -128,17 +133,24 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     check("toggle checked", d.getElementById("sw").checked && !d.getElementById("sw").disabled);
     const os = d.getElementById("os"); os.value = "linux"; os.dispatchEvent(new d.defaultView.Event("change"));
     await sleep(20);
-    check("linux command", d.getElementById("cmd").value === "CMD 192.168.0.12 linux 8093");
+    check("linux command", d.getElementById("cmd").value === masked("192.168.0.12", "linux"));
     check("linux guide", d.getElementById("os-guide").textContent === "AppImage 폴더에서 붙여넣으세요(실행 권한 필요)");
     radios[1].checked = true; radios[1].dispatchEvent(new d.defaultView.Event("change"));
     await sleep(20);
-    check("second ip command", d.getElementById("cmd").value === "CMD 10.0.0.5 linux 8093");
+    check("second ip command", d.getElementById("cmd").value === masked("10.0.0.5", "linux"));
     const btn = [...d.querySelectorAll(".notice")].find((n) => n.textContent.includes("8081")).querySelector("button");
     btn.click(); await sleep(30);
     check("dismiss called", calls.some((c) => c[0] === "dismiss_notice" && c[1].kind === "port_changed"));
     check("port notice gone", !noticeTexts(d).some((s) => s.includes("8081")));
+    check("token never in DOM while masked", !d.documentElement.innerHTML.includes(FAKE_TOKEN) && !d.getElementById("cmd").value.includes(FAKE_TOKEN));
+    d.getElementById("cmd-show").click(); await sleep(10);
+    check("cmd show → full command", d.getElementById("cmd").value === "CMD 10.0.0.5 linux 8093 --token " + FAKE_TOKEN && d.getElementById("cmd-show").textContent === "토큰 가리기");
+    d.getElementById("cmd-show").click(); await sleep(10);
+    check("cmd hide → masked again", d.getElementById("cmd").value === masked("10.0.0.5", "linux") && d.getElementById("cmd-show").textContent === "토큰 보기");
     d.getElementById("copy").click(); await sleep(20);
-    check("copy failure message (jsdom has no clipboard)", d.getElementById("copy-msg").textContent === "복사하지 못했습니다 — 칸을 선택해 직접 복사하세요");
+    check("copy failure message (jsdom has no clipboard)", d.getElementById("copy-msg").textContent === "복사하지 못했습니다 — 선택된 명령을 직접 복사하세요");
+    const cmdEl = d.getElementById("cmd");
+    check("copy failure → command revealed + fully selected", cmdEl.value === "CMD 10.0.0.5 linux 8093 --token " + FAKE_TOKEN && cmdEl.selectionStart === 0 && cmdEl.selectionEnd === cmdEl.value.length && d.getElementById("cmd-show").textContent === "토큰 가리기");
     check("no token key in any call args", calls.every((c) => !JSON.stringify(c[1] || {}).includes("token")));
     const pt = d.getElementById("plaintext");
     check("plaintext caution shown", !pt.hidden && !pt.closest("[hidden]") && pt.textContent === "연결은 암호화되지 않습니다 — 회사 망에서만 쓰세요. 부하기 PC는 테스트의 환경 값(비밀 포함)을 받습니다.");
@@ -262,7 +274,14 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
   {
     const st = { value: base("server") };
     const { d, calls, logs } = await load(st);
-    check("server: #code text = code", d.getElementById("code").textContent === FAKE_CODE);
+    check("server: #code masked by default", d.getElementById("code").textContent === MASKED_CODE);
+    check("server: code text not in DOM while masked", !d.documentElement.innerHTML.includes(FAKE_CODE));
+    const cs = d.getElementById("code-show");
+    check("server: #code-show 보기 + label", cs.textContent === "보기" && cs.getAttribute("aria-label") === "접속 코드 보기" && !cs.disabled);
+    cs.click(); await sleep(10);
+    check("server: 보기 → full code, wraps", d.getElementById("code").textContent === FAKE_CODE && d.getElementById("code").classList.contains("shown") && cs.textContent === "가리기" && cs.getAttribute("aria-label") === "접속 코드 가리기");
+    cs.click(); await sleep(10);
+    check("server: 가리기 → masked", d.getElementById("code").textContent === MASKED_CODE && !d.getElementById("code").classList.contains("shown") && cs.textContent === "보기");
     check("server: #cmd-box closed", d.getElementById("cmd-box").tagName === "DETAILS" && !d.getElementById("cmd-box").open);
     check("server: #cmd-box summary", d.querySelector("#cmd-box summary").textContent === "명령으로 붙이기 (포터블 exe·터미널)");
     check("server: code nowrap style", /nowrap/.test(d.defaultView.getComputedStyle(d.getElementById("code")).whiteSpace));
@@ -272,7 +291,8 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     check("server: cmd parts inside cmd-box", ["cmd", "copy", "os", "os-guide", "no-ip", "ips"].every((i) => d.getElementById("cmd-box").contains(d.getElementById(i))));
     check("server: #code-copy enabled", !d.getElementById("code-copy").disabled);
     d.getElementById("code-copy").click(); await sleep(20);
-    check("server: code copy failure message", d.getElementById("code-copy-msg").textContent === "복사하지 못했습니다 — 칸을 선택해 직접 복사하세요");
+    check("server: code copy failure message", d.getElementById("code-copy-msg").textContent === "복사하지 못했습니다 — 선택된 코드를 직접 복사하세요");
+    check("server: copy failure → code revealed + selected", d.getElementById("code").textContent === FAKE_CODE && d.defaultView.getSelection().toString() === FAKE_CODE && cs.textContent === "가리기");
     check("server: #join summary 부하기로 접속", d.querySelector("#join summary").textContent === "부하기로 접속");
     check("server: #join closed", !d.getElementById("join").open);
     check("server: connect_code called once", calls.filter((c) => c[0] === "connect_code").length === 1);
@@ -284,6 +304,7 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     const { d } = await load(st);
     check("server: code error shown", !d.getElementById("code-err").hidden && d.getElementById("code-err").textContent === "이 PC의 망 주소를 찾지 못했습니다");
     check("server: code copy disabled on error", d.getElementById("code-copy").disabled);
+    check("server: code show disabled on error", d.getElementById("code-show").disabled && d.getElementById("code").textContent === "");
   }
   // 부하기 상태 6종
   {
@@ -364,8 +385,9 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     d.getElementById("code-in").value = FAKE_CODE;
     d.getElementById("join-btn").click(); await sleep(40);
     const lines = [...d.querySelectorAll("#confirm-text p")].map((p) => p.textContent);
-    check("join confirm 4 lines", lines.length === 4 && lines.join("|") === [
+    check("join confirm 5 lines", lines.length === 5 && lines.join("|") === [
       "이 서버에 부하기로 접속합니다: 10.0.0.9:8093, 10.0.0.8:8093 — 이 서버가 보내는 테스트를 이 PC가 실행합니다",
+      TRUST_LINE,
       "사설 망 주소가 아닙니다 — 회사 망 밖의 서버일 수 있습니다",
       "이 PC의 시나리오 화면·예약 실행·운영 모니터가 멈춥니다(다른 역할로 돌아오면 다시 켜집니다)",
       "실행 중인 테스트 2개가 중단됩니다"].join("|"));
@@ -388,7 +410,8 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     const { d } = await load(st);
     d.getElementById("code-in").value = FAKE_CODE;
     d.getElementById("join-btn").click(); await sleep(40);
-    check("join confirm 2 lines (private, 0 runs)", d.querySelectorAll("#confirm-text p").length === 2);
+    const pl = [...d.querySelectorAll("#confirm-text p")].map((p) => p.textContent);
+    check("join confirm 3 lines (private, 0 runs) incl. trust line", pl.length === 3 && pl[1] === TRUST_LINE);
     d.getElementById("confirm-cancel").click(); await sleep(20);
   }
   // 부하기 running: 끊기·전환
@@ -438,7 +461,7 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     d.getElementById("code-in").value = FAKE_CODE;
     d.getElementById("join-btn").click(); await sleep(40);
     const lines = [...d.querySelectorAll("#confirm-text p")].map((p) => p.textContent);
-    check("worker join: 2 lines (target + running)", lines.length === 2 && lines[1] === "실행 중인 테스트가 중단됩니다 — 다른 부하기도 함께 멈춥니다");
+    check("worker join: 3 lines (target + trust + running)", lines.length === 3 && lines[1] === TRUST_LINE && lines[2] === "실행 중인 테스트가 중단됩니다 — 다른 부하기도 함께 멈춥니다");
     d.getElementById("confirm-cancel").click(); await sleep(20);
   }
   // excluded → 다시 접속
@@ -511,10 +534,15 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
   {
     const st = { value: base("server") };
     const { d, w } = await load(st);
-    check("code present while server", d.getElementById("code").textContent === FAKE_CODE);
+    check("code present (masked) while server", d.getElementById("code").textContent === MASKED_CODE);
+    d.getElementById("code-show").click(); await sleep(10);
+    check("code revealed before leaving", d.getElementById("code").textContent === FAKE_CODE);
     st.value = base("local");
     d.dispatchEvent(new w.Event("visibilitychange")); await sleep(30);
     check("code cleared after leaving server", d.getElementById("code").textContent === "" && !d.documentElement.innerHTML.includes("HANDICAP1-"));
+    st.value = base("server");
+    d.dispatchEvent(new w.Event("visibilitychange")); await sleep(30);
+    check("back to server → masked again", d.getElementById("code").textContent === MASKED_CODE && d.getElementById("code-show").textContent === "보기");
   }
   // 잠금 때 textarea도
   {
@@ -522,6 +550,7 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     const { d } = await load(st);
     d.getElementById("switch").click(); await sleep(30);
     check("overlay disables #code-in", d.getElementById("busy").classList.contains("on") && d.getElementById("code-in").disabled);
+    check("overlay disables show buttons", d.getElementById("code-show").disabled && d.getElementById("cmd-show").disabled);
     await sleep(700);
     check("code-in re-enabled after overlay", !d.getElementById("code-in").disabled);
   }
@@ -544,7 +573,8 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     const { d } = await load(st);
     d.getElementById("switch").click(); await sleep(800);
     const cmd = d.getElementById("cmd");
-    check("local→server: #cmd has command and is not disabled", cmd && cmd.value === "CMD 192.168.0.12 macos 8093" && cmd.disabled === false);
+    check("local→server: #cmd has command and is not disabled", cmd && cmd.value === masked("192.168.0.12", "macos") && cmd.disabled === false);
+    check("local→server: show buttons re-enabled", !d.getElementById("code-show").disabled && !d.getElementById("cmd-show").disabled);
   }
   {
     const st = { value: workerBase({ state: "excluded" }), reconnectFail: "재접속 실패" };
