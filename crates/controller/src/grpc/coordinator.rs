@@ -26,6 +26,9 @@ use crate::store::runs::{self, RunStatus};
 
 const DATASET_BATCH_ROWS: i64 = 1000;
 
+/// How long a pool entry left awaiting re-register survives before it is removed.
+const AWAIT_REREGISTER_GRACE: Duration = Duration::from_secs(10);
+
 /// Abort reason for an idle (empty run_id) register on a controller that is not in pool mode.
 const NOT_POOL_MODE_REASON: &str = "controller is not in pool mode";
 
@@ -654,6 +657,15 @@ impl CoordinatorState {
                     if e.assigned_run.is_some() && e.finished_part {
                         e.awaiting_reregister = true;
                         e.tx = None;
+                        // Deadline fixed before the spawn: a task's own `sleep` would start
+                        // counting only when first polled.
+                        let deadline = tokio::time::Instant::now() + AWAIT_REREGISTER_GRACE;
+                        let this = self.clone();
+                        let wid = worker_id.to_string();
+                        tokio::spawn(async move {
+                            tokio::time::sleep_until(deadline).await;
+                            this.pool_expire_awaiting(&wid, generation).await;
+                        });
                         return;
                     }
                 }
@@ -661,6 +673,17 @@ impl CoordinatorState {
             }
         }
         self.pool_evict_if_same(worker_id, generation).await;
+    }
+
+    /// Remove an entry still awaiting re-register under `generation` (no run handling: its
+    /// part is already finished). A newer registration of the same id is left alone.
+    async fn pool_expire_awaiting(&self, worker_id: &str, generation: u64) {
+        let mut g = self.pool.lock().await;
+        if g.get(worker_id)
+            .is_some_and(|e| e.awaiting_reregister && e.generation == generation)
+        {
+            g.remove(worker_id);
+        }
     }
 
     /// Record that `worker_id` finished its part of `run_id`. Only when the entry is
@@ -1267,8 +1290,9 @@ impl CoordinatorState {
     /// Fail a run that cannot make progress and tear it down: remove the run +
     /// snapshot siblings under the runs lock (an absent run = already finalized,
     /// no-op), then (lock-free) mark the run failed with `reason`, abort registered
-    /// workers with `abort_msg`, and release the dispatcher. Shared by `fail_incomplete_registration` (registration timeout)
-    /// and the run-progress watchdog A/B (no-load / backstop). R14 lock discipline.
+    /// workers with `abort_msg`, and release the dispatcher. Shared by
+    /// `fail_incomplete_registration` (registration timeout) and the run-progress watchdog
+    /// A/B (no-load / backstop). R14 lock discipline.
     pub async fn fail_run_hung(&self, run_id: &str, reason: &str, abort_msg: &str) {
         let siblings = {
             let mut g = self.runs.lock().await;
@@ -3809,6 +3833,54 @@ mod tests {
             .await;
         coord.pool_stream_closed("w0", generation).await;
         assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
+    }
+
+    #[tokio::test]
+    async fn awaiting_entry_expires_after_grace() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        tokio::time::pause();
+        coord.pool_stream_closed("w0", generation).await;
+        tokio::time::advance(Duration::from_secs(9)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, None);
+    }
+
+    #[tokio::test]
+    async fn old_timer_ignores_new_awaiting_generation() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, g1, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        tokio::time::pause();
+        coord.pool_stream_closed("w0", g1).await;
+        tokio::time::advance(Duration::from_secs(5)).await;
+        let (tx2, _rx2) = fake_tx();
+        let g2 = coord
+            .pool_register_idle("w0", tx2, 100, "host".into(), false)
+            .await;
+        {
+            let mut g = coord.pool.lock().await;
+            let e = g.get_mut("w0").unwrap();
+            e.assigned_run = Some("r2".into());
+            e.finished_part = true;
+        }
+        coord.pool_stream_closed("w0", g2).await;
+        tokio::time::advance(Duration::from_millis(5500)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
+        tokio::time::advance(Duration::from_secs(5)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, None);
     }
 
     #[tokio::test]

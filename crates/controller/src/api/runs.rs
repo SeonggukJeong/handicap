@@ -2809,7 +2809,7 @@ steps:
         assert!(matches!(err, ApiError::Internal(_)));
         let row = runs::get(&db, &id).await.unwrap().unwrap();
         assert_eq!(row.status, runs::RunStatus::Completed);
-        assert_ne!(row.message.as_deref(), Some(super::POOL_ASSIGN_FAILED_MSG));
+        assert_eq!(row.message.as_deref(), None);
     }
 
     #[tokio::test]
