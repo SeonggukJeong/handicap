@@ -419,6 +419,82 @@ mod tests {
     }
 
     #[test]
+    fn run_started_before_accept_is_ignored() {
+        let t0 = Instant::now();
+        let mut t = StatusTracker::new();
+        t.apply(
+            &PoolEvent::RunStarted {
+                run_id: "r".into(),
+                scenario_name: None,
+            },
+            t0,
+        );
+        assert_eq!(t.state(t0), PoolState::Connecting);
+    }
+
+    #[test]
+    fn run_end_or_session_lost_before_accept_changes_nothing() {
+        let t0 = Instant::now();
+        let retrying = PoolState::Retrying {
+            reason: FailReason::Unreachable,
+            retry_at: t0 + secs(1),
+        };
+        for ev in [
+            PoolEvent::RunEnded,
+            PoolEvent::SessionLost {
+                reason: FailReason::Protocol,
+            },
+        ] {
+            let mut t = StatusTracker::new();
+            t.apply(
+                &PoolEvent::AttemptFailed {
+                    reason: FailReason::Unreachable,
+                    retry_in: secs(1),
+                },
+                t0,
+            );
+            t.apply(&ev, t0);
+            assert_eq!(t.state(t0), retrying);
+            assert_eq!(t.state(t0 + secs(20)), retrying);
+        }
+        let mut t = StatusTracker::new();
+        t.apply(&PoolEvent::RunEnded, t0);
+        assert_eq!(t.state(t0 + secs(1)), PoolState::Connecting);
+    }
+
+    #[test]
+    fn run_started_clears_grace_and_failure() {
+        let t0 = Instant::now();
+        let mut t = accepted_then(
+            PoolEvent::SessionLost {
+                reason: FailReason::Protocol,
+            },
+            t0,
+        );
+        t.apply(
+            &PoolEvent::AttemptFailed {
+                reason: FailReason::Unreachable,
+                retry_in: secs(1),
+            },
+            t0 + secs(1),
+        );
+        t.apply(
+            &PoolEvent::RunStarted {
+                run_id: "r".into(),
+                scenario_name: None,
+            },
+            t0 + secs(2),
+        );
+        let running = PoolState::Running {
+            addr: addr("10.0.0.1:9"),
+            run_id: "r".into(),
+            scenario_name: None,
+        };
+        assert_eq!(t.state(t0 + secs(3)), running);
+        assert_eq!(t.state(t0 + secs(20)), running);
+    }
+
+    #[test]
     fn excluded_is_final() {
         let t0 = Instant::now();
         let mut t = StatusTracker::new();
