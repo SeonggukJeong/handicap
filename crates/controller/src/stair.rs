@@ -1,9 +1,15 @@
 //! 계단 시험(stage-saturation-table) — profile.stair 설정·stages 펼침·정규화.
 //! 와이어(proto)엔 없다: 워커는 펼쳐진 `stages`만 받는다.
 
+use std::collections::BTreeMap;
+
 use handicap_engine::Stage;
+use handicap_engine::percentiles::{decode_hdr, merge_into};
+use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
 
+use crate::store::metrics::WindowWithHdr;
+use crate::store::open_loop::{OpenLoopSecondRow, WorkerStartRow};
 use crate::store::runs::Profile;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,7 +125,7 @@ pub struct StepNumbers {
     pub measured: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StepState {
     Ok,
@@ -130,7 +136,7 @@ pub enum StepState {
     NotMeasured,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasonKind {
     Achieved,
@@ -142,13 +148,13 @@ pub enum ReasonKind {
 
 /// 실패 사유. `value`: achieved = 달성 비율(0..1), dropped = 개수, errors = 오류 비율,
 /// p99_cap = p99 ms, p99_relative = 기준 계단 대비 배수.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Reason {
     pub kind: ReasonKind,
     pub value: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HeadlineKind {
     Saturated,
@@ -342,6 +348,485 @@ pub fn judge(steps: &[StepNumbers], cfg: &StairConfig) -> Judgement {
         headline,
         later_ok_after_first_fail,
     }
+}
+
+// ── 리포트 계단 집계 (spec §5.1–§5.7) ─────────────────────────────────────
+
+/// 계단 run만 읽는 두 테이블. 비계단 run은 `Default`(빈 값)로 넘긴다.
+#[derive(Debug, Default)]
+pub struct StairInputs {
+    pub open_loop: Vec<OpenLoopSecondRow>,
+    pub starts: Vec<WorkerStartRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StairReport {
+    pub config: StairConfig,
+    pub steps: Vec<StairStep>,
+    pub headline: StairHeadline,
+    pub knee_target: Option<u32>,
+    pub spike_targets: Vec<u32>,
+    pub max_in_flight: Option<u32>,
+    pub dropped_total: Option<u64>,
+    pub dropped_explained: bool,
+    pub slot_limited_targets: Vec<u32>,
+    pub notes: StairNotes,
+    pub seconds: Vec<StairSecond>,
+    pub bands: Vec<StairBand>,
+    pub target_line: Vec<TargetPoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StairStep {
+    pub index: u32,
+    pub target: u32,
+    /// 완료 반복/초(전 워커 합). 초 단위 계수가 없으면(예전 부하기) null.
+    pub achieved: Option<f64>,
+    pub launched_rate: Option<f64>,
+    /// 요청/초(전 step 합).
+    pub throughput_rps: f64,
+    pub p50_us: u64,
+    pub p95_us: u64,
+    pub p99_us: u64,
+    pub error_rate: f64,
+    pub dropped: Option<u64>,
+    /// 워커별 측정 초의 최솟값.
+    pub measured_seconds: u32,
+    /// 가장 이른 t0 워커 기준 실제 포함한 첫 초 시작·마지막 초 끝(wall-clock ms).
+    pub measure_start_ms: i64,
+    pub measure_end_ms: i64,
+    pub state: StepState,
+    pub reasons: Vec<Reason>,
+    pub knee: bool,
+    pub slot_limited: bool,
+    pub head_p99_ratio: Option<f64>,
+    pub discard_warning: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StairHeadline {
+    pub kind: HeadlineKind,
+    pub saturated_target: Option<u32>,
+    pub last_ok_target: Option<u32>,
+    /// 「N req/s까지 정상」의 N (`all_ok`·`ok_then_unmeasured`만).
+    pub through_target: Option<u32>,
+    pub first_fail_hint: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StairNotes {
+    pub t0_estimated: bool,
+    pub open_loop_unknown: bool,
+}
+
+/// 1초 띠 데이터. `offset_s` = 워커별 t0 초로 맞춘 오프셋(전 워커 합산).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StairSecond {
+    pub offset_s: i64,
+    pub launched: Option<u64>,
+    pub completed: Option<u64>,
+    pub dropped: Option<u64>,
+    pub count: u64,
+    pub p99_us: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BandKind {
+    Ramp,
+    Discard,
+    Measure,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StairBand {
+    pub index: u32,
+    pub kind: BandKind,
+    pub start_s: u64,
+    pub end_s: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TargetPoint {
+    pub offset_s: u64,
+    pub target: u32,
+}
+
+/// ⚠ 계산: 측정 초 20초 이상, 앞부분 = 측정 구간 첫 10초.
+const HEAD_MIN_MEASURED: u32 = 20;
+const HEAD_SECONDS: i64 = 10;
+const HEAD_RATIO_WARN: u64 = 2;
+const HEAD_MIN_US: u64 = 1000;
+
+struct WorkerView<'a> {
+    t0_ms: i64,
+    metrics: Vec<&'a WindowWithHdr>,
+    open_loop: Vec<&'a OpenLoopSecondRow>,
+    /// 계단 i의 측정 초 `[lo, hi)` (ts_second).
+    windows: Vec<(i64, i64)>,
+}
+
+impl WorkerView<'_> {
+    fn step_of(&self, ts: i64) -> Option<usize> {
+        self.windows
+            .iter()
+            .position(|&(lo, hi)| (lo..hi).contains(&ts))
+    }
+}
+
+/// 스케줄러가 그 초에 도착을 만들었나(시작했거나 슬롯이 없어 버렸나).
+fn schedules(r: &OpenLoopSecondRow) -> bool {
+    r.launched + r.dropped > 0
+}
+
+fn nonneg(v: i64) -> u64 {
+    v.max(0) as u64
+}
+
+/// 워커 t0에서 계단 i의 측정 초 `[lo, hi)`: `[ts·1000, ts·1000+1000)`이 측정 구간에
+/// 완전히 들어가고 `ts ≤ last`인 정수 초.
+fn measure_window(cfg: &StairConfig, t0_ms: i64, last: Option<i64>, i: usize) -> (i64, i64) {
+    let step_ms = i64::from(cfg.ramp_seconds + cfg.hold_seconds) * 1000;
+    let start = t0_ms + i as i64 * step_ms;
+    let ms = start + i64::from(cfg.ramp_seconds + cfg.discard_seconds) * 1000;
+    let me = start + step_ms;
+    let lo = ms.div_euclid(1000) + i64::from(ms.rem_euclid(1000) != 0);
+    let hi = match last {
+        Some(l) => me.div_euclid(1000).min(l + 1),
+        None => lo,
+    };
+    (lo, hi.max(lo))
+}
+
+#[derive(Default)]
+struct StepAcc {
+    achieved: f64,
+    launched_rate: f64,
+    throughput: f64,
+    dropped: u64,
+    count: u64,
+    errors: u64,
+    min_secs: Option<i64>,
+    hist: Option<Histogram<u64>>,
+    head: Option<Histogram<u64>>,
+    rest: Option<Histogram<u64>>,
+}
+
+#[derive(Default)]
+struct SecAcc {
+    launched: u64,
+    completed: u64,
+    dropped: u64,
+    count: u64,
+    hist: Option<Histogram<u64>>,
+}
+
+fn merge_opt(acc: &mut Option<Histogram<u64>>, h: &Histogram<u64>) {
+    merge_into(acc.get_or_insert_with(crate::report::fresh_hist), h);
+}
+
+fn q(h: &Option<Histogram<u64>>, quantile: f64) -> u64 {
+    h.as_ref().map_or(0, |h| h.value_at_quantile(quantile))
+}
+
+/// 머리말 숫자. 「첫 계단만 튀었을 수 있음」 힌트는 포화 머리말(정상 계단 없음)에만 둔다(§5.3).
+fn stair_headline(j: &Judgement, targets: &[u32]) -> StairHeadline {
+    let t = |i: usize| targets[i];
+    StairHeadline {
+        kind: j.headline,
+        saturated_target: j.saturation.map(t),
+        last_ok_target: j.last_ok.map(t),
+        through_target: match j.headline {
+            HeadlineKind::AllOk | HeadlineKind::OkThenUnmeasured => j.last_ok.map(t),
+            _ => None,
+        },
+        first_fail_hint: j.later_ok_after_first_fail && j.headline == HeadlineKind::Saturated,
+    }
+}
+
+/// 계단 run 리포트(spec §5). `profile.stair`가 없으면 None.
+pub fn build_stair_report(
+    profile: &Profile,
+    run_dropped: u64,
+    rows: &[WindowWithHdr],
+    inp: &StairInputs,
+) -> Option<StairReport> {
+    let cfg = profile.stair.as_ref()?;
+    let n = cfg.targets.len();
+    let step_s = i64::from(cfg.ramp_seconds + cfg.hold_seconds);
+
+    // 워커별로 모은다.
+    type Rows<'a> = (Vec<&'a WindowWithHdr>, Vec<&'a OpenLoopSecondRow>);
+    let mut by: BTreeMap<&str, Rows> = BTreeMap::new();
+    for r in rows {
+        by.entry(r.worker_id.as_str()).or_default().0.push(r);
+    }
+    for r in &inp.open_loop {
+        by.entry(r.worker_id.as_str()).or_default().1.push(r);
+    }
+    let starts: BTreeMap<&str, i64> = inp
+        .starts
+        .iter()
+        .map(|s| (s.worker_id.as_str(), s.started_at_ms))
+        .collect();
+
+    let mut notes = StairNotes::default();
+    let mut workers: Vec<WorkerView> = Vec::new();
+    for (w, (metrics, open_loop)) in by {
+        // 일 없는 워커(도착을 한 번도 안 만든 워커)는 계단 집계에서 뺀다.
+        let active = if open_loop.is_empty() {
+            !metrics.is_empty()
+        } else {
+            open_loop.iter().any(|r| schedules(r))
+        };
+        if !active {
+            continue;
+        }
+        if open_loop.is_empty() {
+            notes.open_loop_unknown = true;
+        }
+        let t0_ms = match starts.get(w) {
+            Some(&ms) => ms,
+            None => {
+                notes.t0_estimated = true;
+                let min_ts = metrics
+                    .iter()
+                    .map(|r| r.ts_second)
+                    .min()
+                    .or_else(|| open_loop.iter().map(|r| r.ts_second).min())
+                    .unwrap_or(0);
+                min_ts * 1000
+            }
+        };
+        // run 끝 = 스케줄러가 도착을 만든 마지막 초(completed-only 꼬리 제외).
+        let last = if open_loop.is_empty() {
+            metrics.iter().map(|r| r.ts_second).max()
+        } else {
+            open_loop
+                .iter()
+                .filter(|r| schedules(r))
+                .map(|r| r.ts_second)
+                .max()
+        };
+        let windows = (0..n)
+            .map(|i| measure_window(cfg, t0_ms, last, i))
+            .collect();
+        workers.push(WorkerView {
+            t0_ms,
+            metrics,
+            open_loop,
+            windows,
+        });
+    }
+    let unknown = notes.open_loop_unknown;
+
+    let mut steps_acc: Vec<StepAcc> = (0..n).map(|_| StepAcc::default()).collect();
+    let mut secs: BTreeMap<i64, SecAcc> = BTreeMap::new();
+    for w in &workers {
+        let t0_s = w.t0_ms.div_euclid(1000);
+        let mut completed = vec![0u64; n];
+        let mut launched = vec![0u64; n];
+        let mut count = vec![0u64; n];
+        for r in &w.open_loop {
+            let s = secs.entry(r.ts_second - t0_s).or_default();
+            s.launched += nonneg(r.launched);
+            s.completed += nonneg(r.completed);
+            s.dropped += nonneg(r.dropped);
+            if let Some(i) = w.step_of(r.ts_second) {
+                completed[i] += nonneg(r.completed);
+                launched[i] += nonneg(r.launched);
+                steps_acc[i].dropped += nonneg(r.dropped);
+            }
+        }
+        for r in &w.metrics {
+            let h = decode_hdr(&r.hdr_histogram).ok().flatten();
+            let s = secs.entry(r.ts_second - t0_s).or_default();
+            s.count += nonneg(r.count);
+            if let Some(h) = &h {
+                merge_opt(&mut s.hist, h);
+            }
+            if let Some(i) = w.step_of(r.ts_second) {
+                count[i] += nonneg(r.count);
+                let acc = &mut steps_acc[i];
+                acc.count += nonneg(r.count);
+                acc.errors += nonneg(r.error_count);
+                if let Some(h) = &h {
+                    merge_opt(&mut acc.hist, h);
+                    let part = if r.ts_second < w.windows[i].0 + HEAD_SECONDS {
+                        &mut acc.head
+                    } else {
+                        &mut acc.rest
+                    };
+                    merge_opt(part, h);
+                }
+            }
+        }
+        for (i, acc) in steps_acc.iter_mut().enumerate() {
+            let (lo, hi) = w.windows[i];
+            let secs_w = hi - lo;
+            acc.min_secs = Some(acc.min_secs.map_or(secs_w, |m| m.min(secs_w)));
+            if secs_w > 0 {
+                let d = secs_w as f64;
+                acc.achieved += completed[i] as f64 / d;
+                acc.launched_rate += launched[i] as f64 / d;
+                acc.throughput += count[i] as f64 / d;
+            }
+        }
+    }
+
+    let measure_len = cfg.hold_seconds - cfg.discard_seconds;
+    let numbers: Vec<StepNumbers> = steps_acc
+        .iter()
+        .zip(&cfg.targets)
+        .map(|(acc, &target)| {
+            let measured_seconds = acc.min_secs.unwrap_or(0).max(0) as u32;
+            // 예전 부하기라 달성을 모르고 측정 구간 요청도 0이면 판정할 근거가 없다.
+            let measured = 2 * measured_seconds >= measure_len && !(unknown && acc.count == 0);
+            StepNumbers {
+                target,
+                achieved: (!unknown).then_some(acc.achieved),
+                dropped: (!unknown).then_some(acc.dropped),
+                error_rate: if acc.count == 0 {
+                    0.0
+                } else {
+                    acc.errors as f64 / acc.count as f64
+                },
+                p99_us: q(&acc.hist, 0.99),
+                measured,
+            }
+        })
+        .collect();
+    let j = judge(&numbers, cfg);
+
+    // 측정 시각 = 가장 이른 t0 워커의 실제 포함 초.
+    let earliest = workers.iter().min_by_key(|w| w.t0_ms);
+    let steps: Vec<StairStep> = (0..n)
+        .map(|i| {
+            let acc = &steps_acc[i];
+            let measured_seconds = acc.min_secs.unwrap_or(0).max(0) as u32;
+            let (lo, hi) = earliest.map_or((0, 0), |w| w.windows[i]);
+            let head_p99 = q(&acc.head, 0.99);
+            let rest_p99 = q(&acc.rest, 0.99);
+            let head_p99_ratio = (measured_seconds >= HEAD_MIN_MEASURED && rest_p99 > 0)
+                .then(|| head_p99 as f64 / rest_p99 as f64);
+            StairStep {
+                index: i as u32,
+                target: cfg.targets[i],
+                achieved: numbers[i].achieved,
+                launched_rate: (!unknown).then_some(acc.launched_rate),
+                throughput_rps: acc.throughput,
+                p50_us: q(&acc.hist, 0.50),
+                p95_us: q(&acc.hist, 0.95),
+                p99_us: numbers[i].p99_us,
+                error_rate: numbers[i].error_rate,
+                dropped: numbers[i].dropped,
+                measured_seconds,
+                measure_start_ms: lo * 1000,
+                measure_end_ms: hi * 1000,
+                state: j.states[i],
+                reasons: j.reasons[i].clone(),
+                knee: j.knee == Some(i),
+                slot_limited: j.slot_limited[i],
+                head_p99_ratio,
+                discard_warning: head_p99_ratio.is_some()
+                    && head_p99 >= HEAD_MIN_US
+                    && head_p99 >= HEAD_RATIO_WARN.saturating_mul(rest_p99),
+            }
+        })
+        .collect();
+
+    // dropped가 생긴 모든 초가 "지연·오류로도 무너진 계단" 또는 포화 이후 계단 구간에 있을 때만 설명됨.
+    // 초가 계단 경계에 걸치면 걸친 계단 모두가 설명돼야 한다. t0 이전 초는 설명 안 됨.
+    let explains = |i: usize| match j.states[i] {
+        StepState::After => true,
+        StepState::Saturated | StepState::Unconfirmed | StepState::Spike => !j.slot_limited[i],
+        StepState::Ok | StepState::NotMeasured => false,
+    };
+    let step_ms = step_s * 1000;
+    let mut any_dropped = false;
+    let mut all_explained = true;
+    for w in &workers {
+        for r in w.open_loop.iter().filter(|r| r.dropped > 0) {
+            any_dropped = true;
+            let a = r.ts_second * 1000 - w.t0_ms;
+            if a < 0 {
+                all_explained = false;
+                continue;
+            }
+            let first = ((a / step_ms) as usize).min(n - 1);
+            let last = (((a + 999) / step_ms) as usize).min(n - 1);
+            if !(first..=last).all(&explains) {
+                all_explained = false;
+            }
+        }
+    }
+    let dropped_explained = !unknown && any_dropped && all_explained;
+
+    let t = |i: usize| cfg.targets[i];
+    let headline = stair_headline(&j, &cfg.targets);
+
+    let seconds = secs
+        .into_iter()
+        .map(|(offset_s, s)| StairSecond {
+            offset_s,
+            launched: (!unknown).then_some(s.launched),
+            completed: (!unknown).then_some(s.completed),
+            dropped: (!unknown).then_some(s.dropped),
+            count: s.count,
+            p99_us: q(&s.hist, 0.99),
+        })
+        .collect();
+
+    let mut bands = Vec::new();
+    for i in 0..n {
+        let base = i as u64 * step_s as u64;
+        let ramp_end = base + u64::from(cfg.ramp_seconds);
+        let discard_end = ramp_end + u64::from(cfg.discard_seconds);
+        let end = base + step_s as u64;
+        for (kind, start_s, end_s) in [
+            (BandKind::Ramp, base, ramp_end),
+            (BandKind::Discard, ramp_end, discard_end),
+            (BandKind::Measure, discard_end, end),
+        ] {
+            if end_s > start_s {
+                bands.push(StairBand {
+                    index: i as u32,
+                    kind,
+                    start_s,
+                    end_s,
+                });
+            }
+        }
+    }
+
+    let mut target_line = vec![TargetPoint {
+        offset_s: 0,
+        target: 0,
+    }];
+    let mut at = 0u64;
+    for st in expand_stair(cfg) {
+        at += u64::from(st.duration_seconds);
+        target_line.push(TargetPoint {
+            offset_s: at,
+            target: st.target,
+        });
+    }
+
+    Some(StairReport {
+        config: cfg.clone(),
+        knee_target: j.knee.map(t),
+        spike_targets: j.spikes.iter().map(|&i| t(i)).collect(),
+        max_in_flight: profile.max_in_flight,
+        dropped_total: Some(run_dropped),
+        dropped_explained,
+        slot_limited_targets: (0..n).filter(|&i| j.slot_limited[i]).map(t).collect(),
+        notes,
+        headline,
+        steps,
+        seconds,
+        bands,
+        target_line,
+    })
 }
 
 #[cfg(test)]
@@ -882,5 +1367,45 @@ mod judge_tests {
             serde_json::to_value(HeadlineKind::OkThenUnmeasured).unwrap(),
             serde_json::json!("ok_then_unmeasured")
         );
+    }
+
+    #[test]
+    fn first_fail_hint_only_on_saturated_headline() {
+        // 첫 계단 실패 → 다음 계단 미측정(unconfirmed). 뒤 계단이 정상 조건을 만족해도
+        // 힌트는 「정상 계단 없음」 포화 머리말 전용이라 false.
+        let steps = vec![
+            s(100, 100.0, 1000, 0.5, 0),
+            nm(200),
+            s(300, 300.0, 1000, 0.0, 0),
+        ];
+        let targets = [100, 200, 300];
+        let j = judge(&steps, &cfg(None));
+        assert_eq!(j.headline, HeadlineKind::Unconfirmed);
+        assert!(j.later_ok_after_first_fail);
+        assert!(!stair_headline(&j, &targets).first_fail_hint);
+        // 대조: 포화 머리말 + 뒤 정상이면 true.
+        let steps = vec![
+            s(100, 100.0, 1000, 0.5, 0),
+            s(200, 50.0, 1000, 0.0, 0),
+            s(300, 300.0, 1000, 0.0, 0),
+        ];
+        let j = judge(&steps, &cfg(None));
+        assert_eq!(j.headline, HeadlineKind::Saturated);
+        let h = stair_headline(&j, &targets);
+        assert!(h.first_fail_hint);
+        assert_eq!(
+            (h.saturated_target, h.last_ok_target, h.through_target),
+            (Some(100), None, None)
+        );
+    }
+
+    #[test]
+    fn fast_ref_boundary_uses_multiple_at_1000us() {
+        // 기준 p99 = 정확히 1000µs는 "1 ms 미만"이 아니므로 배수 규칙(3×): 2999 정상, 3000 실패.
+        let ok = judge(&p99s(&[1000, 2999]), &cfg(None));
+        assert_eq!(ok.states, vec![Ok, Ok]);
+        let bad = judge(&p99s(&[1000, 3000]), &cfg(None));
+        assert_eq!(bad.states, vec![Ok, Saturated]);
+        assert_eq!(bad.reasons[1][0].kind, ReasonKind::P99Relative);
     }
 }

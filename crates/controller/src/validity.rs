@@ -70,6 +70,7 @@ pub fn derive_validity(
     scenario_yaml: &str,
     has_active_criteria: bool,
     insights: &[Insight],
+    stair_dropped_explained: bool,
 ) -> Validity {
     let mut reasons: Vec<ValidityReason> = Vec::new();
 
@@ -120,8 +121,13 @@ pub fn derive_validity(
         }
     }
 
-    // 5. load_not_delivered — from load_gen_saturated insight
-    if let Some(ins) = insights.iter().find(|i| i.kind == "load_gen_saturated") {
+    // 5. load_not_delivered — from load_gen_saturated insight. 계단 run에서 dropped가 전부
+    //    지연·오류로 무너진(또는 포화 이후) 계단에서 났으면 시스템 포화로 이미 판정됐으므로 넣지 않는다(stair §5.7).
+    if let Some(ins) = insights
+        .iter()
+        .find(|i| i.kind == "load_gen_saturated")
+        .filter(|_| !stair_dropped_explained)
+    {
         let mut r = reason_base("load_not_delivered", "warning");
         r.count = ins.count;
         reasons.push(r);
@@ -358,7 +364,7 @@ steps:
 
     #[test]
     fn zero_requests_is_suspect() {
-        let v = derive_validity(&summary(0, 0), &BTreeMap::new(), "", false, &[]);
+        let v = derive_validity(&summary(0, 0), &BTreeMap::new(), "", false, &[], false);
         assert_eq!(v.level, "suspect");
         assert!(kinds(&v).contains(&"zero_requests"));
         let zr = v
@@ -374,7 +380,7 @@ steps:
         // n0=80, n_http=20 → pct=0.8 ≥ 0.50 → critical → suspect
         // errors>0 (transport raises errors — H0 must still emit)
         let d = dist(&[("0", 80), ("200", 20)]);
-        let v = derive_validity(&summary(100, 80), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 80), &d, YAML_WITH_ASSERT, true, &[], false);
         let t = v
             .reasons
             .iter()
@@ -390,7 +396,7 @@ steps:
     fn transport_emits_at_pct_boundary_0_05() {
         // n0=5, n_http=95 → pct exactly 0.05 → emit warning
         let d = dist(&[("0", 5), ("200", 95)]);
-        let v = derive_validity(&summary(100, 5), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 5), &d, YAML_WITH_ASSERT, true, &[], false);
         let t = v
             .reasons
             .iter()
@@ -405,7 +411,7 @@ steps:
         // n0=50, n_http=950 → pct≈0.05 but exactly n0>=50; use larger denom so pct < 0.05
         // n0=50, n_http=1000 → pct=50/1050≈0.0476 < 0.05, but n0>=50 → emit
         let d = dist(&[("0", 50), ("200", 1000)]);
-        let v = derive_validity(&summary(1050, 50), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(1050, 50), &d, YAML_WITH_ASSERT, true, &[], false);
         let t = v
             .reasons
             .iter()
@@ -420,14 +426,14 @@ steps:
     fn transport_does_not_emit_below_thresholds() {
         // n0=4, n_http=96 → pct=0.04 < 0.05 and n0 < 50 → no emit
         let d = dist(&[("0", 4), ("200", 96)]);
-        let v = derive_validity(&summary(100, 4), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 4), &d, YAML_WITH_ASSERT, true, &[], false);
         assert!(!kinds(&v).contains(&"transport_heavy"));
     }
 
     #[test]
     fn silent_4xx_only_errors_zero() {
         let d = dist(&[("200", 90), ("404", 10)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[], false);
         let s = v
             .reasons
             .iter()
@@ -443,7 +449,7 @@ steps:
     fn silent_5xx_only_errors_zero() {
         // R5 / H1: 5xx-only must also emit
         let d = dist(&[("200", 90), ("500", 10)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[], false);
         let s = v
             .reasons
             .iter()
@@ -456,14 +462,14 @@ steps:
     #[test]
     fn silent_not_emitted_when_errors_nonzero() {
         let d = dist(&[("500", 10), ("200", 90)]);
-        let v = derive_validity(&summary(100, 10), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 10), &d, YAML_WITH_ASSERT, true, &[], false);
         assert!(!kinds(&v).contains(&"silent_http_errors"));
     }
 
     #[test]
     fn no_response_validation_when_no_assert_no_criteria() {
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &[], false);
         assert!(kinds(&v).contains(&"no_response_validation"));
         assert_eq!(v.level, "limited");
     }
@@ -471,7 +477,7 @@ steps:
     #[test]
     fn has_status_assert_suppresses_no_response() {
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, false, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, false, &[], false);
         assert!(!kinds(&v).contains(&"no_response_validation"));
         // no criteria → still slo_gate in narrative, but validity level ok if no other reasons
         assert_eq!(v.level, "ok");
@@ -480,7 +486,7 @@ steps:
     #[test]
     fn has_active_criteria_suppresses_no_response() {
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, true, &[], false);
         assert!(!kinds(&v).contains(&"no_response_validation"));
         assert_eq!(v.level, "ok");
     }
@@ -489,14 +495,14 @@ steps:
     fn unconditional_http_zero_skips_no_response() {
         // only if-branch http → unconditional empty → vacuous skip
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_ONLY_IF, false, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_ONLY_IF, false, &[], false);
         assert!(!kinds(&v).contains(&"no_response_validation"));
     }
 
     #[test]
     fn nested_loop_body_without_assert_detected() {
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_NESTED_LOOP, false, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NESTED_LOOP, false, &[], false);
         assert!(
             kinds(&v).contains(&"no_response_validation"),
             "H6: loop body http must be walked for status assert"
@@ -507,7 +513,7 @@ steps:
     fn load_gen_saturated_insight_emits_load_not_delivered() {
         let d = dist(&[("200", 100)]);
         let ins = [insight_count("load_gen_saturated", 42)];
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, false);
         let r = v
             .reasons
             .iter()
@@ -519,6 +525,16 @@ steps:
     }
 
     #[test]
+    fn stair_explained_dropped_skips_load_not_delivered() {
+        // 계단 run에서 dropped가 전부 무너진 계단에서 났으면(stair §5.7) 사유를 넣지 않는다.
+        let d = dist(&[("200", 100)]);
+        let ins = [insight_count("load_gen_saturated", 42)];
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, true);
+        assert!(v.reasons.iter().all(|r| r.kind != "load_not_delivered"));
+        assert_eq!(v.level, "ok");
+    }
+
+    #[test]
     fn loadgen_port_exhaustion_insight_emits_critical_reason_and_suspect() {
         // F1: without this reason, at 1-49 transport_heavy events under 5%,
         // `level` could compute to "ok" ("해석 가능") while InsightPanel already
@@ -526,7 +542,7 @@ steps:
         // that undermines US4. Mirrors load_gen_saturated → load_not_delivered.
         let d = dist(&[("200", 100)]);
         let ins = [insight_count("loadgen_port_exhaustion", 3)];
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, false);
         let r = v
             .reasons
             .iter()
@@ -540,7 +556,7 @@ steps:
     #[test]
     fn loadgen_port_exhaustion_absent_without_the_insight() {
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[], false);
         assert!(!kinds(&v).contains(&"loadgen_port_exhaustion"));
         assert_eq!(v.level, "ok");
     }
@@ -553,7 +569,7 @@ steps:
         let d = dist(&[("0", 60), ("404", 20), ("200", 20)]);
         // errors=0 for silent; n0=60 → transport critical
         let ins = [insight_count("load_gen_saturated", 1)];
-        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &ins);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &ins, false);
         assert_eq!(
             kinds(&v),
             vec![
@@ -569,7 +585,7 @@ steps:
 
     #[test]
     fn golden_count_zero() {
-        let v = derive_validity(&summary(0, 0), &BTreeMap::new(), "", false, &[]);
+        let v = derive_validity(&summary(0, 0), &BTreeMap::new(), "", false, &[], false);
         let n = derive_narrative(&v, &summary(0, 0), false, &[]);
         assert_eq!(v.level, "suspect");
         assert!(n.can_claim.is_empty());
@@ -586,7 +602,7 @@ steps:
     #[test]
     fn golden_transport_heavy() {
         let d = dist(&[("0", 80), ("200", 20)]);
-        let v = derive_validity(&summary(100, 80), &d, YAML_WITH_ASSERT, true, &[]);
+        let v = derive_validity(&summary(100, 80), &d, YAML_WITH_ASSERT, true, &[], false);
         let n = derive_narrative(&v, &summary(100, 80), true, &[]);
         assert_eq!(v.level, "suspect");
         assert_eq!(n.can_claim, vec!["client_reachability_issue".to_string()]);
@@ -603,7 +619,7 @@ steps:
     #[test]
     fn golden_unchecked_200() {
         let d = dist(&[("200", 100)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &[], false);
         let n = derive_narrative(&v, &summary(100, 0), false, &[]);
         assert_eq!(v.level, "limited");
         assert_eq!(n.can_claim, vec!["throughput_measured".to_string()]);
@@ -622,7 +638,7 @@ steps:
     fn golden_silent_plus_no_response() {
         // 5xx>0, errors=0, no assert → silent + no_response
         let d = dist(&[("500", 10), ("200", 90)]);
-        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &[]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &[], false);
         let n = derive_narrative(&v, &summary(100, 0), false, &[]);
         assert_eq!(v.level, "limited");
         assert!(
@@ -645,7 +661,7 @@ steps:
     fn golden_clean_slo_pass() {
         let d = dist(&[("200", 100)]);
         let ins = vec![insight("slo_pass"), insight("slowest_step")];
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, false);
         let n = derive_narrative(&v, &summary(100, 0), true, &ins);
         assert_eq!(v.level, "ok");
         assert!(n.can_claim.contains(&"slo_held".to_string()));
@@ -656,7 +672,14 @@ steps:
     #[test]
     fn throughput_measured_only_when_count_positive() {
         // no_response + count==0 → no throughput_measured
-        let v = derive_validity(&summary(0, 0), &BTreeMap::new(), YAML_NO_ASSERT, false, &[]);
+        let v = derive_validity(
+            &summary(0, 0),
+            &BTreeMap::new(),
+            YAML_NO_ASSERT,
+            false,
+            &[],
+            false,
+        );
         assert!(
             kinds(&v).contains(&"no_response_validation") || kinds(&v).contains(&"zero_requests")
         );
@@ -676,7 +699,7 @@ steps:
         // !criteria → slo_gate (would be more)
         let d = dist(&[("0", 60), ("404", 20), ("200", 20)]);
         let ins = [insight_count("load_gen_saturated", 3)];
-        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &ins);
+        let v = derive_validity(&summary(100, 0), &d, YAML_NO_ASSERT, false, &ins, false);
         let n = derive_narrative(&v, &summary(100, 0), false, &ins);
         assert_eq!(n.cannot_claim.len(), 5);
         assert_eq!(n.cannot_claim[4], "production_identity");
@@ -702,7 +725,7 @@ steps:
         // 주장도 사라져야 한다(spec §1 P4 — 게이트 도입 전엔 1ms 격차 run도 주장했다).
         let d = dist(&[("200", 100)]);
         let ins = vec![insight("slo_pass")]; // slowest_step 없음
-        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, false);
         assert_eq!(v.level, "ok", "다른 이유가 없으면 ok — 6~8 분기가 열린다");
         let n = derive_narrative(&v, &summary(100, 0), true, &ins);
         assert!(
@@ -726,7 +749,7 @@ steps:
         // 미emit, count>0이라 zero_requests 미emit → level은 반드시 ok.
         let d = dist(&[("200", 90), ("500", 10)]);
         let ins = vec![insight_sc("status_class", "5xx")];
-        let v = derive_validity(&summary(100, 10), &d, YAML_WITH_ASSERT, true, &ins);
+        let v = derive_validity(&summary(100, 10), &d, YAML_WITH_ASSERT, true, &ins, false);
         assert_eq!(v.level, "ok", "다른 이유가 없으면 ok — 6~8 분기가 열린다");
         let n = derive_narrative(&v, &summary(100, 10), true, &ins);
         assert!(

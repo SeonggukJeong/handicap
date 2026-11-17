@@ -278,3 +278,83 @@ async fn report_endpoint_includes_error_kinds_rollup() {
         serde_json::json!([{"kind": "connect_refused", "count": 7}])
     );
 }
+
+/// store → report → HTTP 다리: 계단 run이면 `build_report_for_run`이 초 단위 계수·워커 시작
+/// 시각을 읽어 `stair`를 채운다(둘 중 하나라도 안 읽으면 notes 플래그가 선다).
+#[tokio::test]
+async fn report_endpoint_includes_stair_for_stair_run() {
+    use handicap_controller::store::open_loop::{insert_open_loop_seconds, insert_worker_start};
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let yaml = "version: 1\nname: stair\nsteps: []\n";
+    let mut profile: Profile = serde_json::from_value(serde_json::json!({
+        "duration_seconds": 0,
+        "max_in_flight": 50,
+        "stair": {"targets": [100, 200], "hold_seconds": 20, "ramp_seconds": 1, "discard_seconds": 5}
+    }))
+    .unwrap();
+    handicap_controller::stair::normalize_stair(&mut profile).unwrap();
+    sqlx::query(
+        "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+         VALUES('S-stair','stair',?,1,1,1)",
+    )
+    .bind(yaml)
+    .execute(&db)
+    .await
+    .unwrap();
+    let row = store::runs::insert(&db, "S-stair", yaml, &profile, &serde_json::json!({}), None)
+        .await
+        .unwrap();
+    store::runs::set_status(&db, &row.id, RunStatus::Completed, Some(1), Some(2))
+        .await
+        .unwrap();
+    insert_worker_start(&db, &row.id, "w0", 1_000_000)
+        .await
+        .unwrap();
+    // 계단0 측정 초 = ts 1006..1021, 계단1 = 1027..1042. 초마다 목표만큼 완료.
+    let ol: Vec<(i64, i64, i64, i64)> = (0..42)
+        .map(|o| {
+            let t = if o < 21 { 100 } else { 200 };
+            (1000 + o, t, t, 0)
+        })
+        .collect();
+    insert_open_loop_seconds(&db, &row.id, "w0", &ol)
+        .await
+        .unwrap();
+    let metric_rows: Vec<MetricRow> = ol
+        .iter()
+        .map(|&(ts, _, c, _)| MetricRow {
+            run_id: row.id.clone(),
+            ts_second: ts,
+            step_id: "s".to_string(),
+            worker_id: "w0".to_string(),
+            count: c,
+            error_count: 0,
+            hdr_histogram: make_hdr_bytes(&[2_000]),
+            status_counts: format!(r#"{{"200":{c}}}"#),
+        })
+        .collect();
+    insert_batch(&db, &metric_rows).await.unwrap();
+
+    let resp = make_app(db)
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{}/report", row.id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let stair = &json["stair"];
+    assert_eq!(stair["notes"]["open_loop_unknown"], false);
+    assert_eq!(stair["notes"]["t0_estimated"], false);
+    assert_eq!(stair["steps"][0]["achieved"], 100.0);
+    assert_eq!(stair["steps"][1]["measured_seconds"], 15);
+    assert_eq!(stair["headline"]["kind"], "all_ok");
+    let _typed: ReportJson = serde_json::from_value(json).unwrap();
+}

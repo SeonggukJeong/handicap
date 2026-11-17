@@ -57,6 +57,9 @@ pub struct ReportJson {
     /// Soft narrative (A11). Default empty for deserialization only; always recomputed.
     #[serde(default)]
     pub narrative: crate::validity::Narrative,
+    /// 계단 시험 집계(spec §5.6). 계단 run이 아니면 키 자체를 내지 않는다(byte-identical).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stair: Option<crate::stair::StairReport>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -497,7 +500,7 @@ const HDR_LO_US: u64 = 1;
 const HDR_HI_US: u64 = 60_000_000;
 const HDR_SIGFIG: u8 = 3;
 
-fn fresh_hist() -> Histogram<u64> {
+pub(crate) fn fresh_hist() -> Histogram<u64> {
     Histogram::<u64>::new_with_bounds(HDR_LO_US, HDR_HI_US, HDR_SIGFIG)
         .expect("HDR bounds are valid")
 }
@@ -515,6 +518,7 @@ pub fn build_report(
     active_vu_by_worker: &[crate::store::metrics::ActiveVuRow],
     error_kinds: &[crate::store::metrics::ErrorKindRow],
     loop_exits: &[crate::store::metrics::LoopExitRow],
+    stair_inputs: &crate::stair::StairInputs,
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -1131,12 +1135,20 @@ pub fn build_report(
 
     // Soft validity + narrative (A11): any status — no new terminal gate. Always recompute.
     let has_active = run.profile.criteria.as_ref().is_some_and(|c| c.has_any());
+    // 계단 집계는 validity보다 먼저: dropped가 전부 무너진 계단에서 났으면 load_not_delivered를 빼야 한다(§5.7).
+    let stair = crate::stair::build_stair_report(
+        &run.profile,
+        run.dropped.max(0) as u64,
+        rows,
+        stair_inputs,
+    );
     let validity = crate::validity::derive_validity(
         &summary,
         &status_dist,
         scenario_yaml,
         has_active,
         &insights,
+        stair.as_ref().is_some_and(|s| s.dropped_explained),
     );
     let narrative = crate::validity::derive_narrative(&validity, &summary, has_active, &insights);
 
@@ -1171,6 +1183,7 @@ pub fn build_report(
         connection,
         validity,
         narrative,
+        stair,
     }
 }
 
@@ -1276,7 +1289,20 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
 
         // One collapsed window per (ts_second, step_id), counts summed.
         assert_eq!(rep.windows.len(), 1, "worker rows collapse to one window");
@@ -1324,7 +1350,20 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rpt = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -1349,7 +1388,20 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rpt = build_report(
+            &r,
+            &yaml,
+            &[bad],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
@@ -1392,7 +1444,20 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &loops,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
         assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
@@ -1448,6 +1513,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         );
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
@@ -1698,7 +1764,20 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &run,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
         assert!(v.passed); // 빈 윈도 → p95 0 <= 1000
@@ -1713,9 +1792,22 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
-                .verdict
-                .is_none()
+            build_report(
+                &run,
+                "",
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &crate::stair::StairInputs::default()
+            )
+            .verdict
+            .is_none()
         );
     }
 
@@ -1724,9 +1816,22 @@ mod tests {
         let mut run = run_row();
         run.profile.criteria = Some(Criteria::default()); // 활성 0개
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
-                .verdict
-                .is_none()
+            build_report(
+                &run,
+                "",
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &crate::stair::StairInputs::default()
+            )
+            .verdict
+            .is_none()
         );
     }
 
@@ -1734,7 +1839,20 @@ mod tests {
     fn build_report_surfaces_dropped() {
         let mut run = run_row();
         run.dropped = 7;
-        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &run,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
@@ -1749,7 +1867,20 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[40_000, 50_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
         assert_eq!(latency.percentile_curve.len(), CURVE_QUANTILES.len());
@@ -1772,9 +1903,22 @@ mod tests {
     fn build_report_no_latency_without_samples() {
         let r = run_row();
         assert!(
-            build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
-                .latency
-                .is_none()
+            build_report(
+                &r,
+                "",
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &crate::stair::StairInputs::default()
+            )
+            .latency
+            .is_none()
         );
     }
 
@@ -1929,9 +2073,22 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], &[])
-                .verdict
-                .is_none()
+            build_report(
+                &run,
+                "",
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &crate::stair::StairInputs::default()
+            )
+            .verdict
+            .is_none()
         );
     }
 
@@ -1958,7 +2115,20 @@ mod tests {
         }];
         let yaml = r.scenario_yaml.clone();
 
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &groups,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
         assert_eq!(
@@ -2018,7 +2188,20 @@ mod tests {
                 worker_id: "".into(),
             },
         ];
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &active, &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &active,
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rep.active_vu_series.len(), 2);
         assert_eq!(
             (
@@ -2028,7 +2211,20 @@ mod tests {
             ),
             (100, 3, 2)
         );
-        let baseline = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let baseline = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rep.summary.count, baseline.summary.count);
         assert_eq!(rep.summary.rps, baseline.summary.rps);
         assert_eq!(rep.windows.len(), baseline.windows.len());
@@ -2076,6 +2272,7 @@ mod tests {
             &by_worker,
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         );
         assert_eq!(rep.active_vu_by_worker.len(), 2);
         assert_eq!(rep.active_vu_by_worker[0].worker_id, "w-0"); // sorted
@@ -2102,17 +2299,56 @@ mod tests {
             actual: 1,
             worker_id: "w-0".into(),
         }];
-        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[], &one, &[], &[]);
+        let rep = build_report(
+            &r,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &one,
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(rep.active_vu_by_worker.is_empty());
         // No rows (non-curve caller passes &[]) -> empty (byte-identical default).
-        let none = build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
+        let none = build_report(
+            &r,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(none.active_vu_by_worker.is_empty());
     }
 
     #[test]
     fn build_report_empty_groups_yields_empty_group_latency() {
         let r = run_row();
-        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(rep.group_latency.is_empty());
     }
 
@@ -2153,7 +2389,20 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &groups,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
 
         assert_eq!(
             rep.group_latency.len(),
@@ -2206,7 +2455,20 @@ mod tests {
             hdr_histogram: make_hdr_bytes(&[5_000, 9_000]),
             count: 2,
         }];
-        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &phases,
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
         assert_eq!(
@@ -2236,6 +2498,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         );
         assert!(
             rep.steps.iter().all(|s| s.download.is_none()),
@@ -2277,6 +2540,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         )
     }
 
@@ -2451,7 +2715,20 @@ mod tests {
             ),
             win(101, "s", 9, 0, r#"{"200":9}"#, &[10_000; 9]),
         ];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &run,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let sat = rep
             .insights
             .iter()
@@ -2465,7 +2742,20 @@ mod tests {
     fn build_report_no_saturation_when_not_dropped() {
         let run = run_row(); // dropped: 0
         let rows = vec![win(100, "s", 5, 0, r#"{"200":5}"#, &[10_000; 5])];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &run,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
     }
 
@@ -2480,7 +2770,20 @@ mod tests {
         run.dropped = 200;
         // 50ms(=50_000µs) 샘플 100개 → overall p50_ms ≈ 50.
         let rows = vec![win(100, "s", 100, 0, r#"{"200":100}"#, &[50_000; 100])];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &run,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let ins = rep
             .insights
             .iter()
@@ -2513,7 +2816,20 @@ mod tests {
         run.profile.max_in_flight = Some(100);
         run.dropped = 50;
         let rows = vec![win(100, "s", 100, 0, r#"{"200":100}"#, &[50_000; 100])];
-        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &run,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let ins = rep
             .insights
             .iter()
@@ -2561,7 +2877,20 @@ mod tests {
             r#"{"200":4}"#,
             &[10_000, 20_000, 30_000, 40_000],
         )];
-        let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rep.summary.mean_ms, 25);
     }
 
@@ -2595,7 +2924,20 @@ mod tests {
                 count: 2,
             },
         ];
-        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &phases,
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         // wait attaches per-step
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
         assert!(s.wait.is_some(), "wait phase attaches to step");
@@ -2606,7 +2948,20 @@ mod tests {
         assert!((c.reuse_ratio - 0.8).abs() < 1e-9, "1 - 2/10 = 0.8");
         assert!(c.dns.p50_ms <= 3 && c.connect.p50_ms >= 14);
         // no connection rows → None (byte-identical)
-        let rep2 = build_report(&r, yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep2 = build_report(
+            &r,
+            yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(rep2.connection.is_none());
     }
 
@@ -2635,7 +2990,20 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // sorted by worker_id ascending
         assert_eq!(rep.worker_breakdown[0].worker_id, "w-0");
@@ -2663,7 +3031,20 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[20_000, 20_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(rep.worker_breakdown.is_empty());
         // skip_serializing_if -> field absent (byte-identical)
         let v = serde_json::to_value(&rep).unwrap();
@@ -2684,7 +3065,20 @@ mod tests {
             hdr_histogram: make_hdr_bytes(&[15_000, 15_000, 15_000, 15_000]),
         }];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert!(rep.worker_breakdown.is_empty());
     }
 
@@ -2712,7 +3106,20 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[], &[], &[]);
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // w-0: count counted despite bad blob, latency falls back to 0 (fail-soft)
         assert_eq!(rep.worker_breakdown[0].worker_id, "w-0");
@@ -2771,6 +3178,7 @@ steps:
             &[],
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         );
         assert_eq!(rep.validity.level, "suspect");
         assert!(
@@ -2812,6 +3220,7 @@ steps:
             &[],
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         );
         assert_eq!(rep.validity.level, "limited");
         assert!(
@@ -2852,6 +3261,7 @@ steps:
             &[],
             &[],
             &[],
+            &crate::stair::StairInputs::default(),
         );
         assert_eq!(rep.validity.level, "ok");
         assert!(
@@ -2872,7 +3282,20 @@ steps:
     /// slices) but plugs `rows` into the new `error_kinds` argument.
     fn minimal_report_with_error_kinds(rows: &[crate::store::metrics::ErrorKindRow]) -> ReportJson {
         let run = run_row();
-        build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], rows, &[])
+        build_report(
+            &run,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            rows,
+            &[],
+            &crate::stair::StairInputs::default(),
+        )
     }
 
     #[test]
@@ -2929,7 +3352,20 @@ steps:
             win(100, "b", 5, 2, r#"{"200":3}"#, &[10_000]),
         ];
         let eks = vec![blank_ek("a", "blank_var", 4), blank_ek("b", "timeout", 2)];
-        let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[], &[], &eks, &[]);
+        let rep = build_report(
+            &r,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &eks,
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
         let b = rep.steps.iter().find(|s| s.step_id == "b").unwrap();
         assert_eq!(a.not_sent, Some(4));
@@ -2961,7 +3397,20 @@ steps:
             hdr_histogram: make_hdr_bytes(&[15_000]),
             count: 3,
         }];
-        let rep = build_report(&r, "", &rows, &[], &[], &[], &phases, &[], &[], &eks, &[]);
+        let rep = build_report(
+            &r,
+            "",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &phases,
+            &[],
+            &[],
+            &eks,
+            &[],
+            &crate::stair::StairInputs::default(),
+        );
         let c = rep.connection.as_ref().expect("connection present");
         assert_eq!(c.requests_total, 6);
         assert!((c.reuse_ratio - 0.5).abs() < 1e-9);
@@ -2970,7 +3419,20 @@ steps:
 
     fn minimal_report_with_loop_exits(rows: &[crate::store::metrics::LoopExitRow]) -> ReportJson {
         let run = run_row();
-        build_report(&run, "", &[], &[], &[], &[], &[], &[], &[], &[], rows)
+        build_report(
+            &run,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            rows,
+            &crate::stair::StairInputs::default(),
+        )
     }
 
     #[test]
@@ -3052,5 +3514,804 @@ steps:
         );
         rr.label = Some("라벨".into());
         assert_eq!(serde_json::to_value(&rr).unwrap()["label"], "라벨");
+    }
+
+    // ── 계단 시험 리포트 (stage-saturation-table, spec §5.1–§5.7) ─────────────
+    mod stair_report {
+        use super::*;
+        use crate::stair::{
+            BandKind, HeadlineKind, ReasonKind, StairConfig, StairInputs, StairReport, StepState,
+            build_stair_report, expand_stair,
+        };
+        use crate::store::open_loop::{OpenLoopSecondRow, WorkerStartRow};
+
+        /// 초 경계에 딱 맞는 t0(ms) = ts 1000.
+        const T0: i64 = 1_000_000;
+
+        fn scfg(targets: &[u32], ramp: u32, hold: u32, discard: u32) -> StairConfig {
+            StairConfig {
+                targets: targets.to_vec(),
+                hold_seconds: hold,
+                ramp_seconds: ramp,
+                discard_seconds: discard,
+                p99_cap_ms: None,
+            }
+        }
+
+        fn sprofile(c: &StairConfig) -> Profile {
+            let mut p = run_row().profile;
+            p.duration_seconds = 0;
+            p.max_in_flight = Some(50);
+            p.stages = Some(expand_stair(c));
+            p.stair = Some(c.clone());
+            p
+        }
+
+        fn hist(pairs: &[(u64, u64)]) -> Histogram<u64> {
+            let mut h = fresh_hist();
+            for &(v, n) in pairs {
+                if n > 0 {
+                    h.record_n(v, n).unwrap();
+                }
+            }
+            h
+        }
+
+        fn hdr(pairs: &[(u64, u64)]) -> Vec<u8> {
+            let mut buf = Vec::new();
+            V2Serializer::new()
+                .serialize(&hist(pairs), &mut buf)
+                .unwrap();
+            buf
+        }
+
+        fn mrow(
+            w: &str,
+            ts: i64,
+            step: &str,
+            count: u64,
+            errors: u64,
+            pairs: &[(u64, u64)],
+        ) -> WindowWithHdr {
+            WindowWithHdr {
+                ts_second: ts,
+                step_id: step.into(),
+                worker_id: w.into(),
+                count: count as i64,
+                error_count: errors as i64,
+                status_counts: format!(r#"{{"200":{count}}}"#),
+                hdr_histogram: hdr(pairs),
+            }
+        }
+
+        fn ol(w: &str, ts: i64, launched: u64, completed: u64, dropped: u64) -> OpenLoopSecondRow {
+            OpenLoopSecondRow {
+                worker_id: w.into(),
+                ts_second: ts,
+                launched: launched as i64,
+                completed: completed as i64,
+                dropped: dropped as i64,
+            }
+        }
+
+        fn start(w: &str, ms: i64) -> WorkerStartRow {
+            WorkerStartRow {
+                worker_id: w.into(),
+                started_at_ms: ms,
+            }
+        }
+
+        /// 한 초의 모양. 반복당 요청 1개라 요청 수 = completed.
+        #[derive(Clone, Copy)]
+        struct Sec {
+            launched: u64,
+            completed: u64,
+            dropped: u64,
+            errors: u64,
+            lat_us: u64,
+        }
+
+        fn sec(completed: u64, lat_us: u64) -> Sec {
+            Sec {
+                launched: completed,
+                completed,
+                dropped: 0,
+                errors: 0,
+                lat_us,
+            }
+        }
+
+        #[derive(Default)]
+        struct Fx {
+            rows: Vec<WindowWithHdr>,
+            inp: StairInputs,
+        }
+
+        impl Fx {
+            /// 워커 `w`의 ts `t0_s + o`(o = 0..len)를 `f(o)`로 채운다. None = 그 초 행 없음.
+            fn fill(&mut self, w: &str, t0_s: i64, len: i64, f: impl Fn(i64) -> Option<Sec>) {
+                for o in 0..len {
+                    if let Some(s) = f(o) {
+                        let ts = t0_s + o;
+                        self.inp
+                            .open_loop
+                            .push(ol(w, ts, s.launched, s.completed, s.dropped));
+                        if s.completed > 0 {
+                            self.rows.push(mrow(
+                                w,
+                                ts,
+                                "s",
+                                s.completed,
+                                s.errors,
+                                &[(s.lat_us, s.completed)],
+                            ));
+                        }
+                    }
+                }
+            }
+
+            fn dropped(&self) -> u64 {
+                self.inp
+                    .open_loop
+                    .iter()
+                    .map(|r| r.dropped.max(0) as u64)
+                    .sum()
+            }
+
+            fn report(&self, c: &StairConfig) -> StairReport {
+                build_stair_report(&sprofile(c), self.dropped(), &self.rows, &self.inp)
+                    .expect("stair run → Some")
+            }
+
+            fn full(&self, c: &StairConfig) -> ReportJson {
+                let mut run = run_row();
+                run.profile = sprofile(c);
+                run.dropped = self.dropped() as i64;
+                build_report(
+                    &run,
+                    "",
+                    &self.rows,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    &self.inp,
+                )
+            }
+        }
+
+        fn has_reason(r: &ReportJson, kind: &str) -> bool {
+            r.validity.reasons.iter().any(|x| x.kind == kind)
+        }
+
+        #[test]
+        fn stair_aligned_t0_counts_measure_seconds() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            // 측정 초(offset 6..21, 27..42)만 목표만큼, 상승·버림 초는 50 — 섞이면 달성이 바뀐다.
+            fx.fill("w", 1000, 42, |o| {
+                let measure = (6..21).contains(&o) || (27..42).contains(&o);
+                let t = if o < 21 { 100 } else { 200 };
+                Some(sec(if measure { t } else { 50 }, 2_000))
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].measured_seconds, 15);
+            assert_eq!(r.steps[0].achieved, Some(100.0));
+            assert_eq!(r.steps[1].measured_seconds, 15);
+            assert_eq!(r.steps[1].achieved, Some(200.0));
+            assert_eq!(
+                r.steps[0].head_p99_ratio, None,
+                "측정 20초 미만은 ⚠ 계산 안 함"
+            );
+            assert!(!r.notes.t0_estimated && !r.notes.open_loop_unknown);
+            assert_eq!(r.steps[0].state, StepState::Ok);
+            assert_eq!(r.headline.kind, HeadlineKind::AllOk);
+            assert_eq!(r.headline.through_target, Some(200));
+        }
+
+        #[test]
+        fn stair_offset_t0_excludes_partial_edges() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0 + 300));
+            // t0 = 1000.3s → 계단0 측정 = ts 1007..1021(14초). 1006은 부분 초라 빠진다.
+            fx.fill("w", 1000, 43, |o| {
+                let measure = (7..21).contains(&o) || (28..42).contains(&o);
+                let t = if o < 21 { 100 } else { 200 };
+                Some(sec(if measure { t } else { 50 }, 2_000))
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].measured_seconds, 14);
+            assert_eq!(r.steps[0].achieved, Some(100.0));
+            assert_eq!(r.steps[1].measured_seconds, 14);
+            assert_eq!(r.steps[1].achieved, Some(200.0));
+        }
+
+        #[test]
+        fn stair_stalled_system_is_saturated_not_unmeasured() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            // 계단1: 완료 0 → run_metrics 행 없음, 초 단위 계수만 launched·dropped > 0.
+            fx.fill("w", 1000, 42, |o| {
+                if o < 21 {
+                    Some(sec(100, 2_000))
+                } else {
+                    Some(Sec {
+                        launched: 50,
+                        completed: 0,
+                        dropped: 150,
+                        errors: 0,
+                        lat_us: 0,
+                    })
+                }
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].measured_seconds, 15);
+            assert_eq!(r.steps[1].achieved, Some(0.0));
+            assert_eq!(r.steps[1].state, StepState::Saturated);
+            assert_eq!(r.steps[0].state, StepState::Ok);
+        }
+
+        #[test]
+        fn stair_scheduler_ended_early_is_not_measured() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            // 계단1 측정 = offset 27..42. 스케줄러는 offset 31(측정 1/3 지점)에서 멈추고,
+            // 그 뒤는 진행 중 요청이 끝나는 completed-only 꼬리.
+            fx.fill("w", 1000, 42, |o| {
+                if o < 21 {
+                    Some(sec(100, 2_000))
+                } else if o <= 31 {
+                    Some(sec(200, 2_000))
+                } else {
+                    Some(Sec {
+                        launched: 0,
+                        completed: 5,
+                        dropped: 0,
+                        errors: 0,
+                        lat_us: 2_000,
+                    })
+                }
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].measured_seconds, 5);
+            assert_eq!(r.steps[1].state, StepState::NotMeasured);
+            assert_eq!(r.steps[0].state, StepState::Ok);
+            assert_eq!(r.headline.kind, HeadlineKind::OkThenUnmeasured);
+        }
+
+        /// 워커별로 측정 초는 목표의 절반, 상승·버림 초는 10.
+        fn half_worker(fx: &mut Fx, w: &str, t0_s: i64) {
+            fx.fill(w, t0_s, 42, |o| {
+                let measure = (6..21).contains(&o) || (27..42).contains(&o);
+                let t = if o < 21 { 50 } else { 100 };
+                Some(sec(if measure { t } else { 10 }, 2_000))
+            });
+        }
+
+        #[test]
+        fn stair_two_workers_align_per_worker_t0() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("a", 1_000_000));
+            fx.inp.starts.push(start("b", 1_003_000));
+            half_worker(&mut fx, "a", 1000);
+            half_worker(&mut fx, "b", 1003);
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].measured_seconds, 15);
+            assert_eq!(r.steps[0].achieved, Some(100.0));
+            assert_eq!(r.steps[0].throughput_rps, 100.0);
+            assert_eq!(r.steps[1].achieved, Some(200.0));
+            assert_eq!(r.steps[1].dropped, Some(0));
+            assert_eq!(r.headline.kind, HeadlineKind::AllOk);
+        }
+
+        #[test]
+        fn stair_idle_worker_excluded() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("a", T0));
+            fx.inp.starts.push(start("c", T0));
+            fx.fill("a", 1000, 42, |o| {
+                Some(sec(if o < 21 { 100 } else { 200 }, 2_000))
+            });
+            // 워커 C: 몫이 0이라 0만 담긴 행.
+            fx.fill("c", 1000, 42, |_| Some(sec(0, 0)));
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].measured_seconds, 15);
+            assert_eq!(r.steps[1].measured_seconds, 15);
+            assert_eq!(r.steps[1].state, StepState::Ok);
+        }
+
+        #[test]
+        fn stair_t0_fallback_sets_note() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.fill("w", 1000, 42, |o| {
+                Some(sec(if o < 21 { 100 } else { 200 }, 2_000))
+            });
+            let r = fx.report(&c);
+            assert!(r.notes.t0_estimated);
+            // 폴백 t0 = run_metrics 최소 ts × 1000 = 1_000_000 (초 경계) → 15초.
+            assert_eq!(r.steps[0].measured_seconds, 15);
+            assert_eq!(r.steps[0].measure_start_ms, 1_006_000);
+        }
+
+        #[test]
+        fn stair_no_open_loop_rows_unknown() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 42, |o| {
+                let mut s = sec(if o < 21 { 100 } else { 200 }, 2_000);
+                s.dropped = 3;
+                Some(s)
+            });
+            fx.inp.open_loop.clear();
+            let r = build_stair_report(&sprofile(&c), 126, &fx.rows, &fx.inp).unwrap();
+            assert!(r.notes.open_loop_unknown);
+            assert_eq!(r.steps[0].achieved, None);
+            assert_eq!(r.steps[0].dropped, None);
+            assert_eq!(r.steps[0].launched_rate, None);
+            assert_eq!(r.steps[0].measured_seconds, 15);
+            assert!(!r.dropped_explained);
+            assert_eq!(r.steps[1].state, StepState::Ok, "지연·오류로만 판정");
+            assert!(
+                r.seconds
+                    .iter()
+                    .all(|s| s.launched.is_none() && s.completed.is_none() && s.dropped.is_none())
+            );
+        }
+
+        #[test]
+        fn stair_no_open_loop_rows_zero_requests_is_not_measured() {
+            // 예전 부하기 + 측정 구간 요청 0 → 달성을 모르니 정상으로 넘기지 않는다.
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            // 측정 = offset 27..42; offset 42(측정 뒤)에 행이 있어 run 끝은 측정 구간 뒤다.
+            fx.fill("w", 1000, 43, |o| {
+                if (27..42).contains(&o) {
+                    None
+                } else {
+                    Some(sec(if o < 21 { 100 } else { 200 }, 2_000))
+                }
+            });
+            fx.inp.open_loop.clear();
+            let r = fx.report(&c);
+            assert!(r.notes.open_loop_unknown);
+            assert_eq!(r.steps[1].measured_seconds, 15);
+            assert_eq!(r.steps[1].state, StepState::NotMeasured);
+            assert_eq!(r.steps[0].state, StepState::Ok);
+        }
+
+        #[test]
+        fn stair_p99_is_merged_hdr_not_average() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 42, |o| {
+                let t = if o < 21 { 100 } else { 200 };
+                Some(Sec {
+                    launched: t,
+                    completed: 0,
+                    dropped: 0,
+                    errors: 0,
+                    lat_us: 0,
+                })
+            });
+            let a = [(1_000, 99)];
+            let b = [(100_000, 1)];
+            fx.rows.push(mrow("w", 1006, "s", 99, 0, &a));
+            fx.rows.push(mrow("w", 1007, "s", 1, 0, &b));
+            let mut merged = hist(&a);
+            merge_into(&mut merged, &hist(&b));
+            let want = merged.value_at_quantile(0.99);
+            let avg = (hist(&a).value_at_quantile(0.99) + hist(&b).value_at_quantile(0.99)) / 2;
+            assert_ne!(want, avg);
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].p99_us, want);
+            assert_eq!(r.steps[0].p50_us, merged.value_at_quantile(0.50));
+            assert_eq!(r.steps[0].p95_us, merged.value_at_quantile(0.95));
+        }
+
+        #[test]
+        fn stair_two_requests_per_iteration() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            for o in 0..42 {
+                let t: u64 = if o < 21 { 100 } else { 200 };
+                fx.inp.open_loop.push(ol("w", 1000 + o, t, t, 0));
+                fx.rows.push(mrow("w", 1000 + o, "a", t, 0, &[(2_000, t)]));
+                fx.rows.push(mrow("w", 1000 + o, "b", t, 0, &[(2_000, t)]));
+            }
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].achieved, Some(100.0));
+            assert_eq!(r.steps[0].throughput_rps, 200.0);
+            assert_eq!(
+                r.steps[1].throughput_rps,
+                2.0 * r.steps[1].achieved.unwrap()
+            );
+        }
+
+        #[test]
+        fn stair_head_ratio_warns() {
+            let c = scfg(&[100, 200], 1, 35, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            // 계단0 측정 = offset 6..36(30초): 첫 10초 10ms, 나머지 4ms. 계단1은 고르게 4ms.
+            fx.fill("w", 1000, 72, |o| {
+                let lat = if (6..16).contains(&o) { 10_000 } else { 4_000 };
+                Some(sec(if o < 36 { 100 } else { 200 }, lat))
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].measured_seconds, 30);
+            let ratio = r.steps[0].head_p99_ratio.expect("측정 20초 이상");
+            assert!(ratio >= 2.0, "ratio = {ratio}");
+            assert!(r.steps[0].discard_warning);
+            assert!(!r.steps[1].discard_warning);
+            assert!(r.steps[1].head_p99_ratio.expect("측정 30초") < 1.01);
+        }
+
+        /// 계단0 정상, 계단1 = `step1` 모양.
+        fn two_step(step1: Sec) -> (StairConfig, Fx) {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 42, |o| {
+                if o < 21 {
+                    Some(sec(100, 2_000))
+                } else {
+                    Some(step1)
+                }
+            });
+            (c, fx)
+        }
+
+        #[test]
+        fn stair_dropped_in_latency_failed_step_is_explained() {
+            let (c, fx) = two_step(Sec {
+                launched: 190,
+                completed: 190,
+                dropped: 10,
+                errors: 0,
+                lat_us: 20_000,
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].state, StepState::Saturated);
+            let kinds: Vec<ReasonKind> = r.steps[1].reasons.iter().map(|x| x.kind).collect();
+            assert!(kinds.contains(&ReasonKind::Dropped));
+            assert!(kinds.contains(&ReasonKind::P99Relative));
+            assert!(!r.steps[1].slot_limited);
+            assert!(r.dropped_explained);
+            assert!(r.slot_limited_targets.is_empty());
+
+            let full = fx.full(&c);
+            assert!(full.stair.is_some());
+            assert!(
+                full.insights.iter().any(|i| i.kind == "load_gen_saturated"),
+                "인사이트 자체는 그대로"
+            );
+            assert!(!has_reason(&full, "load_not_delivered"));
+        }
+
+        #[test]
+        fn stair_slot_limited_keeps_banner() {
+            let (c, fx) = two_step(Sec {
+                launched: 190,
+                completed: 190,
+                dropped: 10,
+                errors: 0,
+                lat_us: 2_000,
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].state, StepState::Saturated);
+            assert!(r.steps[1].slot_limited);
+            assert_eq!(r.slot_limited_targets, vec![200]);
+            assert!(!r.dropped_explained);
+            assert_eq!(r.max_in_flight, Some(50));
+            assert_eq!(r.dropped_total, Some(fx.dropped()));
+
+            let full = fx.full(&c);
+            assert!(full.insights.iter().any(|i| i.kind == "load_gen_saturated"));
+            assert!(has_reason(&full, "load_not_delivered"));
+        }
+
+        #[test]
+        fn non_stair_report_has_no_stair_key() {
+            let rows = vec![win(100, "s", 5, 0, r#"{"200":5}"#, &[10_000; 5])];
+            let rep = build_report(
+                &run_row(),
+                "",
+                &rows,
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &StairInputs::default(),
+            );
+            assert!(rep.stair.is_none());
+            let v = serde_json::to_value(&rep).unwrap();
+            assert!(v.get("stair").is_none());
+        }
+
+        #[test]
+        fn stair_bands_and_target_line_shape() {
+            let c = scfg(&[100, 200], 2, 20, 5);
+            let r = build_stair_report(&sprofile(&c), 0, &[], &StairInputs::default()).unwrap();
+            let bands: Vec<(u32, BandKind, u64, u64)> = r
+                .bands
+                .iter()
+                .map(|b| (b.index, b.kind, b.start_s, b.end_s))
+                .collect();
+            assert_eq!(
+                bands,
+                vec![
+                    (0, BandKind::Ramp, 0, 2),
+                    (0, BandKind::Discard, 2, 7),
+                    (0, BandKind::Measure, 7, 22),
+                    (1, BandKind::Ramp, 22, 24),
+                    (1, BandKind::Discard, 24, 29),
+                    (1, BandKind::Measure, 29, 44),
+                ]
+            );
+            let line: Vec<(u64, u32)> = r
+                .target_line
+                .iter()
+                .map(|p| (p.offset_s, p.target))
+                .collect();
+            assert_eq!(
+                line,
+                vec![(0, 0), (2, 100), (22, 100), (24, 200), (44, 200)]
+            );
+            // 꼭짓점 = 펼친 stages의 누적 끝 시각·목표.
+            let mut acc = 0u64;
+            let from_stages: Vec<(u64, u32)> = std::iter::once((0, 0))
+                .chain(expand_stair(&c).iter().map(|s| {
+                    acc += u64::from(s.duration_seconds);
+                    (acc, s.target)
+                }))
+                .collect();
+            assert_eq!(line, from_stages);
+            // 데이터가 없으면 판정할 수 없음.
+            assert_eq!(r.headline.kind, HeadlineKind::NoData);
+            assert!(r.steps.iter().all(|s| s.state == StepState::NotMeasured));
+        }
+
+        #[test]
+        fn stair_seconds_align_two_workers() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("a", 1_000_000));
+            fx.inp.starts.push(start("b", 1_003_000));
+            fx.inp.open_loop.push(ol("a", 1010, 3, 3, 0));
+            fx.inp.open_loop.push(ol("b", 1013, 1, 1, 0));
+            fx.rows.push(mrow("a", 1010, "s", 3, 0, &[(1_000, 3)]));
+            fx.rows.push(mrow("b", 1013, "s", 1, 0, &[(50_000, 1)]));
+            let r = fx.report(&c);
+            assert_eq!(r.seconds.len(), 1, "{:?}", r.seconds);
+            let s = &r.seconds[0];
+            assert_eq!(s.offset_s, 10);
+            assert_eq!(s.count, 4);
+            assert_eq!(s.launched, Some(4));
+            assert_eq!(s.completed, Some(4));
+            assert_eq!(s.dropped, Some(0));
+            let mut merged = hist(&[(1_000, 3)]);
+            merge_into(&mut merged, &hist(&[(50_000, 1)]));
+            assert_eq!(s.p99_us, merged.value_at_quantile(0.99));
+        }
+
+        #[test]
+        fn stair_measure_times_and_launched_rate() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("a", T0 + 300));
+            fx.inp.starts.push(start("b", 1_002_000));
+            fx.fill("a", 1000, 43, |_| {
+                Some(Sec {
+                    launched: 110,
+                    completed: 100,
+                    dropped: 0,
+                    errors: 0,
+                    lat_us: 2_000,
+                })
+            });
+            fx.fill("b", 1002, 42, |_| Some(sec(20, 2_000)));
+            let r = fx.report(&c);
+            // 가장 이른 t0 = 워커 a(1000.3s): 계단0 포함 초 1007..1021.
+            assert_eq!(r.steps[0].measure_start_ms, 1_007_000);
+            assert_eq!(r.steps[0].measure_end_ms, 1_021_000);
+            assert_eq!(r.steps[1].measure_start_ms, 1_028_000);
+            assert_eq!(r.steps[1].measure_end_ms, 1_042_000);
+            assert_eq!(r.steps[0].launched_rate, Some(130.0));
+            assert_eq!(r.steps[0].achieved, Some(120.0));
+            assert_eq!(r.steps[0].measured_seconds, 14, "워커별 측정 초의 최솟값");
+        }
+
+        /// 계단0·1 정상, 계단2 = 지연으로도 무너지며 dropped(설명됨).
+        fn three_step() -> (StairConfig, Fx) {
+            let c = scfg(&[100, 200, 300], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 63, |o| {
+                if o < 21 {
+                    Some(sec(100, 2_000))
+                } else if o < 42 {
+                    Some(sec(200, 2_000))
+                } else {
+                    Some(Sec {
+                        launched: 285,
+                        completed: 285,
+                        dropped: 15,
+                        errors: 0,
+                        lat_us: 20_000,
+                    })
+                }
+            });
+            (c, fx)
+        }
+
+        #[test]
+        fn stair_dropped_in_ramp_segment_not_explained() {
+            let (c, mut fx) = three_step();
+            assert!(
+                fx.report(&c).dropped_explained,
+                "대조: 계단2 dropped만이면 설명됨"
+            );
+            // 계단1 상승 구간(offset 21)에 dropped.
+            let row = fx
+                .inp
+                .open_loop
+                .iter_mut()
+                .find(|r| r.ts_second == 1021)
+                .unwrap();
+            row.dropped = 3;
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].state, StepState::Ok);
+            assert_eq!(r.steps[1].dropped, Some(0), "측정 구간 밖");
+            assert!(!r.dropped_explained);
+        }
+
+        #[test]
+        fn stair_dropped_before_first_step_not_explained() {
+            // 첫 계단부터 오류로 무너져(슬롯 부족 아님) 계단 안 dropped는 설명된다.
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 42, |o| {
+                let t = if o < 21 { 100 } else { 200 };
+                Some(Sec {
+                    launched: t - 5,
+                    completed: t - 5,
+                    dropped: 5,
+                    errors: t / 2,
+                    lat_us: 2_000,
+                })
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[0].state, StepState::Saturated);
+            assert!(r.dropped_explained, "대조: 계단 안 dropped만이면 설명됨");
+            // t0 이전 초(계단 0 시작 전)의 dropped는 어느 계단에도 속하지 않는다.
+            fx.inp.open_loop.push(ol("w", 999, 0, 0, 2));
+            assert!(!fx.report(&c).dropped_explained);
+        }
+
+        #[test]
+        fn stair_dropped_straddling_into_ok_step_not_explained() {
+            // t0 = 1000.3s라 초가 계단 경계에 걸친다. 계단1은 튐(지연+dropped, 설명됨), 계단2 정상.
+            let c = scfg(&[100, 200, 300], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0 + 300));
+            fx.fill("w", 1000, 64, |o| match o {
+                0..21 => Some(sec(100, 2_000)),
+                21 => Some(sec(200, 20_000)),
+                22..42 => Some(Sec {
+                    launched: 200,
+                    completed: 200,
+                    dropped: 5,
+                    errors: 0,
+                    lat_us: 20_000,
+                }),
+                _ => Some(sec(300, 3_000)),
+            });
+            let r = fx.report(&c);
+            let states: Vec<StepState> = r.steps.iter().map(|s| s.state).collect();
+            assert_eq!(states, vec![StepState::Ok, StepState::Spike, StepState::Ok]);
+            assert!(r.dropped_explained, "대조: 튄 계단 안 dropped만이면 설명됨");
+            // ts 1042 = 계단 상대 [41.7s, 42.7s) — 계단1 끝과 계단2(정상) 시작에 걸친 초.
+            let row = fx
+                .inp
+                .open_loop
+                .iter_mut()
+                .find(|r| r.ts_second == 1042)
+                .unwrap();
+            row.dropped = 3;
+            assert!(
+                !fx.report(&c).dropped_explained,
+                "걸친 계단 중 정상 계단이 있으면 설명 안 됨"
+            );
+        }
+
+        /// 대표 계단 run: 정상 → knee(⚠) → 튐 → 정상 → 포화(멈춤, ratio null).
+        fn golden_fixture() -> (StairConfig, Fx) {
+            let c = scfg(&[100, 200, 300, 400, 500, 600], 1, 25, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 156, |o| {
+                let i = o / 26;
+                let in_step = o % 26;
+                let head = (6..16).contains(&in_step);
+                let t = 100 * (i as u64 + 1);
+                match i {
+                    // knee: 4ms → 10ms(2.5×, 3× 미만이라 정상). 앞 10초만 10ms라 ⚠도 뜬다.
+                    0 | 1 => Some(sec(t, 4_000)),
+                    2 => Some(sec(t, if head { 10_000 } else { 4_500 })),
+                    3 => Some(sec(t, 40_000)),
+                    4 => Some(sec(t, 8_000)),
+                    _ if in_step < 6 => Some(sec(t, 50_000)),
+                    _ if head => Some(Sec {
+                        launched: 300,
+                        completed: 300,
+                        dropped: 300,
+                        errors: 0,
+                        lat_us: 100_000,
+                    }),
+                    _ => Some(Sec {
+                        launched: 50,
+                        completed: 0,
+                        dropped: 550,
+                        errors: 0,
+                        lat_us: 0,
+                    }),
+                }
+            });
+            (c, fx)
+        }
+
+        #[test]
+        fn stair_golden_fixture_shape() {
+            let (c, fx) = golden_fixture();
+            let r = fx.report(&c);
+            let states: Vec<StepState> = r.steps.iter().map(|s| s.state).collect();
+            use StepState::*;
+            assert_eq!(states, vec![Ok, Ok, Ok, Spike, Ok, Saturated]);
+            assert_eq!(r.headline.kind, HeadlineKind::Saturated);
+            assert_eq!(r.headline.saturated_target, Some(600));
+            assert_eq!(r.headline.last_ok_target, Some(500));
+            assert_eq!(r.headline.through_target, None);
+            assert!(!r.headline.first_fail_hint);
+            assert_eq!(r.knee_target, Some(300));
+            assert!(r.steps[2].knee && r.steps[2].discard_warning);
+            assert_eq!(r.spike_targets, vec![400]);
+            assert_eq!(r.steps[5].head_p99_ratio, None, "나머지 p99 0 → null");
+            assert!(r.dropped_explained);
+            assert_eq!(r.dropped_total, Some(8_500));
+        }
+
+        #[test]
+        fn stair_report_matches_golden() {
+            const GOLDEN: &str = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../testdata/stair_report_golden.json"
+            ));
+            let (c, fx) = golden_fixture();
+            let got = serde_json::to_string_pretty(&fx.report(&c)).unwrap();
+            assert_eq!(got, GOLDEN.trim_end(), "골든이 바뀌면 의도적으로 갱신");
+            // typed round-trip: 골든은 ReportJson.stair로 역직렬화된다.
+            let back: StairReport = serde_json::from_str(GOLDEN).unwrap();
+            assert_eq!(back, fx.report(&c));
+        }
     }
 }

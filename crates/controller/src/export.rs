@@ -650,6 +650,7 @@ mod tests {
             connection: None,
             validity: Default::default(),
             narrative: Default::default(),
+            stair: None,
         }
     }
 

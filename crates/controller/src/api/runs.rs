@@ -1093,6 +1093,15 @@ pub async fn build_report_for_run(
     };
     let error_kinds = crate::store::metrics::error_kind_breakdown(db, run_id).await?;
     let loop_exits = crate::store::metrics::loop_exit_breakdown(db, run_id).await?;
+    // 계단 run만 초 단위 계수·워커 시작 시각을 읽는다(비계단 run은 조회 0회).
+    let stair_inputs = if row.profile.stair.is_some() {
+        crate::stair::StairInputs {
+            open_loop: crate::store::open_loop::open_loop_seconds(db, run_id).await?,
+            starts: crate::store::open_loop::worker_starts(db, run_id).await?,
+        }
+    } else {
+        crate::stair::StairInputs::default()
+    };
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(crate::report::build_report(
         &row,
@@ -1106,6 +1115,7 @@ pub async fn build_report_for_run(
         &active_vu_by_worker,
         &error_kinds,
         &loop_exits,
+        &stair_inputs,
     ))
 }
 

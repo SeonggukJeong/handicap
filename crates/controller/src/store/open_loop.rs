@@ -2,6 +2,7 @@ use sqlx::Row;
 
 use super::Db;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct OpenLoopSecondRow {
     pub worker_id: String,
     pub ts_second: i64,
@@ -10,6 +11,7 @@ pub struct OpenLoopSecondRow {
     pub dropped: i64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct WorkerStartRow {
     pub worker_id: String,
     pub started_at_ms: i64,
