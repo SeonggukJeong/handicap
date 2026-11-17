@@ -559,6 +559,40 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     check("confirm box scrolls within viewport (overflow-y auto + max-height)", cs.overflowY === "auto" && /100%|calc\(100vh/.test(cs.maxHeight));
     check("confirm buttons inside the box", d.querySelector("#confirm .box").contains(d.getElementById("confirm-ok")) && d.querySelector("#confirm .box").contains(d.getElementById("confirm-cancel")));
   }
+  // 확인 전 비동기 읽기 중 두 번째 클릭: 같은 동작을 두 번 부르지 않는다
+  {
+    const st = { value: workerBase({ state: "running", run_tail: "AB" }), after: base("local") };
+    const { d, calls } = await load(st);
+    d.getElementById("w-disconnect").click(); d.getElementById("w-disconnect").click(); await sleep(40);
+    d.getElementById("confirm-ok").click(); await sleep(800);
+    check("double click #w-disconnect → 1 disconnect_worker, no error line", calls.filter((c) => c[0] === "disconnect_worker").length === 1 && d.getElementById("err").hidden);
+  }
+  {
+    const st = { value: workerBase({ state: "running", run_tail: "AB" }), after: base("local") };
+    const { d, calls } = await load(st);
+    d.getElementById("switch").click(); d.getElementById("switch").click(); await sleep(40);
+    d.getElementById("confirm-ok").click(); await sleep(800);
+    check("double click #switch (worker running) → 1 switch_role, no error line", calls.filter((c) => c[0] === "switch_role").length === 1 && d.getElementById("err").hidden);
+  }
+  {
+    const st = { value: base("local"), runs: 0, preview: { ips: ["10.0.0.9"], port: 8093, non_private: false }, after: workerBase({ state: "connecting" }) };
+    const { d, calls } = await load(st);
+    d.getElementById("code-in").value = FAKE_CODE;
+    d.getElementById("join-btn").click(); d.getElementById("join-btn").click(); await sleep(40);
+    d.getElementById("confirm-ok").click(); await sleep(800);
+    check("double click #join-btn → 1 connect_worker, no error line", calls.filter((c) => c[0] === "connect_worker").length === 1 && d.getElementById("err").hidden);
+  }
+  // 취소 뒤에는 다시 시작할 수 있다(가드가 풀린다)
+  {
+    const st = { value: workerBase({ state: "running", run_tail: "AB" }), after: base("local") };
+    const { d, calls } = await load(st);
+    d.getElementById("w-disconnect").click(); await sleep(40);
+    d.getElementById("confirm-cancel").click(); await sleep(20);
+    d.getElementById("w-disconnect").click(); await sleep(40);
+    check("after cancel the flow can start again", d.getElementById("confirm").classList.contains("on"));
+    d.getElementById("confirm-ok").click(); await sleep(800);
+    check("after cancel+retry → exactly 1 disconnect_worker", calls.filter((c) => c[0] === "disconnect_worker").length === 1);
+  }
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL`);
   process.exit(fails ? 1 : 0);
 })();

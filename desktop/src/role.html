@@ -469,6 +469,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
   // lines: 줄마다 <p>(textContent). okLabel: 확인 버튼 글자.
   function askConfirm(lines, okLabel) {
     return new Promise(function (resolve) {
+      if (confirmOpen) { resolve(false); return; }
       confirmOpen = true;
       var box = $("confirm-text");
       box.textContent = "";
@@ -537,6 +538,9 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
       });
     });
   }
+  // 확인 전 비동기 읽기 동안 두 번째 클릭이 같은 흐름을 또 시작하지 못하게 한다.
+  var flowBusy = false;
+  function endFlow() { flowBusy = false; }
   function failTop(e) {
     showErr("전환하지 못했습니다: " + errText(e), "switch");
     return refresh();
@@ -544,7 +548,8 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
 
   // 역할 전환 (혼자 쓰기 ↔ 서버, 부하기에서 둘 다)
   function switchTo(target) {
-    if (!cur || overlayOn) return;
+    if (!cur || overlayOn || flowBusy) return;
+    flowBusy = true;
     showErr("");
     var ask;
     if (cur.role === "worker") {
@@ -560,7 +565,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
       if (!go) return;
       return runWithOverlay(target === "server" ? "서버 모드로 전환 중…" : "혼자 쓰기로 돌아가는 중…",
         function () { return invoke("switch_role", { target: target }); }, null, { serverStart: target === "server" });
-    }, failTop);
+    }, failTop).then(endFlow, endFlow);
   }
   $("switch").addEventListener("click", function () {
     if (!cur) return;
@@ -569,7 +574,8 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
   $("switch-server").addEventListener("click", function () { switchTo("server"); });
 
   $("w-disconnect").addEventListener("click", function () {
-    if (!cur || overlayOn) return;
+    if (!cur || overlayOn || flowBusy) return;
+    flowBusy = true;
     showErr("");
     workerRunning().then(function (r) {
       return r ? askConfirm([STOP_LINE], "중단하고 끊기") : true;
@@ -577,7 +583,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
       if (!go) return;
       return runWithOverlay("접속을 끊는 중…", function () { return invoke("disconnect_worker"); }, null,
         { prefix: "접속을 끊지 못했습니다: " });
-    }, function (e) { showErr("접속을 끊지 못했습니다: " + errText(e), "switch"); return refresh(); });
+    }, function (e) { showErr("접속을 끊지 못했습니다: " + errText(e), "switch"); return refresh(); }).then(endFlow, endFlow);
   });
   $("w-reconnect").addEventListener("click", function () {
     if (!cur || overlayOn) return;
@@ -588,7 +594,8 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
 
   // 부하기로 접속: 코드 검사 → 확인 → 접속. 코드 글자는 어디에도 되풀이하지 않는다.
   $("join-btn").addEventListener("click", function () {
-    if (!cur || overlayOn || confirmOpen) return;
+    if (!cur || overlayOn || confirmOpen || flowBusy) return;
+    flowBusy = true;
     var code = $("code-in").value;
     var err = $("join-err");
     err.hidden = true; showErr("");
@@ -617,7 +624,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
       });
     }).catch(function (e) {
       err.textContent = errText(e); err.hidden = false;
-    });
+    }).then(endFlow, endFlow);
   });
 
   document.addEventListener("visibilitychange", function () {
