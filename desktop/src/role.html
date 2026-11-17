@@ -216,7 +216,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
 
   // 본문(#app) 컨트롤만 잠근다 — 확인 상자(#confirm)의 버튼은 건드리지 않는다.
   function setAllDisabled(on) {
-    document.querySelectorAll("#app button, #app input, #app select").forEach(function (el) {
+    document.querySelectorAll("#app button, #app input, #app select, #app textarea").forEach(function (el) {
       if (on) el.disabled = true;
     });
   }
@@ -275,6 +275,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     var server = st.role === "server" && !!st.app_url;
     $("server").hidden = !server;
     if (server) renderServer(st, locked);
+    else if (codeVal || codeKey) { codeVal = ""; codeKey = null; $("code").textContent = ""; $("code-err").hidden = true; }
 
     if (locked) setAllDisabled(true);
   }
@@ -519,7 +520,9 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
   }
 
   // 덮개 + 동작 + 최소 600ms. 실패 사유는 화면 한 줄(코드는 사유에 없다).
-  function runWithOverlay(text, fn, onDone) {
+  // opts: { prefix: 실패 문구 머리, serverStart: 서버로 여는 전환(셸 안내가 사유를 세우면 줄을 생략) }
+  function runWithOverlay(text, fn, onDone, opts) {
+    opts = opts || {};
     setOverlay(text);
     return Promise.allSettled([fn(), delay(600)]).then(function (rs) {
       setOverlay("");
@@ -529,8 +532,8 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
         if (onDone) onDone(!failed);
         if (!failed) return;
         // 서버로의 실패는 셸이 「서버로 열지 못했습니다」 안내를 세운다 — 사유는 한 번만.
-        if (text === "서버 모드로 전환 중…" && cur && cur.notices.start_error != null) return;
-        showErr("전환하지 못했습니다: " + errText(rs[0].reason), "switch");
+        if (opts.serverStart && cur && cur.notices.start_error != null) return;
+        showErr((opts.prefix || "전환하지 못했습니다: ") + errText(rs[0].reason), "switch");
       });
     });
   }
@@ -556,7 +559,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     ask.then(function (go) {
       if (!go) return;
       return runWithOverlay(target === "server" ? "서버 모드로 전환 중…" : "혼자 쓰기로 돌아가는 중…",
-        function () { return invoke("switch_role", { target: target }); });
+        function () { return invoke("switch_role", { target: target }); }, null, { serverStart: target === "server" });
     }, failTop);
   }
   $("switch").addEventListener("click", function () {
@@ -572,13 +575,15 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
       return r ? askConfirm([STOP_LINE], "중단하고 끊기") : true;
     }).then(function (go) {
       if (!go) return;
-      return runWithOverlay("접속을 끊는 중…", function () { return invoke("disconnect_worker"); });
-    }, failTop);
+      return runWithOverlay("접속을 끊는 중…", function () { return invoke("disconnect_worker"); }, null,
+        { prefix: "접속을 끊지 못했습니다: " });
+    }, function (e) { showErr("접속을 끊지 못했습니다: " + errText(e), "switch"); return refresh(); });
   });
   $("w-reconnect").addEventListener("click", function () {
     if (!cur || overlayOn) return;
     showErr("");
-    runWithOverlay("다시 접속하는 중…", function () { return invoke("reconnect_worker"); });
+    runWithOverlay("다시 접속하는 중…", function () { return invoke("reconnect_worker"); }, null,
+      { prefix: "다시 접속하지 못했습니다: " });
   });
 
   // 부하기로 접속: 코드 검사 → 확인 → 접속. 코드 글자는 어디에도 되풀이하지 않는다.
@@ -610,7 +615,7 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
             $("code-in").value = ""; $("join").open = false;
           });
       });
-    }, function (e) {
+    }).catch(function (e) {
       err.textContent = errText(e); err.hidden = false;
     });
   });

@@ -56,7 +56,7 @@ async function load(state, opts = {}) {
             return Promise.resolve(JSON.parse(JSON.stringify(state.value)));
           }
           if (cmd === "worker_command") return Promise.resolve(`CMD ${args.ip} ${args.os} ${state.value.grpc_port}`);
-          if (cmd === "active_run_count") return Promise.resolve(state.runs || 0);
+          if (cmd === "active_run_count") return state.runsFail ? Promise.reject(state.runsFail) : Promise.resolve(state.runs || 0);
           if (cmd === "switch_role") {
             if (state.switchFail) {
               if (state.failSetsStartError) state.value.notices.start_error = state.switchFail;
@@ -76,6 +76,7 @@ async function load(state, opts = {}) {
           }
           if (cmd === "check_code") return state.preview ? Promise.resolve(state.preview) : Promise.reject("접속 코드 형식이 아닙니다");
           if (cmd === "connect_worker" || cmd === "disconnect_worker" || cmd === "reconnect_worker") {
+            if (cmd === "disconnect_worker" && state.disconnectFail) return Promise.reject(state.disconnectFail);
             if (state.after) state.value = state.after;
             return Promise.resolve(null);
           }
@@ -344,12 +345,13 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
   // 혼자 쓰기: 잘못된 코드
   {
     const st = { value: base("local") };
-    const { d, calls } = await load(st);
+    const { d, calls, logs } = await load(st);
     check("local: #join summary 부하기로 접속", d.querySelector("#join summary").textContent === "부하기로 접속");
     check("local: #join closed, switch-server/worker hidden", !d.getElementById("join").open && d.getElementById("switch-server").hidden && d.getElementById("worker").hidden);
     d.getElementById("code-in").value = "junk";
     d.getElementById("join-btn").click(); await sleep(30);
     check("bad code → join-err", d.getElementById("join-err").textContent === "접속 코드 형식이 아닙니다" && !d.getElementById("join-err").hidden);
+    check("bad code: no code in console", logs.every((l) => !l.includes("HANDICAP1-")));
     check("bad code → no connect_worker, no confirm", !calls.some((c) => c[0] === "connect_worker") && !d.getElementById("confirm").classList.contains("on"));
     check("code-in textarea aria-label", d.getElementById("code-in").getAttribute("aria-label") === "접속 코드" && d.getElementById("code-in").tagName === "TEXTAREA");
     check("join guide + button text", d.getElementById("join").textContent.includes("서버 PC의 「모드 전환」 화면에서 복사한 접속 코드를 붙여넣으세요") && d.getElementById("join-btn").textContent === "부하기로 접속");
@@ -357,7 +359,7 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
   // 혼자 쓰기: 좋은 코드
   {
     const st = { value: base("local"), runs: 2, preview: { ips: ["10.0.0.9", "10.0.0.8"], port: 8093, non_private: true }, after: workerBase({ state: "connecting" }) };
-    const { d, calls } = await load(st);
+    const { d, calls, logs } = await load(st);
     d.getElementById("code-in").value = FAKE_CODE;
     d.getElementById("join-btn").click(); await sleep(40);
     const lines = [...d.querySelectorAll("#confirm-text p")].map((p) => p.textContent);
@@ -376,6 +378,7 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     check("connect_worker args = pasted code", cw.length === 1 && JSON.stringify(cw[0][1]) === JSON.stringify({ code: FAKE_CODE }));
     await sleep(700);
     check("join success → code-in cleared, join closed, worker panel", d.getElementById("code-in").value === "" && !d.getElementById("join").open && !d.getElementById("worker").hidden);
+    check("good code: no code in console", logs.every((l) => !l.includes("HANDICAP1-")));
     check("join: no token key in args", calls.every((c) => !JSON.stringify(c[1] || {}).includes("token")));
   }
   // 사설 + 0 run: 줄 2개
@@ -477,6 +480,62 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     check("worker_code_unreadable notice", noticeTexts(d).includes("저장된 접속 코드를 읽지 못했습니다 — 새 코드를 붙여넣어 주세요"));
     d.querySelector(".notice button").click(); await sleep(30);
     check("worker_code_unreadable dismiss kind", calls.some((c) => c[0] === "dismiss_notice" && c[1].kind === "worker_code_unreadable"));
+  }
+  // 접속 흐름 중 다른 IPC 실패도 #join-err로
+  {
+    const st = { value: base("local"), preview: { ips: ["10.0.0.9"], port: 8093, non_private: false }, runsFail: "이미 전환 중입니다" };
+    const { d, calls } = await load(st);
+    d.getElementById("code-in").value = FAKE_CODE;
+    d.getElementById("join-btn").click(); await sleep(40);
+    check("join: active_run_count failure → #join-err", !d.getElementById("join-err").hidden && d.getElementById("join-err").textContent === "이미 전환 중입니다");
+    check("join: failure → no confirm, no connect_worker", !d.getElementById("confirm").classList.contains("on") && !calls.some((c) => c[0] === "connect_worker"));
+  }
+  // 최신 상태를 새로 읽는다: 캐시(idle)가 아니라 running
+  {
+    const st = { value: workerBase({ state: "idle" }) };
+    const { d } = await load(st);
+    st.value = workerBase({ state: "running", run_tail: "Q" });
+    d.getElementById("w-disconnect").click(); await sleep(30);
+    check("disconnect reads fresh state (idle cached, running now) → confirm", d.getElementById("confirm").classList.contains("on"));
+    d.getElementById("confirm-cancel").click(); await sleep(20);
+  }
+  // 동작별 실패 문구
+  {
+    const st = { value: workerBase({ state: "idle" }), disconnectFail: "끊기 실패" };
+    const { d } = await load(st);
+    d.getElementById("w-disconnect").click(); await sleep(700);
+    check("disconnect failure text", d.getElementById("err").textContent === "접속을 끊지 못했습니다: 끊기 실패");
+  }
+  // 서버가 아니게 되면 코드 글자를 DOM에서 지운다
+  {
+    const st = { value: base("server") };
+    const { d, w } = await load(st);
+    check("code present while server", d.getElementById("code").textContent === FAKE_CODE);
+    st.value = base("local");
+    d.dispatchEvent(new w.Event("visibilitychange")); await sleep(30);
+    check("code cleared after leaving server", d.getElementById("code").textContent === "" && !d.documentElement.innerHTML.includes("HANDICAP1-"));
+  }
+  // 잠금 때 textarea도
+  {
+    const st = { value: base("local"), runs: 0, after: base("server") };
+    const { d } = await load(st);
+    d.getElementById("switch").click(); await sleep(30);
+    check("overlay disables #code-in", d.getElementById("busy").classList.contains("on") && d.getElementById("code-in").disabled);
+    await sleep(700);
+    check("code-in re-enabled after overlay", !d.getElementById("code-in").disabled);
+  }
+  // XSS: addr / servers / run_tail
+  {
+    const evil = '<img src=x onerror="window.__pwn=1">';
+    const st = { value: workerBase({ state: "running", addr: evil, run_tail: evil }) };
+    const { d, w } = await load(st);
+    check("xss addr/run_tail: no img", d.querySelectorAll("img").length === 0);
+    check("xss run_tail: text + bdi", d.getElementById("w-state").textContent.includes(evil) && [...d.querySelectorAll("#w-state bdi")].some((b) => b.textContent === evil));
+    check("xss addr: text + bdi", d.getElementById("w-detail").textContent === evil && [...d.querySelectorAll("#w-detail bdi")].some((b) => b.textContent === evil));
+    st.value = workerBase({ state: "connecting", servers: [evil, "10.0.0.8:8093"], addr: null });
+    d.dispatchEvent(new w.Event("visibilitychange")); await sleep(30);
+    check("xss servers: no img, text + bdi", d.querySelectorAll("img").length === 0 && d.getElementById("w-detail").textContent === evil + ", 10.0.0.8:8093" && [...d.querySelectorAll("#w-detail bdi")].some((b) => b.textContent === evil));
+    check("xss servers: handler never ran", w.__pwn === undefined);
   }
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL`);
   process.exit(fails ? 1 : 0);
