@@ -25,6 +25,9 @@ use crate::store::runs::{self, RunStatus};
 
 const DATASET_BATCH_ROWS: i64 = 1000;
 
+/// Abort reason for an idle (empty run_id) register on a controller that is not in pool mode.
+const NOT_POOL_MODE_REASON: &str = "controller is not in pool mode";
+
 /// Default per-worker VU capacity used to derive the worker count N. Overridable
 /// via the controller's `--worker-capacity-vus` flag (spec §2.1).
 pub const DEFAULT_WORKER_CAPACITY_VUS: u32 = 2000;
@@ -910,17 +913,23 @@ impl CoordinatorState {
             let Some(rw) = g.get_mut(run_id) else {
                 return;
             };
-            if let Some(e) = rw.workers.get_mut(worker_id) {
-                e.phase = if phase == completed {
-                    Phase::Completed
-                } else if phase == failed {
-                    Phase::Failed
-                } else if phase == aborted {
-                    Phase::Aborted
-                } else {
-                    Phase::Started
-                };
-            }
+            let Some(e) = rw.workers.get_mut(worker_id) else {
+                warn!(
+                    ?worker_id,
+                    ?run_id,
+                    "run status from a worker not in this run: ignored"
+                );
+                return;
+            };
+            e.phase = if phase == completed {
+                Phase::Completed
+            } else if phase == failed {
+                Phase::Failed
+            } else if phase == aborted {
+                Phase::Aborted
+            } else {
+                Phase::Started
+            };
             if rw.terminal {
                 Finalize::None
             } else if phase == failed {
@@ -1370,12 +1379,24 @@ impl Coordinator for CoordinatorService {
                 match msg.payload {
                     Some(WorkerPayload::Register(reg)) => {
                         if !state.check_token(&reg.token) {
-                            warn!(worker_id = %reg.worker_id, "register rejected: token mismatch");
+                            warn!(worker_id = ?reg.worker_id, "register rejected: token mismatch");
                             let _ = tx
                                 .send(Ok(ServerMessage {
                                     payload: Some(ServerPayload::Abort(AbortRun {
                                         run_id: reg.run_id.clone(),
                                         reason: handicap_proto::AUTH_FAILED_REASON.to_string(),
+                                    })),
+                                }))
+                                .await;
+                            break;
+                        }
+                        if reg.run_id.is_empty() && !state.is_pool_mode() {
+                            warn!(worker_id = ?reg.worker_id, "idle register rejected: controller is not in pool mode");
+                            let _ = tx
+                                .send(Ok(ServerMessage {
+                                    payload: Some(ServerPayload::Abort(AbortRun {
+                                        run_id: String::new(),
+                                        reason: NOT_POOL_MODE_REASON.to_string(),
                                     })),
                                 }))
                                 .await;
@@ -1395,11 +1416,9 @@ impl Coordinator for CoordinatorService {
                                 )
                                 .await;
                             // 수락 신호: 워커가 받는 첫 Ping = 풀에 등록됨(REST 목록에 보인다).
-                            let _ = tx
-                                .send(Ok(ServerMessage {
-                                    payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
-                                }))
-                                .await;
+                            let _ = tx.try_send(Ok(ServerMessage {
+                                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
+                            }));
                             pool_conn = true;
                             continue;
                         }
@@ -2724,6 +2743,62 @@ mod tests {
                 assert!(st.pool.lock().await.contains_key("ping-order"));
             }
         }
+        drop(tx);
+    }
+
+    /// 풀 모드가 아닌 컨트롤러에 빈 run_id로 등록하면 Abort 하나를 받고 스트림이 끝난다(풀 삽입 없음).
+    #[tokio::test]
+    async fn empty_run_id_register_on_non_pool_controller_is_aborted() {
+        use pb::coordinator_client::CoordinatorClient;
+        use pb::coordinator_server::CoordinatorServer;
+
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let st = CoordinatorState::new(db);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let svc = CoordinatorService { state: st.clone() };
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(CoordinatorServer::new(svc))
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .await
+        });
+
+        let mut client = CoordinatorClient::connect(format!("http://{addr}"))
+            .await
+            .unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        tx.send(WorkerMessage {
+            payload: Some(WorkerPayload::Register(pb::Register {
+                worker_id: "not-pool".into(),
+                run_id: String::new(),
+                capacity_vus: 10,
+                hostname: "h".into(),
+                stable_id: false,
+                token: String::new(),
+            })),
+        })
+        .await
+        .unwrap();
+        let mut stream = client
+            .channel(ReceiverStream::new(rx))
+            .await
+            .unwrap()
+            .into_inner();
+        let first = tokio::time::timeout(Duration::from_secs(5), stream.message())
+            .await
+            .expect("no server message")
+            .unwrap()
+            .expect("stream closed before any message");
+        let Some(ServerPayload::Abort(a)) = first.payload else {
+            panic!("expected Abort, got {:?}", first.payload);
+        };
+        assert_eq!(a.reason, "controller is not in pool mode");
+        let next = tokio::time::timeout(Duration::from_secs(5), stream.message())
+            .await
+            .expect("stream must end after the Abort");
+        assert!(matches!(next, Ok(None)), "got {next:?}");
+        assert!(st.pool.lock().await.is_empty(), "no idle insert");
         drop(tx);
     }
 
@@ -4113,6 +4188,34 @@ mod tests {
             .await
             .expect("abort() 종료")
             .unwrap();
+    }
+
+    async fn assert_non_member_phase_ignored(phase: i32) {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, mut r0, mut r1) = two_worker_run(&db).await;
+        let before = runs::get(&db, &run_id).await.unwrap().unwrap();
+        coord.record_phase(&run_id, "intruder", phase, "boom").await;
+        assert!(r0.try_recv().is_err(), "구성원 w0에 Abort 없음");
+        assert!(r1.try_recv().is_err(), "구성원 w1에 Abort 없음");
+        let after = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(after.status, before.status);
+        assert_eq!(after.message, before.message);
+        // 구성원의 정상 완료가 여전히 run을 끝낸다(terminal 표시가 안 섰다).
+        let completed = pb::run_status::Phase::Completed as i32;
+        coord.record_phase(&run_id, "w0", completed, "").await;
+        coord.record_phase(&run_id, "w1", completed, "").await;
+        let done = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(done.status, RunStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn non_member_aborted_is_ignored() {
+        assert_non_member_phase_ignored(ABORTED).await;
+    }
+
+    #[tokio::test]
+    async fn non_member_failed_is_ignored() {
+        assert_non_member_phase_ignored(pb::run_status::Phase::Failed as i32).await;
     }
 
     #[test]
