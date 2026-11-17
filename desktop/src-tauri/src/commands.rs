@@ -1,6 +1,6 @@
 //! 「모드 전환」 화면(`desktop/src/role.html`, 셸 origin 전용)이 부르는 IPC 명령 (spec R7).
 //!
-//! 이름·인자·응답 모양은 role.html과 1:1. **토큰은 `worker_command` 응답에만** 실린다 —
+//! 이름·인자·응답 모양은 role.html과 1:1. **토큰은 `worker_command`·`connect_code` 응답에만** 실린다 —
 //! `role_state`·로그·표지에는 없다. 원격 origin(`http://127.0.0.1:…`)에는 capability가 없어
 //! 이 명령들을 부를 수 없다(Task 1 실측: "not allowed"). 두 번째 방어선으로 명령마다 첫 문장에서
 //! 부른 웹뷰의 origin이 셸 origin인지 다시 본다(`require_shell`).
@@ -9,12 +9,12 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Instant;
 
 use handicap_desktop_core::code::{
-    decode, encode, is_allowed_target_ip, ConnectCode, MAX_CODE_IPS,
+    decode, encode, is_allowed_target_ip, ConnectCode, MAX_CODE_IPS, MAX_CODE_TOKEN_LEN,
 };
 use handicap_desktop_core::command::{
     current_os, worker_command as build_worker_command, WorkerOs,
 };
-use handicap_desktop_core::config::Role;
+use handicap_desktop_core::config::{is_usable_install_id, Role};
 use handicap_desktop_core::net::{candidate_ipv4s, list_local_ipv4s};
 use handicap_desktop_core::token::is_usable_token;
 use handicap_worker::pool_status::{FailReason, PoolState};
@@ -148,7 +148,7 @@ pub fn connect_code_for(s: &ShellState, ips: &[Ipv4Addr]) -> Result<String, Stri
         .server
         .token
         .as_deref()
-        .filter(|t| is_usable_token(t))
+        .filter(|t| is_usable_token(t) && t.len() <= MAX_CODE_TOKEN_LEN)
         .ok_or_else(|| "접속 토큰이 없습니다".to_string())?;
     Ok(encode(&ConnectCode {
         ips,
@@ -225,7 +225,11 @@ pub fn build_role_state(
         },
         app_url: s.running.as_ref().map(|r| r.base_url.clone()),
         ips_public_fallback,
-        install_id: s.config.install_id.clone(),
+        install_id: s
+            .config
+            .install_id
+            .clone()
+            .filter(|i| is_usable_install_id(i)),
         hostname: (s.env.hostname)(),
         worker,
     }
@@ -666,6 +670,25 @@ mod tests {
         for bad in ["deadbeef", "cafebabe", "HANDICAP1-"] {
             assert!(!j.contains(bad), "{bad}");
         }
+        let code = s.config.worker.code.as_deref().unwrap();
+        assert!(!j.contains(&code["HANDICAP1-".len()..]));
+    }
+
+    #[test]
+    fn role_state_hides_unusable_install_id() {
+        let mut s = worker_state_cfg();
+        s.config.install_id = Some("x".into());
+        let d = build_role_state(&s, vec![], false, Instant::now());
+        assert_eq!(d.install_id, None);
+    }
+
+    #[test]
+    fn connect_code_rejects_overlong_token() {
+        let s = server_state_with_token(&"a".repeat(300));
+        assert_eq!(
+            connect_code_for(&s, &[ip("10.0.0.1")]).unwrap_err(),
+            "접속 토큰이 없습니다"
+        );
     }
 
     #[test]

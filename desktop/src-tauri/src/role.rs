@@ -14,7 +14,7 @@ use handicap_controller::in_process::{
     run_in_process, InProcessConfig, InProcessWorkerMode, RunningController, ABORT_MSG_APP_EXIT,
     ABORT_MSG_ROLE_SWITCH,
 };
-use handicap_desktop_core::code::{decode, ConnectCode};
+use handicap_desktop_core::code::{decode, ConnectCode, MAX_CODE_TOKEN_LEN};
 use handicap_desktop_core::config::{ensure_install_id, DesktopConfig, Loaded, Role};
 use handicap_desktop_core::token::{generate_token, is_usable_token};
 use handicap_worker::pool_status::{EventSink, PoolEvent, PoolState, StatusTracker};
@@ -310,7 +310,8 @@ pub async fn boot(shell: &Shell) -> Result<String, String> {
     out
 }
 
-/// `config.role`로 컨트롤러(+ 이 PC 부하기)를 띄운다. **잠금 없이 호출** — `config`·`notices`는
+/// `config.role`로 시작한다 — 결과는 셋 중 하나: 컨트롤러(서버 역할은 + 이 PC 부하기), 부하기 역할의
+/// 연결 루프, 아무것도 안 띄움(부하기 역할인데 아직 연결 안 함). **잠금 없이 호출** — `config`·`notices`는
 /// 호출자가 잠금 밖으로 복제해 온 사본이고, 끝나면 호출자가 잠금 안에서 설치한다.
 pub async fn start_running(
     shell: &Shell,
@@ -343,7 +344,12 @@ pub async fn start_running(
             }))
         }
         Role::Server => {
-            if !config.server.token.as_deref().is_some_and(is_usable_token) {
+            if !config
+                .server
+                .token
+                .as_deref()
+                .is_some_and(|t| is_usable_token(t) && t.len() <= MAX_CODE_TOKEN_LEN)
+            {
                 config.server.token = Some(generate_token(&mut rand::rngs::OsRng));
             }
             let token = config.server.token.clone().unwrap_or_default();
@@ -969,6 +975,19 @@ mod tests {
         assert!(!running(&s).await.controller.is_pool_mode());
         shutdown(&s).await;
         assert!(s.state.lock().await.running.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_server_replaces_overlong_token() {
+        let mut c = server(free_port());
+        c.server.token = Some("a".repeat(300));
+        let (s, d) = shell(c);
+        boot(&s).await.unwrap();
+        let saved = config_store::load(d.path()).config;
+        let t = saved.server.token.unwrap();
+        assert_eq!(t.len(), 32);
+        assert!(is_usable_token(&t));
+        shutdown(&s).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
