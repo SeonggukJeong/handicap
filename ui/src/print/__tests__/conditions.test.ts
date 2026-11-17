@@ -147,3 +147,28 @@ describe("conditionsBox", () => {
     );
   });
 });
+
+describe("계단 run", () => {
+  const stairProf = () =>
+    prof({
+      target_rps: 800,
+      stages: [{ target: 100, duration_seconds: 5 }],
+      stair: {
+        targets: [100, 200, 800],
+        hold_seconds: 60,
+        ramp_seconds: 5,
+        discard_seconds: 15,
+      },
+    });
+  it("loadConditionLine", () => {
+    expect(loadConditionLine(stairProf())).toBe("열린 루프 계단 · 3계단 100–800 req/s");
+  });
+  it("conditionsBox 모델·크기 행", () => {
+    const r = conditionsBox({ profileRaw: stairProf(), workerBreakdownLen: 0, envCount: 0 });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows.find((x) => x.label === "부하 모델")?.value).toBe("초당 목표 계단");
+      expect(r.rows.find((x) => x.label === "크기")?.value).toBe("3계단 · 초당 100–800회");
+    }
+  });
+});

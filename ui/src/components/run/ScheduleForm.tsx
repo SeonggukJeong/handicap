@@ -10,6 +10,7 @@ import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { isLoopStep, flattenHttpSteps } from "../../scenario/model";
 import { LoadModelFields } from "./LoadModelFields";
 import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
+import { STAIR_DEFAULTS, stairDraftFromConfig, type StairDraft } from "./stair";
 import { CriteriaFields } from "./CriteriaFields";
 import {
   buildProfile as buildProfileShared,
@@ -72,7 +73,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   // ── load model state (mirrors RunDialog EXACTLY, deriveLoadMode 단일화) ──────
   const initMode = deriveLoadMode(init ?? {});
   const [loadModel, setLoadModel] = useState<"closed" | "open">(initMode.loadModel);
-  const [rateMode, setRateMode] = useState<"fixed" | "curve">(initMode.rateMode);
+  const [rateMode, setRateMode] = useState<LoadModelState["rateMode"]>(initMode.rateMode);
+  const [stair] = useState<StairDraft>(
+    init?.stair ? stairDraftFromConfig(init.stair) : STAIR_DEFAULTS,
+  );
   const [targetRps, setTargetRps] = useState(
     init?.target_rps != null ? String(init.target_rps) : "100",
   );
@@ -215,6 +219,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const loadState: LoadModelState = {
     loadModel,
     rateMode,
+    stair,
     vus,
     duration,
     rampUp,

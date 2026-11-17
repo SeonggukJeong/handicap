@@ -1,3 +1,4 @@
+import { STAIR_DEFAULTS } from "../stair";
 import { describe, it, expect } from "vitest";
 import {
   buildCriteria,
@@ -28,6 +29,7 @@ const closedLoad: LoadModelState = {
   rampDown: "graceful",
   workerCount: "1",
   gracefulCap: "",
+  stair: STAIR_DEFAULTS,
 };
 
 describe("buildCriteria", () => {
@@ -214,6 +216,7 @@ const openFixedLoad: LoadModelState = {
   rampDown: "graceful",
   workerCount: "1",
   gracefulCap: "",
+  stair: STAIR_DEFAULTS,
 };
 
 function base(loadState: LoadModelState, extra: Partial<ProfileFormInput> = {}) {

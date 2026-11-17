@@ -249,3 +249,23 @@ describe("openLoopWarnings — 게이트(R13/R7)", () => {
     expect(w).toEqual([]);
   });
 });
+
+describe("stair (계단)", () => {
+  const stairBase = {
+    ...base,
+    rateMode: "stair" as const,
+    stairTargets: [100, 200, 400],
+  };
+  it("peak = 최대 목표: W > peak면 idle_workers", () => {
+    const w = openLoopWarnings({ ...stairBase, stairTargets: [1, 2], workerCount: "5" });
+    expect(w).toContainEqual({ kind: "idle_workers", workers: 5, peak: 2, idle: 3 });
+  });
+  it("W ≤ 최대 목표면 유휴 없음(첫 계단보다 W가 커도 run 전체 몫이 있으면 유휴 아님)", () => {
+    const w = openLoopWarnings({ ...stairBase, stairTargets: [1, 8], workerCount: "5" });
+    expect(w.find((x) => x.kind === "idle_workers")).toBeUndefined();
+  });
+  it("무의미 슬롯: R = 최대 목표", () => {
+    const w = openLoopWarnings({ ...stairBase, maxInFlight: "10000", httpTimeoutSeconds: 1 });
+    expect(w).toContainEqual({ kind: "inert_slots", maxInFlight: 10000, threshold: 400 });
+  });
+});

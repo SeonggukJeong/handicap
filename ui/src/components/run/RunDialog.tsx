@@ -25,6 +25,7 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { LoadModelFields } from "./LoadModelFields";
 import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
+import { STAIR_DEFAULTS, stairDraftFromConfig, type StairDraft } from "./stair";
 import {
   buildProfile as buildProfileShared,
   type CriteriaState,
@@ -87,7 +88,10 @@ export function RunDialog({
   // RunDialog loadPreset / ScheduleForm init).
   const initMode = deriveLoadMode(initial?.profile ?? {});
   const [loadModel, setLoadModel] = useState<"closed" | "open">(initMode.loadModel);
-  const [rateMode, setRateMode] = useState<"fixed" | "curve">(initMode.rateMode);
+  const [rateMode, setRateMode] = useState<LoadModelState["rateMode"]>(initMode.rateMode);
+  const [stair, setStair] = useState<StairDraft>(
+    initial?.profile.stair ? stairDraftFromConfig(initial.profile.stair) : STAIR_DEFAULTS,
+  );
   const [targetRps, setTargetRps] = useState(
     initial?.profile.target_rps != null ? String(initial.profile.target_rps) : "100",
   );
@@ -310,6 +314,7 @@ export function RunDialog({
       const mode = deriveLoadMode(prof);
       setLoadModel(mode.loadModel);
       setRateMode(mode.rateMode);
+      setStair(prof.stair ? stairDraftFromConfig(prof.stair) : STAIR_DEFAULTS);
       if (prof.target_rps != null) setTargetRps(String(prof.target_rps));
       if (prof.max_in_flight != null) setMaxInFlight(String(prof.max_in_flight));
       if (prof.worker_count != null) setWorkerCount(String(prof.worker_count));
@@ -447,6 +452,7 @@ export function RunDialog({
   const loadState: LoadModelState = {
     loadModel,
     rateMode,
+    stair,
     vus,
     duration,
     rampUp,

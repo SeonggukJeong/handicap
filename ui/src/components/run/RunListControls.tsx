@@ -36,6 +36,7 @@ const MODE_LABEL: Record<ModeKey, string> = {
   closed_curve: ko.runFilter.modeClosedCurve,
   open_fixed: ko.runFilter.modeOpenFixed,
   open_curve: ko.runFilter.modeOpenCurve,
+  open_stair: ko.runFilter.modeOpenStair,
 };
 const DATE_LABEL: Record<DatePreset, string> = {
   all: ko.runFilter.dateAll,

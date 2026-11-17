@@ -37,6 +37,10 @@ export function loadConditionLine(profile: Profile): string {
       ? c.lineClosedCurve(peak(profile.vu_stages), d)
       : c.lineClosedFixed(profile.vus, d);
   }
+  if (rateMode === "stair" && profile.stair) {
+    const t = profile.stair.targets;
+    return c.lineOpenStair(t.length, Math.min(...t), Math.max(...t));
+  }
   return rateMode === "curve"
     ? c.lineOpenCurve(peak(profile.stages), d)
     : c.lineOpenFixed(profile.target_rps ?? 0, d);
@@ -65,13 +69,19 @@ export function conditionsBox(a: {
         : c.sizeClosedFixed(p.vus),
     );
   } else {
-    add(L.model, rateMode === "curve" ? c.modelOpenCurve : c.modelOpenFixed);
-    add(
-      L.size,
-      rateMode === "curve"
-        ? c.sizeOpenCurve(peak(p.stages), p.stages?.length ?? 0)
-        : c.sizeOpenFixed(p.target_rps ?? 0),
-    );
+    if (rateMode === "stair" && p.stair) {
+      const t = p.stair.targets;
+      add(L.model, c.modelOpenStair);
+      add(L.size, c.sizeOpenStair(t.length, Math.min(...t), Math.max(...t)));
+    } else {
+      add(L.model, rateMode === "curve" ? c.modelOpenCurve : c.modelOpenFixed);
+      add(
+        L.size,
+        rateMode === "curve"
+          ? c.sizeOpenCurve(peak(p.stages), p.stages?.length ?? 0)
+          : c.sizeOpenFixed(p.target_rps ?? 0),
+      );
+    }
   }
   add(L.duration, formatDurationKo(profileDurationSeconds(p)));
   if (p.ramp_up_seconds > 0) add(L.ramp, c.ramp(formatDurationKo(p.ramp_up_seconds)));

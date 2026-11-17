@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import type { LoadModelErrors } from "./loadModel";
+import type { LoadModelErrors, LoadModelState } from "./loadModel";
 import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
 import { ko } from "../../i18n/ko";
@@ -21,8 +21,8 @@ type StageRow = { target: string; duration_seconds: string };
 type Props = {
   loadModel: "closed" | "open";
   setLoadModel: (m: "closed" | "open") => void;
-  rateMode: "fixed" | "curve";
-  setRateMode: (m: "fixed" | "curve") => void;
+  rateMode: LoadModelState["rateMode"];
+  setRateMode: (m: LoadModelState["rateMode"]) => void;
   vus: number;
   setVus: (n: number) => void;
   duration: number;
@@ -449,7 +449,7 @@ export function LoadModelFields({
             <div className="flex items-center gap-1">
               <Segmented
                 value={rateMode}
-                onChange={(v) => setRateMode(v as "fixed" | "curve")}
+                onChange={(v) => setRateMode(v as LoadModelState["rateMode"])}
                 options={[
                   { value: "fixed", label: "고정" },
                   { value: "curve", label: "곡선" },

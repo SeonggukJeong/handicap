@@ -15,10 +15,11 @@ export type OpenLoopWarning =
 
 export type OpenLoopInput = {
   loadModel: "closed" | "open";
-  rateMode: "fixed" | "curve";
+  rateMode: "fixed" | "curve" | "stair";
   targetRps: string;
   maxInFlight: string;
   stages: { target: string; duration_seconds: string }[];
+  stairTargets?: number[]; // rateMode "stair"일 때 파싱된 목표 목록(peak = 최대 목표)
   workerCount?: string; // string draft, 미설정/"" → 1
   httpTimeoutSeconds?: number; // RunDialog http_timeout; undefined → ② skip
   scenario: Scenario | null; // typed model; null → ② skip
@@ -42,7 +43,9 @@ export function iterationTimeUpperBoundSeconds(
       const thinkMs = (s.think_time ?? defaultThink)?.max_ms ?? 0;
       total += stepTimeout + thinkMs / 1000;
     } else if (s.type === "loop") {
-      total += loopPassesForEstimate(s, "upper") * iterationTimeUpperBoundSeconds(s.do, httpTimeoutSec, defaultThink);
+      total +=
+        loopPassesForEstimate(s, "upper") *
+        iterationTimeUpperBoundSeconds(s.do, httpTimeoutSec, defaultThink);
     } else if (s.type === "parallel") {
       let mx = 0;
       for (const b of s.branches) {
@@ -69,6 +72,7 @@ export function openLoopWarnings(input: OpenLoopInput): OpenLoopWarning[] {
     targetRps,
     maxInFlight,
     stages,
+    stairTargets,
     workerCount,
     httpTimeoutSeconds,
     scenario,
@@ -78,12 +82,22 @@ export function openLoopWarnings(input: OpenLoopInput): OpenLoopWarning[] {
   if (poolMode === true) return []; // R13
 
   const out: OpenLoopWarning[] = [];
-  const peak = peakStageTarget(stages); // number | null (string-draft, 유효 정수만)
+  const peak =
+    rateMode === "stair"
+      ? stairTargets && stairTargets.length > 0
+        ? Math.max(...stairTargets)
+        : null
+      : peakStageTarget(stages); // number | null (string-draft, 유효 정수만)
   const W = Number(workerCount || "1"); // 빈 draft("")는 1로 취급(spec §4.1)
 
   // ① 곡선 fan-out 유휴 워커 — W > peak면 (W-peak)개 워커가 0-share로 유휴.
   //    고정 모드는 worker_count>target_rps가 이미 400이라 발생 불가 → 곡선 한정.
-  if (rateMode === "curve" && peak != null && Number.isInteger(W) && W > peak) {
+  if (
+    (rateMode === "curve" || rateMode === "stair") &&
+    peak != null &&
+    Number.isInteger(W) &&
+    W > peak
+  ) {
     out.push({ kind: "idle_workers", workers: W, peak, idle: W - peak });
   }
 
@@ -91,7 +105,11 @@ export function openLoopWarnings(input: OpenLoopInput): OpenLoopWarning[] {
   //    R = 유효 도착률(고정 target_rps / 곡선 peak), T = 반복-시간 상한.
   //    M ≥ ceil(R×T)면 슬롯이 절대 고갈 불가 → max_in_flight 무의미.
   const R =
-    rateMode === "curve" ? peak : targetRpsValid(Number(targetRps)) ? Number(targetRps) : null;
+    rateMode === "curve" || rateMode === "stair"
+      ? peak
+      : targetRpsValid(Number(targetRps))
+        ? Number(targetRps)
+        : null;
   if (scenario != null && httpTimeoutSeconds != null && W <= 1 && R != null && R > 0) {
     const T = iterationTimeUpperBoundSeconds(
       scenario.steps,

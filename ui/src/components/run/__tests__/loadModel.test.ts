@@ -1,3 +1,4 @@
+import { STAIR_DEFAULTS } from "../stair";
 import { describe, expect, it } from "vitest";
 import {
   buildLoadProfile,
@@ -24,6 +25,7 @@ function base(): LoadModelState {
     rampDown: "graceful",
     workerCount: "1",
     gracefulCap: "",
+    stair: STAIR_DEFAULTS,
   };
 }
 
@@ -325,5 +327,51 @@ describe("profileVuDisplay (§4.1)", () => {
     expect(profileVuDisplay({ vus: 0, stages: [{ target: 100, duration_seconds: 30 }] })).toEqual({
       kind: "open",
     });
+  });
+});
+
+describe("stair (계단)", () => {
+  const stairState = (): LoadModelState => ({
+    ...base(),
+    loadModel: "open",
+    rateMode: "stair",
+    maxInFlight: "300",
+    workerCount: "2",
+    stair: { targets: "100, 200", hold: "60", ramp: "5", discard: "15", p99Cap: "" },
+  });
+  it("buildLoadProfile stair: stair + max_in_flight + worker_count + vus 0 + duration 0, stages 키 없음", () => {
+    const p = buildLoadProfile(stairState());
+    expect(p).toEqual({
+      stair: { targets: [100, 200], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 },
+      max_in_flight: 300,
+      worker_count: 2,
+      vus: 0,
+      duration_seconds: 0,
+      ramp_up_seconds: 0,
+    });
+    expect(p).not.toHaveProperty("stages");
+    expect(p).not.toHaveProperty("target_rps");
+  });
+  it("p99Cap이 있으면 p99_cap_ms로 실린다", () => {
+    const s = stairState();
+    s.stair = { ...s.stair, p99Cap: "500" };
+    expect(buildLoadProfile(s).stair?.p99_cap_ms).toBe(500);
+  });
+  it("loadModelErrors stairInvalid", () => {
+    expect(loadModelErrors(stairState()).stairInvalid).toBe(false);
+    const s = stairState();
+    s.stair = { ...s.stair, targets: "100" };
+    expect(loadModelErrors(s).stairInvalid).toBe(true);
+    expect(
+      loadModelErrors({ ...stairState(), rateMode: "fixed", stair: s.stair }).stairInvalid,
+    ).toBe(false);
+  });
+  it("deriveLoadMode: stair가 stages보다 우선(저장본에 공존)", () => {
+    expect(
+      deriveLoadMode({
+        stair: { targets: [100, 200], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 },
+        stages: [{ target: 100, duration_seconds: 5 }],
+      }),
+    ).toEqual({ loadModel: "open", rateMode: "stair" });
   });
 });

@@ -11,6 +11,7 @@ import {
   hasActiveControls,
   verdictKey,
   modeKey,
+  MODE_KEYS,
   type RunFilter,
   type SortKey,
 } from "../runFilterSort";
@@ -379,5 +380,25 @@ describe("hasActiveControls (R14)", () => {
   });
   it("q 값 있으면 true(Task 10)", () => {
     expect(hasActiveControls({ ...EMPTY_FILTER, q: "pool" }, DEFAULT_SORT)).toBe(true);
+  });
+});
+
+describe("modeKey stair", () => {
+  const stairProfile = {
+    ...openFixed(800),
+    stages: [{ target: 100, duration_seconds: 5 }],
+    stair: { targets: [100, 800], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 },
+  };
+  it("open_stair 키", () => {
+    expect(modeKey(stairProfile as never)).toBe("open_stair");
+    expect(MODE_KEYS).toContain("open_stair");
+  });
+  it("open_stair 필터는 계단 run만 남긴다", () => {
+    const runs = [
+      mkRun({ id: "R", profile: stairProfile as never }),
+      mkRun({ id: "F", profile: openFixed(100) as never }),
+    ];
+    const f: RunFilter = { ...EMPTY_FILTER, modes: ["open_stair"] };
+    expect(filterRuns(runs, f, Date.now()).map((r) => r.id)).toEqual(["R"]);
   });
 });

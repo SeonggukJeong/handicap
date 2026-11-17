@@ -1,6 +1,8 @@
 import type { LoadModelState } from "./loadModel";
 import { peakStageTarget } from "./sizing";
 import { ko } from "../../i18n/ko";
+import { formatDurationKo } from "../../i18n/duration";
+import { draftToStairConfig, stairSummary } from "./stair";
 
 export type SummarySegment = { text: string; bold?: boolean };
 
@@ -19,6 +21,22 @@ export function runSummary(s: LoadModelState): {
   tone: "ok" | "warn";
   curve: boolean;
 } {
+  if (s.rateMode === "stair") {
+    const cfg = draftToStairConfig(s.stair);
+    if (!cfg)
+      return { main: [{ text: ko.runDialog.summaryInvalid }], sub: "", tone: "warn", curve: true };
+    const sm = stairSummary(cfg);
+    return {
+      main: ko.loadModel.stairSummary(
+        sm.steps,
+        formatDurationKo(sm.totalSeconds),
+        sm.measureSeconds,
+      ),
+      sub: ko.runDialog.summaryOpenSub(s.maxInFlight),
+      tone: "ok",
+      curve: true,
+    };
+  }
   if (s.rateMode === "curve") {
     const valid = s.stages
       .map((x) => ({ t: Number(x.target), d: Number(x.duration_seconds) }))

@@ -25,6 +25,7 @@ const noErrs: LoadModelErrors = {
   stagesInvalid: false,
   workerCountInvalid: false,
   gracefulCapInvalid: false,
+  stairInvalid: false,
 };
 
 // These spies are needed for the new tests and must be stable references

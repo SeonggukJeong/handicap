@@ -1,9 +1,10 @@
-import type { Profile } from "../../api/schemas";
+import type { Profile, StairConfig } from "../../api/schemas";
+import { draftToStairConfig, stairErrors, type StairDraft } from "./stair";
 
 /** RunDialog가 소유하는 부하-모델 관련 state(정규화 전 — 숫자/문자열 혼재). */
 export type LoadModelState = {
   loadModel: "closed" | "open";
-  rateMode: "fixed" | "curve";
+  rateMode: "fixed" | "curve" | "stair";
   vus: number;
   duration: number;
   rampUp: number;
@@ -18,6 +19,7 @@ export type LoadModelState = {
   // graceful ramp-down 상한(초, §B9). string draft — 빈칸 = 무제한(미설정). closed+curve+
   // graceful일 때만 유효.
   gracefulCap: string;
+  stair: StairDraft; // rateMode "stair"(open 전용)일 때만 emit
 };
 
 /** buildLoadProfile이 채우는 Profile의 부분집합. 나머지(loop_breakdown_cap/
@@ -31,6 +33,7 @@ export type LoadProfileFields = Pick<Profile, "vus" | "duration_seconds" | "ramp
       | "target_rps"
       | "max_in_flight"
       | "stages"
+      | "stair"
       | "vu_stages"
       | "ramp_down"
       | "graceful_ramp_down_seconds"
@@ -45,6 +48,7 @@ export type LoadModelErrors = {
   stagesInvalid: boolean; // curve (open+curve / closed+curve 공통)
   workerCountInvalid: boolean; // open (fixed·curve 공통, optional — 빈칸=미설정 허용)
   gracefulCapInvalid: boolean; // closed+curve+graceful (optional — 빈칸=무제한 허용)
+  stairInvalid: boolean; // open+stair (목표 목록·유지·상승·버림·상한)
 };
 
 /** closed-loop think time. 둘 다 채워야 emit(한 칸만 채우면 undefined = 미설정). */
@@ -73,6 +77,17 @@ export function buildLoadProfile(s: LoadModelState): LoadProfileFields {
         ? { graceful_ramp_down_seconds: Number(s.gracefulCap) }
         : {}),
       // NO target_rps, NO max_in_flight, NO stages
+    };
+  }
+  if (s.loadModel === "open" && s.rateMode === "stair") {
+    const stair = draftToStairConfig(s.stair);
+    return {
+      vus: 0,
+      duration_seconds: 0, // 서버가 stair를 stages로 펼쳐 저장한다 — stages·target_rps는 보내지 않는다
+      ramp_up_seconds: 0,
+      max_in_flight: Number(s.maxInFlight),
+      ...(stair ? { stair } : {}),
+      ...(Number(s.workerCount) > 1 ? { worker_count: Number(s.workerCount) } : {}),
     };
   }
   if (s.loadModel === "open" && s.rateMode === "curve") {
@@ -156,6 +171,10 @@ export function loadModelErrors(s: LoadModelState): LoadModelErrors {
     s.rampDown === "graceful" &&
     s.gracefulCap.trim() !== "" &&
     (!Number.isInteger(Number(s.gracefulCap)) || Number(s.gracefulCap) < 1);
+  const stairInvalid =
+    s.loadModel === "open" &&
+    s.rateMode === "stair" &&
+    Object.keys(stairErrors(s.stair)).length > 0;
   return {
     rampInvalid,
     targetRpsInvalid,
@@ -163,19 +182,23 @@ export function loadModelErrors(s: LoadModelState): LoadModelErrors {
     stagesInvalid,
     workerCountInvalid,
     gracefulCapInvalid,
+    stairInvalid,
   };
 }
 
-export type LoadMode = { loadModel: "closed" | "open"; rateMode: "fixed" | "curve" };
+export type LoadMode = { loadModel: "closed" | "open"; rateMode: "fixed" | "curve" | "stair" };
 
 /** profile → (loadModel, rateMode) 역도출 — RunDialog init / RunDialog loadPreset /
  *  ScheduleForm init 3사이트가 공유. 한 곳이라도 빠지면 vu_stages 든 프리셋이
  *  closed+fixed로 조용히 로드돼 곡선이 증발한다 (spec §6.3). */
 export function deriveLoadMode(p: {
+  stair?: StairConfig | null;
   target_rps?: number | null;
   stages?: { target: number; duration_seconds: number }[] | null;
   vu_stages?: { target: number; duration_seconds: number }[] | null;
 }): LoadMode {
+  // 저장본엔 stair와 서버가 펼친 stages가 함께 있다 — stair를 가장 먼저 본다.
+  if (p.stair) return { loadModel: "open", rateMode: "stair" };
   if (p.vu_stages && p.vu_stages.length > 0) return { loadModel: "closed", rateMode: "curve" };
   if (p.stages && p.stages.length > 0) return { loadModel: "open", rateMode: "curve" };
   if (p.target_rps != null) return { loadModel: "open", rateMode: "fixed" };
@@ -193,7 +216,8 @@ export type VuDisplay =
  *  RunSchema.profile(nested-default leak)을 normalizeProfile 없이 수용(profileDurationSeconds
  *  패턴 — 이 4필드는 .default()가 없어 leak-free). */
 export function profileVuDisplay(
-  profile: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages">,
+  profile: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages"> &
+    Partial<Pick<Profile, "stair">>,
 ): VuDisplay {
   const { loadModel, rateMode } = deriveLoadMode(profile);
   if (loadModel === "open") return { kind: "open" };

@@ -3,7 +3,7 @@ import { deriveLoadMode } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
 
 export type VerdictKey = "pass" | "fail" | "none";
-export type ModeKey = "closed_fixed" | "closed_curve" | "open_fixed" | "open_curve";
+export type ModeKey = "closed_fixed" | "closed_curve" | "open_fixed" | "open_curve" | "open_stair";
 export type StatusKey = "pending" | "running" | "completed" | "failed" | "aborted";
 export type DatePreset = "all" | "today" | "7d" | "30d";
 export type SortField = "created" | "duration" | "vu" | "verdict" | "status";
@@ -24,7 +24,13 @@ export type RunFilter = {
 
 export const VERDICT_KEYS: VerdictKey[] = ["pass", "fail", "none"];
 export const STATUS_KEYS: StatusKey[] = ["pending", "running", "completed", "failed", "aborted"];
-export const MODE_KEYS: ModeKey[] = ["closed_fixed", "closed_curve", "open_fixed", "open_curve"];
+export const MODE_KEYS: ModeKey[] = [
+  "closed_fixed",
+  "closed_curve",
+  "open_fixed",
+  "open_curve",
+  "open_stair",
+];
 export const DATE_PRESETS: DatePreset[] = ["all", "today", "7d", "30d"];
 export const SORT_FIELDS: SortField[] = ["created", "duration", "vu", "verdict", "status"];
 
@@ -62,7 +68,9 @@ export function verdictKey(v: Verdict | null | undefined): VerdictKey {
   return v.passed ? "pass" : "fail";
 }
 
-export function modeKey(p: Pick<Profile, "target_rps" | "stages" | "vu_stages">): ModeKey {
+export function modeKey(
+  p: Pick<Profile, "target_rps" | "stages" | "vu_stages"> & Partial<Pick<Profile, "stair">>,
+): ModeKey {
   const { loadModel, rateMode } = deriveLoadMode(p);
   return `${loadModel}_${rateMode}` as ModeKey;
 }

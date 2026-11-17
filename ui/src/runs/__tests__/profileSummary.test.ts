@@ -45,3 +45,15 @@ describe("profileSummary", () => {
     expect(s).toContain("45");
   });
 });
+
+describe("profileSummary stair", () => {
+  it("계단 N개 · 최대 X/s", () => {
+    const s = profileSummary({
+      vus: 0,
+      duration_seconds: 0,
+      stair: { targets: [100, 800], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 },
+      stages: [{ target: 100, duration_seconds: 5 }],
+    });
+    expect(s).toBe("계단 2개 · 최대 800/s");
+  });
+});

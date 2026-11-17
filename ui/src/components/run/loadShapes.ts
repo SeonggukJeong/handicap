@@ -26,7 +26,7 @@ export const LOAD_SHAPES: LoadShape[] = [
   },
   {
     id: "step",
-    label: "계단 스트레스",
+    label: "점증 스트레스",
     stages: [
       { target: 100, duration_seconds: 30 },
       { target: 200, duration_seconds: 30 },

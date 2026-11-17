@@ -5,7 +5,10 @@ import { ProfileSchema, ReportSchema, StairConfigSchema, StairReportSchema } fro
 import { api } from "../client";
 
 const golden = JSON.parse(
-  readFileSync(nodePath.resolve(__dirname, "../../../../testdata/stair_report_golden.json"), "utf8"),
+  readFileSync(
+    nodePath.resolve(__dirname, "../../../../testdata/stair_report_golden.json"),
+    "utf8",
+  ),
 );
 
 const base = {
@@ -52,6 +55,27 @@ describe("StairReportSchema", () => {
     const g = structuredClone(golden);
     g.steps[0].head_p99_ratio = null;
     expect(StairReportSchema.parse(g).steps[0].head_p99_ratio).toBeNull();
+  });
+  it("accepts null on every always-serialized Option path", () => {
+    const g = structuredClone(golden);
+    g.knee_target = null;
+    g.max_in_flight = null;
+    g.dropped_total = null;
+    g.headline.saturated_target = null;
+    g.headline.last_ok_target = null;
+    g.headline.through_target = null;
+    for (const st of g.steps) {
+      st.achieved = null;
+      st.launched_rate = null;
+      st.dropped = null;
+      st.head_p99_ratio = null;
+    }
+    for (const sec of g.seconds) {
+      sec.launched = null;
+      sec.completed = null;
+      sec.dropped = null;
+    }
+    expect(StairReportSchema.safeParse(g).success).toBe(true);
   });
   it("rejects an unknown state", () => {
     const g = structuredClone(golden);

@@ -204,6 +204,25 @@ export const ko = {
     branchGroupAriaTail: "변수 매핑",
   },
   loadModel: {
+    stairTargetsEmpty: "목표를 쉼표로 구분해 적어 주세요 (예: 100, 200, 300)",
+    stairTargetsNotInteger:
+      "목표는 정수만 적을 수 있어요. 쉼표로 구분해 적어 주세요 (예: 100, 200, 300)",
+    stairTargetsOutOfRange: "목표는 1 이상 1,000,000 이하여야 해요 (예: 100, 200, 300)",
+    stairTargetsNotIncreasing: "목표는 앞의 값보다 커지게 적어 주세요 (예: 100, 200, 300)",
+    stairTargetsTooFew: "목표를 2개 이상 적어 주세요 (예: 100, 200)",
+    stairTargetsTooMany: "목표는 50개까지 적을 수 있어요. 간격을 넓혀 개수를 줄여 주세요",
+    stairHoldInvalid: "계단 유지는 20~3600초의 정수로 적어 주세요 (예: 60)",
+    stairRampInvalid: "상승 시간은 1~600초의 정수로 적어 주세요 (예: 5)",
+    stairDiscardInvalid: (maxDiscard: number | null) =>
+      maxDiscard === null
+        ? "앞부분 버림은 0 이상의 정수(초)로 적어 주세요 (예: 15)"
+        : `앞부분 버림은 0~${maxDiscard}초의 정수로 적어 주세요. 계단 유지보다 10초 이상 짧아야 측정 구간이 남아요 (예: 15)`,
+    stairP99CapInvalid:
+      "절대 p99 상한은 1~600000 ms의 정수로 적어 주세요 (예: 500). 쓰지 않으려면 비워 두세요",
+    stairSummary: (steps: number, total: string, measureSeconds: number) => [
+      { text: `${steps}계단`, bold: true },
+      { text: ` · 총 ${total} · 계단마다 측정 ${measureSeconds}초` },
+    ],
     closedLoop: "사용자 수 기준 (closed-loop)",
     openLoop: "도착률 기준 (open-loop)",
     vus: "동시 사용자(VU)",
@@ -1407,6 +1426,7 @@ export const ko = {
     closedCurve: (peak: number, s: number) => `곡선 최대 ${peak} VU · ${s}s`,
     openFixed: (rps: number, s: number) => `열린 ${rps}/s · ${s}s`,
     openCurve: (peak: number, s: number) => `열린 곡선 최대 ${peak}/s · ${s}s`,
+    openStair: (steps: number, peak: number) => `계단 ${steps}개 · 최대 ${peak}/s`,
   },
   runFilter: {
     // run-identity Task 8: 목록 라벨 열 + 인라인 편집(US4/US2·US5 관찰). aria는 WCAG 2.5.3
@@ -1433,6 +1453,7 @@ export const ko = {
     modeClosedCurve: "닫힌+곡선",
     modeOpenFixed: "열린+고정",
     modeOpenCurve: "열린+곡선",
+    modeOpenStair: "계단",
     dateAll: "전체",
     dateToday: "오늘",
     date7d: "최근 7일",
@@ -2384,6 +2405,11 @@ export const ko = {
       lineClosedFixed: (n: number, d: string) => `동시 사용자 ${n}명 · ${d}`,
       lineClosedCurve: (n: number, d: string) => `동시 사용자 곡선 최대 ${n}명 · ${d}`,
       lineOpenFixed: (n: number, d: string) => `초당 ${n}회 목표 · ${d}`,
+      modelOpenStair: "초당 목표 계단",
+      sizeOpenStair: (steps: number, min: number, max: number) =>
+        `${steps}계단 · 초당 ${min}–${max}회`,
+      lineOpenStair: (steps: number, min: number, max: number) =>
+        `열린 루프 계단 · ${steps}계단 ${min}–${max} req/s`,
       lineOpenCurve: (n: number, d: string) => `초당 목표 곡선 최대 ${n}회 · ${d}`,
     },
     glossary: {
