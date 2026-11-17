@@ -335,7 +335,7 @@ mod tests {
         assert!(is_usable_install_id(&"a".repeat(64)));
         assert!(!is_usable_install_id(&"a".repeat(65)));
         assert!(!is_usable_install_id(""));
-        assert!(!is_usable_install_id(&"가".repeat(32)));
+        assert!(!is_usable_install_id(&"가".repeat(11)));
         let dashed = format!("{}-{}", "a".repeat(15), "a".repeat(16));
         assert_eq!(dashed.len(), 32);
         assert!(!is_usable_install_id(&dashed));

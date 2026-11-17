@@ -58,13 +58,15 @@ pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     !crc
 }
 
-/// 부하기가 접속을 시도해도 되는 주소인가(0.0.0.0/8·루프백·링크로컬·멀티캐스트·브로드캐스트 거절).
+/// 부하기가 접속을 시도해도 되는 주소인가(0.0.0.0/8·루프백·링크로컬·멀티캐스트·브로드캐스트·예약 240/4·CGNAT 100.64/10 거절).
 pub fn is_allowed_target_ip(ip: Ipv4Addr) -> bool {
     !(ip.octets()[0] == 0
         || ip.is_loopback()
         || ip.is_link_local()
         || ip.is_multicast()
-        || ip.is_broadcast())
+        || ip.is_broadcast()
+        || ip.octets()[0] >= 240
+        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64))
 }
 
 /// 검사 없이 그대로 만든다(호출자가 주소를 거르고 `MAX_CODE_IPS`로 자른다).
@@ -315,6 +317,8 @@ mod tests {
             [169, 254, 169, 254],
             [224, 0, 0, 1],
             [255, 255, 255, 255],
+            [240, 0, 0, 1],
+            [100, 100, 100, 200],
         ] {
             assert_eq!(decode(&code_for(&[ip])), Err(CodeError::Format), "{ip:?}");
             assert_eq!(
@@ -323,6 +327,13 @@ mod tests {
             );
         }
         assert!(decode(&code_for(&[[8, 8, 8, 8]])).is_ok());
+    }
+
+    #[test]
+    fn golden_wire_format() {
+        let lit = "HANDICAP1-01c0a8000c1f91002061626162616261626162616261626162616261626162616261626162616261626b062d4f";
+        assert_eq!(encode(&one()), lit);
+        assert_eq!(decode(lit), Ok(one()));
     }
 
     #[test]
