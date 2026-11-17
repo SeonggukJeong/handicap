@@ -593,6 +593,25 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     d.getElementById("confirm-ok").click(); await sleep(800);
     check("after cancel+retry → exactly 1 disconnect_worker", calls.filter((c) => c[0] === "disconnect_worker").length === 1);
   }
+  // 확인 창이 없는 경로: flowBusy가 유일한 가드
+  {
+    const st = { value: workerBase({ state: "idle" }), after: base("local") };
+    const { d, calls } = await load(st);
+    d.getElementById("w-disconnect").click(); d.getElementById("w-disconnect").click(); await sleep(800);
+    check("double click idle #w-disconnect (no confirm) → 1 disconnect_worker", calls.filter((c) => c[0] === "disconnect_worker").length === 1 && d.getElementById("err").hidden);
+  }
+  for (const role of ["local", "server"]) {
+    const st = { value: base(role), runs: 0, after: base(role === "local" ? "server" : "local") };
+    const { d, calls } = await load(st);
+    d.getElementById("switch").click(); d.getElementById("switch").click(); await sleep(800);
+    check(`double click #switch (${role}, 0 runs, no confirm) → 1 switch_role`, calls.filter((c) => c[0] === "switch_role").length === 1 && d.getElementById("err").hidden);
+  }
+  {
+    const st = { value: workerBase({ state: "idle" }), after: base("local") };
+    const { d, calls } = await load(st);
+    d.getElementById("switch").click(); d.getElementById("switch").click(); await sleep(800);
+    check("double click #switch (worker idle, no confirm) → 1 switch_role", calls.filter((c) => c[0] === "switch_role").length === 1 && d.getElementById("err").hidden);
+  }
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL`);
   process.exit(fails ? 1 : 0);
 })();
