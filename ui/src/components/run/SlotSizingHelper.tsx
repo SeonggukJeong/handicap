@@ -66,6 +66,8 @@ type Props = {
   targetRps: string;
   /** true면 곡선 변형 문구(formulaPeak/needTargetCurve) 사용 — open+curve에서 LoadModelFields가 전달. */
   peakBased?: boolean;
+  /** true면 계단 문구(최대 목표·목표 목록) — peakBased와 함께 전달. */
+  stairBased?: boolean;
   /** 적용 → RunDialog의 setMaxInFlight(String(n)). */
   onApply: (n: number) => void;
 };
@@ -76,6 +78,7 @@ export function SlotSizingHelper({
   env,
   targetRps,
   peakBased = false,
+  stairBased = false,
   onApply,
 }: Props) {
   const anchor = usePriorOpenRunAnchor(scenarioId, scenario);
@@ -174,7 +177,11 @@ export function SlotSizingHelper({
             </button>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            {(peakBased ? ko.slotSizing.formulaPeak : ko.slotSizing.formula)(
+            {(stairBased
+              ? ko.slotSizing.formulaStair
+              : peakBased
+                ? ko.slotSizing.formulaPeak
+                : ko.slotSizing.formula)(
               targetNum,
               Math.round(holdMs as number),
               result.recommendedSlots,
@@ -189,7 +196,11 @@ export function SlotSizingHelper({
         !truncated && <p className="text-xs text-slate-500">{ko.slotSizing.cannotCompute}</p>
       ) : targetRps.trim() === "" ? (
         <p className="text-xs text-slate-500">
-          {peakBased ? ko.slotSizing.needTargetCurve : ko.slotSizing.needTarget}
+          {stairBased
+            ? ko.slotSizing.needTargetStair
+            : peakBased
+              ? ko.slotSizing.needTargetCurve
+              : ko.slotSizing.needTarget}
         </p>
       ) : // hold는 있으나 targetRps가 non-empty-but-invalid(예: "1.5"/"2000000") → recommendSlots null.
       // 폼 자체의 targetRpsInvalid 에러가 이미 그 사유를 표시하므로 여기선 침묵(중복 방지).

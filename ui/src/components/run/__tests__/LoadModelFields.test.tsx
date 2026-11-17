@@ -837,9 +837,23 @@ describe("LoadModelFields — 계단", () => {
 
   it("closed로 바꾸면 계단은 고정으로 되돌린다", async () => {
     const user = userEvent.setup();
+    setRateMode.mockClear();
     const props = setup({ loadModel: "open", rateMode: "stair", stair, setStair: vi.fn() });
     await user.click(screen.getByRole("radio", { name: /closed-loop/ }));
     expect(props.setLoadModel).toHaveBeenCalledWith("closed");
     expect(setRateMode).toHaveBeenCalledWith("fixed");
+  });
+
+  it("계단 탭 경고·도우미 문구는 곡선/단계가 아니라 목표 목록 기준이다", () => {
+    setup({
+      loadModel: "open",
+      rateMode: "stair",
+      stair: { ...stair, targets: "1, 2" },
+      setStair: vi.fn(),
+      setWorkerCount: vi.fn(),
+      workerCount: "5",
+    });
+    expect(screen.getByText(ko.openLoopCheck.idleWorkersStair(3, 2))).toBeInTheDocument();
+    expect(screen.queryByText(/곡선 최고점/)).not.toBeInTheDocument();
   });
 });

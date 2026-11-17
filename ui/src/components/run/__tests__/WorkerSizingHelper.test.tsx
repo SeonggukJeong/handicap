@@ -140,6 +140,22 @@ describe("WorkerSizingHelper", () => {
     expect(screen.getByText(/최고 단계 목표엔 워커 ~6대/)).toBeInTheDocument();
   });
 
+  it("stairBased(계단): 목표 목록의 최대값 문구", () => {
+    setHooks({ dropped: 500, priorTarget: 840, duration: 10, priorWorkerCount: 2 });
+    render(
+      <WorkerSizingHelper
+        scenarioId="s1"
+        targetRps="2000"
+        peakBased
+        stairBased
+        maxInFlight="3000"
+        onApply={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/목표 목록의 최대값엔 워커 ~6대/)).toBeInTheDocument();
+    expect(screen.queryByText(/최고 단계 목표/)).not.toBeInTheDocument();
+  });
+
   it("achieved<=0(유실 ≥ 스케줄)이면 앵커 무효 — 근거 없음 안내로 폴백", () => {
     // priorTarget 10, dropped 500, duration 10 → achieved = max(0, 10-50) = 0 → anchor null
     setHooks({ dropped: 500, priorTarget: 10, duration: 10, priorWorkerCount: 1 });

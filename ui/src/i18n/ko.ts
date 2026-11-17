@@ -1599,6 +1599,9 @@ export const ko = {
     formulaPeak: (targetRps: number, holdMs: number, n: number) =>
       `최고 단계 목표 초당 ${targetRps}회 × 반복 1회 ${holdMs}ms ≈ 동시 ${n}슬롯`,
     needTargetCurve: "단계 목표를 먼저 입력하세요.",
+    formulaStair: (targetRps: number, holdMs: number, n: number) =>
+      `최대 목표 초당 ${targetRps}회 × 반복 1회 ${holdMs}ms ≈ 동시 ${n}슬롯`,
+    needTargetStair: "목표 목록을 먼저 입력하세요.",
   },
   // 열린 루프 create-time worker_count 사이징(ADR-0038). 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   workerSizing: {
@@ -1613,6 +1616,7 @@ export const ko = {
       `지난 run은 워커 ${wc}대로 목표(초당 ${target}회 반복)를 유실 없이 소화했어요 — 한계까진 안 밀어서 워커당 진짜 천장은 아직 몰라요.`,
     recommend: (n: number) => `목표엔 워커 ~${n}대가 필요해요.`,
     recommendPeak: (n: number) => `최고 단계 목표엔 워커 ~${n}대가 필요해요.`,
+    recommendStair: (n: number) => `목표 목록의 최대값엔 워커 ~${n}대가 필요해요.`,
     weakRecommend: (n: number) =>
       `보수적으로 ~${n}대를 제안해요 (여유가 있었다면 더 적어도 됩니다).`,
     weakHint: "정확히 줄이려면 더 높은 목표로 한 번 돌려 드롭이 날 때까지 포화시켜 보세요.",
@@ -1630,6 +1634,8 @@ export const ko = {
   openLoopCheck: {
     idleWorkers: (idle: number, peak: number) =>
       `워커 ${idle}대가 할 일이 없어요 — 곡선 최고점이 ${peak}라 워커 ${peak}대까지만 일하고 나머지는 유휴예요.`,
+    idleWorkersStair: (idle: number, peak: number) =>
+      `워커 ${idle}대가 할 일이 없어요 — 목표 목록의 최대값이 ${peak}라 워커 ${peak}대까지만 일하고 나머지는 유휴예요.`,
     apply: (peak: number) => `워커 수를 ${peak}(으)로 맞추기`,
     inertSlots:
       "지금 목표 속도·타임아웃에선 동시 요청이 동시 요청 상한(max_in_flight)에 절대 도달하지 않아 이 값이 부하에 영향을 주지 않아요 — 부하 세기는 max_in_flight가 아니라 목표 도착률로 정해져요.",

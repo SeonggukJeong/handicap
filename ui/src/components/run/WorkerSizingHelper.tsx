@@ -45,6 +45,8 @@ type Props = {
   targetRps: string;
   /** true면 곡선 문구(최고 단계 목표) — open+curve에서 LoadModelFields가 전달. */
   peakBased?: boolean;
+  /** true면 계단 문구(목표 목록의 최대값) — peakBased와 함께 전달. */
+  stairBased?: boolean;
   /** 폼의 max_in_flight 문자열 — cross-field 경고(worker_count <= max_in_flight, runs.rs:346)용. */
   maxInFlight: string;
   /** 적용 → RunDialog의 setWorkerCount(String(n)). */
@@ -55,6 +57,7 @@ export function WorkerSizingHelper({
   scenarioId,
   targetRps,
   peakBased = false,
+  stairBased = false,
   maxInFlight,
   onApply,
 }: Props) {
@@ -99,9 +102,11 @@ export function WorkerSizingHelper({
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-700">
                   {anchor.dropped > 0
-                    ? peakBased
-                      ? ko.workerSizing.recommendPeak(rawN)
-                      : ko.workerSizing.recommend(rawN)
+                    ? stairBased
+                      ? ko.workerSizing.recommendStair(rawN)
+                      : peakBased
+                        ? ko.workerSizing.recommendPeak(rawN)
+                        : ko.workerSizing.recommend(rawN)
                     : ko.workerSizing.weakRecommend(rawN)}
                 </span>
                 <button

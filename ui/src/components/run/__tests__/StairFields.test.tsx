@@ -30,6 +30,14 @@ describe("StairFields", () => {
     expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue("10, 20");
   });
 
+  it("도우미: 목표가 0이어도 목록을 바꾸지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ targets: "10, 20" }} />);
+    await user.type(screen.getByLabelText("목표 (req/s)"), "0");
+    await user.click(screen.getByRole("button", { name: "목록 만들기" }));
+    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue("10, 20");
+  });
+
   it("요약 줄: 8계단 · 총 8분 40초 · 계단마다 측정 45초", () => {
     render(<Harness initial={{ targets: "100, 200, 300, 400, 500, 600, 700, 800" }} />);
     expect(screen.getByTestId("stair-summary")).toHaveTextContent(
@@ -43,7 +51,12 @@ describe("StairFields", () => {
     expect(screen.queryByTestId("stair-summary")).not.toBeInTheDocument();
   });
 
-  it("유지·상승·버림 오류 문구가 각 칸에 보인다", () => {
+  it("유효한 유지(60)에서 버림이 51 이상이면 버림 오류 문구가 보인다", () => {
+    render(<Harness initial={{ targets: "100, 200", hold: "60", discard: "51" }} />);
+    expect(screen.getByText(ko.loadModel.stairDiscardInvalid(50))).toBeInTheDocument();
+  });
+
+  it("유지·상승 오류 문구가 각 칸에 보인다", () => {
     render(<Harness initial={{ targets: "100, 200", hold: "5", ramp: "0", discard: "99" }} />);
     expect(screen.getByText(ko.loadModel.stairHoldInvalid)).toBeInTheDocument();
     expect(screen.getByText(ko.loadModel.stairRampInvalid)).toBeInTheDocument();
@@ -69,6 +82,39 @@ describe("StairFields", () => {
       "false",
     );
     expect(screen.getByText(/1개 설정됨/)).toBeInTheDocument();
+  });
+
+  it("빈 목록은 건드리기 전엔 붉은 오류를 보이지 않고, 칸을 떠나면 보인다", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    expect(screen.queryByText(ko.loadModel.stairTargetsEmpty)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveAttribute("aria-invalid", "false");
+    await user.click(screen.getByLabelText("목표 목록 (req/s)"));
+    await user.tab();
+    expect(screen.getByText(ko.loadModel.stairTargetsEmpty)).toBeInTheDocument();
+  });
+
+  it("상한 오류가 나면 펼쳐진 채 유지되고, 고쳐도 접히지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ targets: "100, 200" }} />);
+    await user.click(screen.getByRole("button", { name: /판정 기준/ }));
+    const input = screen.getByLabelText("절대 p99 상한 (ms, 선택)");
+    await user.type(input, "0");
+    expect(screen.getByText(ko.loadModel.stairP99CapInvalid)).toBeInTheDocument();
+    // 오류 중에는 접히지 않고 aria도 일관
+    await user.click(screen.getByRole("button", { name: /판정 기준/ }));
+    expect(screen.getByRole("button", { name: /판정 기준/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await user.clear(input);
+    await user.type(input, "500");
+    expect(screen.queryByText(ko.loadModel.stairP99CapInvalid)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("절대 p99 상한 (ms, 선택)")).toHaveValue(500);
+    expect(screen.getByRole("button", { name: /판정 기준/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("절대 p99 상한 오류 문구", async () => {

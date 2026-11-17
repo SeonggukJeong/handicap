@@ -338,4 +338,36 @@ describe("SlotSizingHelper", () => {
     // fixed 변형 문구는 안 떠야 함(회귀 가드)
     expect(screen.queryByText(/목표 도착률을 먼저 입력/)).not.toBeInTheDocument();
   });
+
+  it("stairBased: 목표 빈 문자열 → '목표 목록을 먼저 입력' (계단 변형, 곡선·단계 문구 아님)", () => {
+    setHooks({ runs: [openRun(100, 3)], report: saturatedReport });
+    render(
+      <SlotSizingHelper
+        scenarioId="s1"
+        env={{}}
+        targetRps=""
+        peakBased
+        stairBased
+        onApply={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("목표 목록을 먼저 입력하세요.")).toBeInTheDocument();
+    expect(screen.queryByText(/단계 목표를 먼저 입력/)).not.toBeInTheDocument();
+  });
+
+  it("stairBased + 앵커: '최대 목표' 문구로 계산식 표시", () => {
+    setHooks({ runs: [openRun(100, 3)], report: saturatedReport });
+    render(
+      <SlotSizingHelper
+        scenarioId="s1"
+        env={{}}
+        targetRps="20"
+        peakBased
+        stairBased
+        onApply={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/최대 목표 초당 20회/)).toBeInTheDocument();
+    expect(screen.queryByText(/최고 단계 목표/)).not.toBeInTheDocument();
+  });
 });

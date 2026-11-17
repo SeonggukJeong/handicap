@@ -427,7 +427,7 @@ export function LoadModelFields({
             </div>
           </div>
         ) : (
-          /* 기존 라디오 모드 — ScheduleForm byte-identical */
+          /* 기존 라디오 모드 — ScheduleForm(RunDialog는 타일 모드) */
           <div className="flex items-center gap-4">
             <span className="flex items-center">
               <label className="flex items-center gap-1 text-sm cursor-pointer">
@@ -461,7 +461,7 @@ export function LoadModelFields({
         )}
       </fieldset>
 
-      {/* 2차 축: 프로파일(고정/곡선) — simpleMode면 숨김(RunDialog R3) */}
+      {/* 2차 축: 프로파일(고정/곡선, open이면 계단) — simpleMode면 숨김(RunDialog R3) */}
       {!simpleMode && (
         <fieldset className="mb-3">
           <legend className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 mb-1">
@@ -486,7 +486,7 @@ export function LoadModelFields({
               )}
             </div>
           ) : (
-            /* 기존 라디오 — ScheduleForm byte-identical (현행 그대로) */
+            /* 기존 라디오 — ScheduleForm */
             <div className="flex items-center gap-4">
               <label className="flex items-center gap-1 text-sm cursor-pointer">
                 <input
@@ -786,13 +786,16 @@ export function LoadModelFields({
                       scenarioId={sizingScenarioId}
                       targetRps={rateMode === "fixed" ? targetRps : peakOrStairStr}
                       peakBased={rateMode !== "fixed"}
+                      stairBased={rateMode === "stair"}
                       maxInFlight={maxInFlight}
                       onApply={onApplyWorkerCount}
                     />
                   )}
                   {idleWarn && (
                     <p role="status" className="mt-2 text-amber-700 text-sm">
-                      {ko.openLoopCheck.idleWorkers(idleWarn.idle, idleWarn.peak)}{" "}
+                      {(rateMode === "stair"
+                        ? ko.openLoopCheck.idleWorkersStair
+                        : ko.openLoopCheck.idleWorkers)(idleWarn.idle, idleWarn.peak)}{" "}
                       <button
                         type="button"
                         onClick={() => setWorkerCount?.(String(idleWarn.peak))}
@@ -911,6 +914,7 @@ export function LoadModelFields({
                   env={sizingEnv ?? {}}
                   targetRps={stairPeakStr}
                   peakBased
+                  stairBased
                   onApply={onApplyMaxInFlight}
                 />
               )}

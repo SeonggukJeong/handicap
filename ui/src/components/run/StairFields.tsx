@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo } from "../../i18n/duration";
 import { Button } from "../Button";
@@ -35,19 +35,28 @@ export function StairFields({ value, onChange, errors }: Props) {
   };
   const [goal, setGoal] = useState("");
   const [multiple, setMultiple] = useState<Multiple>(1.5);
-  const [judgeOpen, setJudgeOpen] = useState(false);
+  const [judgeOpen, setJudgeOpen] = useState(errors.p99Cap !== undefined);
+  const [targetsTouched, setTargetsTouched] = useState(false);
+  const capError = errors.p99Cap !== undefined;
+  // 오류가 생기면 펼쳐 두고, 고친 뒤에도 그대로 둔다(포커스된 입력이 사라지지 않게).
+  useEffect(() => {
+    if (capError) setJudgeOpen(true);
+  }, [capError]);
+  // 아직 건드리지 않은 빈 칸은 붉게 칠하지 않는다(실행 버튼은 어차피 막혀 있다).
+  const targetsError = targetsTouched || value.targets.trim() !== "" ? errors.targets : undefined;
   const set = (patch: Partial<StairDraft>) => onChange({ ...value, ...patch });
 
   const goalNum = Number(goal);
   const goalValid = goal.trim() !== "" && Number.isInteger(goalNum) && goalNum >= 1;
   const makeList = () => {
     if (!goalValid) return;
+    setTargetsTouched(true);
     set({ targets: generateTargets(goalNum, multiple).join(", ") });
   };
 
   const cfg = draftToStairConfig(value);
   const sm = cfg ? stairSummary(cfg) : null;
-  const judgeShown = judgeOpen || errors.p99Cap !== undefined;
+  const judgeShown = judgeOpen;
   const capSet = value.p99Cap.trim() !== "";
 
   return (
@@ -99,7 +108,7 @@ export function StairFields({ value, onChange, errors }: Props) {
       <Field
         label={ko.loadModel.stairTargetsLabel}
         htmlFor={ids.targets}
-        error={errors.targets}
+        error={targetsError}
         errorId={`${ids.targets}-error`}
       >
         <Input
@@ -108,8 +117,9 @@ export function StairFields({ value, onChange, errors }: Props) {
           placeholder={ko.loadModel.stairTargetsPlaceholder}
           value={value.targets}
           onChange={(e) => set({ targets: e.target.value })}
-          aria-invalid={errors.targets !== undefined}
-          aria-describedby={errors.targets ? `${ids.targets}-error` : undefined}
+          onBlur={() => setTargetsTouched(true)}
+          aria-invalid={targetsError !== undefined}
+          aria-describedby={targetsError ? `${ids.targets}-error` : undefined}
           numeric
         />
       </Field>
@@ -192,7 +202,9 @@ export function StairFields({ value, onChange, errors }: Props) {
           type="button"
           aria-expanded={judgeShown}
           aria-controls={ids.judge}
-          onClick={() => setJudgeOpen((o) => !o)}
+          onClick={() => {
+            if (!capError) setJudgeOpen((o) => !o);
+          }}
           className="flex items-center gap-1 text-sm text-slate-600 hover:underline"
         >
           <span aria-hidden="true">{judgeShown ? "▾" : "▸"}</span>
