@@ -116,6 +116,11 @@ struct PoolEntry {
     /// It holds no sender (`tx` is `None`); the reaper does not ping it — only
     /// `last_seen` staleness evicts it if the worker never comes back.
     awaiting_reregister: bool,
+    /// The worker reported a terminal phase that means it finished its part of
+    /// `assigned_run` (Completed/Failed, or Aborted on the controller's request). Set by
+    /// `record_phase`, cleared on re-register; `pool_stream_closed` keeps the entry
+    /// instead of removing it when this is set.
+    finished_part: bool,
 }
 
 impl PoolEntry {
@@ -323,7 +328,7 @@ impl CoordinatorState {
         let mut g = self.pool.lock().await;
         let ids: Vec<String> = g
             .iter()
-            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained)
+            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained && e.tx.is_some())
             .map(|(id, _)| id.clone())
             .take(cap)
             .collect();
@@ -442,6 +447,7 @@ impl CoordinatorState {
                 e.hostname = hostname;
                 e.assigned_run = None;
                 e.awaiting_reregister = false;
+                e.finished_part = false;
                 e.last_seen = tokio::time::Instant::now();
                 e.stable = stable;
                 // drained / capacity_override / label preserved in-memory (L7 R2; no DB re-apply).
@@ -465,6 +471,7 @@ impl CoordinatorState {
                         label,
                         stable,
                         awaiting_reregister: false,
+                        finished_part: false,
                     },
                 );
             }
@@ -519,9 +526,10 @@ impl CoordinatorState {
 
     /// One heartbeat sweep (R13, injectable for the virtual-clock unit test):
     /// ping every pool worker, evict any whose last_seen is older than `stale`.
-    /// Lock discipline (R14): snapshot (id, tx, is_stale) UNDER the lock with no
-    /// `.await`, drop the lock, then do all `.await` (Ping send / eviction)
-    /// outside it. A dead tx (send Err) means the stream is gone → evict (R3).
+    /// Lock discipline (R14): snapshot (id, tx, generation, is_stale, awaiting) UNDER
+    /// the lock with no `.await`, drop the lock, then do all `.await` (Ping send /
+    /// eviction) outside it. Only entries holding a sender (`Some`) are pinged; a dead
+    /// tx (send Err) means the stream is gone → evict (R3).
     pub async fn pool_heartbeat_tick(&self, now: tokio::time::Instant, stale: std::time::Duration) {
         let snapshot: Vec<(String, Option<WorkerTx>, u64, bool, bool)> = {
             let g = self.pool.lock().await;
@@ -593,43 +601,32 @@ impl CoordinatorState {
     /// close, self-abort = leaving) remove it as before. Never touches a newer
     /// registration of the same id.
     pub async fn pool_stream_closed(&self, worker_id: &str, generation: u64) {
-        let assigned = {
-            let g = self.pool.lock().await;
-            match g.get(worker_id) {
-                Some(e) if e.generation == generation => e.assigned_run.clone(),
+        {
+            let mut g = self.pool.lock().await;
+            match g.get_mut(worker_id) {
+                Some(e) if e.generation == generation => {
+                    if e.assigned_run.is_some() && e.finished_part {
+                        e.awaiting_reregister = true;
+                        e.tx = None;
+                        return;
+                    }
+                }
                 _ => return,
             }
-        };
-        // Runs lock is taken with the pool lock released (no nested locks).
-        let returning = match &assigned {
-            Some(run_id) => self.worker_finished_part(run_id, worker_id).await,
-            None => false,
-        };
-        if returning {
-            let mut g = self.pool.lock().await;
-            if let Some(e) = g.get_mut(worker_id) {
-                if e.generation == generation {
-                    e.awaiting_reregister = true;
-                    e.tx = None;
-                }
-            }
-            return;
         }
         self.pool_evict_if_same(worker_id, generation).await;
     }
 
-    /// Did `worker_id` report a terminal phase for `run_id` that means it stays in
-    /// the pool (Completed, Failed, or a controller-requested Aborted)?
-    async fn worker_finished_part(&self, run_id: &str, worker_id: &str) -> bool {
-        use pb::run_status::Phase;
-        let g = self.runs.lock().await;
-        g.get(run_id)
-            .and_then(|rw| rw.workers.get(worker_id))
-            .is_some_and(|e| match e.phase {
-                Phase::Completed | Phase::Failed => true,
-                Phase::Aborted => !e.self_aborted,
-                _ => false,
-            })
+    /// Record that `worker_id` finished its part of `run_id`. Only when the entry is
+    /// still assigned to that run: a late report for an older run must not mark the
+    /// worker's current assignment.
+    async fn pool_mark_finished(&self, run_id: &str, worker_id: &str) {
+        let mut g = self.pool.lock().await;
+        if let Some(e) = g.get_mut(worker_id) {
+            if e.assigned_run.as_deref() == Some(run_id) {
+                e.finished_part = true;
+            }
+        }
     }
 
     /// Apply operator control to a pool worker. Each Some(...) is applied; None
@@ -713,7 +710,7 @@ impl CoordinatorState {
         // reserve_idle_pool_capacity so both functions consider the same N workers.
         let mut idle: Vec<(String, u32)> = g
             .iter()
-            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained)
+            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained && e.tx.is_some())
             .map(|(id, e)| (id.clone(), e.effective_capacity_vus()))
             .collect();
         idle.sort_by(|a, b| a.0.cmp(&b.0));
@@ -738,7 +735,7 @@ impl CoordinatorState {
         let mut g = self.pool.lock().await;
         let mut idle: Vec<(String, u32)> = g
             .iter()
-            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained)
+            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained && e.tx.is_some())
             .map(|(id, e)| (id.clone(), e.effective_capacity_vus()))
             .collect();
         idle.sort_by(|a, b| a.0.cmp(&b.0)); // deterministic selection order
@@ -1000,10 +997,15 @@ impl CoordinatorState {
             },
         }
 
-        let decision = {
+        let is_end_phase = phase == completed || phase == failed || phase == aborted;
+        // Whether this report means the worker finished its part (spec R3 table, first
+        // matching row wins). Decided under the runs lock, applied to the pool entry
+        // right after releasing it and before the finalization's `.await`s.
+        let (decision, pool_mark) = 'classify: {
             let mut g = self.runs.lock().await;
             let Some(rw) = g.get_mut(run_id) else {
-                return;
+                // Run already finalized and removed: a late end-phase report still counts.
+                break 'classify (Finalize::None, is_end_phase);
             };
             let Some(e) = rw.workers.get_mut(worker_id) else {
                 if rw.terminal {
@@ -1019,7 +1021,7 @@ impl CoordinatorState {
                         "run status from a worker not in this run: ignored"
                     );
                 }
-                return;
+                break 'classify (Finalize::None, false);
             };
             e.phase = if phase == completed {
                 Phase::Completed
@@ -1030,7 +1032,7 @@ impl CoordinatorState {
             } else {
                 Phase::Started
             };
-            if rw.terminal {
+            let decision = if rw.terminal {
                 Finalize::None
             } else if phase == failed {
                 rw.terminal = true;
@@ -1074,8 +1076,20 @@ impl CoordinatorState {
                 Finalize::Completed
             } else {
                 Finalize::None
-            }
+            };
+            // Read after the Aborted branch above, which sets `self_aborted`.
+            let pool_mark = if phase == completed || phase == failed {
+                true
+            } else if phase == aborted {
+                rw.workers.get(worker_id).is_some_and(|e| !e.self_aborted)
+            } else {
+                false
+            };
+            (decision, pool_mark)
         };
+        if pool_mark {
+            self.pool_mark_finished(run_id, worker_id).await;
+        }
 
         match decision {
             Finalize::None => {}
@@ -3541,11 +3555,11 @@ mod tests {
         );
     }
 
-    /// An entry kept after a clean post-run stream close has a dead `tx` (Closed). The
-    /// reaper must not evict it for that — only staleness may — or the worker's
-    /// re-register lands on a fresh entry and loses operator control.
-    async fn awaiting_entry_with_closed_tx(coord: &CoordinatorState) {
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
+    /// An entry kept after a clean post-run stream close holds no sender (`tx` is
+    /// `None`). The reaper must not evict it for that — only staleness may — or the
+    /// worker's re-register lands on a fresh entry and loses operator control.
+    async fn awaiting_entry_without_sender(coord: &CoordinatorState) {
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
         coord
             .pool_register_idle("w1", tx, 10, "h".into(), false)
             .await;
@@ -3557,7 +3571,6 @@ mod tests {
             e.tx = None;
             e.label = Some("keep".into());
         }
-        drop(rx);
     }
 
     /// Pool entry's `awaiting_reregister` (None = entry absent).
@@ -3571,8 +3584,8 @@ mod tests {
     }
 
     /// w0 registered in the pool and assigned to a fresh run; returns the run id,
-    /// the stream's sender (what the stream handler passes to `pool_stream_closed`)
-    /// and the receiver (kept alive so pushes succeed).
+    /// the registration generation, the handler's own sender clone (later tasks drop
+    /// it) and the receiver (kept alive so pushes succeed).
     async fn pool_worker_in_run(
         coord: &CoordinatorState,
         db: &Db,
@@ -3602,6 +3615,162 @@ mod tests {
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
         (run_id, generation, stream_tx, rx0)
+    }
+
+    type PoolWorker = (
+        String,
+        u64,
+        WorkerTx,
+        tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
+    );
+
+    /// `w0` and `w1` registered in the pool and assigned to one fresh 2-worker run.
+    /// Returns the run id and, per worker, (id, generation, handler sender, receiver).
+    async fn two_pool_workers_in_run(
+        coord: &CoordinatorState,
+        db: &Db,
+    ) -> (String, [PoolWorker; 2]) {
+        let run_id = seed_run(db).await;
+        let mut out = Vec::new();
+        for wid in ["w0", "w1"] {
+            let (tx, rx) = fake_tx();
+            let stream_tx = tx.clone();
+            let generation = coord
+                .pool_register_idle(wid, tx, 100, "host".into(), false)
+                .await;
+            out.push((wid.to_string(), generation, stream_tx, rx));
+        }
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await;
+        assert_eq!(reserved.len(), 2);
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        coord.assign_pool_workers(&run_id, reserved).await.unwrap();
+        let w1 = out.pop().unwrap();
+        let w0 = out.pop().unwrap();
+        (run_id, [w0, w1])
+    }
+
+    async fn pool_finished_part(coord: &CoordinatorState, wid: &str) -> Option<bool> {
+        coord.pool.lock().await.get(wid).map(|e| e.finished_part)
+    }
+
+    #[tokio::test]
+    async fn aborted_after_run_removed_counts_as_finished() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord.cancel_dispatch_failed(&run_id).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "")
+            .await;
+        coord.pool_stream_closed("w0", generation).await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
+    }
+
+    #[tokio::test]
+    async fn report_for_other_run_sets_no_flag() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (_run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord
+            .record_phase(
+                "other-run",
+                "w0",
+                pb::run_status::Phase::Completed as i32,
+                "",
+            )
+            .await;
+        assert_eq!(pool_finished_part(&coord, "w0").await, Some(false));
+        coord.pool_stream_closed("w0", generation).await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, None);
+    }
+
+    #[tokio::test]
+    async fn non_member_report_sets_no_flag() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _g0, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        let (tx9, _rx9) = fake_tx();
+        let g9 = coord
+            .pool_register_idle("w9", tx9, 100, "host".into(), false)
+            .await;
+        coord.pool.lock().await.get_mut("w9").unwrap().assigned_run = Some(run_id.clone());
+        coord
+            .record_phase(&run_id, "w9", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        assert_eq!(pool_finished_part(&coord, "w9").await, Some(false));
+        coord.pool_stream_closed("w9", g9).await;
+        assert_eq!(pool_entry_awaiting(&coord, "w9").await, None);
+    }
+
+    #[tokio::test]
+    async fn reregister_clears_finished_flag() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, _g, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord.pool_mark_finished(&run_id, "w0").await;
+        assert_eq!(pool_finished_part(&coord, "w0").await, Some(true));
+        let (tx, _rx2) = fake_tx();
+        coord
+            .pool_register_idle("w0", tx, 100, "host".into(), false)
+            .await;
+        assert_eq!(pool_finished_part(&coord, "w0").await, Some(false));
+    }
+
+    #[tokio::test]
+    async fn failed_run_sibling_late_aborted_keeps_entry() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, [_w0, w1]) = two_pool_workers_in_run(&coord, &db).await;
+        coord
+            .pool_set_control("w1", None, None, Some(Some("keep".into())))
+            .await
+            .unwrap();
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32, "boom")
+            .await;
+        coord
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Aborted as i32, "")
+            .await;
+        coord.pool_stream_closed("w1", w1.1).await;
+        assert_eq!(pool_entry_awaiting(&coord, "w1").await, Some(true));
+        let label = coord.pool.lock().await.get("w1").unwrap().label.clone();
+        assert_eq!(label.as_deref(), Some("keep"));
+    }
+
+    #[tokio::test]
+    async fn self_abort_sibling_keeps_entry() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, [w0, w1]) = two_pool_workers_in_run(&coord, &db).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "left")
+            .await;
+        coord
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Aborted as i32, "")
+            .await;
+        coord.pool_stream_closed("w1", w1.1).await;
+        coord.pool_stream_closed("w0", w0.1).await;
+        assert_eq!(pool_entry_awaiting(&coord, "w1").await, Some(true));
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, None);
+    }
+
+    #[tokio::test]
+    async fn two_pool_workers_controller_abort_keeps_both() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, [w0, w1]) = two_pool_workers_in_run(&coord, &db).await;
+        assert!(coord.abort(&run_id).await);
+        for wid in ["w0", "w1"] {
+            coord
+                .record_phase(&run_id, wid, pb::run_status::Phase::Aborted as i32, "")
+                .await;
+        }
+        coord.pool_stream_closed("w0", w0.1).await;
+        coord.pool_stream_closed("w1", w1.1).await;
+        assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
+        assert_eq!(pool_entry_awaiting(&coord, "w1").await, Some(true));
     }
 
     #[tokio::test]
@@ -3663,10 +3832,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn awaiting_reregister_entry_not_evicted_for_closed_tx() {
+    async fn awaiting_reregister_entry_not_evicted_without_sender() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
-        awaiting_entry_with_closed_tx(&coord).await;
+        awaiting_entry_without_sender(&coord).await;
         coord
             .pool_heartbeat_tick(
                 tokio::time::Instant::now(),
@@ -3682,7 +3851,7 @@ mod tests {
     async fn awaiting_reregister_entry_evicted_when_stale() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
-        awaiting_entry_with_closed_tx(&coord).await;
+        awaiting_entry_without_sender(&coord).await;
         coord
             .pool_heartbeat_tick(
                 tokio::time::Instant::now() + std::time::Duration::from_secs(31),
@@ -3741,7 +3910,7 @@ mod tests {
     async fn reregister_clears_awaiting_and_keeps_control() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
-        awaiting_entry_with_closed_tx(&coord).await;
+        awaiting_entry_without_sender(&coord).await;
         let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
         coord
             .pool_register_idle("w1", tx2, 10, "h".into(), false)
@@ -3879,6 +4048,7 @@ mod tests {
         // would be true. Re-register with a FRESH tx2 whose receiver stays alive.
         drop(rx1);
         let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
+        let tx2_probe = tx2.clone();
         st.pool_register_idle("w1", tx2, 12, "h1b".into(), false)
             .await;
         let g = st.pool.lock().await;
@@ -3890,8 +4060,8 @@ mod tests {
         assert_eq!(e.capacity_vus, 12, "declared capacity refreshed");
         assert_eq!(e.hostname, "h1b", "hostname refreshed");
         assert!(
-            !e.tx.as_ref().unwrap().is_closed(),
-            "tx refreshed to tx2 (tx1's receiver was dropped)"
+            e.tx.as_ref().unwrap().same_channel(&tx2_probe),
+            "tx refreshed to tx2"
         );
     }
 
@@ -3923,6 +4093,7 @@ mod tests {
             label: None,
             stable: false,
             awaiting_reregister: false,
+            finished_part: false,
         };
         assert_eq!(e.effective_capacity_vus(), 25);
         let e2 = PoolEntry {
