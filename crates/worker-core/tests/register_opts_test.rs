@@ -84,9 +84,9 @@ async fn reg(
 
 #[tokio::test]
 async fn abort_before_assignment_keeps_reason() {
-    let url = spawn_stub(vec![abort("authentication failed")]).await;
+    let url = spawn_stub(vec![abort(handicap_proto::AUTH_FAILED_REASON)]).await;
     let e = reg(&url, RegisterOpts::default()).await.err().unwrap();
-    assert_eq!(e.abort_reason(), Some("authentication failed"));
+    assert_eq!(e.abort_reason(), Some(handicap_proto::AUTH_FAILED_REASON));
     assert_eq!(e.to_string(), "missing assignment after register");
 }
 
@@ -130,13 +130,17 @@ async fn on_accepted_fires_on_assignment_without_ping() {
 }
 
 #[tokio::test]
-async fn default_opts_never_call_back_and_match_old_behaviour() {
-    let url = spawn_stub(vec![abort("authentication failed")]).await;
+async fn old_connect_and_register_keeps_display_on_abort() {
+    let url = spawn_stub(vec![abort(handicap_proto::AUTH_FAILED_REASON)]).await;
     let cancel = CancellationToken::new();
-    let e = connect_and_register(&url, "w1", "", 1, "", "h", false, &cancel)
-        .await
-        .err()
-        .unwrap();
+    let e = tokio::time::timeout(
+        Duration::from_secs(3),
+        connect_and_register(&url, "w1", "", 1, "", "h", false, &cancel),
+    )
+    .await
+    .expect("outer 3s timeout")
+    .err()
+    .unwrap();
     assert_eq!(e.to_string(), "missing assignment after register");
 }
 
