@@ -905,10 +905,7 @@ pub(crate) async fn spawn_run(
                         .await
                         .is_err()
                     {
-                        let msg = "풀 워커 배정 실패(워커 이탈) — 재시도하세요".to_string();
-                        state.coord.cancel_dispatch_failed(&row.id).await;
-                        runs::mark_failed(&state.db, &row.id, &msg).await?;
-                        return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+                        return Err(fail_pool_assignment(&state.coord, &state.db, &row.id).await?);
                     }
                     return Ok(row);
                 }
@@ -971,10 +968,7 @@ pub(crate) async fn spawn_run(
                 .await
                 .is_err()
             {
-                let msg = "풀 워커 배정 실패(워커 이탈) — 재시도하세요".to_string();
-                state.coord.cancel_dispatch_failed(&row.id).await;
-                runs::mark_failed(&state.db, &row.id, &msg).await?;
-                return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+                return Err(fail_pool_assignment(&state.coord, &state.db, &row.id).await?);
             }
             return Ok(row);
         }
@@ -1313,6 +1307,20 @@ pub async fn list_for_scenario(
             })
             .collect(),
     }))
+}
+
+const POOL_ASSIGN_FAILED_MSG: &str = "풀 워커 배정 실패(워커 이탈) — 재시도하세요";
+
+/// 풀 배정 실패 처리: run 상태를 정리하고 호출부가 돌려줄 오류를 만든다.
+/// 이미 끝난 run은 덮어쓰지 않는다(`mark_failed_if_active`).
+async fn fail_pool_assignment(
+    coord: &crate::grpc::coordinator::CoordinatorState,
+    db: &crate::store::Db,
+    run_id: &str,
+) -> Result<ApiError, sqlx::Error> {
+    coord.cancel_dispatch_failed(run_id).await;
+    runs::mark_failed_if_active(db, run_id, POOL_ASSIGN_FAILED_MSG).await?;
+    Ok(ApiError::Internal(anyhow::anyhow!(POOL_ASSIGN_FAILED_MSG)))
 }
 
 pub async fn abort_run(
@@ -2766,6 +2774,53 @@ steps:
         let mut p = closed_min();
         p.connect_timeout_seconds = None;
         assert!(validate_run_config(&state, &p).await.is_ok());
+    }
+
+    async fn seed_plain_run(db: &crate::store::Db) -> String {
+        let yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(db, &sc, yaml)
+            .await
+            .unwrap();
+        let mut profile = unique_profile("unused".into(), 1);
+        profile.data_binding = None;
+        runs::insert(
+            db,
+            &scenario.id,
+            yaml,
+            &profile,
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn fail_pool_assignment_keeps_finished_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        runs::set_status(&db, &id, runs::RunStatus::Completed, None, Some(5))
+            .await
+            .unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let err = super::fail_pool_assignment(&coord, &db, &id).await.unwrap();
+        assert!(matches!(err, ApiError::Internal(_)));
+        let row = runs::get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(row.status, runs::RunStatus::Completed);
+        assert_ne!(row.message.as_deref(), Some(super::POOL_ASSIGN_FAILED_MSG));
+    }
+
+    #[tokio::test]
+    async fn fail_pool_assignment_fails_active_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        super::fail_pool_assignment(&coord, &db, &id).await.unwrap();
+        let row = runs::get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(row.status, runs::RunStatus::Failed);
+        assert_eq!(row.message.as_deref(), Some(super::POOL_ASSIGN_FAILED_MSG));
     }
 }
 

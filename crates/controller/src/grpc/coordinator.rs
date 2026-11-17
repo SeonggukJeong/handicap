@@ -232,6 +232,26 @@ pub enum RegisterOutcome {
 #[derive(Debug)]
 pub struct PoolAssignFailed;
 
+/// Which step of `assign_pool_workers` failed for reservation `i`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AssignStep {
+    /// `register` did not return `Assigned` — worker `i` is not a run member.
+    NotAssigned,
+    /// `assignment_for` returned `None` — worker `i` is a member.
+    NoAssignment,
+    /// The assignment `send` failed — worker `i` is a member.
+    SendFailed,
+}
+
+/// First reservation index to release: `i` itself only when it never became a
+/// run member (it will not receive that run's final Abort).
+fn release_start(failed_at: AssignStep, i: usize) -> usize {
+    match failed_at {
+        AssignStep::NotAssigned => i,
+        AssignStep::NoAssignment | AssignStep::SendFailed => i + 1,
+    }
+}
+
 #[derive(Clone)]
 pub struct CoordinatorState {
     pub db: Db,
@@ -357,7 +377,8 @@ impl CoordinatorState {
         run_id: &str,
         reserved: Vec<(String, WorkerTx)>,
     ) -> Result<(), PoolAssignFailed> {
-        for (worker_id, tx) in reserved {
+        let ids: Vec<String> = reserved.iter().map(|(id, _)| id.clone()).collect();
+        for (i, (worker_id, tx)) in reserved.into_iter().enumerate() {
             let outcome = self.register(run_id, &worker_id, tx.clone()).await;
             let (shard_index, shard_count, vu_offset, vu_count, set_running) = match outcome {
                 RegisterOutcome::Assigned {
@@ -367,8 +388,16 @@ impl CoordinatorState {
                     vu_count,
                     first,
                 } => (shard_index, shard_count, vu_offset, vu_count, first),
-                // 풀 발사에선 일어나지 않아야 함(예약 수==expected). 방어적으로 실패.
-                _ => return Err(PoolAssignFailed),
+                // 이 분기는 `NoRun`·초과 등록 `Reject`만 예상한다(예약 ID는 겹치지 않아
+                // `Resend` — 이미 구성원 — 은 오지 않는다; 오면 k를 풀면 안 된다).
+                _ => {
+                    self.release_unsent_reservations(
+                        run_id,
+                        &ids[release_start(AssignStep::NotAssigned, i)..],
+                    )
+                    .await;
+                    return Err(PoolAssignFailed);
+                }
             };
             let Some((assignment, streams)) = self
                 .assignment_for(
@@ -381,6 +410,11 @@ impl CoordinatorState {
                 )
                 .await
             else {
+                self.release_unsent_reservations(
+                    run_id,
+                    &ids[release_start(AssignStep::NoAssignment, i)..],
+                )
+                .await;
                 return Err(PoolAssignFailed);
             };
             if tx
@@ -390,7 +424,12 @@ impl CoordinatorState {
                 .await
                 .is_err()
             {
-                // 워커 이탈 → 즉시 fail-fast (R7) — assigned_run은 reserve가 이미 Some
+                // 워커 이탈 → 즉시 fail-fast (R7)
+                self.release_unsent_reservations(
+                    run_id,
+                    &ids[release_start(AssignStep::SendFailed, i)..],
+                )
+                .await;
                 return Err(PoolAssignFailed);
             }
             if set_running {
@@ -791,6 +830,23 @@ impl CoordinatorState {
         for (id, _) in workers {
             if let Some(e) = g.get_mut(id) {
                 e.assigned_run = None;
+            }
+        }
+    }
+
+    /// After a partial `assign_pool_workers` failure, free the reserved workers that
+    /// never received this run's assignment: only entries still reserved for
+    /// `run_id` whose own sender is alive (a closed sender is a vanished worker —
+    /// the heartbeat removes it).
+    async fn release_unsent_reservations(&self, run_id: &str, worker_ids: &[String]) {
+        let mut g = self.pool.lock().await;
+        for id in worker_ids {
+            if let Some(e) = g.get_mut(id) {
+                if e.assigned_run.as_deref() == Some(run_id)
+                    && e.tx.as_ref().is_some_and(|t| !t.is_closed())
+                {
+                    e.assigned_run = None;
+                }
             }
         }
     }
@@ -1210,8 +1266,8 @@ impl CoordinatorState {
 
     /// Fail a run that cannot make progress and tear it down: remove the run +
     /// snapshot siblings under the runs lock (an absent run = already finalized,
-    /// no-op), then (lock-free) mark the run failed with `reason`, abort registered workers with `abort_msg`, and release the
-    /// dispatcher. Shared by `fail_incomplete_registration` (registration timeout)
+    /// no-op), then (lock-free) mark the run failed with `reason`, abort registered
+    /// workers with `abort_msg`, and release the dispatcher. Shared by `fail_incomplete_registration` (registration timeout)
     /// and the run-progress watchdog A/B (no-load / backstop). R14 lock discipline.
     pub async fn fail_run_hung(&self, run_id: &str, reason: &str, abort_msg: &str) {
         let siblings = {
@@ -1284,8 +1340,9 @@ impl CoordinatorState {
         }
     }
 
-    /// Send AbortRun to every connected worker of `run_id` (user-initiated
-    /// abort). Returns true if at least one worker was reached. (Spec §8.5.)
+    /// Send AbortRun to every worker of `run_id` still running (one that has not
+    /// reported an end phase). Returns true if at least one such worker was
+    /// reached. (Spec §8.5.)
     ///
     /// NOTE: `cleanup_dispatcher` is intentionally NOT called here. Workers reply
     /// with `Phase::Aborted` → `record_phase` → `Finalize::Aborted` → cleanup; an
@@ -1590,7 +1647,7 @@ impl Coordinator for CoordinatorService {
                             )
                             .await
                         else {
-                            error!(run_id = %reg.run_id, "run vanished between register and assignment");
+                            warn!(run_id = %reg.run_id, "run vanished between register and assignment");
                             break;
                         };
 
@@ -3099,6 +3156,95 @@ mod tests {
         assert!(
             coord.assign_pool_workers(&run_id, reserved).await.is_err(),
             "닫힌 tx push는 즉시 Err (호출자가 cancel_dispatch_failed, R7)"
+        );
+    }
+
+    #[tokio::test]
+    async fn assign_to_removed_run_errs_without_db_write() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx0, _r0) = fake_tx();
+        let (tx1, _r1) = fake_tx();
+        coord
+            .pool_register_idle("w0", tx0, 100, "h0".into(), false)
+            .await;
+        coord
+            .pool_register_idle("w1", tx1, 100, "h1".into(), false)
+            .await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await;
+        assert_eq!(reserved.len(), 2);
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        coord.cancel_dispatch_failed(&run_id).await;
+        assert!(coord.assign_pool_workers(&run_id, reserved).await.is_err());
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Pending,
+            "assign는 DB를 건드리지 않는다"
+        );
+        assert_eq!(
+            coord.reserve_idle_pool("r-next", 4).await.len(),
+            2,
+            "register 비-Assigned 분기: 예약 워커 둘 다 유휴로"
+        );
+    }
+
+    #[tokio::test]
+    async fn partial_assign_failure_releases_unsent_workers() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let mut keep = Vec::new();
+        for id in ["a", "b", "c", "d"] {
+            let (tx, rx) = fake_tx();
+            coord
+                .pool_register_idle(id, tx, 100, id.into(), false)
+                .await;
+            if id == "a" || id == "c" {
+                keep.push(rx);
+            }
+        }
+        let mut reserved = coord.reserve_idle_pool(&run_id, 8).await;
+        assert_eq!(reserved.len(), 4);
+        reserved.sort_by(|x, y| x.0.cmp(&y.0));
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 4, 8, None, LONG, LONG)
+            .await;
+        assert!(coord.assign_pool_workers(&run_id, reserved).await.is_err());
+        let g = coord.pool.lock().await;
+        let ar = |id: &str| g.get(id).unwrap().assigned_run.clone();
+        assert_eq!(ar("a"), Some(run_id.clone()), "배정 받음");
+        assert_eq!(ar("b"), Some(run_id.clone()), "실패 지점(닫힌 송신)");
+        assert_eq!(ar("c"), None, "배정 못 받은 살아 있는 워커는 풀림");
+        assert_eq!(ar("d"), Some(run_id.clone()), "닫힌 송신은 풀지 않음");
+        drop(g);
+        assert_eq!(coord.reserve_idle_pool("r-next", 8).await.len(), 1);
+    }
+
+    #[test]
+    fn release_start_per_failure_step() {
+        assert_eq!(release_start(AssignStep::NotAssigned, 2), 2);
+        assert_eq!(release_start(AssignStep::NoAssignment, 2), 3);
+        assert_eq!(release_start(AssignStep::SendFailed, 2), 3);
+    }
+
+    #[tokio::test]
+    async fn release_unsent_skips_other_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, _rx) = fake_tx();
+        coord
+            .pool_register_idle("w0", tx, 100, "h".into(), false)
+            .await;
+        coord.pool.lock().await.get_mut("w0").unwrap().assigned_run = Some("r-other".into());
+        coord
+            .release_unsent_reservations("r-this", &["w0".to_string()])
+            .await;
+        assert_eq!(
+            coord.pool.lock().await.get("w0").unwrap().assigned_run,
+            Some("r-other".to_string())
         );
     }
 
