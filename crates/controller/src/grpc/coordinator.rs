@@ -2816,6 +2816,8 @@ mod tests {
             active_vu_samples: vec![],
             error_kind_stats: vec![],
             loop_exit_stats: vec![],
+            open_loop_seconds: vec![],
+            open_loop_started_at_ms: 0,
             dropped: d,
         };
         ingest_metrics(&coord, &mk(3)).await;
@@ -2870,6 +2872,8 @@ mod tests {
             active_vu_samples: vec![],
             error_kind_stats: vec![],
             loop_exit_stats: vec![],
+            open_loop_seconds: vec![],
+            open_loop_started_at_ms: 0,
             dropped: 0,
         };
         ingest_metrics(&coord, &batch).await;
@@ -2946,6 +2950,8 @@ mod tests {
                 count: 3,
             }],
             loop_exit_stats: vec![],
+            open_loop_seconds: vec![],
+            open_loop_started_at_ms: 0,
             dropped: 0,
         };
         ingest_metrics(&coord, &batch).await;

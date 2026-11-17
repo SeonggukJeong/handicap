@@ -256,114 +256,13 @@ async fn execute_assignment(
     let tx_metric = tx.clone();
     let forwarder = tokio::spawn(async move {
         while let Some(flush) = win_rx.recv().await {
-            let windows: Vec<MetricWindow> = flush
-                .windows
-                .into_iter()
-                .filter_map(|w| {
-                    let hdr = w.serialize_histogram().ok()?;
-                    let status_counts = w
-                        .status_counts
-                        .into_iter()
-                        .map(|(k, v)| (k.to_string(), v))
-                        .collect();
-                    Some(MetricWindow {
-                        ts_second: w.ts_second,
-                        step_id: w.step_id,
-                        count: w.count,
-                        error_count: w.error_count,
-                        hdr_histogram: hdr,
-                        status_counts,
-                    })
-                })
-                .collect();
-            let loop_stats: Vec<LoopStat> = flush
-                .loop_stats
-                .into_iter()
-                .map(|ls| LoopStat {
-                    step_id: ls.step_id,
-                    loop_index: ls.loop_index,
-                    count: ls.count,
-                    error_count: ls.error_count,
-                })
-                .collect();
-            let branch_stats: Vec<BranchStat> = flush
-                .branch_stats
-                .into_iter()
-                .map(|bs| BranchStat {
-                    step_id: bs.step_id,
-                    branch: bs.branch,
-                    count: bs.count,
-                })
-                .collect();
-            let group_stats: Vec<GroupStat> = flush
-                .group_stats
-                .into_iter()
-                .filter_map(|g| {
-                    let hdr = g.serialize_histogram().ok()?;
-                    Some(GroupStat {
-                        step_id: g.step_id,
-                        branch: g.branch,
-                        hdr_histogram: hdr,
-                        count: g.count,
-                    })
-                })
-                .collect();
-            let phase_stats: Vec<PhaseStat> = flush
-                .phase_stats
-                .into_iter()
-                .filter_map(|p| {
-                    let hdr = p.serialize_histogram().ok()?;
-                    Some(PhaseStat {
-                        step_id: p.step_id,
-                        phase: p.phase,
-                        hdr_histogram: hdr,
-                        count: p.count,
-                    })
-                })
-                .collect();
-            let active_vu_samples: Vec<ActiveVuSample> = flush
-                .active_vu_samples
-                .into_iter()
-                .map(|s| ActiveVuSample {
-                    ts_second: s.ts_second,
-                    desired: s.desired,
-                    actual: s.actual,
-                })
-                .collect();
-            let error_kind_stats = error_kind_stats_to_proto(flush.error_kind_stats);
-            let loop_exit_stats = loop_exit_stats_to_proto(flush.loop_exit_stats);
-            // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
-            // run-total dropped count with empty windows. Dropping it would silently
-            // discard `dropped` on all-empty-window final flushes (the C1 footgun).
-            // Keep `error_kind_stats.is_empty()` too (E1): an error_kind-only flush with
-            // all other vecs empty must not be silently skipped (the same C1 footgun).
-            // loop_exit_stats도 같은 이유.
-            if windows.is_empty()
-                && loop_stats.is_empty()
-                && branch_stats.is_empty()
-                && group_stats.is_empty()
-                && phase_stats.is_empty()
-                && active_vu_samples.is_empty()
-                && error_kind_stats.is_empty()
-                && loop_exit_stats.is_empty()
-                && flush.dropped == 0
-            {
+            let Some(batch) =
+                flush_to_batch(flush, &run_id_for_forwarder, &worker_id_for_forwarder)
+            else {
                 continue;
-            }
+            };
             let msg = WorkerMessage {
-                payload: Some(WorkerPayload::MetricBatch(MetricBatch {
-                    run_id: run_id_for_forwarder.clone(),
-                    worker_id: worker_id_for_forwarder.clone(),
-                    windows,
-                    loop_stats,
-                    branch_stats,
-                    group_stats,
-                    phase_stats,
-                    active_vu_samples,
-                    error_kind_stats,
-                    loop_exit_stats,
-                    dropped: flush.dropped,
-                })),
+                payload: Some(WorkerPayload::MetricBatch(batch)),
             };
             if tx_metric.send(msg).await.is_err() {
                 debug!("controller stream closed mid-run, dropping batch");
@@ -911,6 +810,130 @@ fn loop_exit_stats_to_proto(stats: Vec<handicap_engine::LoopExitStat>) -> Vec<Lo
         .collect()
 }
 
+/// 엔진 flush 하나를 와이어 `MetricBatch`로 옮긴다. 보낼 내용이 하나도 없으면 `None`.
+fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<MetricBatch> {
+    let windows: Vec<MetricWindow> = flush
+        .windows
+        .into_iter()
+        .filter_map(|w| {
+            let hdr = w.serialize_histogram().ok()?;
+            let status_counts = w
+                .status_counts
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect();
+            Some(MetricWindow {
+                ts_second: w.ts_second,
+                step_id: w.step_id,
+                count: w.count,
+                error_count: w.error_count,
+                hdr_histogram: hdr,
+                status_counts,
+            })
+        })
+        .collect();
+    let loop_stats: Vec<LoopStat> = flush
+        .loop_stats
+        .into_iter()
+        .map(|ls| LoopStat {
+            step_id: ls.step_id,
+            loop_index: ls.loop_index,
+            count: ls.count,
+            error_count: ls.error_count,
+        })
+        .collect();
+    let branch_stats: Vec<BranchStat> = flush
+        .branch_stats
+        .into_iter()
+        .map(|bs| BranchStat {
+            step_id: bs.step_id,
+            branch: bs.branch,
+            count: bs.count,
+        })
+        .collect();
+    let group_stats: Vec<GroupStat> = flush
+        .group_stats
+        .into_iter()
+        .filter_map(|g| {
+            let hdr = g.serialize_histogram().ok()?;
+            Some(GroupStat {
+                step_id: g.step_id,
+                branch: g.branch,
+                hdr_histogram: hdr,
+                count: g.count,
+            })
+        })
+        .collect();
+    let phase_stats: Vec<PhaseStat> = flush
+        .phase_stats
+        .into_iter()
+        .filter_map(|p| {
+            let hdr = p.serialize_histogram().ok()?;
+            Some(PhaseStat {
+                step_id: p.step_id,
+                phase: p.phase,
+                hdr_histogram: hdr,
+                count: p.count,
+            })
+        })
+        .collect();
+    let active_vu_samples: Vec<ActiveVuSample> = flush
+        .active_vu_samples
+        .into_iter()
+        .map(|s| ActiveVuSample {
+            ts_second: s.ts_second,
+            desired: s.desired,
+            actual: s.actual,
+        })
+        .collect();
+    let open_loop_seconds: Vec<pb::OpenLoopSecond> = flush
+        .open_loop_seconds
+        .iter()
+        .map(|s| pb::OpenLoopSecond {
+            ts_second: s.ts_second,
+            launched: s.launched,
+            completed: s.completed,
+            dropped: s.dropped,
+        })
+        .collect();
+    let error_kind_stats = error_kind_stats_to_proto(flush.error_kind_stats);
+    let loop_exit_stats = loop_exit_stats_to_proto(flush.loop_exit_stats);
+    // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
+    // run-total dropped count with empty windows. Dropping it would silently
+    // discard `dropped` on all-empty-window final flushes (the C1 footgun).
+    // Keep `error_kind_stats.is_empty()` too (E1): an error_kind-only flush with
+    // all other vecs empty must not be silently skipped (the same C1 footgun).
+    // loop_exit_stats도 같은 이유. open_loop_seconds도 같은 이유(초 계수만 든 flush를 버리지 않음).
+    if windows.is_empty()
+        && loop_stats.is_empty()
+        && branch_stats.is_empty()
+        && group_stats.is_empty()
+        && phase_stats.is_empty()
+        && active_vu_samples.is_empty()
+        && error_kind_stats.is_empty()
+        && loop_exit_stats.is_empty()
+        && flush.open_loop_seconds.is_empty()
+        && flush.dropped == 0
+    {
+        return None;
+    }
+    Some(MetricBatch {
+        run_id: run_id.to_string(),
+        worker_id: worker_id.to_string(),
+        windows,
+        loop_stats,
+        branch_stats,
+        group_stats,
+        phase_stats,
+        active_vu_samples,
+        error_kind_stats,
+        loop_exit_stats,
+        dropped: flush.dropped,
+        open_loop_seconds,
+        open_loop_started_at_ms: flush.open_loop_started_at_ms.unwrap_or(0),
+    })
+}
+
 /// send-실패 분류 delta counts (E1): engine `ErrorKindStat` → proto wire
 /// (`kind` becomes the 9-way lowercase_snake string via `ErrorKind::as_str()`).
 fn error_kind_stats_to_proto(stats: Vec<handicap_engine::ErrorKindStat>) -> Vec<ErrorKindStat> {
@@ -991,6 +1014,80 @@ pub(crate) async fn abort_listener_loop(
 mod tests {
     use super::*;
     use handicap_engine::EngineError;
+
+    fn empty_flush() -> MetricFlush {
+        MetricFlush {
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![],
+            dropped: 0,
+            phase_stats: vec![],
+            active_vu_samples: vec![],
+            error_kind_stats: vec![],
+            loop_exit_stats: vec![],
+            open_loop_seconds: vec![],
+            open_loop_started_at_ms: None,
+        }
+    }
+
+    #[test]
+    fn empty_flush_is_skipped() {
+        assert!(flush_to_batch(empty_flush(), "r", "w").is_none());
+    }
+
+    #[test]
+    fn final_flush_with_only_dropped_is_sent() {
+        let mut f = empty_flush();
+        f.dropped = 7;
+        let b = flush_to_batch(f, "r", "w").expect("dropped-only flush must be sent");
+        assert_eq!(b.dropped, 7);
+        assert_eq!(b.run_id, "r");
+        assert_eq!(b.worker_id, "w");
+    }
+
+    #[test]
+    fn batch_carries_open_loop_seconds_and_start() {
+        let mut f = empty_flush();
+        f.open_loop_seconds = vec![handicap_engine::OpenLoopSecond {
+            ts_second: 5,
+            launched: 1,
+            completed: 0,
+            dropped: 0,
+        }];
+        f.open_loop_started_at_ms = Some(5_123);
+        let b = flush_to_batch(f, "r", "w").expect("must be sent");
+        assert_eq!(
+            b.open_loop_seconds,
+            vec![pb::OpenLoopSecond {
+                ts_second: 5,
+                launched: 1,
+                completed: 0,
+                dropped: 0
+            }]
+        );
+        assert_eq!(b.open_loop_started_at_ms, 5_123);
+    }
+
+    #[test]
+    fn flush_with_only_open_loop_seconds_is_not_skipped() {
+        let mut f = empty_flush();
+        f.open_loop_seconds = vec![handicap_engine::OpenLoopSecond {
+            ts_second: 5,
+            launched: 1,
+            completed: 0,
+            dropped: 0,
+        }];
+        assert!(flush_to_batch(f, "r", "w").is_some());
+    }
+
+    #[test]
+    fn missing_open_loop_start_maps_to_zero() {
+        let mut f = empty_flush();
+        f.dropped = 1;
+        let b = flush_to_batch(f, "r", "w").unwrap();
+        assert_eq!(b.open_loop_started_at_ms, 0);
+    }
 
     #[test]
     fn pool_target_debug_redacts_token() {

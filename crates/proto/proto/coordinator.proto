@@ -92,6 +92,15 @@ message MetricBatch {
   repeated ActiveVuSample active_vu_samples = 9;  // per-second active-VU gauge (curve only)
   repeated ErrorKindStat error_kind_stats = 10;  // send-실패 분류 카운트 (delta, controller merges)
   repeated LoopExitStat loop_exit_stats = 11;  // 조건 반복 진입 종료 (delta, controller sums)
+  repeated OpenLoopSecond open_loop_seconds = 12;  // open-loop 초 단위 시작·완료·버림 계수 (delta, controller sums)
+  int64 open_loop_started_at_ms = 13;  // open-loop 스케줄 t=0 epoch ms, 0 = 없음
+}
+
+message OpenLoopSecond {
+  int64 ts_second = 1;
+  uint64 launched = 2;
+  uint64 completed = 3;
+  uint64 dropped = 4;
 }
 
 message MetricWindow {
