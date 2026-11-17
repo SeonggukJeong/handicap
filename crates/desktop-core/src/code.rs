@@ -253,9 +253,12 @@ mod tests {
     #[test]
     fn unknown_version_and_bad_prefix() {
         assert_eq!(decode("HANDICAP2-00"), Err(CodeError::UnknownVersion));
-        for s in ["HANDICAP-00", "HANDICAPx-00", "handicap1-00", ""] {
+        for s in ["HANDICAP-00", "HANDICAPx-00", ""] {
             assert_eq!(decode(s), Err(CodeError::Format), "{s:?}");
         }
+        let lower = encode(&one()).replacen("HANDICAP", "handicap", 1);
+        assert!(lower.starts_with("handicap1-"));
+        assert_eq!(decode(&lower), Err(CodeError::Format));
     }
 
     #[test]
@@ -297,7 +300,7 @@ mod tests {
             Err(CodeError::Format)
         );
         let mut extra = payload(&ip, 1, 8081, &t);
-        extra.push(0);
+        extra.push(b'a');
         assert_eq!(decode(&raw_code(extra)), Err(CodeError::Format));
         let ok = decode(&raw_code(payload(&ip, 1, 8081, &"a".repeat(256)))).unwrap();
         assert_eq!(ok.token.len(), 256);
