@@ -129,6 +129,30 @@ struct PoolEntry {
     finished_part: bool,
 }
 
+/// Everything the pool lock guards: the entries and the 「제외」 tombstones, so an
+/// exclusion and a re-register decide against the same state in one lock section.
+struct PoolState {
+    entries: HashMap<String, PoolEntry>,
+    /// Workers excluded while their stream could not carry the `Disconnect`
+    /// (awaiting re-register, or sender already closed). The worker's next idle
+    /// Register is bounced with that `Disconnect` and the tombstone is consumed.
+    tombstones: HashMap<String, Tombstone>,
+}
+
+struct Tombstone {
+    reason: String,
+    created: tokio::time::Instant,
+}
+
+/// Outcome of an idle pool Register.
+#[derive(Debug, PartialEq, Eq)]
+pub enum IdleRegister {
+    /// Entered (or refreshed in) the pool under this registration generation.
+    Registered { generation: u64 },
+    /// The worker was excluded while unreachable: not added; tell it `reason` and close.
+    Tombstoned { reason: String },
+}
+
 impl PoolEntry {
     fn effective_capacity_vus(&self) -> u32 {
         self.capacity_override.unwrap_or(self.capacity_vus)
@@ -271,7 +295,7 @@ pub struct CoordinatorState {
     /// Keyed by worker_id. Task 3's `reserve_idle_pool`/`assign_pool_workers` draw
     /// from here; `pool_stream_closed` routes busy-worker disconnects to the existing
     /// fail-fast (R8).
-    pool: Arc<Mutex<HashMap<String, PoolEntry>>>,
+    pool: Arc<Mutex<PoolState>>,
     /// Set once at startup when `--worker-mode pool`. When true, `spawn_run` uses
     /// the pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
     pool_mode: Arc<OnceLock<bool>>,
@@ -297,7 +321,10 @@ impl CoordinatorState {
             runs: Arc::new(Mutex::new(HashMap::new())),
             dispatcher: Arc::new(OnceLock::new()),
             worker_token: Arc::new(OnceLock::new()),
-            pool: Arc::new(Mutex::new(HashMap::new())),
+            pool: Arc::new(Mutex::new(PoolState {
+                entries: HashMap::new(),
+                tombstones: HashMap::new(),
+            })),
             pool_mode: Arc::new(OnceLock::new()),
             next_generation: Arc::new(AtomicU64::new(1)),
             streams_shutdown: CancellationToken::new(),
@@ -354,6 +381,7 @@ impl CoordinatorState {
     pub async fn reserve_idle_pool(&self, run_id: &str, cap: usize) -> Vec<(String, WorkerTx)> {
         let mut g = self.pool.lock().await;
         let ids: Vec<String> = g
+            .entries
             .iter()
             .filter(|(_, e)| e.assigned_run.is_none() && !e.drained && e.tx.is_some())
             .map(|(id, _)| id.clone())
@@ -361,7 +389,7 @@ impl CoordinatorState {
             .collect();
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
-            if let Some(e) = g.get_mut(&id) {
+            if let Some(e) = g.entries.get_mut(&id) {
                 e.assigned_run = Some(run_id.to_string()); // 예약 락(같은 guard 내 원자적)
                 e.finished_part = false;
                 if let Some(tx) = &e.tx {
@@ -458,6 +486,7 @@ impl CoordinatorState {
     /// worker_id: replaces tx/capacity/hostname and RESETS assigned_run to None (R13
     /// reuse). Operator control fields (drained/capacity_override/label) are preserved
     /// across reconnects so operator settings survive transient disconnections. (R2)
+    /// A 「제외」 tombstone for `worker_id` wins: it is consumed and nothing is inserted.
     pub async fn pool_register_idle(
         &self,
         worker_id: &str,
@@ -465,7 +494,7 @@ impl CoordinatorState {
         capacity_vus: u32,
         hostname: String,
         stable: bool,
-    ) -> u64 {
+    ) -> IdleRegister {
         // Read persisted override BEFORE locking (R14 — no DB .await under the pool lock).
         // Applied only on the INSERT (entry-absent) branch: cold attach after a controller
         // restart, OR reconnect after the L6 reaper evicted a half-open worker. Warm reconnect
@@ -485,7 +514,10 @@ impl CoordinatorState {
         };
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let mut g = self.pool.lock().await;
-        match g.get_mut(worker_id) {
+        if let Some(t) = g.tombstones.remove(worker_id) {
+            return IdleRegister::Tombstoned { reason: t.reason };
+        }
+        match g.entries.get_mut(worker_id) {
             Some(e) => {
                 // reconnect: refresh transport/identity, preserve operator control, reset to idle.
                 e.tx = Some(tx);
@@ -504,7 +536,7 @@ impl CoordinatorState {
                     Some(o) => (o.drained, o.capacity_override, o.label),
                     None => (false, None, None),
                 };
-                g.insert(
+                g.entries.insert(
                     worker_id.to_string(),
                     PoolEntry {
                         tx: Some(tx),
@@ -523,7 +555,7 @@ impl CoordinatorState {
                 );
             }
         }
-        generation
+        IdleRegister::Registered { generation }
     }
 
     /// Test/observability helper: count idle (unassigned) pool workers.
@@ -531,6 +563,7 @@ impl CoordinatorState {
         self.pool
             .lock()
             .await
+            .entries
             .values()
             .filter(|e| e.assigned_run.is_none())
             .count()
@@ -542,6 +575,7 @@ impl CoordinatorState {
     pub async fn pool_snapshot(&self, now: tokio::time::Instant) -> Vec<PoolWorkerInfo> {
         let g = self.pool.lock().await;
         let mut out: Vec<PoolWorkerInfo> = g
+            .entries
             .iter()
             .map(|(id, e)| PoolWorkerInfo {
                 worker_id: id.clone(),
@@ -566,7 +600,7 @@ impl CoordinatorState {
     /// Stamp a pool worker's last_seen on any inbound message (R1). No-op if the
     /// worker_id is not a pool entry (non-pool stream or already-evicted).
     pub async fn pool_touch(&self, worker_id: &str) {
-        if let Some(e) = self.pool.lock().await.get_mut(worker_id) {
+        if let Some(e) = self.pool.lock().await.entries.get_mut(worker_id) {
             e.last_seen = tokio::time::Instant::now();
         }
     }
@@ -576,11 +610,15 @@ impl CoordinatorState {
     /// Lock discipline (R14): snapshot (id, tx, generation, is_stale, awaiting) UNDER
     /// the lock with no `.await`, drop the lock, then do all `.await` (Ping send /
     /// eviction) outside it. Only entries holding a sender (`Some`) are pinged; a dead
-    /// tx (send Err) means the stream is gone → evict (R3).
+    /// tx (send Err) means the stream is gone → evict (R3). Tombstones older than
+    /// `stale` are dropped in the same lock section.
     pub async fn pool_heartbeat_tick(&self, now: tokio::time::Instant, stale: std::time::Duration) {
         let snapshot: Vec<(String, Option<WorkerTx>, u64, bool, bool)> = {
-            let g = self.pool.lock().await;
-            g.iter()
+            let mut g = self.pool.lock().await;
+            g.tombstones
+                .retain(|_, t| now.saturating_duration_since(t.created) <= stale);
+            g.entries
+                .iter()
                 .map(|(id, e)| {
                     (
                         id.clone(),
@@ -628,9 +666,9 @@ impl CoordinatorState {
     async fn pool_evict_if_same(&self, worker_id: &str, generation: u64) {
         let assigned = {
             let mut g = self.pool.lock().await;
-            match g.get(worker_id) {
+            match g.entries.get(worker_id) {
                 Some(e) if e.generation == generation => {
-                    g.remove(worker_id).and_then(|e| e.assigned_run)
+                    g.entries.remove(worker_id).and_then(|e| e.assigned_run)
                 }
                 _ => return,
             }
@@ -652,7 +690,7 @@ impl CoordinatorState {
     pub async fn pool_stream_closed(&self, worker_id: &str, generation: u64) {
         {
             let mut g = self.pool.lock().await;
-            match g.get_mut(worker_id) {
+            match g.entries.get_mut(worker_id) {
                 Some(e) if e.generation == generation => {
                     if e.assigned_run.is_some() && e.finished_part {
                         e.awaiting_reregister = true;
@@ -679,10 +717,11 @@ impl CoordinatorState {
     /// part is already finished). A newer registration of the same id is left alone.
     async fn pool_expire_awaiting(&self, worker_id: &str, generation: u64) {
         let mut g = self.pool.lock().await;
-        if g.get(worker_id)
+        if g.entries
+            .get(worker_id)
             .is_some_and(|e| e.awaiting_reregister && e.generation == generation)
         {
-            g.remove(worker_id);
+            g.entries.remove(worker_id);
         }
     }
 
@@ -691,7 +730,7 @@ impl CoordinatorState {
     /// worker's current assignment.
     async fn pool_mark_finished(&self, run_id: &str, worker_id: &str) {
         let mut g = self.pool.lock().await;
-        if let Some(e) = g.get_mut(worker_id) {
+        if let Some(e) = g.entries.get_mut(worker_id) {
             if e.assigned_run.as_deref() == Some(run_id) {
                 e.finished_part = true;
             }
@@ -711,7 +750,7 @@ impl CoordinatorState {
     ) -> anyhow::Result<bool> {
         let snapshot = {
             let mut g = self.pool.lock().await;
-            let Some(e) = g.get_mut(worker_id) else {
+            let Some(e) = g.entries.get_mut(worker_id) else {
                 return Ok(false);
             };
             if let Some(d) = drained {
@@ -746,12 +785,25 @@ impl CoordinatorState {
 
     /// Hard-remove a pool worker and ask it to exit. Busy → existing fail-fast
     /// (run failed and removed); the worker's later Aborted/drop finds no run and is
-    /// a no-op. Push Disconnect via try_send (non-blocking; R14). Returns false if
-    /// not in pool. (spec R6)
+    /// a no-op. Push Disconnect via try_send (non-blocking; R14). When the entry has
+    /// no live sender (awaiting re-register, or closed), a tombstone is left instead so
+    /// the worker's next idle Register gets the Disconnect. Returns false if not in pool.
     pub async fn pool_exclude(&self, worker_id: &str, reason: &str) -> bool {
         let captured = {
             let mut g = self.pool.lock().await;
-            g.remove(worker_id).map(|e| (e.tx, e.assigned_run))
+            let removed = g.entries.remove(worker_id);
+            if let Some(e) = &removed {
+                if e.tx.as_ref().is_none_or(|t| t.is_closed()) {
+                    g.tombstones.insert(
+                        worker_id.to_string(),
+                        Tombstone {
+                            reason: reason.to_string(),
+                            created: tokio::time::Instant::now(),
+                        },
+                    );
+                }
+            }
+            removed.map(|e| (e.tx, e.assigned_run))
         };
         let Some((tx, assigned)) = captured else {
             return false;
@@ -778,6 +830,7 @@ impl CoordinatorState {
         // Sort by worker_id for deterministic subset selection — same order as
         // reserve_idle_pool_capacity so both functions consider the same N workers.
         let mut idle: Vec<(String, u32)> = g
+            .entries
             .iter()
             .filter(|(_, e)| e.assigned_run.is_none() && !e.drained && e.tx.is_some())
             .map(|(id, e)| (id.clone(), e.effective_capacity_vus()))
@@ -803,6 +856,7 @@ impl CoordinatorState {
     ) -> PoolReservation {
         let mut g = self.pool.lock().await;
         let mut idle: Vec<(String, u32)> = g
+            .entries
             .iter()
             .filter(|(_, e)| e.assigned_run.is_none() && !e.drained && e.tx.is_some())
             .map(|(id, e)| (id.clone(), e.effective_capacity_vus()))
@@ -833,7 +887,7 @@ impl CoordinatorState {
         }
         let mut workers = Vec::with_capacity(n);
         for (id, _) in idle.into_iter().take(n) {
-            if let Some(e) = g.get_mut(&id) {
+            if let Some(e) = g.entries.get_mut(&id) {
                 e.assigned_run = Some(run_id.to_string());
                 e.finished_part = false;
                 if let Some(tx) = &e.tx {
@@ -851,7 +905,7 @@ impl CoordinatorState {
     pub async fn release_pool_reservation(&self, workers: &[(String, WorkerTx)]) {
         let mut g = self.pool.lock().await;
         for (id, _) in workers {
-            if let Some(e) = g.get_mut(id) {
+            if let Some(e) = g.entries.get_mut(id) {
                 e.assigned_run = None;
             }
         }
@@ -864,7 +918,7 @@ impl CoordinatorState {
     async fn release_unsent_reservations(&self, run_id: &str, worker_ids: &[String]) {
         let mut g = self.pool.lock().await;
         for id in worker_ids {
-            if let Some(e) = g.get_mut(id) {
+            if let Some(e) = g.entries.get_mut(id) {
                 if e.assigned_run.as_deref() == Some(run_id)
                     && e.tx.as_ref().is_some_and(|t| !t.is_closed())
                 {
@@ -1601,18 +1655,32 @@ impl Coordinator for CoordinatorService {
                         worker_id = Some(reg.worker_id.clone());
                         if reg.run_id.is_empty() {
                             // Pool mode: register idle, wait for push assignment from assign_pool_workers (Task 3).
+                            let registered = state
+                                .pool_register_idle(
+                                    &reg.worker_id,
+                                    tx.clone(),
+                                    reg.capacity_vus,
+                                    reg.hostname.clone(),
+                                    reg.stable_id,
+                                )
+                                .await;
+                            match registered {
+                                IdleRegister::Registered { generation } => {
+                                    pool_gen = Some(generation);
+                                }
+                                IdleRegister::Tombstoned { reason } => {
+                                    info!(worker_id = %reg.worker_id, "excluded pool worker re-registered: sending Disconnect");
+                                    let _ = tx
+                                        .send(Ok(ServerMessage {
+                                            payload: Some(ServerPayload::Disconnect(
+                                                pb::Disconnect { reason },
+                                            )),
+                                        }))
+                                        .await;
+                                    break;
+                                }
+                            }
                             info!(worker_id = %reg.worker_id, "pool worker registered idle");
-                            pool_gen = Some(
-                                state
-                                    .pool_register_idle(
-                                        &reg.worker_id,
-                                        tx.clone(),
-                                        reg.capacity_vus,
-                                        reg.hostname.clone(),
-                                        reg.stable_id,
-                                    )
-                                    .await,
-                            );
                             // 수락 신호: 워커가 받는 첫 Ping = 풀에 등록됨(REST 목록에 보인다).
                             let _ = tx.try_send(Ok(ServerMessage {
                                 payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
@@ -2925,7 +2993,7 @@ mod tests {
                 let msg = msg.unwrap().expect("stream closed");
                 assert!(matches!(msg.payload, Some(ServerPayload::Ping(_))));
                 assert!(
-                    g.contains_key("ping-order"),
+                    g.entries.contains_key("ping-order"),
                     "Ping arrived before the worker was in the pool"
                 );
                 drop(g);
@@ -2938,7 +3006,7 @@ mod tests {
                     .unwrap()
                     .expect("stream closed");
                 assert!(matches!(msg.payload, Some(ServerPayload::Ping(_))));
-                assert!(st.pool.lock().await.contains_key("ping-order"));
+                assert!(st.pool.lock().await.entries.contains_key("ping-order"));
             }
         }
         drop(tx);
@@ -2996,7 +3064,7 @@ mod tests {
             .await
             .expect("stream must end after the Abort");
         assert!(matches!(next, Ok(None)), "got {next:?}");
-        assert!(st.pool.lock().await.is_empty(), "no idle insert");
+        assert!(st.pool.lock().await.entries.is_empty(), "no idle insert");
         drop(tx);
     }
 
@@ -3045,9 +3113,11 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
-        let generation = coord
-            .pool_register_idle("w0", tx0, 100, "host".into(), false)
-            .await;
+        let generation = gen_of(
+            coord
+                .pool_register_idle("w0", tx0, 100, "host".into(), false)
+                .await,
+        );
         coord.pool_stream_closed("w0", generation).await;
         assert_eq!(coord.pool_idle_count().await, 0);
     }
@@ -3132,9 +3202,11 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx();
-        let generation = coord
-            .pool_register_idle("w0", tx0, 100, "host".into(), false)
-            .await;
+        let generation = gen_of(
+            coord
+                .pool_register_idle("w0", tx0, 100, "host".into(), false)
+                .await,
+        );
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some(run_id)
         coord
             .enqueue(
@@ -3238,7 +3310,7 @@ mod tests {
             .await;
         assert!(coord.assign_pool_workers(&run_id, reserved).await.is_err());
         let g = coord.pool.lock().await;
-        let ar = |id: &str| g.get(id).unwrap().assigned_run.clone();
+        let ar = |id: &str| g.entries.get(id).unwrap().assigned_run.clone();
         assert_eq!(ar("a"), Some(run_id.clone()), "배정 받음");
         assert_eq!(ar("b"), Some(run_id.clone()), "실패 지점(닫힌 송신)");
         assert_eq!(ar("c"), None, "배정 못 받은 살아 있는 워커는 풀림");
@@ -3262,12 +3334,26 @@ mod tests {
         coord
             .pool_register_idle("w0", tx, 100, "h".into(), false)
             .await;
-        coord.pool.lock().await.get_mut("w0").unwrap().assigned_run = Some("r-other".into());
+        coord
+            .pool
+            .lock()
+            .await
+            .entries
+            .get_mut("w0")
+            .unwrap()
+            .assigned_run = Some("r-other".into());
         coord
             .release_unsent_reservations("r-this", &["w0".to_string()])
             .await;
         assert_eq!(
-            coord.pool.lock().await.get("w0").unwrap().assigned_run,
+            coord
+                .pool
+                .lock()
+                .await
+                .entries
+                .get("w0")
+                .unwrap()
+                .assigned_run,
             Some("r-other".to_string())
         );
     }
@@ -3278,9 +3364,11 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx(); // _r0 유지 → push 성공
-        let generation = coord
-            .pool_register_idle("w0", tx0, 100, "host".into(), false)
-            .await;
+        let generation = gen_of(
+            coord
+                .pool_register_idle("w0", tx0, 100, "host".into(), false)
+                .await,
+        );
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
             .enqueue(
@@ -3732,7 +3820,7 @@ mod tests {
             .await;
         {
             let mut g = coord.pool.lock().await;
-            let e = g.get_mut("w1").unwrap();
+            let e = g.entries.get_mut("w1").unwrap();
             e.assigned_run = Some("r-done".into());
             e.awaiting_reregister = true;
             e.tx = None;
@@ -3746,6 +3834,7 @@ mod tests {
             .pool
             .lock()
             .await
+            .entries
             .get(wid)
             .map(|e| e.awaiting_reregister)
     }
@@ -3765,9 +3854,11 @@ mod tests {
         let run_id = seed_run(db).await;
         let (tx0, rx0) = fake_tx();
         let stream_tx = tx0.clone();
-        let generation = coord
-            .pool_register_idle("w0", tx0, 100, "host".into(), false)
-            .await;
+        let generation = gen_of(
+            coord
+                .pool_register_idle("w0", tx0, 100, "host".into(), false)
+                .await,
+        );
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
             .enqueue(
@@ -3802,9 +3893,11 @@ mod tests {
         for wid in ["w0", "w1"] {
             let (tx, rx) = fake_tx();
             let stream_tx = tx.clone();
-            let generation = coord
-                .pool_register_idle(wid, tx, 100, "host".into(), false)
-                .await;
+            let generation = gen_of(
+                coord
+                    .pool_register_idle(wid, tx, 100, "host".into(), false)
+                    .await,
+            );
             out.push((wid.to_string(), generation, stream_tx, rx));
         }
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
@@ -3819,7 +3912,13 @@ mod tests {
     }
 
     async fn pool_finished_part(coord: &CoordinatorState, wid: &str) -> Option<bool> {
-        coord.pool.lock().await.get(wid).map(|e| e.finished_part)
+        coord
+            .pool
+            .lock()
+            .await
+            .entries
+            .get(wid)
+            .map(|e| e.finished_part)
     }
 
     #[tokio::test]
@@ -3865,12 +3964,14 @@ mod tests {
         coord.pool_stream_closed("w0", g1).await;
         tokio::time::advance(Duration::from_secs(5)).await;
         let (tx2, _rx2) = fake_tx();
-        let g2 = coord
-            .pool_register_idle("w0", tx2, 100, "host".into(), false)
-            .await;
+        let g2 = gen_of(
+            coord
+                .pool_register_idle("w0", tx2, 100, "host".into(), false)
+                .await,
+        );
         {
             let mut g = coord.pool.lock().await;
-            let e = g.get_mut("w0").unwrap();
+            let e = g.entries.get_mut("w0").unwrap();
             e.assigned_run = Some("r2".into());
             e.finished_part = true;
         }
@@ -3907,10 +4008,19 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         let (run_id, _g0, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
         let (tx9, _rx9) = fake_tx();
-        let g9 = coord
-            .pool_register_idle("w9", tx9, 100, "host".into(), false)
-            .await;
-        coord.pool.lock().await.get_mut("w9").unwrap().assigned_run = Some(run_id.clone());
+        let g9 = gen_of(
+            coord
+                .pool_register_idle("w9", tx9, 100, "host".into(), false)
+                .await,
+        );
+        coord
+            .pool
+            .lock()
+            .await
+            .entries
+            .get_mut("w9")
+            .unwrap()
+            .assigned_run = Some(run_id.clone());
         coord
             .record_phase(&run_id, "w9", pb::run_status::Phase::Completed as i32, "")
             .await;
@@ -3950,7 +4060,15 @@ mod tests {
             .await;
         coord.pool_stream_closed("w1", w1.1).await;
         assert_eq!(pool_entry_awaiting(&coord, "w1").await, Some(true));
-        let label = coord.pool.lock().await.get("w1").unwrap().label.clone();
+        let label = coord
+            .pool
+            .lock()
+            .await
+            .entries
+            .get("w1")
+            .unwrap()
+            .label
+            .clone();
         assert_eq!(label.as_deref(), Some("keep"));
     }
 
@@ -4315,12 +4433,16 @@ mod tests {
         let coord = CoordinatorState::new(db);
         let (tx1, _rx1) = tokio::sync::mpsc::channel(32);
         let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
-        let g1 = coord
-            .pool_register_idle("w1", tx1, 10, "h".into(), false)
-            .await;
-        let g2 = coord
-            .pool_register_idle("w1", tx2, 10, "h".into(), false)
-            .await;
+        let g1 = gen_of(
+            coord
+                .pool_register_idle("w1", tx1, 10, "h".into(), false)
+                .await,
+        );
+        let g2 = gen_of(
+            coord
+                .pool_register_idle("w1", tx2, 10, "h".into(), false)
+                .await,
+        );
         assert_ne!(g1, g2);
         coord.pool_evict_if_same("w1", g1).await;
         assert_eq!(coord.pool_idle_count().await, 1, "newer registration kept");
@@ -4341,7 +4463,7 @@ mod tests {
             .await;
         coord.pool_stream_closed("w0", generation).await;
         let g = coord.pool.lock().await;
-        let e = g.get("w0").unwrap();
+        let e = g.entries.get("w0").unwrap();
         assert!(e.awaiting_reregister);
         assert!(e.tx.is_none(), "awaiting entry must release its sender");
     }
@@ -4356,7 +4478,7 @@ mod tests {
             .pool_register_idle("w1", tx2, 10, "h".into(), false)
             .await;
         let g = coord.pool.lock().await;
-        let e = g.get("w1").unwrap();
+        let e = g.entries.get("w1").unwrap();
         assert!(!e.awaiting_reregister);
         assert_eq!(e.assigned_run, None, "re-registered worker is idle again");
         assert_eq!(e.label.as_deref(), Some("keep"));
@@ -4436,9 +4558,11 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        let generation = coord
-            .pool_register_idle("w1", tx, 10, "h".into(), false)
-            .await;
+        let generation = gen_of(
+            coord
+                .pool_register_idle("w1", tx, 10, "h".into(), false)
+                .await,
+        );
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(31)).await;
         coord
@@ -4478,7 +4602,7 @@ mod tests {
         // operator sets control directly (mutator arrives in Task 3; here mutate under lock)
         {
             let mut g = st.pool.lock().await;
-            let e = g.get_mut("w1").unwrap();
+            let e = g.entries.get_mut("w1").unwrap();
             e.drained = true;
             e.capacity_override = Some(7);
             e.label = Some("office-pc".into());
@@ -4492,7 +4616,7 @@ mod tests {
         st.pool_register_idle("w1", tx2, 12, "h1b".into(), false)
             .await;
         let g = st.pool.lock().await;
-        let e = g.get("w1").unwrap();
+        let e = g.entries.get("w1").unwrap();
         assert!(e.drained, "drain preserved across re-register");
         assert_eq!(e.capacity_override, Some(7), "override preserved");
         assert_eq!(e.label.as_deref(), Some("office-pc"), "label preserved");
@@ -4511,7 +4635,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
         st.pool_register_idle("w1", tx, 5, "h".into(), false).await;
         let g = st.pool.lock().await;
-        let e = g.get("w1").unwrap();
+        let e = g.entries.get("w1").unwrap();
         assert!(!e.drained);
         assert_eq!(e.capacity_override, None);
         assert_eq!(e.label, None);
@@ -4557,8 +4681,8 @@ mod tests {
         // drain w1 + override w2 to 4
         {
             let mut g = st.pool.lock().await;
-            g.get_mut("w1").unwrap().drained = true;
-            g.get_mut("w2").unwrap().capacity_override = Some(4);
+            g.entries.get_mut("w1").unwrap().drained = true;
+            g.entries.get_mut("w2").unwrap().capacity_override = Some(4);
         }
         // now only w2 idle, effective 4
         assert_eq!(st.pool_achievable_capacity(100).await, (1, 4));
@@ -4578,7 +4702,7 @@ mod tests {
             .await;
         {
             let mut g = coord.pool.lock().await;
-            g.get_mut("w1").unwrap().drained = true;
+            g.entries.get_mut("w1").unwrap().drained = true;
         }
         // cap=10 → room for both, but w1 is drained so only w2 should be reserved
         let reserved = coord.reserve_idle_pool("run-x", 10).await;
@@ -4588,11 +4712,11 @@ mod tests {
         {
             let g = coord.pool.lock().await;
             assert!(
-                g.get("w1").unwrap().assigned_run.is_none(),
+                g.entries.get("w1").unwrap().assigned_run.is_none(),
                 "drained w1 was not reserved — assigned_run stays None"
             );
             assert_eq!(
-                g.get("w2").unwrap().assigned_run.as_deref(),
+                g.entries.get("w2").unwrap().assigned_run.as_deref(),
                 Some("run-x"),
                 "w2 was reserved"
             );
@@ -4614,7 +4738,7 @@ mod tests {
             .await;
         {
             let mut g = coord.pool.lock().await;
-            g.get_mut("w1").unwrap().drained = true;
+            g.entries.get_mut("w1").unwrap().drained = true;
         }
         // Request slot_total=10 which fits w2 alone; worker_cap=20 allows both if not drained.
         match coord.reserve_idle_pool_capacity("run-x", 20, 10).await {
@@ -4626,11 +4750,11 @@ mod tests {
                 // w1 (drained) stays unassigned; w2 is now assigned
                 let g = coord.pool.lock().await;
                 assert!(
-                    g.get("w1").unwrap().assigned_run.is_none(),
+                    g.entries.get("w1").unwrap().assigned_run.is_none(),
                     "drained w1 was not reserved — assigned_run stays None"
                 );
                 assert_eq!(
-                    g.get("w2").unwrap().assigned_run.as_deref(),
+                    g.entries.get("w2").unwrap().assigned_run.as_deref(),
                     Some("run-x"),
                     "w2 was reserved"
                 );
@@ -4653,7 +4777,7 @@ mod tests {
         );
         {
             let g = st.pool.lock().await;
-            let e = g.get("w1").unwrap();
+            let e = g.entries.get("w1").unwrap();
             assert!(e.drained);
             assert_eq!(e.capacity_override, Some(5));
             assert_eq!(e.label.as_deref(), Some("pc"));
@@ -4666,7 +4790,7 @@ mod tests {
         );
         {
             let g = st.pool.lock().await;
-            let e = g.get("w1").unwrap();
+            let e = g.entries.get("w1").unwrap();
             assert!(!e.drained);
             assert_eq!(e.capacity_override, None);
             assert_eq!(e.label.as_deref(), Some("pc"));
@@ -4809,7 +4933,7 @@ mod tests {
         st2.pool_register_idle("w1", tx2, 10, "h".into(), true)
             .await; // INSERT → re-attach from DB
         let g = st2.pool.lock().await;
-        let e = g.get("w1").unwrap();
+        let e = g.entries.get("w1").unwrap();
         assert!(e.drained, "drain re-attached from DB on cold register");
         assert_eq!(e.capacity_override, Some(5));
     }
@@ -4827,7 +4951,7 @@ mod tests {
         st.pool_register_idle("w1", tx2, 12, "h".into(), true).await; // UPDATE branch → preserve in-memory
         let g = st.pool.lock().await;
         assert!(
-            !g.get("w1").unwrap().drained,
+            !g.entries.get("w1").unwrap().drained,
             "warm reconnect preserves in-memory, ignores DB"
         );
     }
@@ -5170,5 +5294,256 @@ mod tests {
         let out = truncate_message(&multi);
         assert_eq!(out.chars().count(), MESSAGE_MAX_CHARS + 1);
         assert!(out.ends_with('…'));
+    }
+
+    // ── 「제외」 묘비 (spec R6) ──
+
+    fn gen_of(r: IdleRegister) -> u64 {
+        match r {
+            IdleRegister::Registered { generation } => generation,
+            IdleRegister::Tombstoned { reason } => panic!("unexpected tombstone: {reason}"),
+        }
+    }
+
+    async fn register_w1(coord: &CoordinatorState) -> IdleRegister {
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await
+    }
+
+    #[tokio::test]
+    async fn exclude_awaiting_leaves_tombstone_and_register_is_bounced() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        assert_eq!(
+            register_w1(&coord).await,
+            IdleRegister::Tombstoned {
+                reason: "bye".into()
+            }
+        );
+        assert!(!coord.pool.lock().await.entries.contains_key("w1"));
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Registered { .. }
+        ));
+        assert!(coord.pool.lock().await.entries.contains_key("w1"));
+    }
+
+    #[tokio::test]
+    async fn exclude_live_entry_leaves_no_tombstone() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Registered { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn exclude_closed_sender_leaves_tombstone() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
+        drop(rx);
+        assert!(coord.pool_exclude("w1", "bye").await);
+        assert_eq!(
+            register_w1(&coord).await,
+            IdleRegister::Tombstoned {
+                reason: "bye".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn tombstone_expires_after_stale() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now() + Duration::from_secs(31),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Registered { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn fresh_tombstone_survives_heartbeat() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now() + Duration::from_secs(29),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Tombstoned { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn exclude_before_register_bounces() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Tombstoned { .. }
+        ));
+        assert!(coord.pool.lock().await.entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn register_before_exclude_delivers_disconnect() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        gen_of(
+            coord
+                .pool_register_idle("w1", tx, 10, "h".into(), false)
+                .await,
+        );
+        assert!(coord.pool_exclude("w1", "bye").await);
+        let msg = rx.try_recv().expect("Disconnect delivered").unwrap();
+        let Some(ServerPayload::Disconnect(d)) = msg.payload else {
+            panic!("expected Disconnect, got {:?}", msg.payload);
+        };
+        assert_eq!(d.reason, "bye");
+        assert!(coord.pool.lock().await.tombstones.is_empty());
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Registered { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn double_exclude_awaiting_second_is_not_found() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        assert!(!coord.pool_exclude("w1", "again").await);
+        let g = coord.pool.lock().await;
+        assert_eq!(g.tombstones.len(), 1);
+        assert_eq!(g.tombstones.get("w1").unwrap().reason, "bye");
+    }
+
+    /// Pool-mode controller with worker token `t`, served on a random local port.
+    async fn tombstone_test_server() -> (CoordinatorState, std::net::SocketAddr) {
+        use pb::coordinator_server::CoordinatorServer;
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let st = CoordinatorState::new(db);
+        st.set_pool_mode(true);
+        st.set_worker_token(Some("t".to_string()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let svc = CoordinatorService { state: st.clone() };
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(CoordinatorServer::new(svc))
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .await
+        });
+        (st, addr)
+    }
+
+    /// Open a stream and send an idle Register for `w1`. The request sender is
+    /// returned so the caller keeps the inbound side open.
+    async fn idle_register_stream(
+        addr: std::net::SocketAddr,
+        token: &str,
+    ) -> (
+        tokio::sync::mpsc::Sender<WorkerMessage>,
+        tonic::Streaming<ServerMessage>,
+    ) {
+        use pb::coordinator_client::CoordinatorClient;
+        let mut client = CoordinatorClient::connect(format!("http://{addr}"))
+            .await
+            .unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        tx.send(WorkerMessage {
+            payload: Some(WorkerPayload::Register(pb::Register {
+                worker_id: "w1".into(),
+                run_id: String::new(),
+                capacity_vus: 10,
+                hostname: "h".into(),
+                stable_id: false,
+                token: token.into(),
+            })),
+        })
+        .await
+        .unwrap();
+        let stream = client
+            .channel(ReceiverStream::new(rx))
+            .await
+            .unwrap()
+            .into_inner();
+        (tx, stream)
+    }
+
+    #[tokio::test]
+    async fn tombstoned_register_gets_disconnect_and_stream_ends() {
+        let (st, addr) = tombstone_test_server().await;
+        awaiting_entry_without_sender(&st).await;
+        assert!(st.pool_exclude("w1", "bye").await);
+        let (req_tx, mut stream) = idle_register_stream(addr, "t").await;
+        let first = tokio::time::timeout(Duration::from_secs(5), stream.message())
+            .await
+            .expect("no server message")
+            .unwrap()
+            .expect("stream closed before any message");
+        let Some(ServerPayload::Disconnect(d)) = first.payload else {
+            panic!("expected Disconnect, got {:?}", first.payload);
+        };
+        assert_eq!(d.reason, "bye");
+        let next = tokio::time::timeout(Duration::from_secs(2), stream.message()).await;
+        assert!(matches!(next, Ok(Ok(None))), "stream must end: {next:?}");
+        assert!(st.pool.lock().await.entries.is_empty(), "no pool entry");
+        drop(req_tx);
+    }
+
+    #[tokio::test]
+    async fn wrong_token_register_does_not_consume_tombstone() {
+        let (st, addr) = tombstone_test_server().await;
+        awaiting_entry_without_sender(&st).await;
+        assert!(st.pool_exclude("w1", "bye").await);
+        let (bad_tx, mut bad) = idle_register_stream(addr, "x").await;
+        let first = tokio::time::timeout(Duration::from_secs(5), bad.message())
+            .await
+            .expect("no server message")
+            .unwrap()
+            .expect("stream closed before any message");
+        let Some(ServerPayload::Abort(a)) = first.payload else {
+            panic!("expected Abort, got {:?}", first.payload);
+        };
+        assert_eq!(a.reason, handicap_proto::AUTH_FAILED_REASON);
+        assert!(st.pool.lock().await.tombstones.contains_key("w1"));
+        drop(bad_tx);
+        let (ok_tx, mut ok) = idle_register_stream(addr, "t").await;
+        let first = tokio::time::timeout(Duration::from_secs(5), ok.message())
+            .await
+            .expect("no server message")
+            .unwrap()
+            .expect("stream closed before any message");
+        assert!(
+            matches!(first.payload, Some(ServerPayload::Disconnect(_))),
+            "got {:?}",
+            first.payload
+        );
+        drop(ok_tx);
     }
 }
