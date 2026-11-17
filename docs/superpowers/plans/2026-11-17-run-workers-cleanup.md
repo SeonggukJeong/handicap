@@ -4,15 +4,16 @@
 
 **Goal:** 끝난 run의 조정 항목과 송신 복사본을 즉시 놓아 워커의 2초 대기·메모리 누적을 없애고, 그 결과 생기는 「전할 수 없는 제외」를 묘비로 막고, 재등록 없이 떠난 워커를 10초 뒤 목록에서 지운다.
 
-**Architecture:** 모두 `crates/controller/src/grpc/coordinator.rs`의 `CoordinatorState` 안. 풀 항목의 식별을 송신 채널 비교(`same_channel`)에서 등록 세대(`generation: u64`)로 바꿔 송신 없는 재등록 대기 항목도 자기 것을 알아보게 하고(Task 1), 「몫을 끝냄」 판정을 run 항목에서 풀 항목으로 옮긴 뒤(Task 2), 최종화 순간 run 항목을 지운다(Task 3). 그 위에 배정 실패 덮어쓰기 가드(Task 4)·대기 10초 타이머(Task 5)·묘비(Task 6)를 얹고, 실제 부하기 e2e로 2초 대기 소멸을 증명한다(Task 7).
+**Architecture:** 모두 `crates/controller/src/grpc/coordinator.rs`의 `CoordinatorState` 안. 풀 항목의 식별을 송신 채널 비교(`same_channel`)에서 등록 세대(`generation: u64`)로 바꿔 송신 없는 재등록 대기 항목도 자기 것을 알아보게 하고(Task 1), 「몫을 끝냄」 판정을 run 항목에서 풀 항목으로 옮긴 뒤(Task 2), 최종화 순간 run 항목을 지운다(Task 3). 그 위에 배정 실패 덮어쓰기 가드·배정 못 받은 예약 해제(Task 4)·대기 10초 타이머(Task 5)·묘비(Task 6)를 얹고, 실제 부하기 e2e로 2초 대기 소멸을 증명한다(Task 7).
 
 **Tech Stack:** Rust 2024, tokio(mpsc·`time::pause`), tonic gRPC, sqlx SQLite, cargo nextest.
 
 **Spec:** `docs/superpowers/specs/2026-11-17-run-workers-cleanup-design.md` (APPROVE 4라운드). 구현자는 spec R0–R8을 함께 읽는다.
 
-**Plan review:** spec-plan-reviewer APPROVE (2라운드, 2026-11-17).
+**Plan review:** spec-plan-reviewer APPROVE (2라운드, 2026-11-17) · R9 편입(Task 4 확장) 후 재검토 APPROVE (3라운드 추가, 2026-11-17). spec도 R9 편입 후 재검토 APPROVE.
 
 REVIEW-GATE: APPROVED
+
 
 ## Global Constraints
 
@@ -132,28 +133,32 @@ REVIEW-GATE: APPROVED
 
 ---
 
-### Task 4: 풀 배정 실패가 이미 끝난 run을 덮지 않게 (spec R1 `assignment_for` 항)
+### Task 4: 풀 배정 실패 — 끝난 run을 덮지 않고, 배정 못 받은 예약 워커를 풀어 준다 (spec R1 `assignment_for` 항 · R9)
 
 **Files:**
-- Modify: `crates/controller/src/api/runs.rs` — `assign_pool_workers` 실패 분기 두 곳(`:903-912`, `:969-978`)
+- Modify: `crates/controller/src/api/runs.rs` — `assign_pool_workers` 실패 분기 두 곳(`:903-912`, `:969-978`); `crates/controller/src/grpc/coordinator.rs` — `assign_pool_workers`(`:335`), 새 `release_unsent_reservations`
 - Test: `crates/controller/src/api/runs.rs` `#[cfg(test)]`(`:1370` 모듈) + `coordinator.rs` 테스트
 
 **Interfaces:**
 - Produces: `async fn fail_pool_assignment(coord: &CoordinatorState, db: &Db, run_id: &str) -> Result<ApiError, sqlx::Error>` — `coord.cancel_dispatch_failed(run_id)` → `runs::mark_failed_if_active(db, run_id, POOL_ASSIGN_FAILED_MSG)` → `ApiError::Internal(anyhow!(POOL_ASSIGN_FAILED_MSG))`. 상수 `POOL_ASSIGN_FAILED_MSG = "풀 워커 배정 실패(워커 이탈) — 재시도하세요"`(문구 그대로). 호출부: `return Err(fail_pool_assignment(&state.coord, &state.db, &row.id).await?);`
+- Produces (R9): `async fn release_unsent_reservations(&self, run_id: &str, worker_ids: &[String])` — pool 락 한 구간에서 각 ID의 항목이 `assigned_run.as_deref() == Some(run_id)`이고 `tx`가 `Some`이며 `!is_closed()`이면 `assigned_run = None`(풀 항목 자신의 `tx`만 본다). 기존 `release_pool_reservation`(`:761`)은 무변경. `assign_pool_workers`는 루프 전에 `let ids: Vec<String> = reserved.iter().map(|(id, _)| id.clone()).collect();`를 모으고 `reserved`는 지금처럼 `into_iter().enumerate()`로 **소비**한다(각 `tx` 복제가 그 회차 끝에 놓이게 — 참조로 돌면 모든 복제가 함수 끝까지 살아 먼저 끝난 워커의 응답 쪽이 닫히지 않는다, US2). 순수 함수 `enum AssignStep { NotAssigned, NoAssignment, SendFailed }` + `fn release_start(failed_at: AssignStep, i: usize) -> usize`(`NotAssigned` → `i`, 나머지 → `i + 1`). `NotAssigned` 분기엔 한 줄 주석: 이 분기는 `NoRun`·초과 등록 `Reject`만 예상한다(예약 ID는 겹치지 않아 `Resend` — 이미 구성원 — 은 오지 않는다; 오면 k를 풀면 안 된다). 실패 분기마다 `Err` 반환 직전에 `self.release_unsent_reservations(run_id, &ids[release_start(step, i)..]).await`: `register` 비-Assigned 분기는 k 포함, `assignment_for` `None`·배정 `send` 실패 분기는 **k 제외**(`register`가 Assigned를 돌려줬으니 k는 run 구성원이고 그 run의 최종화 Abort가 오는 중이다; 풀면 다음 run 배정 대기 중 옛 Abort를 받아 새 run이 실패할 수 있다, spec R9).
 
 - [ ] **Step 1: 실패하는 테스트 작성**
-  - (coordinator.rs) `assign_to_removed_run_errs_without_db_write`: run을 seed·enqueue·reserve 뒤 `cancel_dispatch_failed`로 제거 → `assign_pool_workers` → `Err`, DB status는 seed 그대로(`pending`).
+  - (coordinator.rs) `assign_to_removed_run_errs_without_db_write`: run을 seed·enqueue·reserve 뒤 `cancel_dispatch_failed`로 제거 → `assign_pool_workers` → `Err`, DB status는 seed 그대로(`pending`), **예약된 워커는 다시 유휴**(`register` 비-Assigned 분기의 R9 해제 — 수신기는 테스트 끝까지 쥔다).
   - (api/runs.rs) `fail_pool_assignment_keeps_finished_run`: DB에서 `completed`로 만든 run → 함수 호출 → status `completed`·message 그대로. `fail_pool_assignment_fails_active_run`: `pending` run → `failed` + 문구 일치.
+  - (coordinator.rs, R9) `partial_assign_failure_releases_unsent_workers`: 풀 워커 `a`·`b`·`c`·`d` 등록 → `reserve_idle_pool` → 반환 Vec을 `[a, b, c, d]` 순으로 재정렬(`HashMap` 순서라) → `b`·`d`의 수신기 drop → enqueue(expected 4) → `assign_pool_workers` `Err`(b에서 전송 실패) → `c`는 `assigned_run == None`(유휴, 다음 `reserve_idle_pool`에 잡힘) · `d`는 `Some(run)` 그대로(해제 범위 안이지만 닫힌 송신 — 풀지 않음) · `b`는 `Some(run)` 그대로(실패 지점 — 닫힌 송신이라 송신 가드가 막는다; k+1 규칙의 증거가 아니다) · `a`는 `Some(run)` 그대로(배정 받음).
+  - (coordinator.rs, R9) `release_start_per_failure_step`: `release_start(NotAssigned, 2) == 2`, `release_start(NoAssignment, 2) == 3`, `release_start(SendFailed, 2) == 3` — 분기 2·3의 「k 제외」 규칙의 유일한 이빨.
+  - (coordinator.rs, R9) `release_unsent_skips_other_run`: **살아 있는 등록**(수신기를 `_rx`로 테스트 끝까지 쥠, `tx`가 `Some`)인데 `assigned_run`이 다른 run(`"r-other"`)인 항목 → `release_unsent_reservations("r-this", &[id])` 뒤에도 `Some("r-other")`. (수신기가 죽어 있으면 송신 가드가 먼저 막아 `assigned_run` 가드의 이빨이 안 보인다.)
 
-- [ ] **Step 2: 실패 확인** — `cargo nextest run -p handicap-controller --features in-process fail_pool_assignment assign_to_removed_run` → 컴파일 오류(함수 없음).
+- [ ] **Step 2: 실패 확인** — `cargo nextest run -p handicap-controller --features in-process fail_pool_assignment assign_to_removed_run partial_assign_failure release_unsent release_start` → 컴파일 오류(함수 없음).
 
-- [ ] **Step 3: 구현** — Interfaces대로, 두 호출부를 함수 호출로.
+- [ ] **Step 3: 구현** — Interfaces대로, 두 호출부를 함수 호출로, `assign_pool_workers` 세 실패 분기에 예약 해제.
 
 - [ ] **Step 4: 통과 확인** — 전체 PASS.
 
-- [ ] **Step 5: 되돌려 확인** — 함수 안 `mark_failed_if_active`를 `mark_failed`로 바꿔 `fail_pool_assignment_keeps_finished_run` RED → 원복 → GREEN.
+- [ ] **Step 5: 되돌려 확인** — (a) 함수 안 `mark_failed_if_active`를 `mark_failed`로 바꿔 `fail_pool_assignment_keeps_finished_run` RED (b) `send` 실패 분기의 `release_unsent_reservations` 호출을 지워 `partial_assign_failure_releases_unsent_workers` RED (c) `!is_closed()` 조건을 빼서 같은 테스트의 `d` 단언 RED (c') `release_start`의 `SendFailed`/`NoAssignment` 팔을 `i`로 바꿔 `release_start_per_failure_step` RED. **이빨 없는 자리(코드 리뷰 확인 항목)**: 각 호출부가 맞는 변형을 넘기는지(분기 1 `NotAssigned`·분기 2 `NoAssignment`·분기 3 `SendFailed`)는 테스트가 못 잡는다 — 보고서에 세 줄을 인용해 리뷰어가 대조하게 한다 (d) `assigned_run` 가드를 빼서 `release_unsent_skips_other_run` RED (e) `register` 비-Assigned 분기의 해제 호출을 지워 `assign_to_removed_run_errs_without_db_write`의 유휴 단언 RED → 각각 원복 → GREEN. (`assignment_for` `None` 분기는 경쟁으로만 닿아 테스트 없이 둔다.)
 
-- [ ] **Step 6: 커밋** — `fix(controller): 풀 배정 실패 처리가 이미 끝난 run의 상태를 덮지 않게`
+- [ ] **Step 6: 커밋** — `fix(controller): 풀 배정 실패 — 끝난 run을 덮지 않고 배정 못 받은 예약 워커를 풀어 준다`
 
 ---
 

@@ -1,9 +1,9 @@
 # 끝난 run 항목 정리 + 「제외」 틈 묘비 (run-workers-cleanup) — 설계
 
 - 날짜: 2026-11-17
-- 상태: 설계 — spec-plan-reviewer APPROVE (4라운드, 2026-11-17)
+- 상태: 설계 — spec-plan-reviewer APPROVE (4라운드, 2026-11-17) · R9 편입 후 재검토 APPROVE (3라운드 추가)
 - 유형: correctness-bug (조용한 부하 이탈 — 「제외」했는데 부하기가 다시 들어와 부하를 받음 · run 직후 다음 run이 부하기를 덜 받음) + internal-polish (끝난 run 메모리)
-- 출처: roadmap §B66 (3) 연기 3건 — ① `RunWorkers` 항목 미삭제 ② run 직후 틈의 「제외」 유실 ③ 재등록 대기 항목이 stale까지 「busy · 옛 run」. 사용자 결정(2026-11-17): ①②를 함께(§B66 원문 「같이」), ③도 같은 상태를 다루므로 이번 범위.
+- 출처: roadmap §B66 (3) 연기 3건 — ① `RunWorkers` 항목 미삭제 ② run 직후 틈의 「제외」 유실 ③ 재등록 대기 항목이 stale까지 「busy · 옛 run」. 사용자 결정(2026-11-17): ①②를 함께(§B66 원문 「같이」), ③도 같은 상태를 다루므로 이번 범위. spec 리뷰가 찾은 선재 버그(풀 배정 일부 실패 뒤 예약 워커가 「busy」로 굳음)도 사용자 결정(2026-11-17)으로 편입 — R9.
 - 범위: **컨트롤러** (`crates/controller/src/grpc/coordinator.rs` 중심 + `api/runs.rs` 두 곳) + 낡은 주석·함정 노트(R8). proto·migration·UI·셸·워커 동작 무변경.
 
 ## 사용자 스토리 (US)
@@ -91,6 +91,14 @@ US 정정(사용자 승인 뒤, spec 리뷰 반영 2026-11-17): 승인 초안 US
 - **만료**: `pool_heartbeat_tick`(주입된 `now`·`stale`)이 만든 지 stale보다 오래된 묘비를 지운다. **비용**: stale을 길게(최대 86400초) 둔 서버에서 몇 시간 뒤 일부러 다시 켠 그 부하기는 한 번 튕긴다(한 번 쓰면 지우므로 그다음 시작은 정상).
 - 묘비는 메모리에만(컨트롤러 재시작 = 풀도 비므로 같이 사라짐).
 
+### R9 — 풀 배정 일부 실패 뒤 배정 못 받은 예약 워커 풀어 주기 (선재 버그, 사용자 결정 2026-11-17로 편입)
+
+- **재현**: 풀 부하기 여러 대로 run을 만들 때 `assign_pool_workers`(`coordinator.rs:335`)가 예약 목록을 차례로 돌다 k번째에서 실패한다(`register`가 Assigned 아님·`assignment_for` `None`·배정 전송 실패 — 워커가 예약과 전송 사이에 떠남).
+- **실측(지금)**: 호출부(`api/runs.rs`)는 `cancel_dispatch_failed`로 run 항목을 지우고 이미 등록된 0..k-1번에 Abort를 보내지만, 풀은 건드리지 않는다. k+1번 이후(그리고 실패 원인이 그 워커의 이탈이 아닌 k번)는 배정을 한 번도 못 받았는데 `assigned_run = Some(run_id)`가 남고, 연결이 살아 Pong이 stale도 막아 **재접속 전까지 「busy」로 예약 불가**다.
+- **기대**: `assign_pool_workers`가 실패로 돌아가기 직전, **`register`가 Assigned를 돌려주지 않은** 예약 워커의 예약을 푼다 — `register` 비-Assigned 분기면 k번부터, `assignment_for` `None`·배정 전송 실패 분기면 k+1번부터(k는 이미 run 구성원). 각 항목은 `assigned_run == Some(run_id)`이고 송신이 살아 있을 때만(`tx`가 `Some`이고 `!is_closed()`) `assigned_run = None`. **k를 `assignment_for` `None` 분기에서 풀면 안 되는 이유**: k는 구성원이라 그 run의 최종화 fan-out(형제 실패·스스로 중단·`worker_disconnected`·`fail_run_hung`·`abort()`)에서 Abort가 오는 중인데, 풀려서 곧 다음 run에 예약·배정되면 옛 Abort가 배정 대기 중에 도착해 `AbortedBeforeAssignment`(`worker-core/src/client.rs:285-293`)로 워커가 스트림을 끊고, 그 close가 새 run을 `worker_disconnected`로 실패시킨다. 안 풀면 k는 Abort를 받고 재접속해 정상으로 돌아온다. 송신이 닫힌 워커(이탈)는 풀지 않는다(풀면 죽은 송신이 다음 run에 예약된다 — 하트비트가 `Closed`로 지운다, 지금과 같음). 0..k-1번은 Abort → Aborted 보고 → R3(run 없음 Aborted = 끝냄) → 재등록 대기로 돌아오므로 건드리지 않는다.
+- 기존 `release_pool_reservation`(`:761`, enqueue 전 예약 해제용 — run 가드 없음)은 바꾸지 않고, run 가드·송신 확인이 있는 별도 함수로.
+- US2(연달아 시작한 run이 모든 부하기를 받는다)의 연장 — 배정 일부 실패 뒤에도 남은 부하기가 다음 run에 잡힌다.
+
 ### R7 — 검증 (테스트)
 
 빌더가 정한 이름으로, 회귀 가드 테스트는 고의 회귀 → RED → 원복 → GREEN(되돌려 확인)을 실행한다.
@@ -99,6 +107,7 @@ US 정정(사용자 승인 뒤, spec 리뷰 반영 2026-11-17): 승인 초안 US
 - **US2**: 풀 워커의 끝 보고 + 요청 스트림 종료 뒤 **응답 쪽 수신기가 `None`을 받는다**(모든 송신 복사본이 놓임) — 부하기 2대에서 먼저 끝난 워커도. 재등록 뒤 즉시 예약에 잡힌다.
 - **US4**: 마지막 워커 Completed 뒤 close · Failed run에서 형제의 늦은 Aborted 뒤 close(run 항목이 이미 없는 상태) · 컨트롤러 abort 뒤 close → 항목 유지(재등록 대기)·라벨/용량/「비우기」 유지, 재등록 후 그대로. 스스로 Aborted 뒤 close·실행 중 close·유휴 close → 제거(기존 테스트 유지). 옛 스트림 close가 새 등록(세대)을 지우지 않는다.
 - **US3**: 가상 시계로 대기 진입 후 10초 → 제거, 그 전에 재등록하면 유지(타이머가 새 세대를 지우지 않음).
+- **R9**: (분기 3) 예약 4대 `a,b,c,d`(`b`·`d`의 수신기를 drop해 `b`에서 배정 전송이 실패하게, `reserve_idle_pool`은 `HashMap` 순서라 반환 Vec을 테스트가 재정렬) → `assign_pool_workers` `Err` → `c`는 `assigned_run == None`(유휴, 다음 예약에 잡힘), `d`는 닫힌 송신이라 풀지 않음(송신 가드), 실패 지점 `b`도 그대로(닫힌 송신이라 송신 가드가 막는다 — k+1 규칙의 증거는 아님), 앞서 배정받은 `a`는 그대로. 그 사이 같은 ID가 다시 등록한 항목(다른 `assigned_run`)은 건드리지 않음. (분기 1) 이미 제거된 run에 `assign_pool_workers` → `register` `NoRun` at k=0 → 예약 2대 모두 유휴. (분기 2·3의 「k+1부터」) 분기 2는 결정적으로 만들기 어렵고(`register`와 `assignment_for` 사이 최종화) 분기 3의 k는 늘 닫힌 송신이라 관찰 불가 → 「실패 분기 → 해제 시작 번호」를 작은 순수 함수로 빼서 단위 테스트한다(분기 1 → k, 분기 2·3 → k+1).
 - **US1**: 대기 항목 「제외」 → `true` + 묘비; 같은 ID의 빈 run_id `Register`(올바른 토큰) → 그 스트림에 `Disconnect{reason}`, 풀에 없음, 수락 Ping 없음, 핸들러 종료; 두 번째 `Register` → 정상 등록. 토큰이 틀린 `Register`는 묘비를 소비하지 않는다. 살아 있는 항목 「제외」 → 묘비 없음(그다음 `Register`는 정상). `is_closed()` 송신 항목 「제외」 → 묘비. 묘비 stale 만료. 제외와 등록을 엇갈려 부르는 경쟁 테스트(제외 먼저 → 등록은 튕김 / 등록 먼저 → 새 항목에 대한 제외는 정상 전달).
 
 ### R8 — 낡은 주석·함정 노트
@@ -115,7 +124,7 @@ US 정정(사용자 승인 뒤, spec 리뷰 반영 2026-11-17): 승인 초안 US
 - 묘비 영속(DB)·여러 컨트롤러 간 공유.
 - 워커 쪽 동작 변경(2초 상한 값 등).
 - 끝난 run에 늦게 붙는 legacy 워커에 `AbortRun`을 다시 보내는 것 — 워커 동작 차이가 없다(R1).
-- **선재 버그(roadmap §B 기록 대상, 이 슬라이스 밖)**: `assign_pool_workers` 부분 실패 뒤 아직 살아 있는 예약 워커는 `assigned_run = Some`이 영영 안 풀린다(`cancel_dispatch_failed`는 풀을 건드리지 않음, Pong이 stale을 막음) — 재접속 전까지 「busy」로 배정 불가.
+- **roadmap §B 기록 대상(R9 분기 2의 k)**: 경쟁으로만 닿는 분기 2에서 k는 배정 대기 중 Abort를 받아 `Aborted` 보고 없이 스트림을 닫으므로(`AbortedBeforeAssignment`) 「몫을 끝냄」 표시가 없어 항목이 제거된다 — 고정 ID 없는 워커는 라벨·용량·「비우기」를 잃는다(지금과 같음).
 
 ## 5. 라이브 검증 (`/live-verify`, 맥)
 
