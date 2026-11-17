@@ -14,7 +14,7 @@ use handicap_controller::in_process::{
     run_in_process, InProcessConfig, InProcessWorkerMode, RunningController, ABORT_MSG_APP_EXIT,
     ABORT_MSG_ROLE_SWITCH,
 };
-use handicap_desktop_core::config::{DesktopConfig, Loaded, Role};
+use handicap_desktop_core::config::{ensure_install_id, DesktopConfig, Loaded, Role};
 use handicap_desktop_core::token::{generate_token, is_usable_token};
 use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
@@ -28,8 +28,6 @@ pub const MSG_ALREADY_SWITCHING: &str = "이미 전환 중입니다";
 pub const MSG_SWITCHING: &str = "전환 중입니다";
 /// 이 PC 부하기가 run을 실행 중이라 토글이 잠겼을 때(R4).
 pub const MSG_SELF_WORKER_BUSY: &str = "이 PC가 테스트를 실행하는 중이라 끝난 뒤 바꿀 수 있습니다";
-/// PC 이름이 비어 이 PC 부하기를 쓸 수 없을 때(R4).
-pub const MSG_NO_HOSTNAME: &str = "PC 이름을 읽지 못해 쓸 수 없습니다";
 
 /// 이 PC 부하기 정지 대기 상한.
 const SELF_WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -57,7 +55,6 @@ pub struct Notices {
     pub port_changed: Option<(u16, u16)>,
     pub save_failed: bool,
     pub self_worker_excluded: bool,
-    pub self_worker_unavailable: Option<String>,
     pub start_error: Option<String>,
 }
 
@@ -75,6 +72,21 @@ pub struct Running {
     pub controller: RunningController,
     pub base_url: String,
     pub self_worker: Option<SelfWorker>,
+}
+
+/// `start_running`이 시작한 결과. `Nothing` = 컨트롤러도 부하기도 없는 역할(역할 화면만).
+#[allow(clippy::large_enum_variant)]
+pub enum Started {
+    Controller(Running),
+    Nothing,
+}
+
+/// 시작 결과를 상태에 설치한다(잠금 안에서 — 대입뿐).
+fn install(st: &mut ShellState, s: Started) {
+    match s {
+        Started::Controller(r) => st.running = Some(r),
+        Started::Nothing => st.running = None,
+    }
 }
 
 pub struct ShellState {
@@ -144,10 +156,13 @@ pub async fn boot(shell: &Shell) -> Result<String, String> {
 
     let mut st = shell.state.lock().await;
     let out = match result {
-        Ok(r) => {
-            let url = r.base_url.clone();
+        Ok(started) => {
+            let url = match &started {
+                Started::Controller(r) => r.base_url.clone(),
+                Started::Nothing => crate::launch::role_page_url(),
+            };
             notices.start_error = None;
-            st.running = Some(r);
+            install(&mut st, started);
             st.config = config;
             st.notices = notices;
             if st.config != original {
@@ -177,10 +192,10 @@ pub async fn start_running(
     shell: &Shell,
     config: &mut DesktopConfig,
     notices: &mut Notices,
-) -> Result<Running, String> {
-    let (db, hostname, fail_start) = {
+) -> Result<Started, String> {
+    let (db, fail_start) = {
         let st = shell.state.lock().await;
-        (st.env.db.clone(), st.env.hostname, st.env.fail_start)
+        (st.env.db.clone(), st.env.fail_start)
     };
     if fail_start == Some(config.role) {
         return Err("시작 실패(테스트 주입)".into());
@@ -193,12 +208,11 @@ pub async fn start_running(
             })
             .await
             .map_err(|e| format!("{e:#}"))?;
-            notices.self_worker_unavailable = None;
-            Ok(Running {
+            Ok(Started::Controller(Running {
                 base_url: crate::launch::base_url(rc.rest_addr().port()),
                 controller: rc,
                 self_worker: None,
-            })
+            }))
         }
         Role::Server => {
             if !config.server.token.as_deref().is_some_and(is_usable_token) {
@@ -222,22 +236,19 @@ pub async fn start_running(
                 notices.port_changed = Some((saved, actual));
                 config.server.grpc_port = actual;
             }
-            let mut self_worker = None;
-            notices.self_worker_unavailable = None;
-            if config.server.self_worker {
-                let name = hostname();
-                if name.is_empty() {
-                    notices.self_worker_unavailable = Some(MSG_NO_HOSTNAME.into());
-                } else {
-                    self_worker = Some(spawn_self_worker(shell, actual, &token, name));
-                }
-            }
-            Ok(Running {
+            // 설치 ID는 토글과 무관하게 서버 역할 시작 때 한 번 만든다(R1) — 변경분은 호출자가 저장.
+            let id = ensure_install_id(config, &mut rand::rngs::OsRng);
+            let self_worker = config
+                .server
+                .self_worker
+                .then(|| spawn_self_worker(shell, actual, &token, id));
+            Ok(Started::Controller(Running {
                 base_url: crate::launch::base_url(rc.rest_addr().port()),
                 controller: rc,
                 self_worker,
-            })
+            }))
         }
+        Role::Worker => Ok(Started::Nothing),
     }
 }
 
@@ -331,17 +342,33 @@ fn is_busy(workers: &[PoolWorkerInfo], id: &str) -> bool {
 /// 새 역할 시작이 실패하면 이전 역할로, 그것도 실패하면 혼자 쓰기로 되살리고 `Err(사유)` —
 /// 역할은 **성공 뒤에만** 저장한다(R1).
 pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
-    let (prev, config, notices, gate) = {
+    switch_with(shell, |c| {
+        c.role = target;
+        Ok(())
+    })
+    .await
+}
+
+/// `switch`의 일반형: `edit`이 설정 사본을 고친 결과로 전환한다. `edit`이 `Err`이면 **아무것도
+/// 멈추지 않고** 그 `Err`을 돌려준다(`switching`도 세우지 않는다).
+pub async fn switch_with<F>(shell: &Shell, edit: F) -> Result<(), String>
+where
+    F: FnOnce(&mut DesktopConfig) -> Result<(), String>,
+{
+    let (prev, config, notices, gate, mut attempt) = {
         let mut st = shell.state.lock().await;
         if st.switching {
             return Err(MSG_ALREADY_SWITCHING.into());
         }
+        let mut attempt = st.config.clone();
+        edit(&mut attempt)?;
         st.switching = true;
         (
             st.running.take(),
             st.config.clone(),
             st.notices.clone(),
             st.env.start_gate.clone(),
+            attempt,
         )
     };
     if let Some(prev) = prev {
@@ -351,18 +378,17 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
         g.notified().await;
     }
 
-    let mut attempt = config.clone();
-    attempt.role = target;
+    let new_role = attempt.role;
     let mut n = notices.clone();
     // `save`: 성공이면 저장. 실패 뒤 **이전 역할**로 되살렸는데 그 시작이 config를 바꿨으면
     // (서버 복구가 다른 포트로 열림 등) 그것도 저장한다 — 역할은 전환 전 저장값과 같다(R3).
     // 혼자 쓰기 강제 복구는 저장하지 않는다(R1 성공 후 저장).
-    let (installed, new_config, mut new_notices, result, save) =
+    let (started, new_config, mut new_notices, result, save) =
         match start_running(shell, &mut attempt, &mut n).await {
             Ok(r) => {
                 n.start_error = None;
-                if target == Role::Local {
-                    // 서버 역할에만 뜻이 있는 안내 — 혼자 쓰기로 바뀌면 남기지 않는다.
+                if attempt.role != Role::Server {
+                    // 서버 역할에만 뜻이 있는 안내 — 서버가 아닌 역할로 바뀌면 남기지 않는다.
                     n.port_changed = None;
                     n.self_worker_excluded = false;
                 }
@@ -379,13 +405,16 @@ pub async fn switch(shell: &Shell, target: Role) -> Result<(), String> {
     // 「서버로 열지 못했습니다」 안내는 서버로의 전환 실패에만. 혼자 쓰기로의 실패는 화면의
     // 「전환하지 못했습니다」 한 줄로만 보인다(오케스트레이터 판정).
     if let Err(e) = &result {
-        if target == Role::Server {
+        if new_role == Role::Server {
             new_notices.start_error = Some(e.clone());
         }
     }
 
     let mut st = shell.state.lock().await;
-    st.running = installed;
+    match started {
+        Some(r) => install(&mut st, r),
+        None => st.running = None,
+    }
     st.config = new_config;
     st.notices = new_notices;
     if save {
@@ -403,7 +432,7 @@ async fn restore_after_failure(
     shell: &Shell,
     config: &DesktopConfig,
     notices: &Notices,
-) -> (Option<Running>, DesktopConfig, Notices, bool) {
+) -> (Option<Started>, DesktopConfig, Notices, bool) {
     let mut fb = config.clone();
     let mut fbn = notices.clone();
     match start_running(shell, &mut fb, &mut fbn).await {
@@ -471,16 +500,12 @@ pub async fn set_self_worker(shell: &Shell, enabled: bool) -> Result<(), String>
     }
     if enabled {
         if running.self_worker.is_none() {
-            let name = (st.env.hostname)();
-            if name.is_empty() {
-                st.notices.self_worker_unavailable = Some(MSG_NO_HOSTNAME.into());
-                return Err(MSG_NO_HOSTNAME.into());
-            }
             let Some(token) = st.config.server.token.clone() else {
                 return Err("접속 토큰이 없습니다".into());
             };
+            let id = ensure_install_id(&mut st.config, &mut rand::rngs::OsRng);
             let port = running.controller.grpc_addr().port();
-            running.self_worker = Some(spawn_self_worker(shell, port, &token, name));
+            running.self_worker = Some(spawn_self_worker(shell, port, &token, id));
         }
         st.config.server.self_worker = true;
         st.notices.self_worker_excluded = false;
@@ -534,7 +559,7 @@ mod tests {
     use super::*;
     use crate::config_store;
     use handicap_controller::in_process::ABORT_MSG_ROLE_SWITCH;
-    use handicap_desktop_core::config::ServerSettings;
+    use handicap_desktop_core::config::{is_usable_install_id, ServerSettings};
     use handicap_desktop_core::token::is_usable_token;
     use std::future::Future;
     use std::path::Path;
@@ -557,6 +582,7 @@ mod tests {
                 grpc_port: port,
                 self_worker: true,
             },
+            ..DesktopConfig::default()
         }
     }
 
@@ -672,13 +698,16 @@ mod tests {
 
     async fn self_worker_registered(s: &Shell) -> bool {
         let st = s.state.lock().await;
+        let Some(id) = st.config.install_id.clone() else {
+            return false;
+        };
         match st.running.as_ref() {
             Some(r) => r
                 .controller
                 .pool_workers()
                 .await
                 .iter()
-                .any(|w| w.worker_id == "test-host"),
+                .any(|w| w.worker_id == id),
             None => false,
         }
     }
@@ -846,33 +875,85 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn self_worker_registers_with_hostname() {
-        let (s, _d) = shell(server(free_port()));
+    async fn self_worker_id_is_install_id() {
+        let (s, d) = shell(server(free_port()));
         boot(&s).await.unwrap();
         let sr = &s;
         wait_for(Duration::from_secs(5), "self worker 등록", || async move {
             self_worker_registered(sr).await
         })
         .await;
+        let id = s.state.lock().await.config.install_id.clone().unwrap();
+        assert!(is_usable_install_id(&id));
         assert_eq!(
             running(&s).await.self_worker.as_ref().unwrap().worker_id,
-            "test-host"
+            id
+        );
+        assert_eq!(
+            config_store::load(d.path()).config.install_id.as_deref(),
+            Some(id.as_str())
         );
         shutdown(&s).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn empty_hostname_skips_self_worker() {
+    async fn empty_hostname_still_runs_self_worker() {
         let (s, _d) = shell_with_host(server(free_port()), String::new);
         boot(&s).await.unwrap();
-        {
-            let st = s.state.lock().await;
-            assert!(st.running.as_ref().unwrap().self_worker.is_none());
-            assert_eq!(
-                st.notices.self_worker_unavailable.as_deref(),
-                Some("PC 이름을 읽지 못해 쓸 수 없습니다")
-            );
-        }
+        let sr = &s;
+        wait_for(Duration::from_secs(5), "self worker 등록", || async move {
+            self_worker_registered(sr).await
+        })
+        .await;
+        assert!(running(&s).await.self_worker.is_some());
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn install_id_survives_role_round_trip() {
+        let (s, _d) = shell(server(free_port()));
+        boot(&s).await.unwrap();
+        let a = s.state.lock().await.config.install_id.clone().unwrap();
+        switch(&s, Role::Local).await.unwrap();
+        assert_eq!(
+            s.state.lock().await.config.install_id.as_deref(),
+            Some(a.as_str()),
+            "혼자 쓰기로 가도 ID 유지"
+        );
+        switch(&s, Role::Server).await.unwrap();
+        let sr = &s;
+        wait_for(
+            Duration::from_secs(5),
+            "self worker 재등록",
+            || async move { self_worker_registered(sr).await },
+        )
+        .await;
+        assert_eq!(running(&s).await.self_worker.as_ref().unwrap().worker_id, a);
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn local_boot_does_not_create_install_id() {
+        let (s, d) = shell(local());
+        boot(&s).await.unwrap();
+        assert_eq!(s.state.lock().await.config.install_id, None);
+        assert_eq!(config_store::load(d.path()).config.install_id, None);
+        shutdown(&s).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn broken_install_id_is_replaced() {
+        let mut cfg = server(free_port());
+        cfg.install_id = Some("x".into());
+        let (s, d) = shell(cfg);
+        boot(&s).await.unwrap();
+        let id = s.state.lock().await.config.install_id.clone().unwrap();
+        assert!(is_usable_install_id(&id));
+        assert_eq!(id.len(), 32);
+        assert_eq!(
+            config_store::load(d.path()).config.install_id.as_deref(),
+            Some(id.as_str())
+        );
         shutdown(&s).await;
     }
 
@@ -1040,6 +1121,7 @@ mod tests {
 
         wait_for(Duration::from_secs(5), "이 PC 부하기 배정", || async move {
             let st = sr.state.lock().await;
+            let id = st.config.install_id.clone().unwrap();
             st.running
                 .as_ref()
                 .unwrap()
@@ -1047,7 +1129,7 @@ mod tests {
                 .pool_workers()
                 .await
                 .iter()
-                .any(|w| w.worker_id == "test-host" && w.assigned_run.is_some())
+                .any(|w| w.worker_id == id && w.assigned_run.is_some())
         })
         .await;
         let (h, b, r) = (&http, &base, &run_id);

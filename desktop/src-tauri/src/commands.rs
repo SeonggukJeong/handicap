@@ -37,7 +37,6 @@ pub struct RoleStateDto {
     pub server_os: WorkerOs,
     pub self_worker: bool,
     pub self_worker_busy: bool,
-    pub self_worker_unavailable: Option<String>,
     pub notices: NoticesDto,
     /// 앱 화면 주소(컨트롤러가 떠 있을 때만).
     pub app_url: Option<String>,
@@ -61,6 +60,7 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
         role: match s.config.role {
             Role::Local => "local",
             Role::Server => "server",
+            Role::Worker => "worker",
         },
         switching: s.switching,
         grpc_port: s.config.server.grpc_port,
@@ -68,7 +68,6 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
         server_os: current_os(),
         self_worker,
         self_worker_busy: busy,
-        self_worker_unavailable: s.notices.self_worker_unavailable.clone(),
         notices: NoticesDto {
             port_changed: s.notices.port_changed.map(|(a, b)| [a, b]),
             save_failed: s.notices.save_failed,
@@ -137,6 +136,7 @@ pub fn parse_target(t: &str) -> Result<Role, String> {
     match t {
         "local" => Ok(Role::Local),
         "server" => Ok(Role::Server),
+        "worker" => Ok(Role::Worker),
         _ => Err("알 수 없는 모드입니다".into()),
     }
 }
@@ -282,6 +282,7 @@ mod tests {
                 grpc_port: 8093,
                 self_worker: true,
             },
+            ..DesktopConfig::default()
         })
     }
 
@@ -346,7 +347,6 @@ mod tests {
         s.notices.save_failed = true;
         s.notices.self_worker_excluded = true;
         s.notices.start_error = Some("bind".into());
-        s.notices.self_worker_unavailable = Some("이름 없음".into());
         let d = build_role_state(&s, vec![], true);
         assert_eq!(d.role, "server");
         assert!(d.switching);
@@ -354,7 +354,6 @@ mod tests {
         assert_eq!(d.server_os, current_os());
         assert!(d.self_worker, "실행 전이면 저장된 토글");
         assert!(d.self_worker_busy);
-        assert_eq!(d.self_worker_unavailable.as_deref(), Some("이름 없음"));
         assert_eq!(
             d.notices,
             NoticesDto {
@@ -387,7 +386,6 @@ mod tests {
                 "role",
                 "self_worker",
                 "self_worker_busy",
-                "self_worker_unavailable",
                 "server_os",
                 "switching"
             ]

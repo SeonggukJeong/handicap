@@ -76,6 +76,7 @@ mod tests {
                 grpc_port: 8093,
                 self_worker: false,
             },
+            ..DesktopConfig::default()
         }
     }
 
