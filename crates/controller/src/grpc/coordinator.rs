@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -82,8 +83,12 @@ type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
 
 /// An idle (or assigned) pool worker registered without a run_id. (LAN L1, R5.)
 struct PoolEntry {
-    /// Consumed by `assign_pool_workers` to push RunAssignment.
-    tx: WorkerTx,
+    /// Consumed by `assign_pool_workers` to push RunAssignment. `None` while the
+    /// entry awaits the worker's re-register (no sender to deliver on).
+    tx: Option<WorkerTx>,
+    /// Registration generation: stamped on every `pool_register_idle`, so a stream
+    /// close or reaper snapshot from an older registration never touches a newer one.
+    generation: u64,
     /// Worker-declared capacity (VUs). Used by `effective_capacity_vus()`.
     /// L1 stores this but does NOT enforce it (no overload guard in L1 — see
     /// the runbook over-capacity warning). L2+ use it via capacity math.
@@ -108,8 +113,8 @@ struct PoolEntry {
     /// The worker's stream closed cleanly after it finished its part of `assigned_run`;
     /// the worker reconnects per run, so the entry is kept (operator control survives)
     /// and stays unreservable (`assigned_run` is still `Some`) until it re-registers.
-    /// The reaper neither pings it nor evicts it for its dead `tx` — only `last_seen`
-    /// staleness evicts it if the worker never comes back.
+    /// It holds no sender (`tx` is `None`); the reaper does not ping it — only
+    /// `last_seen` staleness evicts it if the worker never comes back.
     awaiting_reregister: bool,
 }
 
@@ -238,6 +243,8 @@ pub struct CoordinatorState {
     /// Set once at startup when `--worker-mode pool`. When true, `spawn_run` uses
     /// the pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
     pool_mode: Arc<OnceLock<bool>>,
+    /// Source of `PoolEntry.generation` (starts at 1).
+    next_generation: Arc<AtomicU64>,
     /// Cancelled by in-process `RunningController::shutdown` so pool (and
     /// not-yet-registered) worker stream handlers end their loop, run their
     /// cleanup and drop their `tx` — the remote worker then sees end-of-stream
@@ -260,6 +267,7 @@ impl CoordinatorState {
             worker_token: Arc::new(OnceLock::new()),
             pool: Arc::new(Mutex::new(HashMap::new())),
             pool_mode: Arc::new(OnceLock::new()),
+            next_generation: Arc::new(AtomicU64::new(1)),
             streams_shutdown: CancellationToken::new(),
         }
     }
@@ -323,7 +331,9 @@ impl CoordinatorState {
         for id in ids {
             if let Some(e) = g.get_mut(&id) {
                 e.assigned_run = Some(run_id.to_string()); // 예약 락(같은 guard 내 원자적)
-                out.push((id, e.tx.clone()));
+                if let Some(tx) = &e.tx {
+                    out.push((id, tx.clone()));
+                }
             }
         }
         out
@@ -403,7 +413,7 @@ impl CoordinatorState {
         capacity_vus: u32,
         hostname: String,
         stable: bool,
-    ) {
+    ) -> u64 {
         // Read persisted override BEFORE locking (R14 — no DB .await under the pool lock).
         // Applied only on the INSERT (entry-absent) branch: cold attach after a controller
         // restart, OR reconnect after the L6 reaper evicted a half-open worker. Warm reconnect
@@ -421,11 +431,13 @@ impl CoordinatorState {
         } else {
             None
         };
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let mut g = self.pool.lock().await;
         match g.get_mut(worker_id) {
             Some(e) => {
                 // reconnect: refresh transport/identity, preserve operator control, reset to idle.
-                e.tx = tx;
+                e.tx = Some(tx);
+                e.generation = generation;
                 e.capacity_vus = capacity_vus;
                 e.hostname = hostname;
                 e.assigned_run = None;
@@ -442,7 +454,8 @@ impl CoordinatorState {
                 g.insert(
                     worker_id.to_string(),
                     PoolEntry {
-                        tx,
+                        tx: Some(tx),
+                        generation,
                         capacity_vus,
                         hostname,
                         assigned_run: None,
@@ -456,6 +469,7 @@ impl CoordinatorState {
                 );
             }
         }
+        generation
     }
 
     /// Test/observability helper: count idle (unassigned) pool workers.
@@ -509,30 +523,34 @@ impl CoordinatorState {
     /// `.await`, drop the lock, then do all `.await` (Ping send / eviction)
     /// outside it. A dead tx (send Err) means the stream is gone → evict (R3).
     pub async fn pool_heartbeat_tick(&self, now: tokio::time::Instant, stale: std::time::Duration) {
-        let snapshot: Vec<(String, WorkerTx, bool, bool)> = {
+        let snapshot: Vec<(String, Option<WorkerTx>, u64, bool, bool)> = {
             let g = self.pool.lock().await;
             g.iter()
                 .map(|(id, e)| {
                     (
                         id.clone(),
                         e.tx.clone(),
+                        e.generation,
                         now.duration_since(e.last_seen) > stale,
                         e.awaiting_reregister,
                     )
                 })
                 .collect()
         };
-        for (wid, tx, is_stale, awaiting) in snapshot {
+        for (wid, tx, generation, is_stale, awaiting) in snapshot {
             if is_stale {
                 // idle → silent remove; busy → worker_disconnected fail-fast (R3/R5).
                 // Only the registration this snapshot saw (a re-register in between wins).
-                self.pool_evict_if_same(&wid, &tx).await;
+                self.pool_evict_if_same(&wid, generation).await;
                 continue;
             }
             if awaiting {
                 // Its stream is gone by design; wait for the re-register (or staleness).
                 continue;
             }
+            let Some(tx) = tx else {
+                continue;
+            };
             let ping = ServerMessage {
                 payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
             };
@@ -540,7 +558,7 @@ impl CoordinatorState {
                 Ok(()) => {}
                 // Closed = stream gone → evict (현 dead-tx 의미 유지).
                 Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                    self.pool_evict_if_same(&wid, &tx).await;
+                    self.pool_evict_if_same(&wid, generation).await;
                 }
                 // Full = 일시적 backpressure(워커가 안 읽음). evict 안 함 — last_seen 미갱신이라
                 // 다음 sweep stale 체크 + h2 keepalive가 죽은 연결을 자가치유(R8).
@@ -549,14 +567,14 @@ impl CoordinatorState {
         }
     }
 
-    /// Remove the entry (failing its run if mid-run), but only if it still belongs to the stream whose
-    /// sender is `tx`. A worker that already re-registered under the same id has a
-    /// new `tx`; an old stream (or a stale reaper snapshot) must not remove it.
-    async fn pool_evict_if_same(&self, worker_id: &str, tx: &WorkerTx) {
+    /// Remove the entry (failing its run if mid-run), but only if it is still the
+    /// registration of `generation`. A worker that already re-registered under the same id
+    /// has a newer generation; an old stream (or a stale reaper snapshot) must not remove it.
+    async fn pool_evict_if_same(&self, worker_id: &str, generation: u64) {
         let assigned = {
             let mut g = self.pool.lock().await;
             match g.get(worker_id) {
-                Some(e) if e.tx.same_channel(tx) => {
+                Some(e) if e.generation == generation => {
                     g.remove(worker_id).and_then(|e| e.assigned_run)
                 }
                 _ => return,
@@ -567,18 +585,18 @@ impl CoordinatorState {
         }
     }
 
-    /// The pool stream whose sender is `stream_tx` closed. If the worker finished
+    /// The pool stream of registration `generation` closed. If the worker finished
     /// its part of its assigned run (reported Completed/Failed, or Aborted because
     /// the controller asked), it is reconnecting for the next run: keep the entry —
     /// operator control (drained/capacity_override/label) must survive — and mark it
     /// `awaiting_reregister` (still unreservable). Otherwise (idle close, mid-run
     /// close, self-abort = leaving) remove it as before. Never touches a newer
     /// registration of the same id.
-    pub async fn pool_stream_closed(&self, worker_id: &str, stream_tx: &WorkerTx) {
+    pub async fn pool_stream_closed(&self, worker_id: &str, generation: u64) {
         let assigned = {
             let g = self.pool.lock().await;
             match g.get(worker_id) {
-                Some(e) if e.tx.same_channel(stream_tx) => e.assigned_run.clone(),
+                Some(e) if e.generation == generation => e.assigned_run.clone(),
                 _ => return,
             }
         };
@@ -590,13 +608,14 @@ impl CoordinatorState {
         if returning {
             let mut g = self.pool.lock().await;
             if let Some(e) = g.get_mut(worker_id) {
-                if e.tx.same_channel(stream_tx) {
+                if e.generation == generation {
                     e.awaiting_reregister = true;
+                    e.tx = None;
                 }
             }
             return;
         }
-        self.pool_evict_if_same(worker_id, stream_tx).await;
+        self.pool_evict_if_same(worker_id, generation).await;
     }
 
     /// Did `worker_id` report a terminal phase for `run_id` that means it stays in
@@ -674,11 +693,13 @@ impl CoordinatorState {
         if let Some(run_id) = assigned {
             self.worker_disconnected(&run_id, worker_id).await;
         }
-        let _ = tx.try_send(Ok(ServerMessage {
-            payload: Some(ServerPayload::Disconnect(pb::Disconnect {
-                reason: reason.to_string(),
-            })),
-        }));
+        if let Some(tx) = tx {
+            let _ = tx.try_send(Ok(ServerMessage {
+                payload: Some(ServerPayload::Disconnect(pb::Disconnect {
+                    reason: reason.to_string(),
+                })),
+            }));
+        }
         true
     }
 
@@ -748,7 +769,9 @@ impl CoordinatorState {
         for (id, _) in idle.into_iter().take(n) {
             if let Some(e) = g.get_mut(&id) {
                 e.assigned_run = Some(run_id.to_string());
-                workers.push((id, e.tx.clone()));
+                if let Some(tx) = &e.tx {
+                    workers.push((id, tx.clone()));
+                }
             }
         }
         PoolReservation::Reserved { workers, counts }
@@ -1434,6 +1457,7 @@ impl Coordinator for CoordinatorService {
             let mut run_id: Option<String> = None;
             let mut worker_id: Option<String> = None;
             let mut pool_conn = false;
+            let mut pool_gen: Option<u64> = None;
             let streams_shutdown = state.streams_shutdown.clone();
             loop {
                 // Only pool / unregistered connections listen for the in-process
@@ -1486,15 +1510,17 @@ impl Coordinator for CoordinatorService {
                         if reg.run_id.is_empty() {
                             // Pool mode: register idle, wait for push assignment from assign_pool_workers (Task 3).
                             info!(worker_id = %reg.worker_id, "pool worker registered idle");
-                            state
-                                .pool_register_idle(
-                                    &reg.worker_id,
-                                    tx.clone(),
-                                    reg.capacity_vus,
-                                    reg.hostname.clone(),
-                                    reg.stable_id,
-                                )
-                                .await;
+                            pool_gen = Some(
+                                state
+                                    .pool_register_idle(
+                                        &reg.worker_id,
+                                        tx.clone(),
+                                        reg.capacity_vus,
+                                        reg.hostname.clone(),
+                                        reg.stable_id,
+                                    )
+                                    .await,
+                            );
                             // 수락 신호: 워커가 받는 첫 Ping = 풀에 등록됨(REST 목록에 보인다).
                             let _ = tx.try_send(Ok(ServerMessage {
                                 payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
@@ -1614,8 +1640,8 @@ impl Coordinator for CoordinatorService {
             }
             // Stream closed: route to pool or legacy fail-fast based on connection mode.
             if pool_conn {
-                if let Some(wid) = worker_id.as_ref() {
-                    state.pool_stream_closed(wid, &tx).await;
+                if let (Some(wid), Some(generation)) = (worker_id.as_ref(), pool_gen) {
+                    state.pool_stream_closed(wid, generation).await;
                 }
             } else if let (Some(rid), Some(wid)) = (run_id.as_ref(), worker_id.as_ref()) {
                 state.worker_disconnected(rid, wid).await;
@@ -2927,11 +2953,10 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
-        let stream_tx = tx0.clone();
-        coord
+        let generation = coord
             .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
-        coord.pool_stream_closed("w0", &stream_tx).await;
+        coord.pool_stream_closed("w0", generation).await;
         assert_eq!(coord.pool_idle_count().await, 0);
     }
 
@@ -3015,8 +3040,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx();
-        let stream_tx = tx0.clone();
-        coord
+        let generation = coord
             .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some(run_id)
@@ -3032,7 +3056,7 @@ mod tests {
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
-        coord.pool_stream_closed("w0", &stream_tx).await; // terminal 보고 없이 끊김
+        coord.pool_stream_closed("w0", generation).await; // terminal 보고 없이 끊김
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
             RunStatus::Failed
@@ -3073,8 +3097,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx(); // _r0 유지 → push 성공
-        let stream_tx = tx0.clone();
-        coord
+        let generation = coord
             .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
@@ -3093,7 +3116,7 @@ mod tests {
         coord
             .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await; // 완료
-        coord.pool_stream_closed("w0", &stream_tx).await; // 정상 종료(terminal 보고 후 close)
+        coord.pool_stream_closed("w0", generation).await; // 정상 종료(terminal 보고 후 close)
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
             RunStatus::Completed,
@@ -3531,9 +3554,10 @@ mod tests {
             let e = g.get_mut("w1").unwrap();
             e.assigned_run = Some("r-done".into());
             e.awaiting_reregister = true;
+            e.tx = None;
             e.label = Some("keep".into());
         }
-        drop(rx); // stream gone → tx Closed
+        drop(rx);
     }
 
     /// Pool entry's `awaiting_reregister` (None = entry absent).
@@ -3554,13 +3578,14 @@ mod tests {
         db: &Db,
     ) -> (
         String,
+        u64,
         WorkerTx,
         tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
     ) {
         let run_id = seed_run(db).await;
         let (tx0, rx0) = fake_tx();
         let stream_tx = tx0.clone();
-        coord
+        let generation = coord
             .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
@@ -3576,18 +3601,18 @@ mod tests {
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
-        (run_id, stream_tx, rx0)
+        (run_id, generation, stream_tx, rx0)
     }
 
     #[tokio::test]
     async fn stream_closed_after_completed_keeps_entry() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
-        let (run_id, stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
         coord
             .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
-        coord.pool_stream_closed("w0", &stx).await;
+        coord.pool_stream_closed("w0", generation).await;
         assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
     }
 
@@ -3595,11 +3620,11 @@ mod tests {
     async fn stream_closed_after_failed_keeps_entry() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
-        let (run_id, stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
         coord
             .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32, "boom")
             .await;
-        coord.pool_stream_closed("w0", &stx).await;
+        coord.pool_stream_closed("w0", generation).await;
         assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
     }
 
@@ -3607,12 +3632,12 @@ mod tests {
     async fn stream_closed_after_controller_requested_abort_keeps_entry() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
-        let (run_id, stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
         assert!(coord.abort(&run_id).await);
         coord
             .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "")
             .await;
-        coord.pool_stream_closed("w0", &stx).await;
+        coord.pool_stream_closed("w0", generation).await;
         assert_eq!(pool_entry_awaiting(&coord, "w0").await, Some(true));
     }
 
@@ -3620,11 +3645,11 @@ mod tests {
     async fn stream_closed_after_self_abort_removes_entry() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
-        let (run_id, stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
         coord
             .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "left")
             .await;
-        coord.pool_stream_closed("w0", &stx).await;
+        coord.pool_stream_closed("w0", generation).await;
         assert_eq!(pool_entry_awaiting(&coord, "w0").await, None);
     }
 
@@ -3632,8 +3657,8 @@ mod tests {
     async fn stream_closed_with_only_started_removes_entry() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
-        let (_run_id, stx, _rx) = pool_worker_in_run(&coord, &db).await;
-        coord.pool_stream_closed("w0", &stx).await;
+        let (_run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord.pool_stream_closed("w0", generation).await;
         assert_eq!(pool_entry_awaiting(&coord, "w0").await, None);
     }
 
@@ -3673,24 +3698,43 @@ mod tests {
         );
     }
 
-    /// A reaper snapshot (or old stream) holding the previous `tx` must not evict a
-    /// worker that re-registered under the same id in between.
+    /// An old stream's close (or a stale reaper snapshot) carrying the previous
+    /// generation must not touch a worker that re-registered under the same id.
     #[tokio::test]
-    async fn evict_with_old_tx_keeps_newer_registration() {
+    async fn stale_generation_close_keeps_newer_registration() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx1, _rx1) = tokio::sync::mpsc::channel(32);
         let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
-        coord
-            .pool_register_idle("w1", tx1.clone(), 10, "h".into(), false)
+        let g1 = coord
+            .pool_register_idle("w1", tx1, 10, "h".into(), false)
             .await;
-        coord
-            .pool_register_idle("w1", tx2.clone(), 10, "h".into(), false)
+        let g2 = coord
+            .pool_register_idle("w1", tx2, 10, "h".into(), false)
             .await;
-        coord.pool_evict_if_same("w1", &tx1).await;
+        assert_ne!(g1, g2);
+        coord.pool_evict_if_same("w1", g1).await;
         assert_eq!(coord.pool_idle_count().await, 1, "newer registration kept");
-        coord.pool_evict_if_same("w1", &tx2).await;
+        coord.pool_stream_closed("w1", g1).await;
+        assert_eq!(coord.pool_idle_count().await, 1, "stale close is a no-op");
+        coord.pool_evict_if_same("w1", g2).await;
         assert_eq!(coord.pool_idle_count().await, 0, "own registration evicted");
+    }
+
+    /// A worker that finished its part and awaits re-register keeps no sender.
+    #[tokio::test]
+    async fn awaiting_entry_drops_sender() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        coord.pool_stream_closed("w0", generation).await;
+        let g = coord.pool.lock().await;
+        let e = g.get("w0").unwrap();
+        assert!(e.awaiting_reregister);
+        assert!(e.tx.is_none(), "awaiting entry must release its sender");
     }
 
     #[tokio::test]
@@ -3783,8 +3827,7 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        let stream_tx = tx.clone();
-        coord
+        let generation = coord
             .pool_register_idle("w1", tx, 10, "h".into(), false)
             .await;
         tokio::time::pause();
@@ -3796,7 +3839,7 @@ mod tests {
             )
             .await;
         // Late stream-close after eviction → no panic, no-op.
-        coord.pool_stream_closed("w1", &stream_tx).await;
+        coord.pool_stream_closed("w1", generation).await;
         assert_eq!(coord.pool_idle_count().await, 0);
     }
 
@@ -3847,7 +3890,7 @@ mod tests {
         assert_eq!(e.capacity_vus, 12, "declared capacity refreshed");
         assert_eq!(e.hostname, "h1b", "hostname refreshed");
         assert!(
-            !e.tx.is_closed(),
+            !e.tx.as_ref().unwrap().is_closed(),
             "tx refreshed to tx2 (tx1's receiver was dropped)"
         );
     }
@@ -3869,7 +3912,8 @@ mod tests {
     async fn effective_capacity_uses_override_then_declared() {
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
         let e = PoolEntry {
-            tx,
+            tx: Some(tx),
+            generation: 1,
             capacity_vus: 25,
             hostname: "h".into(),
             assigned_run: None,
