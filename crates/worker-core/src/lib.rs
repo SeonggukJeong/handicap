@@ -7,6 +7,7 @@
 
 pub mod client;
 pub mod error;
+pub mod pool_status;
 pub mod reconnect;
 
 pub use client::{
