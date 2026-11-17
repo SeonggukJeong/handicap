@@ -552,6 +552,13 @@ const key = (w, k, shift) => w.document.dispatchEvent(new w.KeyboardEvent("keydo
     d.getElementById("w-reconnect").click(); await sleep(700);
     check("reconnect failure text", d.getElementById("err").textContent === "다시 접속하지 못했습니다: 재접속 실패");
   }
+  // 낮은 창: 확인 상자가 뷰포트 안에서 스크롤된다(레이아웃은 jsdom 밖 — 선언만 확인)
+  {
+    const { w, d } = await load({ value: base("local") });
+    const cs = w.getComputedStyle(d.querySelector("#confirm .box"));
+    check("confirm box scrolls within viewport (overflow-y auto + max-height)", cs.overflowY === "auto" && /100%|calc\(100vh/.test(cs.maxHeight));
+    check("confirm buttons inside the box", d.querySelector("#confirm .box").contains(d.getElementById("confirm-ok")) && d.querySelector("#confirm .box").contains(d.getElementById("confirm-cancel")));
+  }
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAIL`);
   process.exit(fails ? 1 : 0);
 })();
