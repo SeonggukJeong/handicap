@@ -390,3 +390,68 @@ describe("ScheduleForm", () => {
     expect(input).toHaveAccessibleDescription(ko.loadModel.loopCapHint);
   });
 });
+
+describe("ScheduleForm — 계단", () => {
+  const stairProfile = {
+    vus: 0,
+    duration_seconds: 0,
+    ramp_up_seconds: 0,
+    loop_breakdown_cap: 256,
+    http_timeout_seconds: 30,
+    max_in_flight: 50,
+    stair: {
+      targets: [100, 200, 300],
+      hold_seconds: 60,
+      ramp_seconds: 5,
+      discard_seconds: 15,
+    },
+    stages: [
+      { target: 100, duration_seconds: 5 },
+      { target: 100, duration_seconds: 60 },
+    ],
+  } as Profile;
+
+  function renderStair(onSubmit = vi.fn()) {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={{
+          name: "nightly",
+          scenario_id: "s1",
+          profile: stairProfile,
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    return onSubmit;
+  }
+
+  it("schedule_edit_with_stair_opens_stair_tab: 저장 스케줄 편집 → 계단 선택·목록 채움", () => {
+    renderStair();
+    expect(screen.getByRole("radio", { name: "계단" })).toBeChecked();
+    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue("100, 200, 300");
+  });
+
+  it("저장하면 stair가 그대로 가고 stages는 가지 않는다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderStair();
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const p = onSubmit.mock.calls[0][0].profile;
+    expect(p.stair.targets).toEqual([100, 200, 300]);
+    expect(p.stages).toBeUndefined();
+  });
+
+  it("잘못된 목록이면 저장이 비활성", async () => {
+    const user = userEvent.setup();
+    renderStair();
+    const input = screen.getByLabelText("목표 목록 (req/s)");
+    await user.clear(input);
+    await user.type(input, "300, 200");
+    expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
+  });
+});

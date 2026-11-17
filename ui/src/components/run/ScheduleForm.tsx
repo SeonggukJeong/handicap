@@ -74,7 +74,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const initMode = deriveLoadMode(init ?? {});
   const [loadModel, setLoadModel] = useState<"closed" | "open">(initMode.loadModel);
   const [rateMode, setRateMode] = useState<LoadModelState["rateMode"]>(initMode.rateMode);
-  const [stair] = useState<StairDraft>(
+  const [stair, setStair] = useState<StairDraft>(
     init?.stair ? stairDraftFromConfig(init.stair) : STAIR_DEFAULTS,
   );
   const [targetRps, setTargetRps] = useState(
@@ -250,9 +250,11 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     !httpTimeoutInvalid &&
     !connectTimeoutInvalid &&
     (loadModel === "open"
-      ? rateMode === "curve"
-        ? !loadErrs.maxInFlightInvalid && !loadErrs.stagesInvalid
-        : duration >= 1 && !loadErrs.targetRpsInvalid && !loadErrs.maxInFlightInvalid
+      ? rateMode === "stair"
+        ? !loadErrs.stairInvalid && !loadErrs.maxInFlightInvalid && !loadErrs.workerCountInvalid
+        : rateMode === "curve"
+          ? !loadErrs.maxInFlightInvalid && !loadErrs.stagesInvalid
+          : duration >= 1 && !loadErrs.targetRpsInvalid && !loadErrs.maxInFlightInvalid
       : rateMode === "curve"
         ? !loadErrs.stagesInvalid && !loadErrs.gracefulCapInvalid
         : vus >= 1 && duration >= 1 && !loadErrs.rampInvalid) &&
@@ -343,6 +345,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         maxInFlight={maxInFlight}
         setMaxInFlight={setMaxInFlight}
         stages={stages}
+        stair={stair}
+        setStair={setStair}
         setStages={
           setStages as Dispatch<SetStateAction<{ target: string; duration_seconds: string }[]>>
         }

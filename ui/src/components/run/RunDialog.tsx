@@ -25,7 +25,14 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { LoadModelFields } from "./LoadModelFields";
 import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
-import { STAIR_DEFAULTS, stairDraftFromConfig, type StairDraft } from "./stair";
+import {
+  STAIR_DEFAULTS,
+  draftToStairConfig,
+  expandStair,
+  stairDraftFromConfig,
+  stairSummary,
+  type StairDraft,
+} from "./stair";
 import {
   buildProfile as buildProfileShared,
   type CriteriaState,
@@ -47,6 +54,7 @@ import { runSummary } from "./runSummary";
 import { StageCurvePreview } from "./StageCurvePreview";
 import { LoadShapePreview } from "./LoadShapePreview";
 import { Section } from "../ui/Section";
+import { formatDurationKo } from "../../i18n/duration";
 import { Badge } from "../ui/Badge";
 import { Callout } from "../ui/Callout";
 import { Field } from "../ui/Field";
@@ -189,6 +197,7 @@ export function RunDialog({
     return (
       advancedPrefill({ profile, env }) ||
       deriveLoadMode(profile).rateMode === "curve" ||
+      deriveLoadMode(profile).rateMode === "stair" ||
       Number(profile.worker_count ?? 1) > 1 ||
       Object.keys(env).length > 0 ||
       seedBindingsFrom(profile).length > 0
@@ -432,7 +441,7 @@ export function RunDialog({
   // 간단 모드에서 숨겨진 상세 설정 수 (R6). measure는 advancedActiveCount 경유로만 — 이중 계수 금지.
   const detailedAppliedCount =
     advancedActiveCount +
-    (rateMode === "curve" ? 1 : 0) +
+    (rateMode === "curve" || rateMode === "stair" ? 1 : 0) +
     (Number(workerCount) > 1 ? 1 : 0) +
     (httpTimeout !== DEFAULT_HTTP_TIMEOUT_SECONDS ? 1 : 0) +
     (connectTimeout.trim() !== "" ? 1 : 0) +
@@ -470,7 +479,10 @@ export function RunDialog({
   // 실시간 요약 footer (R8). loadState가 곧 form 상태라 sum은 항상 라이브.
   const sum = runSummary(loadState);
   // StageCurvePreview용 숫자 변환 (string-draft → Stage[], 유효 행만)
-  const previewStages = stages
+  const stairConfig = rateMode === "stair" ? draftToStairConfig(stair) : null;
+  const previewStages = (
+    rateMode === "stair" ? (stairConfig ? expandStair(stairConfig) : []) : stages
+  )
     .map((s) => ({ target: Number(s.target), duration_seconds: Number(s.duration_seconds) }))
     .filter(
       (s) =>
@@ -479,17 +491,8 @@ export function RunDialog({
   const canSubmit =
     !poolConflict &&
     (loadModel === "open"
-      ? rateMode === "curve"
-        ? !loadErrs.maxInFlightInvalid &&
-          !loadErrs.stagesInvalid &&
-          !loadErrs.workerCountInvalid &&
-          !loopCapInvalid &&
-          !httpTimeoutInvalid &&
-          !connectTimeoutInvalid &&
-          bindingBlock.ok &&
-          !mutation.isPending
-        : duration >= 1 &&
-          !loadErrs.targetRpsInvalid &&
+      ? rateMode === "stair"
+        ? !loadErrs.stairInvalid &&
           !loadErrs.maxInFlightInvalid &&
           !loadErrs.workerCountInvalid &&
           !loopCapInvalid &&
@@ -497,6 +500,24 @@ export function RunDialog({
           !connectTimeoutInvalid &&
           bindingBlock.ok &&
           !mutation.isPending
+        : rateMode === "curve"
+          ? !loadErrs.maxInFlightInvalid &&
+            !loadErrs.stagesInvalid &&
+            !loadErrs.workerCountInvalid &&
+            !loopCapInvalid &&
+            !httpTimeoutInvalid &&
+            !connectTimeoutInvalid &&
+            bindingBlock.ok &&
+            !mutation.isPending
+          : duration >= 1 &&
+            !loadErrs.targetRpsInvalid &&
+            !loadErrs.maxInFlightInvalid &&
+            !loadErrs.workerCountInvalid &&
+            !loopCapInvalid &&
+            !httpTimeoutInvalid &&
+            !connectTimeoutInvalid &&
+            bindingBlock.ok &&
+            !mutation.isPending
       : rateMode === "curve"
         ? !loadErrs.stagesInvalid &&
           !loadErrs.gracefulCapInvalid &&
@@ -736,6 +757,8 @@ export function RunDialog({
           setMaxInFlight={setMaxInFlight}
           stages={stages}
           setStages={setStages}
+          stair={stair}
+          setStair={setStair}
           rampDown={rampDown}
           setRampDown={setRampDown}
           gracefulCap={gracefulCap}
@@ -769,6 +792,21 @@ export function RunDialog({
             <div aria-hidden="true" className="h-20">
               <StageCurvePreview stages={previewStages} width={300} height={80} />
             </div>
+          </div>
+        )}
+        {/* 간단 모드에서 계단이 설정된 경우 읽기전용 카드. rateMode는 바꾸지 않는다. */}
+        {mode === "simple" && loadModel === "open" && rateMode === "stair" && stairConfig && (
+          <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-medium">{ko.runDialog.stairCardTitle}</p>
+            <p className="text-sm text-slate-700">
+              {ko.runDialog.stairCard(
+                stairConfig.targets.length,
+                stairConfig.targets[0],
+                stairConfig.targets[stairConfig.targets.length - 1],
+                formatDurationKo(stairSummary(stairConfig).totalSeconds),
+              )}
+            </p>
+            <p className="text-xs text-slate-500">{ko.runDialog.stairCardHint}</p>
           </div>
         )}
       </Section>

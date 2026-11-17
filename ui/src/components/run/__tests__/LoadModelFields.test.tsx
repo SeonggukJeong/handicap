@@ -11,11 +11,19 @@ vi.mock("../VuSizingHelper", () => ({
 }));
 
 vi.mock("../SlotSizingHelper", () => ({
-  SlotSizingHelper: () => <div data-testid="slot-sizing-helper" />,
+  SlotSizingHelper: ({ targetRps, peakBased }: { targetRps: string; peakBased?: boolean }) => (
+    <div data-testid="slot-sizing-helper" data-target={targetRps} data-peak={String(!!peakBased)} />
+  ),
 }));
 
 vi.mock("../WorkerSizingHelper", () => ({
-  WorkerSizingHelper: () => <div data-testid="worker-sizing-helper" />,
+  WorkerSizingHelper: ({ targetRps, peakBased }: { targetRps: string; peakBased?: boolean }) => (
+    <div
+      data-testid="worker-sizing-helper"
+      data-target={targetRps}
+      data-peak={String(!!peakBased)}
+    />
+  ),
 }));
 
 const noErrs: LoadModelErrors = {
@@ -769,5 +777,69 @@ describe("도착률→요청 환산 힌트", () => {
   it("closed 모드 → 미렌더 (VU 곡선에 환산 없음)", () => {
     renderFields({ loadModel: "closed", rateMode: "fixed", sizingScenario: twoStepScenario });
     expect(screen.queryByText(/≈ 초당 요청/)).not.toBeInTheDocument();
+  });
+});
+
+describe("LoadModelFields — 계단", () => {
+  const stair = {
+    targets: "100, 200, 800",
+    hold: "60",
+    ramp: "5",
+    discard: "15",
+    p99Cap: "",
+  };
+
+  it("세그먼트(타일 모드)·라디오 둘 다 open에서만 「계단」을 낸다", () => {
+    const { unmount } = render(
+      <LoadModelFields {...baseProps({ loadModel: "open", loadModelTiles: true })} />,
+    );
+    expect(screen.getByRole("radio", { name: "계단" })).toBeInTheDocument();
+    unmount();
+    const r2 = render(<LoadModelFields {...baseProps({ loadModel: "open" })} />);
+    expect(screen.getByRole("radio", { name: "계단" })).toBeInTheDocument();
+    r2.unmount();
+    render(<LoadModelFields {...baseProps({ loadModel: "closed" })} />);
+    expect(screen.queryByRole("radio", { name: "계단" })).not.toBeInTheDocument();
+  });
+
+  it("사이징 도우미는 고정 target_rps 대신 최대 목표(800)를 받는다 — 슬롯·워커 둘 다", async () => {
+    setup({
+      loadModel: "open",
+      rateMode: "stair",
+      targetRps: "7",
+      stair,
+      setStair: vi.fn(),
+      onApplyMaxInFlight: vi.fn(),
+      onApplyWorkerCount: vi.fn(),
+      setWorkerCount: vi.fn(),
+      workerCount: "2",
+      sizingScenarioId: "s1",
+    });
+    const slot = screen.getByTestId("slot-sizing-helper");
+    expect(slot).toHaveAttribute("data-target", "800");
+    expect(slot).toHaveAttribute("data-peak", "true");
+    const worker = screen.getByTestId("worker-sizing-helper");
+    expect(worker).toHaveAttribute("data-target", "800");
+    expect(worker).toHaveAttribute("data-peak", "true");
+  });
+
+  it("최대 목표보다 워커가 많으면 유휴 워커 경고가 뜬다 (stairTargets 전달)", () => {
+    setup({
+      loadModel: "open",
+      rateMode: "stair",
+      stair: { ...stair, targets: "1, 2" },
+      setStair: vi.fn(),
+      setWorkerCount: vi.fn(),
+      workerCount: "5",
+    });
+    expect(screen.getByText(/할 일이 없어요/)).toBeInTheDocument();
+  });
+
+  it("closed로 바꾸면 계단은 고정으로 되돌린다", async () => {
+    const user = userEvent.setup();
+    const props = setup({ loadModel: "open", rateMode: "stair", stair, setStair: vi.fn() });
+    await user.click(screen.getByRole("radio", { name: /closed-loop/ }));
+    expect(props.setLoadModel).toHaveBeenCalledWith("closed");
+    expect(setRateMode).toHaveBeenCalledWith("fixed");
   });
 });

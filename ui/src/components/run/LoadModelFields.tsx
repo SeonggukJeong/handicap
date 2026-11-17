@@ -15,6 +15,8 @@ import { formatDurationKo } from "../../i18n/duration";
 import type { Scenario } from "../../scenario/model";
 import { openLoopWarnings, type OpenLoopWarning } from "./openLoopChecks";
 import { Segmented } from "../ui/Segmented";
+import { StairFields } from "./StairFields";
+import { parseTargets, stairErrors, STAIR_DEFAULTS, type StairDraft } from "./stair";
 
 type StageRow = { target: string; duration_seconds: string };
 
@@ -34,6 +36,9 @@ type Props = {
   maxInFlight: string;
   setMaxInFlight: (s: string) => void;
   stages: StageRow[];
+  // 「계단」 탭 입력 draft. 둘 다 전달될 때만 계단 입력 블록을 렌더(RunDialog·ScheduleForm 공통).
+  stair?: StairDraft;
+  setStair?: (s: StairDraft) => void;
   setStages: Dispatch<SetStateAction<StageRow[]>>;
   rampDown: "graceful" | "immediate";
   setRampDown: (m: "graceful" | "immediate") => void;
@@ -91,6 +96,8 @@ export function LoadModelFields({
   maxInFlight,
   setMaxInFlight,
   stages,
+  stair,
+  setStair,
   setStages,
   rampDown,
   setRampDown,
@@ -139,6 +146,14 @@ export function LoadModelFields({
     return p != null ? String(p) : "";
   }, [stages]);
 
+  // open+stair의 기준 = 최대 목표(유효한 목록일 때만; 아니면 "" → 헬퍼가 안내).
+  const stairTargets = useMemo(() => {
+    const t = parseTargets((stair ?? STAIR_DEFAULTS).targets);
+    return t.ok ? t.values : [];
+  }, [stair]);
+  const stairPeakStr = stairTargets.length > 0 ? String(Math.max(...stairTargets)) : "";
+  const peakOrStairStr = rateMode === "stair" ? stairPeakStr : peakStr;
+
   // 환산 힌트: 도착률(반복/초) → 초당 요청 수 범위. scenario 없으면(ScheduleForm) 미렌더.
   const reqRange = useMemo(
     () => (sizingScenario ? iterationRequestRange(sizingScenario.steps) : null),
@@ -164,6 +179,7 @@ export function LoadModelFields({
         targetRps,
         maxInFlight,
         stages,
+        stairTargets,
         workerCount,
         httpTimeoutSeconds: httpTimeout,
         scenario: sizingScenario ?? null,
@@ -175,6 +191,7 @@ export function LoadModelFields({
       targetRps,
       maxInFlight,
       stages,
+      stairTargets,
       workerCount,
       httpTimeout,
       sizingScenario,
@@ -188,6 +205,12 @@ export function LoadModelFields({
   const inertWarn = openLoopWarns.find(
     (w): w is Extract<OpenLoopWarning, { kind: "inert_slots" }> => w.kind === "inert_slots",
   );
+
+  // 계단은 open-loop 전용 — closed로 가면 고정으로 되돌려 closed 쪽 토글에 선택 없음 상태가 남지 않게.
+  const pickLoadModel = (m: "closed" | "open") => {
+    if (m === "closed" && rateMode === "stair") setRateMode("fixed");
+    setLoadModel(m);
+  };
 
   // 곡선 에디터 블록 — open+curve / closed+curve 공유, 라벨만 모드 분기
   const curveEditor = (
@@ -342,7 +365,7 @@ export function LoadModelFields({
                 id={ids.loadModelClosed}
                 className="sr-only"
                 checked={loadModel === "closed"}
-                onChange={() => setLoadModel("closed")}
+                onChange={() => pickLoadModel("closed")}
               />
               <span
                 aria-hidden="true"
@@ -379,7 +402,7 @@ export function LoadModelFields({
                 id={ids.loadModelOpen}
                 className="sr-only"
                 checked={loadModel === "open"}
-                onChange={() => setLoadModel("open")}
+                onChange={() => pickLoadModel("open")}
               />
               <span
                 aria-hidden="true"
@@ -414,8 +437,7 @@ export function LoadModelFields({
                   value="closed"
                   checked={loadModel === "closed"}
                   onChange={() => {
-                    setLoadModel("closed");
-                    // eager reset 제거 — closed+curve는 이제 유효한 모드
+                    pickLoadModel("closed");
                   }}
                 />
                 {ko.loadModel.closedLoop}
@@ -429,7 +451,7 @@ export function LoadModelFields({
                   name="load-model"
                   value="open"
                   checked={loadModel === "open"}
-                  onChange={() => setLoadModel("open")}
+                  onChange={() => pickLoadModel("open")}
                 />
                 {ko.loadModel.openLoop}
               </label>
@@ -453,6 +475,9 @@ export function LoadModelFields({
                 options={[
                   { value: "fixed", label: "고정" },
                   { value: "curve", label: "곡선" },
+                  ...(loadModel === "open"
+                    ? [{ value: "stair" as const, label: ko.loadModel.stairTab }]
+                    : []),
                 ]}
                 ariaLabel="프로파일"
               />
@@ -489,6 +514,18 @@ export function LoadModelFields({
                   <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
                 )}
               </span>
+              {loadModel === "open" && (
+                <label className="flex items-center gap-1 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="rate-mode"
+                    value="stair"
+                    checked={rateMode === "stair"}
+                    onChange={() => setRateMode("stair")}
+                  />
+                  {ko.loadModel.stairTab}
+                </label>
+              )}
             </div>
           )}
         </fieldset>
@@ -747,8 +784,8 @@ export function LoadModelFields({
                   {onApplyWorkerCount && sizingScenarioId !== undefined && (
                     <WorkerSizingHelper
                       scenarioId={sizingScenarioId}
-                      targetRps={rateMode === "curve" ? peakStr : targetRps}
-                      peakBased={rateMode === "curve"}
+                      targetRps={rateMode === "fixed" ? targetRps : peakOrStairStr}
+                      peakBased={rateMode !== "fixed"}
                       maxInFlight={maxInFlight}
                       onApply={onApplyWorkerCount}
                     />
@@ -850,6 +887,30 @@ export function LoadModelFields({
                   scenario={sizingScenario ?? null}
                   env={sizingEnv ?? {}}
                   targetRps={targetRps}
+                  onApply={onApplyMaxInFlight}
+                />
+              )}
+            </>
+          ) : rateMode === "stair" ? (
+            <>
+              {!simpleMode && stair !== undefined && setStair !== undefined && (
+                <StairFields value={stair} onChange={setStair} errors={stairErrors(stair)} />
+              )}
+              {!simpleMode &&
+                (() => {
+                  const hint = reqConversion(
+                    stairTargets.length ? Math.max(...stairTargets) : null,
+                    true,
+                  );
+                  return hint ? <p className="mb-3 text-xs text-slate-500">{hint}</p> : null;
+                })()}
+              {onApplyMaxInFlight && sizingScenarioId !== undefined && (
+                <SlotSizingHelper
+                  scenarioId={sizingScenarioId}
+                  scenario={sizingScenario ?? null}
+                  env={sizingEnv ?? {}}
+                  targetRps={stairPeakStr}
+                  peakBased
                   onApply={onApplyMaxInFlight}
                 />
               )}

@@ -3789,3 +3789,205 @@ describe("RunDialog — 라벨 (run-identity Task 6)", () => {
     expect(screen.getByRole("textbox", { name: ko.runDialog.labelField })).toHaveValue("이전 라벨");
   });
 });
+
+describe("RunDialog — 계단 탭", () => {
+  const STAIR_PROFILE = {
+    vus: 0,
+    duration_seconds: 0,
+    ramp_up_seconds: 0,
+    loop_breakdown_cap: 256,
+    http_timeout_seconds: 30,
+    measure_phases: false,
+    data_binding: null,
+    max_in_flight: 50,
+    stair: {
+      targets: [100, 200, 300, 400, 500, 600, 700, 800],
+      hold_seconds: 60,
+      ramp_seconds: 5,
+      discard_seconds: 15,
+    },
+    stages: [
+      { target: 100, duration_seconds: 5 },
+      { target: 100, duration_seconds: 60 },
+    ],
+  };
+
+  function runResponse() {
+    return jsonResponse({
+      id: "RST1",
+      scenario_id: "S1",
+      scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+      status: "pending",
+      profile: STAIR_PROFILE,
+      env: {},
+      started_at: null,
+      ended_at: null,
+      created_at: 1,
+    });
+  }
+
+  async function openStairTab(user: ReturnType<typeof userEvent.setup>) {
+    await toDetailed(user);
+    await user.click(screen.getByRole("radio", { name: /도착률/ }));
+    await user.click(screen.getByRole("radio", { name: "계단" }));
+  }
+
+  async function typeList(user: ReturnType<typeof userEvent.setup>, v: string) {
+    const input = screen.getByLabelText("목표 목록 (req/s)");
+    await user.clear(input);
+    if (v) await user.type(input, v);
+  }
+
+  function postedBody() {
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    return JSON.parse((call![1] as RequestInit).body as string);
+  }
+
+  it("open-loop 상세에만 「계단」 세그먼트가 있다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    // 단순 모드: 프로파일 토글 자체가 없다
+    expect(screen.queryByRole("radio", { name: "계단" })).not.toBeInTheDocument();
+    await toDetailed(user);
+    // closed 상세: 없음
+    expect(screen.queryByRole("radio", { name: "계단" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: /도착률/ }));
+    expect(screen.getByRole("radio", { name: "계단" })).toBeInTheDocument();
+  });
+
+  it("계단 탭 제출: stair·max_in_flight·vus 0, stages·target_rps 없음", async () => {
+    fetchMock.mockImplementation(() => runResponse());
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await openStairTab(user);
+    await typeList(user, "100, 200, 300");
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RST1"));
+    const body = postedBody();
+    expect(body.profile.stair).toEqual({
+      targets: [100, 200, 300],
+      hold_seconds: 60,
+      ramp_seconds: 5,
+      discard_seconds: 15,
+    });
+    expect(body.profile.max_in_flight).toBe(200);
+    expect(body.profile.vus).toBe(0);
+    expect(body.profile.duration_seconds).toBe(0);
+    expect(body.profile.stages).toBeUndefined();
+    expect(body.profile.target_rps).toBeUndefined();
+  });
+
+  it("목록이 비었거나 잘못되면 실행 버튼이 비활성이고 오류 문구가 보인다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openStairTab(user);
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+    await typeList(user, "300, 200");
+    expect(screen.getByText(ko.loadModel.stairTargetsNotIncreasing)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+    await typeList(user, "100, 200");
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
+  });
+
+  it("계단에서 closed-loop로 바꾸면 고정으로 돌아가 사용자 수로 제출된다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openStairTab(user);
+    await user.click(screen.getByRole("radio", { name: /동시 사용자/ }));
+    expect(screen.getByRole("radio", { name: "고정" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
+  });
+
+  it("미리보기 차트가 펼친 stages(계단 2개 → 4구간)로 그려진다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openStairTab(user);
+    await typeList(user, "100, 200");
+    expect(screen.getByTestId("stair-summary")).toHaveTextContent(/^2계단/);
+    const svg = screen.getByRole("img", { name: ko.loadModel.curvePreviewAriaRps });
+    // 원점 + (상승, 유지) × 2계단 = 5점
+    expect(svg.querySelector("polyline")!.getAttribute("points")!.split(" ")).toHaveLength(5);
+  });
+
+  it("preset_with_stair_opens_stair_tab: stair+stages 프리셋 → 계단 탭·목록·상세 모드", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "PS",
+                name: "stair",
+                vus: 0,
+                duration_seconds: 0,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/PS")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "PS",
+            scenario_id: "S1",
+            name: "stair",
+            profile: STAIR_PROFILE,
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "PS");
+    await waitFor(() => expect(screen.getByRole("radio", { name: "계단" })).toBeChecked());
+    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue(
+      "100, 200, 300, 400, 500, 600, 700, 800",
+    );
+    expect(screen.getByRole("radio", { name: "상세" })).toBeChecked();
+  });
+
+  it("재실행 프리필: stair 프로필이면 상세 모드·계단 탭으로 열린다", () => {
+    renderWithInitial({ profile: STAIR_PROFILE as never, env: {} });
+    expect(screen.getByRole("radio", { name: "상세" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "계단" })).toBeChecked();
+    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue(
+      "100, 200, 300, 400, 500, 600, 700, 800",
+    );
+  });
+
+  it("simple_mode_with_stair_shows_readonly_card: 단순 모드 카드 + 제출은 stair 그대로", async () => {
+    fetchMock.mockImplementation(() => runResponse());
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await openStairTab(user);
+    await typeList(user, "100, 200, 300, 400, 500, 600, 700, 800");
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(screen.queryByLabelText("목표 목록 (req/s)")).not.toBeInTheDocument();
+    expect(screen.getByText("8계단 · 100–800 req/s · 총 8분 40초")).toBeInTheDocument();
+    expect(screen.getByText(ko.runDialog.stairCardHint)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(postedBody().profile.stair.targets).toHaveLength(8);
+    expect(postedBody().profile.stages).toBeUndefined();
+  });
+
+  it("단순 모드에서 계단이 잘못돼 있으면 실행 버튼은 막힌다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openStairTab(user);
+    await typeList(user, "");
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+  });
+});

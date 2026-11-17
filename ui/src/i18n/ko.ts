@@ -179,6 +179,10 @@ export const ko = {
     // 간단 모드 곡선 읽기전용 카드 (R17)
     curveCardTitle: "곡선 부하 설정됨",
     curveCardHint: "상세 모드에서 편집",
+    stairCard: (steps: number, min: number, max: number, total: string) =>
+      `${steps}계단 · ${min.toLocaleString()}–${max.toLocaleString()} req/s · 총 ${total}`,
+    stairCardTitle: "계단 부하 설정됨",
+    stairCardHint: "상세에서 수정",
   },
   binding: {
     sectionTitle: "데이터 바인딩",
@@ -204,6 +208,28 @@ export const ko = {
     branchGroupAriaTail: "변수 매핑",
   },
   loadModel: {
+    stairTab: "계단",
+    stairHelperTitle: "목표 목록 만들기",
+    stairGoalLabel: "목표 (req/s)",
+    stairGoalHelp:
+      "버텨야 할 요청 수 — 운영 피크 데이터가 있으면 그 값을 넣으세요. 요청 1개짜리 시나리오면 req/s = 반복/초입니다.",
+    stairMultipleLabel: "최대 배수",
+    stairMakeList: "목록 만들기",
+    stairHelperNote:
+      "목표의 25%·50%·75%·100% 뒤로 25%씩 최대 배수까지 만듭니다. 만든 목록은 고칠 수 있습니다.",
+    stairTargetsLabel: "목표 목록 (req/s)",
+    stairTargetsPlaceholder: "100, 200, 300",
+    stairHoldLabel: "계단 유지 (초)",
+    stairRampLabel: "상승 (초)",
+    stairDiscardLabel: "앞부분 버림 (초)",
+    stairDiscardHelp:
+      "목표를 올린 직후 시스템이 적응하는 시간. 이 구간은 판정에서 빼고 차트에 회색으로 보여 줍니다. 자동 확장(HPA)이 있으면 늘리세요.",
+    stairJudgeToggle: "판정 기준",
+    stairJudgeRules:
+      "달성 ≥ 목표의 95% · dropped 0 · 오류율 < 1% · p99 < 아래 계단의 3배(아래 계단이 1 ms 미만이면 5 ms)",
+    stairP99CapLabel: "절대 p99 상한 (ms, 선택)",
+    stairP99CapHelp: "넣으면 '아래 계단의 3배' 규칙 대신 이 값으로 판정합니다.",
+    stairJudgeSetHint: (n: number) => `${n}개 설정됨`,
     stairTargetsEmpty: "목표를 쉼표로 구분해 적어 주세요 (예: 100, 200, 300)",
     stairTargetsNotInteger:
       "목표는 정수만 적을 수 있어요. 쉼표로 구분해 적어 주세요 (예: 100, 200, 300)",
