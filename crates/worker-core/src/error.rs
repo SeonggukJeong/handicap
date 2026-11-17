@@ -25,6 +25,23 @@ pub enum WorkerError {
     /// rows. Treated as a run failure (the engine never started).
     #[error("dataset stream ended early ({got}/{expected} rows)")]
     DatasetIncomplete { got: u64, expected: u64 },
+    /// 배정 전에 컨트롤러가 `Abort`를 보냈다(예: 토큰 거절). Display는 `NoAssignment`와
+    /// 같아 로그가 불변이고, 사유는 `abort_reason()`으로만 얻는다. 사유는 200자로 잘림.
+    #[error("missing assignment after register")]
+    AbortedBeforeAssignment { reason: String },
+    /// 연결 상한(`RegisterOpts::connect_timeout`) 안에 채널 연결·Register 전송을 못 끝냈다.
+    #[error("connect timed out")]
+    ConnectTimeout,
+}
+
+impl WorkerError {
+    /// 배정 전 `Abort`의 사유(있으면).
+    pub fn abort_reason(&self) -> Option<&str> {
+        match self {
+            WorkerError::AbortedBeforeAssignment { reason } => Some(reason),
+            _ => None,
+        }
+    }
 }
 
 // `#[from]`은 Box 필드에 못 쓴다 — `?`가 계속 `tonic::Status`를 받도록 수동 구현.

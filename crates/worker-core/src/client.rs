@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use futures::StreamExt;
 use handicap_proto::v1 as pb;
@@ -98,6 +99,16 @@ async fn forward_inbound<S>(
     }
 }
 
+/// `connect_and_register_opts`의 선택 옵션. 기본값 = 옛 동작(연결 상한 없음·콜백 없음).
+#[derive(Default)]
+pub struct RegisterOpts<'a> {
+    /// `Some(d)`면 채널 연결 + 스트림 개설 + Register 전송 구간을 `d`로 제한한다.
+    /// 배정 대기(유휴)는 제한하지 않는다.
+    pub connect_timeout: Option<Duration>,
+    /// 배정 대기 중 첫 `Ping`(또는 Ping 없이 `Assignment`) 수신 때 정확히 한 번 호출.
+    pub on_accepted: Option<&'a (dyn Fn() + Send + Sync)>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn connect_and_register(
     controller_url: &str,
@@ -109,33 +120,79 @@ pub async fn connect_and_register(
     stable: bool,
     cancel: &CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
-    let channel = Channel::from_shared(controller_url.to_string())?
-        .keep_alive_while_idle(true)
-        .http2_keep_alive_interval(std::time::Duration::from_secs(20))
-        .keep_alive_timeout(std::time::Duration::from_secs(20))
-        .connect()
-        .await?;
-    let mut client = CoordinatorClient::new(channel);
-
-    let (tx, rx) = mpsc::channel::<WorkerMessage>(64);
-    let outbound = ReceiverStream::new(rx);
-    let response = client.channel(outbound).await?;
-    let mut inbound = response.into_inner();
-
-    // Send Register.
-    tx.send(WorkerMessage {
-        payload: Some(WorkerPayload::Register(Register {
-            worker_id: worker_id.to_string(),
-            run_id: run_id.to_string(),
-            capacity_vus,
-            token: token.to_string(),
-            hostname: hostname.to_string(),
-            stable_id: stable,
-        })),
-    })
+    connect_and_register_opts(
+        controller_url,
+        worker_id,
+        run_id,
+        capacity_vus,
+        token,
+        hostname,
+        stable,
+        cancel,
+        RegisterOpts::default(),
+    )
     .await
-    .map_err(|_| WorkerError::SendFailed)?;
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn connect_and_register_opts(
+    controller_url: &str,
+    worker_id: &str,
+    run_id: &str,
+    capacity_vus: u32,
+    token: &str,
+    hostname: &str,
+    stable: bool,
+    cancel: &CancellationToken,
+    opts: RegisterOpts<'_>,
+) -> Result<WorkerLink, WorkerError> {
+    let mut endpoint = Channel::from_shared(controller_url.to_string())?
+        .keep_alive_while_idle(true)
+        .http2_keep_alive_interval(Duration::from_secs(20))
+        .keep_alive_timeout(Duration::from_secs(20));
+    if let Some(d) = opts.connect_timeout {
+        endpoint = endpoint.connect_timeout(d);
+    }
+    let setup = async {
+        let channel = endpoint.connect().await?;
+        let mut client = CoordinatorClient::new(channel);
+
+        let (tx, rx) = mpsc::channel::<WorkerMessage>(64);
+        let outbound = ReceiverStream::new(rx);
+        let response = client.channel(outbound).await?;
+        let inbound = response.into_inner();
+
+        // Send Register.
+        tx.send(WorkerMessage {
+            payload: Some(WorkerPayload::Register(Register {
+                worker_id: worker_id.to_string(),
+                run_id: run_id.to_string(),
+                capacity_vus,
+                token: token.to_string(),
+                hostname: hostname.to_string(),
+                stable_id: stable,
+            })),
+        })
+        .await
+        .map_err(|_| WorkerError::SendFailed)?;
+        Ok::<_, WorkerError>((tx, inbound))
+    };
+    let (tx, mut inbound) = match opts.connect_timeout {
+        Some(d) => tokio::time::timeout(d, setup)
+            .await
+            .map_err(|_| WorkerError::ConnectTimeout)??,
+        None => setup.await?,
+    };
     info!(%worker_id, %run_id, "registered with controller");
+    let mut accepted = false;
+    let mut fire_accepted = || {
+        if !accepted {
+            accepted = true;
+            if let Some(cb) = opts.on_accepted {
+                cb();
+            }
+        }
+    };
 
     // Wait for the first RunAssignment, answering heartbeat Pings while we wait.
     // Pool idle workers block here until the controller pushes an assignment; the
@@ -149,8 +206,12 @@ pub async fn connect_and_register(
         };
         match next {
             Some(Ok(msg)) => match msg.payload {
-                Some(ServerPayload::Assignment(a)) => break a,
+                Some(ServerPayload::Assignment(a)) => {
+                    fire_accepted();
+                    break a;
+                }
                 Some(ServerPayload::Ping(p)) => {
+                    fire_accepted();
                     tx.send(WorkerMessage {
                         payload: Some(WorkerPayload::Pong(Pong { nonce: p.nonce })),
                     })
@@ -165,6 +226,11 @@ pub async fn connect_and_register(
                 }
                 other => {
                     warn!(?other, "expected RunAssignment, got something else");
+                    if let Some(ServerPayload::Abort(a)) = other {
+                        return Err(WorkerError::AbortedBeforeAssignment {
+                            reason: a.reason.chars().take(200).collect(),
+                        });
+                    }
                     return Err(WorkerError::NoAssignment);
                 }
             },

@@ -9,6 +9,8 @@ pub mod client;
 pub mod error;
 pub mod reconnect;
 
-pub use client::{WorkerLink, connect_and_register, load_datasets};
+pub use client::{
+    RegisterOpts, WorkerLink, connect_and_register, connect_and_register_opts, load_datasets,
+};
 pub use error::WorkerError;
 pub use reconnect::{connect_with_backoff, retry_with_backoff};
