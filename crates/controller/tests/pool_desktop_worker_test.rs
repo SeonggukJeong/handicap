@@ -2,7 +2,7 @@
 //! 데스크톱 풀 진입점 `run_pool_desktop`: 탐침·포기 없는 재시도·상태 사건을 진짜 풀 컨트롤러에 붙여 검증한다.
 //! 사건은 모아 두고, 조건이 참이 될 때까지 기한 안에서 폴링한다(고정 sleep으로 단언하지 않는다).
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -601,25 +601,19 @@ async fn run_abort_keeps_worker_and_emits_no_excluded() {
     rc.shutdown().await;
 }
 
-/// 127.0.0.1과 다른, 이 PC에 바인드되는 IPv4: 127.0.0.2(리눅스), 없으면 기본 경로의 인터페이스 주소
-/// (UDP `connect`는 패킷을 보내지 않고 경로만 고른다).
-fn second_local_ipv4() -> Option<Ipv4Addr> {
-    let lo2 = Ipv4Addr::new(127, 0, 0, 2);
-    if std::net::TcpListener::bind((lo2, 0)).is_ok() {
-        return Some(lo2);
-    }
-    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-    s.connect("192.0.2.1:9").ok()?;
-    match s.local_addr().ok()?.ip() {
-        IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => Some(ip),
-        _ => None,
-    }
+const LOOPBACK_2: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 2);
+
+/// 127.0.0.2에 바인드되면(리눅스) 그 주소. macOS는 127.0.0.1만 있어 `None`.
+fn second_loopback() -> Option<Ipv4Addr> {
+    std::net::TcpListener::bind((LOOPBACK_2, 0))
+        .is_ok()
+        .then_some(LOOPBACK_2)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wrong_host_candidate_is_skipped_for_the_next_candidate() {
-    let Some(other_ip) = second_local_ipv4() else {
-        eprintln!("skip: no second local IPv4 to bind");
+    let Some(other_ip) = second_loopback() else {
+        eprintln!("skip: 127.0.0.2 is not bindable here");
         return;
     };
     let port = free_port();
@@ -683,4 +677,80 @@ async fn wrong_host_candidate_is_skipped_for_the_next_candidate() {
     desk.stop().await;
     real.shutdown().await;
     wrong.shutdown().await;
+}
+
+async fn start_non_pool_at(grpc_port: u16) -> RunningController {
+    run_in_process(InProcessConfig {
+        db: Some(tmp_db()),
+        scheduler_disabled: true,
+        grpc: SocketAddr::from(([127, 0, 0, 1], grpc_port)),
+        grpc_port_fallback: false,
+        ..InProcessConfig::default()
+    })
+    .await
+    .expect("start non-pool controller")
+}
+
+/// 수락 전에 거절한 후보는 남은 후보가 모두 응답하지 않는 탐침 한 번 뒤 다시 후보가 된다.
+/// 127.0.0.2:P에는 아무것도 없다(리눅스는 곧바로 거부, macOS는 탐침 상한 2초 뒤 실패).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rejected_candidate_returns_after_a_round_with_no_answer() {
+    let port = free_port();
+    let a = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let non_pool = start_non_pool_at(port).await;
+    let (events, sink) = event_sink();
+    let cancel = CancellationToken::new();
+    let handle = tokio::spawn(run_pool_desktop(
+        pool_target(vec![Ipv4Addr::LOCALHOST, LOOPBACK_2], port, TOKEN),
+        cancel.clone(),
+        sink,
+    ));
+    let desk = Desk {
+        events,
+        cancel,
+        handle,
+    };
+    let rejected_then_unreachable = |e: &[PoolEvent]| {
+        e.iter()
+            .position(|x| {
+                matches!(
+                    x,
+                    PoolEvent::AttemptFailed {
+                        reason: FailReason::Rejected(r),
+                        ..
+                    } if r == "controller is not in pool mode"
+                )
+            })
+            .is_some_and(|i| {
+                e[i..].iter().any(|x| {
+                    matches!(
+                        x,
+                        PoolEvent::AttemptFailed {
+                            reason: FailReason::Unreachable,
+                            ..
+                        }
+                    )
+                })
+            })
+    };
+    assert!(
+        desk.wait_until(WAIT, rejected_then_unreachable).await,
+        "{:?}",
+        desk.snapshot()
+    );
+    tokio::time::timeout(Duration::from_secs(15), non_pool.shutdown())
+        .await
+        .expect("shutdown must not hang");
+    drop(non_pool);
+    let pool = start_pool(port).await;
+    assert!(
+        desk.wait_until(Duration::from_secs(15), |e| e
+            .iter()
+            .any(|x| matches!(x, PoolEvent::Accepted { addr } if *addr == a)))
+            .await,
+        "{:?}",
+        desk.snapshot()
+    );
+    desk.stop().await;
+    pool.shutdown().await;
 }

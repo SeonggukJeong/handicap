@@ -9,7 +9,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status, Streaming};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use handicap_proto::v1 as pb;
 use pb::coordinator_server::Coordinator;
@@ -914,11 +914,19 @@ impl CoordinatorState {
                 return;
             };
             let Some(e) = rw.workers.get_mut(worker_id) else {
-                warn!(
-                    ?worker_id,
-                    ?run_id,
-                    "run status from a worker not in this run: ignored"
-                );
+                if rw.terminal {
+                    debug!(
+                        ?worker_id,
+                        ?run_id,
+                        "run status from a worker not in this run: ignored"
+                    );
+                } else {
+                    warn!(
+                        ?worker_id,
+                        ?run_id,
+                        "run status from a worker not in this run: ignored"
+                    );
+                }
                 return;
             };
             e.phase = if phase == completed {

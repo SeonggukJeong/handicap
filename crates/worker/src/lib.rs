@@ -626,7 +626,7 @@ where
         .collect();
     let mut attempt = 0usize;
     let mut last_reason: Option<FailReason> = None;
-    // 수락 전에 틀린 상대로 판명된 후보. 전부 빠지면 비우고 다시 모든 후보를 탐침한다.
+    // 수락 전에 틀린 상대로 판명된 후보. 전부 빠졌거나, 남은 후보 중 아무도 응답하지 않으면 비운다.
     let mut excluded: std::collections::HashSet<std::net::SocketAddr> =
         std::collections::HashSet::new();
     info!(version = env!("CARGO_PKG_VERSION"), %worker_id, "desktop pool worker starting");
@@ -651,6 +651,9 @@ where
             p = probe_first(&round, PROBE_TIMEOUT, &reachable) => p,
         };
         let Some(addr) = probed else {
+            if round.len() < addrs.len() {
+                excluded.clear();
+            }
             let d = desktop_retry_delay(attempt);
             log_failure(
                 &mut last_reason,

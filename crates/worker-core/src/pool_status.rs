@@ -192,13 +192,13 @@ fn is_bidi_control(c: char) -> bool {
     )
 }
 
-/// 서버가 보낸 글자를 사건에 싣기 전에 다듬는다: 제어 글자(C0·DEL·C1, 줄바꿈·탭 포함)와
-/// bidi 제어 글자를 U+FFFD로 바꾸고 글자(char) 단위로 `max_chars`까지 자른다.
+/// 서버가 보낸 글자를 사건에 싣기 전에 다듬는다: 제어 글자(C0·DEL·C1, 줄바꿈·탭 포함),
+/// 줄·문단 구분자(U+2028/2029), bidi 제어 글자를 U+FFFD로 바꾸고 글자(char) 단위로 `max_chars`까지 자른다.
 pub fn sanitize_clip(s: &str, max_chars: usize) -> String {
     s.chars()
         .take(max_chars)
         .map(|c| {
-            if c.is_control() || is_bidi_control(c) {
+            if c.is_control() || c == '\u{2028}' || c == '\u{2029}' || is_bidi_control(c) {
                 '\u{FFFD}'
             } else {
                 c
@@ -590,6 +590,18 @@ mod tests {
             '\u{202E}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
         ];
         for c in bidi {
+            assert_eq!(
+                sanitize_clip(&format!("a{c}b"), 10),
+                "a\u{FFFD}b",
+                "U+{:04X}",
+                c as u32
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_clip_replaces_line_and_paragraph_separators() {
+        for c in ['\u{2028}', '\u{2029}'] {
             assert_eq!(
                 sanitize_clip(&format!("a{c}b"), 10),
                 "a\u{FFFD}b",
