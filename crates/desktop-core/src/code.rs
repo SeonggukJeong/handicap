@@ -58,7 +58,7 @@ pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     !crc
 }
 
-/// 부하기가 접속을 시도해도 되는 주소인가(0.0.0.0/8·루프백·링크로컬·멀티캐스트·브로드캐스트·예약 240/4·CGNAT 100.64/10 거절).
+/// 부하기가 접속을 시도해도 되는 주소인가(0.0.0.0/8·루프백·링크로컬·멀티캐스트·브로드캐스트·예약 240/4·메타데이터 100.100.100.200 거절).
 pub fn is_allowed_target_ip(ip: Ipv4Addr) -> bool {
     !(ip.octets()[0] == 0
         || ip.is_loopback()
@@ -66,7 +66,7 @@ pub fn is_allowed_target_ip(ip: Ipv4Addr) -> bool {
         || ip.is_multicast()
         || ip.is_broadcast()
         || ip.octets()[0] >= 240
-        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64))
+        || ip.octets() == [100, 100, 100, 200])
 }
 
 /// 검사 없이 그대로 만든다(호출자가 주소를 거르고 `MAX_CODE_IPS`로 자른다).
@@ -326,7 +326,9 @@ mod tests {
                 Err(CodeError::Format)
             );
         }
-        assert!(decode(&code_for(&[[8, 8, 8, 8]])).is_ok());
+        for ok in [[8, 8, 8, 8], [100, 64, 0, 1], [100, 127, 255, 254]] {
+            assert!(decode(&code_for(&[ok])).is_ok(), "{ok:?}");
+        }
     }
 
     #[test]
