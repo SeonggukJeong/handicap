@@ -740,7 +740,9 @@ pub fn build_stair_report(
     let explains = |i: usize| match j.states[i] {
         StepState::After => true,
         StepState::Saturated | StepState::Unconfirmed | StepState::Spike => !j.slot_limited[i],
-        StepState::Ok | StepState::NotMeasured => false,
+        // 포화 지점 뒤 측정 부족 계단(포화를 보고 run을 멈춘 경우)은 판정 밖이라 설명된다.
+        StepState::NotMeasured => j.saturation.is_some_and(|k| i > k),
+        StepState::Ok => false,
     };
     let step_ms = step_s * 1000;
     let mut any_dropped = false;

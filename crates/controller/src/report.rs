@@ -4209,6 +4209,83 @@ steps:
         }
 
         #[test]
+        fn stair_mixed_legacy_worker_dropped_not_explained() {
+            // 워커 a(새 부하기)는 지연으로 무너진 계단1에서 dropped, 워커 b(예전 부하기)는 run_metrics만.
+            let (c, mut fx) = two_step(Sec {
+                launched: 190,
+                completed: 190,
+                dropped: 10,
+                errors: 0,
+                lat_us: 20_000,
+            });
+            assert!(fx.report(&c).dropped_explained, "대조: 워커 a만이면 설명됨");
+            fx.inp.starts.push(start("b", T0));
+            for o in 0..42 {
+                let lat = if o < 21 { 2_000 } else { 20_000 };
+                fx.rows.push(mrow("b", 1000 + o, "s", 50, 0, &[(lat, 50)]));
+            }
+            let r = fx.report(&c);
+            assert!(r.notes.open_loop_unknown);
+            assert_eq!(r.steps[1].state, StepState::Saturated);
+            assert!(!r.steps[1].slot_limited);
+            assert!(
+                !r.dropped_explained,
+                "초 단위 귀속을 모르는 워커가 섞이면 배너 유지(§5.7)"
+            );
+        }
+
+        /// 계단 수 `targets`, `sat_from`부터 지연+dropped로 무너짐, 마지막 계단은
+        /// 스케줄러가 앞 5초만 돌고 멈춰(dropped 포함) 측정 안 됨.
+        fn partial_tail(targets: &[u32], sat_from: i64) -> (StairConfig, Fx) {
+            let c = scfg(targets, 1, 20, 5);
+            let last = targets.len() as i64 - 1;
+            let tg: Vec<u64> = targets.iter().map(|&t| u64::from(t)).collect();
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, last * 21 + 5, |o| {
+                let i = o / 21;
+                let t = tg[i as usize];
+                if i == last || i >= sat_from {
+                    Some(Sec {
+                        launched: t - 10,
+                        completed: t - 10,
+                        dropped: 10,
+                        errors: 0,
+                        lat_us: 20_000,
+                    })
+                } else {
+                    Some(sec(t, 2_000))
+                }
+            });
+            (c, fx)
+        }
+
+        #[test]
+        fn stair_dropped_in_unmeasured_step_after_saturation_explained() {
+            let (c, fx) = partial_tail(&[100, 200, 300, 400], 1);
+            let r = fx.report(&c);
+            let states: Vec<StepState> = r.steps.iter().map(|s| s.state).collect();
+            use StepState::*;
+            assert_eq!(states, vec![Ok, Saturated, Saturated, NotMeasured]);
+            assert!(
+                r.dropped_explained,
+                "포화 뒤 측정 안 된 계단의 dropped는 판정 밖"
+            );
+        }
+
+        #[test]
+        fn stair_dropped_in_unmeasured_tail_without_saturation_not_explained() {
+            // 포화 없이 run이 끝난 미측정 계단의 dropped는 설명 안 됨(배너 유지).
+            let (c, fx) = partial_tail(&[100, 200, 300], 9);
+            let r = fx.report(&c);
+            let states: Vec<StepState> = r.steps.iter().map(|s| s.state).collect();
+            use StepState::*;
+            assert_eq!(states, vec![Ok, Ok, NotMeasured]);
+            assert_eq!(r.headline.kind, HeadlineKind::OkThenUnmeasured);
+            assert!(!r.dropped_explained);
+        }
+
+        #[test]
         fn stair_dropped_straddling_into_ok_step_not_explained() {
             // t0 = 1000.3s라 초가 계단 경계에 걸친다. 계단1은 튐(지연+dropped, 설명됨), 계단2 정상.
             let c = scfg(&[100, 200, 300], 1, 20, 5);
