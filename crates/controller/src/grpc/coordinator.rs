@@ -29,6 +29,11 @@ const DATASET_BATCH_ROWS: i64 = 1000;
 /// How long a pool entry left awaiting re-register survives before it is removed.
 const AWAIT_REREGISTER_GRACE: Duration = Duration::from_secs(10);
 
+/// Shortest lifetime of a 「제외」 tombstone, whatever the stale timeout: it matches the
+/// worker's reconnect total cap (worker-core `reconnect::TOTAL_CAP`, 60 s), so a worker
+/// still in reconnect backoff when it re-registers is bounced.
+const TOMBSTONE_MIN_LIFETIME: Duration = Duration::from_secs(60);
+
 /// Abort reason for an idle (empty run_id) register on a controller that is not in pool mode.
 const NOT_POOL_MODE_REASON: &str = "controller is not in pool mode";
 
@@ -116,8 +121,9 @@ struct PoolEntry {
     /// The worker's stream closed cleanly after it finished its part of `assigned_run`;
     /// the worker reconnects per run, so the entry is kept (operator control survives)
     /// and stays unreservable (`assigned_run` is still `Some`) until it re-registers.
-    /// It holds no sender (`tx` is `None`); the reaper does not ping it — only
-    /// `last_seen` staleness evicts it if the worker never comes back.
+    /// It holds no sender (`tx` is `None`); the reaper does not ping it. It is removed
+    /// by the `AWAIT_REREGISTER_GRACE` timer (10 s), by `last_seen` staleness, or by an
+    /// operator exclude.
     awaiting_reregister: bool,
     /// The worker reported a terminal phase that means it finished its part of
     /// `assigned_run`: Completed/Failed, or an Aborted that is controller-requested
@@ -268,6 +274,9 @@ enum AssignStep {
     NoAssignment,
     /// The assignment `send` failed — worker `i` is a member.
     SendFailed,
+    /// `register` returned `Resend` — worker `i` already registered for the run (a
+    /// run-id Register on another stream), so it is a member.
+    AlreadyMember,
 }
 
 /// First reservation index to release: `i` itself only when it never became a
@@ -275,7 +284,7 @@ enum AssignStep {
 fn release_start(failed_at: AssignStep, i: usize) -> usize {
     match failed_at {
         AssignStep::NotAssigned => i,
-        AssignStep::NoAssignment | AssignStep::SendFailed => i + 1,
+        AssignStep::NoAssignment | AssignStep::SendFailed | AssignStep::AlreadyMember => i + 1,
     }
 }
 
@@ -419,8 +428,16 @@ impl CoordinatorState {
                     vu_count,
                     first,
                 } => (shard_index, shard_count, vu_offset, vu_count, first),
-                // 이 분기는 `NoRun`·초과 등록 `Reject`만 예상한다(예약 ID는 겹치지 않아
-                // `Resend` — 이미 구성원 — 은 오지 않는다; 오면 k를 풀면 안 된다).
+                // `Resend` — k가 이미 구성원(다른 스트림의 run-id Register)이라 k는 풀지 않는다.
+                RegisterOutcome::Resend { .. } => {
+                    self.release_unsent_reservations(
+                        run_id,
+                        &ids[release_start(AssignStep::AlreadyMember, i)..],
+                    )
+                    .await;
+                    return Err(PoolAssignFailed);
+                }
+                // `NoRun`·`Reject` — k는 구성원이 아니다.
                 _ => {
                     self.release_unsent_reservations(
                         run_id,
@@ -611,12 +628,13 @@ impl CoordinatorState {
     /// the lock with no `.await`, drop the lock, then do all `.await` (Ping send /
     /// eviction) outside it. Only entries holding a sender (`Some`) are pinged; a dead
     /// tx (send Err) means the stream is gone → evict (R3). Tombstones older than
-    /// `stale` are dropped in the same lock section.
+    /// `max(stale, TOMBSTONE_MIN_LIFETIME)` are dropped in the same lock section.
     pub async fn pool_heartbeat_tick(&self, now: tokio::time::Instant, stale: std::time::Duration) {
         let snapshot: Vec<(String, Option<WorkerTx>, u64, bool, bool)> = {
             let mut g = self.pool.lock().await;
+            let tombstone_lifetime = stale.max(TOMBSTONE_MIN_LIFETIME);
             g.tombstones
-                .retain(|_, t| now.saturating_duration_since(t.created) <= stale);
+                .retain(|_, t| now.saturating_duration_since(t.created) <= tombstone_lifetime);
             g.entries
                 .iter()
                 .map(|(id, e)| {
@@ -701,8 +719,12 @@ impl CoordinatorState {
                         let this = self.clone();
                         let wid = worker_id.to_string();
                         tokio::spawn(async move {
-                            tokio::time::sleep_until(deadline).await;
-                            this.pool_expire_awaiting(&wid, generation).await;
+                            tokio::select! {
+                                _ = tokio::time::sleep_until(deadline) => {
+                                    this.pool_expire_awaiting(&wid, generation).await;
+                                }
+                                _ = this.streams_shutdown.cancelled() => {}
+                            }
                         });
                         return;
                     }
@@ -3324,6 +3346,43 @@ mod tests {
         assert_eq!(release_start(AssignStep::NotAssigned, 2), 2);
         assert_eq!(release_start(AssignStep::NoAssignment, 2), 3);
         assert_eq!(release_start(AssignStep::SendFailed, 2), 3);
+        assert_eq!(release_start(AssignStep::AlreadyMember, 2), 3);
+    }
+
+    #[tokio::test]
+    async fn resend_during_assign_keeps_member_reserved() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let mut keep = Vec::new();
+        for id in ["a", "b"] {
+            let (tx, rx) = fake_tx();
+            coord
+                .pool_register_idle(id, tx, 100, id.into(), false)
+                .await;
+            keep.push(rx);
+        }
+        let mut reserved = coord.reserve_idle_pool(&run_id, 8).await;
+        assert_eq!(reserved.len(), 2);
+        reserved.sort_by(|x, y| x.0.cmp(&y.0));
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 8, None, LONG, LONG)
+            .await;
+        // 같은 ID의 run-id Register가 다른 스트림에서 먼저 도착 → "a"는 이미 구성원.
+        let (tx_dup, _r_dup) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "a", tx_dup).await,
+            RegisterOutcome::Assigned { .. }
+        ));
+        assert!(coord.assign_pool_workers(&run_id, reserved).await.is_err());
+        let g = coord.pool.lock().await;
+        let ar = |id: &str| g.entries.get(id).unwrap().assigned_run.clone();
+        assert_eq!(
+            ar("a"),
+            Some(run_id.clone()),
+            "구성원은 풀지 않음(최종 Abort를 받는다)"
+        );
+        assert_eq!(ar("b"), None, "배정 못 받은 살아 있는 워커는 풀림");
     }
 
     #[tokio::test]
@@ -5367,15 +5426,37 @@ mod tests {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         awaiting_entry_without_sender(&coord).await;
         assert!(coord.pool_exclude("w1", "bye").await);
+        let created = tokio::time::Instant::now();
         coord
-            .pool_heartbeat_tick(
-                tokio::time::Instant::now() + Duration::from_secs(31),
-                Duration::from_secs(30),
-            )
+            .pool_heartbeat_tick(created + Duration::from_secs(31), Duration::from_secs(30))
+            .await;
+        assert!(
+            coord.pool.lock().await.tombstones.contains_key("w1"),
+            "stale(30 s)이 지나도 재연결 창(60 s) 안이면 남는다"
+        );
+        coord
+            .pool_heartbeat_tick(created + Duration::from_secs(61), Duration::from_secs(30))
             .await;
         assert!(matches!(
             register_w1(&coord).await,
             IdleRegister::Registered { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn tombstone_outlives_small_stale_for_reconnect_window() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        awaiting_entry_without_sender(&coord).await;
+        assert!(coord.pool_exclude("w1", "bye").await);
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now() + Duration::from_secs(31),
+                Duration::from_secs(6),
+            )
+            .await;
+        assert!(matches!(
+            register_w1(&coord).await,
+            IdleRegister::Tombstoned { .. }
         ));
     }
 

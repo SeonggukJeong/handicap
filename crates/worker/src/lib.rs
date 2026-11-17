@@ -420,11 +420,12 @@ async fn execute_assignment(
     // the DATA frame (final RunStatus) arrives before END_STREAM on the same
     // stream. We then wait, capped at 2s, for `inbound_fwd` (the controller
     // closing its leg). The controller releases its copy of our stream's sender
-    // once we report our end phase and removes the run entry at finalization, so
-    // it closes that leg promptly and the wait ends almost at once; 2s is only an
-    // upper bound. `inbound_fwd` is a `ForwarderTask` moved into the timeout: when
-    // the wait expires (or this future is dropped) the forwarder is aborted, not
-    // detached.
+    // once we report our end phase and removes the run entry at finalization. A
+    // worker whose report is not the last closes at once; the last reporter's leg
+    // closes only after the controller finishes finalization (status write and
+    // report build). 2s is the upper bound. `inbound_fwd` is a `ForwarderTask`
+    // moved into the timeout: when the wait expires (or this future is dropped)
+    // the forwarder is aborted, not detached.
     shutdown.store(true, Ordering::Relaxed);
     drop(tx);
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
