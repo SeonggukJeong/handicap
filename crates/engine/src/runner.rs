@@ -14,7 +14,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{
     ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LOOP_SPLIT_PASS_SAMPLE_CAP,
-    LoopExitOutcome, LoopExitStat, LoopSplitClass, LoopStat, PhaseStat, StepWindow,
+    LoopExitOutcome, LoopExitStat, LoopSplitClass, LoopStat, PhaseStat, StepWindow, current_second,
 };
 use crate::blank_guard::{self, BlankTable};
 use crate::condition::eval_condition;
@@ -1837,11 +1837,7 @@ pub async fn run_scenario_open_loop(
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
-            let now_s = chrono_second();
-            let open_loop_seconds = flush_counters
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .drain_completed(now_s);
+            let now_s = current_second();
             let (
                 drained,
                 loop_stats,
@@ -1850,8 +1846,11 @@ pub async fn run_scenario_open_loop(
                 phase_stats,
                 error_kind_stats,
                 loop_exit_stats,
+                open_loop_seconds,
             ) = {
                 let mut g = flush_agg.lock().await;
+                // 계수 행은 agg 잠금을 얻은 뒤에 꺼낸다 — 잠금을 기다리는 동안 꺼낸 행을
+                // 들고 있으면, 그 사이 최종 drain·`flusher.abort()`가 끝나 행이 사라진다.
                 (
                     g.drain_completed(now_s),
                     g.drain_loop_deltas(),
@@ -1860,6 +1859,10 @@ pub async fn run_scenario_open_loop(
                     g.drain_phase_deltas(),
                     g.drain_error_kind_deltas(),
                     g.drain_loop_exit_deltas(),
+                    flush_counters
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .drain_completed(now_s),
                 )
             };
             let has_data = !drained.is_empty()
@@ -2027,7 +2030,7 @@ pub async fn run_scenario_open_loop(
     counters
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .end_scheduler(chrono_second());
+        .end_scheduler(current_second());
 
     while let Some(res) = set.join_next().await {
         if let Err(e) = res {

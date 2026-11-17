@@ -104,13 +104,27 @@ async fn launched_plus_dropped_equals_attempts_and_completed_le_launched() {
     let launched: u64 = rows.iter().map(|r| r.launched).sum();
     let completed: u64 = rows.iter().map(|r| r.completed).sum();
     let dropped: u64 = rows.iter().map(|r| r.dropped).sum();
-    assert!(launched + dropped >= 1);
+    // 고정 간격 시도 k는 t0 + k × 50 ms(1e9 / 20 ns, 정확히 나눠떨어짐)에 예약되고,
+    // `next < deadline`인 k = 0..59만 시도된다 → 상한 60. 늦게 깨면 밀린 시도를 곧바로
+    // 따라잡으므로(`next += fixed_interval`, 건너뛰기 없음) 잃는 것은 마지막 대기가
+    // deadline을 넘겨 깨어난 꼬리뿐이다 — 하한은 느린 CI의 깨어남 지연 250 ms(5회)까지 허용.
+    let attempts = launched + dropped;
+    assert!(
+        (55..=60).contains(&attempts),
+        "attempts={attempts} (launched={launched} dropped={dropped}) not near 20 rps × 3 s = 60"
+    );
     assert!(
         completed <= launched,
         "completed={completed} launched={launched}"
     );
+    // 요청 1개 시나리오: 보낸 요청은 모두 끝난 도착이다(run이 모든 도착을 join한 뒤 최종 drain).
+    // 반대로 deadline 직전에 발사된 도착은 `execute_steps` 머리의 deadline 검사로 요청 없이
+    // 끝날 수 있다 — 슬롯이 1개라 그런 도착은 동시에 최대 1개(= max_in_flight).
     let received = server.received_requests().await.unwrap().len() as u64;
-    assert_eq!(completed, received, "one request per arrival");
+    assert!(
+        received <= completed && completed - received <= 1,
+        "completed={completed} received={received}"
+    );
 }
 
 #[tokio::test]
