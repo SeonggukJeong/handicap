@@ -228,6 +228,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0055** 터미널 운영 모니터 `handicap-tui`: 컨트롤러 in-process 임베드 + 루프백 REST 클라이언트 + glibc 2.27 zigbuild
 - **0056** 조건 반복: loop + `while`(do-while) + `keep_think` + 본문 너그러운 추출 + `EndIteration`
 - **0057** 데스크톱 모드 전환: 셸 소유 설정 + 컨트롤러 재기동 + 셸 origin 「모드 전환」 화면(REST loopback 고정)
+- **0058** 데스크톱 부하기 모드: 복사 전용 접속 코드(검사값) + 설치 ID + in-process 데스크톱 풀 루프 상태 화면
 
 ## 코딩 컨벤션
 
