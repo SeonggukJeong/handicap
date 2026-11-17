@@ -71,6 +71,110 @@ export type Stage = z.infer<typeof StageSchema>;
  *  (crates/controller/src/store/runs.rs Profile.http_timeout_seconds). */
 export const DEFAULT_HTTP_TIMEOUT_SECONDS = 30;
 
+export const StairConfigSchema = z
+  .object({
+    targets: z.array(z.number().int().positive()),
+    hold_seconds: z.number().int().nonnegative(),
+    ramp_seconds: z.number().int().nonnegative(),
+    discard_seconds: z.number().int().nonnegative(),
+    // 서버 skip_serializing_if = Option::is_none → absent (never null) → .optional()
+    p99_cap_ms: z.number().int().positive().optional(),
+  })
+  .strict();
+export type StairConfig = z.infer<typeof StairConfigSchema>;
+
+export const StairStateSchema = z.enum([
+  "ok",
+  "spike",
+  "saturated",
+  "unconfirmed",
+  "after",
+  "not_measured",
+]);
+export type StairState = z.infer<typeof StairStateSchema>;
+
+export const StairReasonSchema = z
+  .object({
+    kind: z.enum(["achieved", "dropped", "errors", "p99_cap", "p99_relative"]),
+    value: z.number(),
+  })
+  .strict();
+
+// 아래 Option 필드는 서버가 항상 직렬화(null)하므로 .nullish().
+export const StairStepSchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    target: z.number().int().nonnegative(),
+    achieved: z.number().nullish(),
+    launched_rate: z.number().nullish(),
+    throughput_rps: z.number(),
+    p50_us: z.number(),
+    p95_us: z.number(),
+    p99_us: z.number(),
+    error_rate: z.number(),
+    dropped: z.number().nullish(),
+    measured_seconds: z.number(),
+    measure_start_ms: z.number(),
+    measure_end_ms: z.number(),
+    state: StairStateSchema,
+    reasons: z.array(StairReasonSchema),
+    knee: z.boolean(),
+    slot_limited: z.boolean(),
+    head_p99_ratio: z.number().nullish(),
+    discard_warning: z.boolean(),
+  })
+  .strict();
+export type StairStep = z.infer<typeof StairStepSchema>;
+
+export const StairHeadlineSchema = z
+  .object({
+    kind: z.enum(["saturated", "unconfirmed", "all_ok", "ok_then_unmeasured", "no_data"]),
+    saturated_target: z.number().nullish(),
+    last_ok_target: z.number().nullish(),
+    through_target: z.number().nullish(),
+    first_fail_hint: z.boolean(),
+  })
+  .strict();
+
+export const StairSecondSchema = z
+  .object({
+    offset_s: z.number(),
+    launched: z.number().nullish(),
+    completed: z.number().nullish(),
+    dropped: z.number().nullish(),
+    count: z.number(),
+    p99_us: z.number(),
+  })
+  .strict();
+
+export const StairBandSchema = z
+  .object({
+    index: z.number(),
+    kind: z.enum(["ramp", "discard", "measure"]),
+    start_s: z.number(),
+    end_s: z.number(),
+  })
+  .strict();
+
+export const StairReportSchema = z
+  .object({
+    config: StairConfigSchema,
+    steps: z.array(StairStepSchema),
+    headline: StairHeadlineSchema,
+    knee_target: z.number().nullish(),
+    spike_targets: z.array(z.number()),
+    max_in_flight: z.number().nullish(),
+    dropped_total: z.number().nullish(),
+    dropped_explained: z.boolean(),
+    slot_limited_targets: z.array(z.number()),
+    notes: z.object({ t0_estimated: z.boolean(), open_loop_unknown: z.boolean() }).strict(),
+    seconds: z.array(StairSecondSchema),
+    bands: z.array(StairBandSchema),
+    target_line: z.array(z.object({ offset_s: z.number(), target: z.number() }).strict()),
+  })
+  .strict();
+export type StairReport = z.infer<typeof StairReportSchema>;
+
 export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
   ramp_up_seconds: z.number().int().nonnegative().default(0),
@@ -111,6 +215,8 @@ export const ProfileSchema = z.object({
   // open-loop think 무시 토글(§B21 ②). 서버 store는 skip_serializing_if(=true일 때 생략)라
   // false일 때만 직렬화되고 null로는 오지 않는다 → .optional()(‼ .nullish() 아님).
   apply_scenario_think_time: z.boolean().optional(),
+  // 계단 시험 설정. 서버 skip_serializing_if → absent → .optional()
+  stair: StairConfigSchema.optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -537,6 +643,8 @@ export const ReportSchema = z
     dropped: z.number(),
     latency: LatencyDistributionSchema.nullish(),
     connection: ConnectionStatsSchema.optional(),
+    // 계단 run만. 서버 skip_serializing_if → absent → .optional()
+    stair: StairReportSchema.optional(),
   })
   .strict();
 
