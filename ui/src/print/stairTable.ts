@@ -1,4 +1,4 @@
-import type { StairReport, StairState } from "../api/schemas";
+import type { StairReport, StairState, StairStep } from "../api/schemas";
 import { ko } from "../i18n/ko";
 import { formatHms } from "../monitor/time";
 import {
@@ -59,4 +59,8 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
     };
   });
   return { columns, rows };
+}
+
+export function discardWarningSteps(stair: StairReport): StairStep[] {
+  return stair.steps.filter((s) => s.discard_warning && s.head_p99_ratio != null);
 }

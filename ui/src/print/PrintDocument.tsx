@@ -28,7 +28,12 @@ import { CalloutLine, Callouts, FoldNotes, Legend, UnreadableNote } from "./comp
 import { ErrorChart } from "./components/ErrorChart";
 import { ConditionsSection } from "./components/ConditionsSection";
 import { GlossarySection } from "./components/GlossarySection";
-import { StairHeadline, StairPrintTable, StairTableTitle } from "./components/StairPrintTable";
+import {
+  StairHeadline,
+  StairPrintTable,
+  StairTableTitle,
+  StairWarnings,
+} from "./components/StairPrintTable";
 import { SignatureBlock } from "./components/SignatureBlock";
 import { PageFooter } from "./components/PageFooter";
 
@@ -76,6 +81,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return doc.stair ? <StairHeadline stair={doc.stair} /> : null;
     case "stair:headline:short":
       return doc.stair ? <StairHeadline stair={doc.stair} short /> : null;
+    case "stair:warnings":
+      return doc.stair ? <StairWarnings stair={doc.stair} /> : null;
     case "other:standard":
       return <OtherCriteria rows={doc.otherRows} mode="standard" />;
     case "other:summary3":

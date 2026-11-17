@@ -1,8 +1,8 @@
 import type { StairReport, StairState } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { headlineText } from "../../components/report/stair/stairFormat";
+import { headlineParts, headlineText } from "../../components/report/stair/stairFormat";
 import { MEASURE_IDS } from "../buildPrintDoc";
-import { buildStairRows } from "../stairTable";
+import { buildStairRows, discardWarningSteps } from "../stairTable";
 
 /** 본문 폭 180mm 안의 열 폭(mm): # · 목표 · 달성 · 처리량 · p50 · p95 · p99 · 오류율 · dropped · 측정 구간 · 판정. */
 const WIDTHS = [7, 18, 18, 18, 13, 13, 13, 13, 14, 28, 25];
@@ -19,9 +19,13 @@ const TONE: Record<StairState, string> = {
 export function StairHeadline({ stair, short }: { stair: StairReport; short?: boolean }) {
   const lines = headlineText(stair);
   if (short) {
+    const slot = headlineParts(stair).lines.find((l) => l.kind === "slot");
     return (
       <section>
         <div className="p-note p-bold">{lines[0]}</div>
+        {stair.slot_limited_targets.length > 0 && slot && (
+          <div className="p-note p-warn">{slot.text}</div>
+        )}
         <div className="p-note">{ko.print.stair.summaryNote}</div>
       </section>
     );
@@ -86,5 +90,21 @@ export function StairPrintTable(props: {
         ))}
       </tbody>
     </table>
+  );
+}
+
+export function StairWarnings({ stair }: { stair: StairReport }) {
+  return (
+    <section>
+      {discardWarningSteps(stair).map((s) => (
+        <div key={s.index} className="p-note p-warn">
+          {ko.report.stair.discardWarning(
+            s.index + 1,
+            (s.head_p99_ratio as number).toFixed(1),
+            stair.config.discard_seconds,
+          )}
+        </div>
+      ))}
+    </section>
   );
 }

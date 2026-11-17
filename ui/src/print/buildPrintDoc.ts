@@ -13,6 +13,7 @@ import { runShortLabel } from "../compare/runLabel";
 import { fmtDate } from "./format";
 import { readScenarioFacts } from "./scenarioFacts";
 import { targetSystems } from "./redact";
+import { discardWarningSteps } from "./stairTable";
 import { buildStepTable, type StepTableModel } from "./stepTable";
 import {
   calloutOneLine,
@@ -210,6 +211,9 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
       headerMm: h.get(MEASURE_IDS.stairHeader) ?? 0,
       rowsMm: doc.stair.steps.map((_, i) => h.get(MEASURE_IDS.stairRowId(i)) ?? 0),
     });
+    if (discardWarningSteps(doc.stair).length > 0) {
+      out.push(atom(h, "stair:warnings"));
+    }
   }
   if (doc.otherRows.length > 0) out.push(atom(h, "other:standard"));
   out.push({

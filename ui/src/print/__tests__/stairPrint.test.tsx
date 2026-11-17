@@ -12,7 +12,7 @@ import {
 } from "../buildPrintDoc";
 import { PAGE_BODY_MM, paginate, type Block, type LadderLevel } from "../paginate";
 import { buildStairRows } from "../stairTable";
-import { headlineText } from "../../components/report/stair/stairFormat";
+import { headlineParts, headlineText } from "../../components/report/stair/stairFormat";
 import { StairReportSchema, type Report, type Run, type StairReport } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 
@@ -171,6 +171,18 @@ describe("계단 인쇄 블록", () => {
     for (let i = 1; i < spans.length; i++) expect(spans[i][0]).toBe(spans[i - 1][1]);
   });
 
+  it("⚠ 버림 부족 계단이 있으면 표 뒤 stair:warnings 블록, 없으면 없음", () => {
+    const st = structuredClone(golden);
+    st.steps[1] = { ...st.steps[1], discard_warning: true, head_p99_ratio: 2.5 };
+    expect(ids(standardBlocks(build(st), new Map())).slice(3, 6)).toEqual([
+      "stair:headline",
+      "stair",
+      "stair:warnings",
+    ]);
+    for (const s of st.steps) s.discard_warning = false;
+    expect(ids(standardBlocks(build(st), new Map()))).not.toContain("stair:warnings");
+  });
+
   it("표 행 모델은 화면 표와 같은 열·형식", () => {
     const st = structuredClone(golden);
     st.steps[0] = { ...st.steps[0], error_rate: 0.0004 };
@@ -209,5 +221,29 @@ describe("PrintDocument 계단", () => {
     expect(screen.getAllByText(headlineText(st)[0]).length).toBeGreaterThan(0);
     expect(screen.getByText(ko.print.stair.summaryNote)).toBeInTheDocument();
     expect(screen.queryByRole("table", { name: ko.report.stair.tableLabel })).toBeNull();
+  });
+
+  it("standard: ⚠ 버림 부족 문구가 화면과 같은 형식으로 그려진다", async () => {
+    const st = structuredClone(golden);
+    st.steps[1] = { ...st.steps[1], discard_warning: true, head_p99_ratio: 2.5 };
+    await renderKind(build(st), "standard");
+    expect(
+      screen.getByText(ko.report.stair.discardWarning(2, "2.5", st.config.discard_seconds)),
+    ).toBeInTheDocument();
+  });
+
+  it("summary: 슬롯 부족 의심이면 머리말 첫 줄 + 슬롯 경고 줄, 아니면 첫 줄 + 안내만", async () => {
+    const slotLine = (st: StairReport) =>
+      headlineParts(st).lines.find((l) => l.kind === "slot")!.text;
+    const st = structuredClone(golden);
+    st.slot_limited_targets = [300];
+    st.max_in_flight = 8;
+    const first = await renderKind(build(st), "summary");
+    expect(screen.getByText(slotLine(st))).toBeInTheDocument();
+    first.unmount();
+    const plain = structuredClone(golden);
+    plain.slot_limited_targets = [];
+    await renderKind(build(plain), "summary");
+    expect(screen.queryByText(/동시 실행 한도/)).toBeNull();
   });
 });
