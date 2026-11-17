@@ -196,6 +196,14 @@ describe("StairResultSection", () => {
     expect(rowsOf()[4]).not.toHaveTextContent("44.0×");
   });
 
+  it("오류율 칸도 내림 — 0.996%는 1.0%가 아니라 0.9%", () => {
+    const st = mk();
+    withStep(st, 0, { error_rate: 0.00996 });
+    render(<StairResultSection stair={st} />);
+    const cells = within(rowsOf()[1]).getAllByRole("cell");
+    expect(cells[7]).toHaveTextContent(/^0\.9%$/);
+  });
+
   it("achieved 사유는 내림 — 94.96%는 94.9%", () => {
     const st = mk();
     withStep(st, 5, { reasons: [{ kind: "achieved", value: 0.9496 }] });
@@ -286,11 +294,26 @@ describe("ReportView 배치", () => {
   it("계단 결과는 VerdictPanel 앞, 없으면 섹션도 없다", () => {
     const { rerender } = render(
       <MemoryRouter>
-        <ReportView report={{ ...base, verdict, stair: mk() }} profile={profile} />
+        <ReportView
+          report={{
+            ...base,
+            verdict,
+            stair: mk(),
+            validity: {
+              level: "limited",
+              reasons: [{ kind: "no_response_validation", severity: "warning" }],
+            },
+          }}
+          profile={profile}
+        />
       </MemoryRouter>,
     );
     const stairSec = screen.getByRole("region", { name: ko.report.stair.title });
     const verdictEl = screen.getByRole("region", { name: ko.report.verdictSectionLabel });
+    const bannerEl = screen.getByRole("region", { name: ko.validity.bannerAria });
+    expect(
+      bannerEl.compareDocumentPosition(stairSec) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(
       stairSec.compareDocumentPosition(verdictEl) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
