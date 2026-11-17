@@ -29,9 +29,7 @@ pub enum WorkerError {
     /// 같아 로그가 불변이고, 사유는 `abort_reason()`으로만 얻는다. 사유는 200자로 잘림.
     #[error("missing assignment after register")]
     AbortedBeforeAssignment { reason: String },
-    /// 연결 상한(`RegisterOpts::connect_timeout`) 안에 채널 연결·Register 전송을 못 끝냈다.
-    /// 초과 시 결과는 `ConnectTimeout` 또는 `Connect`(엔드포인트 자체 타임아웃이 먼저 발화) —
-    /// 호출자는 둘 다 「닿지 않음」으로 취급해야 한다.
+    /// 연결 상한(`RegisterOpts::connect_timeout`) 안에 채널 연결·스트림 개설·Register 전송을 못 끝냈다.
     #[error("connect timed out")]
     ConnectTimeout,
 }

@@ -102,7 +102,7 @@ async fn forward_inbound<S>(
 /// `connect_and_register_opts`의 선택 옵션. 기본값 = 옛 동작(연결 상한 없음·콜백 없음).
 #[derive(Default)]
 pub struct RegisterOpts<'a> {
-    /// `Some(d)`면 채널 연결 + 스트림 개설 + Register 전송 구간을 `d`로 제한한다.
+    /// `Some(d)`면 채널 연결(TCP+h2) + 스트림 개설 + Register 전송 전 구간을 `d` 하나의 타이머로 제한한다.
     /// 배정 대기(유휴)는 제한하지 않는다.
     pub connect_timeout: Option<Duration>,
     /// 배정 대기 중 첫 `Ping`(또는 Ping 없이 `Assignment`) 수신 때 정확히 한 번 호출.
@@ -146,13 +146,10 @@ pub async fn connect_and_register_opts(
     cancel: &CancellationToken,
     opts: RegisterOpts<'_>,
 ) -> Result<WorkerLink, WorkerError> {
-    let mut endpoint = Channel::from_shared(controller_url.to_string())?
+    let endpoint = Channel::from_shared(controller_url.to_string())?
         .keep_alive_while_idle(true)
         .http2_keep_alive_interval(Duration::from_secs(20))
         .keep_alive_timeout(Duration::from_secs(20));
-    if let Some(d) = opts.connect_timeout {
-        endpoint = endpoint.connect_timeout(d);
-    }
     let setup = async {
         let channel = endpoint.connect().await?;
         let mut client = CoordinatorClient::new(channel);
