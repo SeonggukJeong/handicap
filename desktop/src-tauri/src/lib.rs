@@ -90,6 +90,11 @@ pub fn run() {
             commands::switch_role,
             commands::set_self_worker,
             commands::dismiss_notice,
+            commands::connect_code,
+            commands::check_code,
+            commands::connect_worker,
+            commands::disconnect_worker,
+            commands::reconnect_worker,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

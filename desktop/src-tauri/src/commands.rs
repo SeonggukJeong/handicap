@@ -5,14 +5,19 @@
 //! 이 명령들을 부를 수 없다(Task 1 실측: "not allowed"). 두 번째 방어선으로 명령마다 첫 문장에서
 //! 부른 웹뷰의 origin이 셸 origin인지 다시 본다(`require_shell`).
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Instant;
 
+use handicap_desktop_core::code::{
+    decode, encode, is_allowed_target_ip, ConnectCode, MAX_CODE_IPS,
+};
 use handicap_desktop_core::command::{
     current_os, worker_command as build_worker_command, WorkerOs,
 };
 use handicap_desktop_core::config::Role;
 use handicap_desktop_core::net::{candidate_ipv4s, list_local_ipv4s};
 use handicap_desktop_core::token::is_usable_token;
+use handicap_worker::pool_status::{FailReason, PoolState};
 use serde::Serialize;
 use tauri::State;
 
@@ -25,6 +30,32 @@ pub struct NoticesDto {
     pub self_worker_excluded: bool,
     pub config_warning: bool,
     pub start_error: Option<String>,
+    pub worker_code_unreadable: bool,
+}
+
+/// 부하기 역할의 연결 상태. 값은 role.html과 1:1. 서버가 보낸 글자(`scenario_name`·
+/// `reason_detail`·`run_tail`)는 화면이 `textContent`로만 쓴다.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WorkerStatusDto {
+    /// `connecting|idle|running|retrying|excluded|disconnected`
+    pub state: &'static str,
+    pub servers: Vec<String>,
+    pub addr: Option<String>,
+    pub run_tail: Option<String>,
+    pub scenario_name: Option<String>,
+    /// `unreachable|auth_failed|rejected|protocol`
+    pub reason: Option<&'static str>,
+    /// `rejected`일 때만.
+    pub reason_detail: Option<String>,
+    pub retry_in_secs: Option<u64>,
+}
+
+/// 접속 코드 미리보기(토큰 없음).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CodePreviewDto {
+    pub ips: Vec<String>,
+    pub port: u16,
+    pub non_private: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,9 +73,106 @@ pub struct RoleStateDto {
     pub app_url: Option<String>,
     /// 사설 IPv4가 하나도 없어 `ips`가 사설 아닌 주소(바깥 망에 드러날 수 있음)로 채워졌는지.
     pub ips_public_fallback: bool,
+    pub install_id: Option<String>,
+    pub hostname: String,
+    pub worker: Option<WorkerStatusDto>,
 }
 
-pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleStateDto {
+/// 부하기 상태를 화면용으로. 시계는 호출자가 넘긴다. `None` = 연결 루프가 없음(끊김).
+pub fn worker_status_from(
+    state: Option<&PoolState>,
+    servers: &[SocketAddr],
+    now: Instant,
+) -> WorkerStatusDto {
+    let mut d = WorkerStatusDto {
+        state: "disconnected",
+        servers: servers.iter().map(|a| a.to_string()).collect(),
+        addr: None,
+        run_tail: None,
+        scenario_name: None,
+        reason: None,
+        reason_detail: None,
+        retry_in_secs: None,
+    };
+    match state {
+        None => {}
+        Some(PoolState::Connecting) => d.state = "connecting",
+        Some(PoolState::Idle { addr }) => {
+            d.state = "idle";
+            d.addr = Some(addr.to_string());
+        }
+        Some(PoolState::Running {
+            addr,
+            run_id,
+            scenario_name,
+        }) => {
+            d.state = "running";
+            d.addr = Some(addr.to_string());
+            let n = run_id.chars().count();
+            d.run_tail = Some(run_id.chars().skip(n.saturating_sub(6)).collect());
+            d.scenario_name = scenario_name.clone();
+        }
+        Some(PoolState::Retrying { reason, retry_at }) => {
+            d.state = "retrying";
+            let (r, detail) = match reason {
+                FailReason::Unreachable => ("unreachable", None),
+                FailReason::AuthFailed => ("auth_failed", None),
+                FailReason::Rejected(m) => ("rejected", Some(m.clone())),
+                FailReason::Protocol => ("protocol", None),
+            };
+            d.reason = Some(r);
+            d.reason_detail = detail;
+            let left = retry_at.saturating_duration_since(now);
+            d.retry_in_secs = Some(left.as_secs() + u64::from(left.subsec_nanos() > 0));
+        }
+        Some(PoolState::Excluded) => d.state = "excluded",
+    }
+    d
+}
+
+/// 서버 역할이 만드는 부하기용 접속 코드(요청형 — 상태 조회에는 실리지 않는다).
+pub fn connect_code_for(s: &ShellState, ips: &[Ipv4Addr]) -> Result<String, String> {
+    if s.config.role != Role::Server {
+        return Err("서버 모드에서만 만들 수 있습니다".into());
+    }
+    let ips: Vec<Ipv4Addr> = candidate_ipv4s(ips)
+        .into_iter()
+        .filter(|a| is_allowed_target_ip(*a))
+        .take(MAX_CODE_IPS)
+        .collect();
+    if ips.is_empty() {
+        return Err("이 PC의 망 주소를 찾지 못했습니다".into());
+    }
+    let token = s
+        .config
+        .server
+        .token
+        .as_deref()
+        .filter(|t| is_usable_token(t))
+        .ok_or_else(|| "접속 토큰이 없습니다".to_string())?;
+    Ok(encode(&ConnectCode {
+        ips,
+        port: s.config.server.grpc_port,
+        token: token.to_owned(),
+    }))
+}
+
+/// 붙여넣은 코드의 주소·포트만 보여준다(토큰 없음). 오류 문구는 입력을 되풀이하지 않는다.
+pub fn preview_code(raw: &str) -> Result<CodePreviewDto, String> {
+    let c = decode(raw.trim()).map_err(|e| e.to_string())?;
+    Ok(CodePreviewDto {
+        non_private: c.ips.iter().any(|a| !a.is_private()),
+        ips: c.ips.iter().map(|a| a.to_string()).collect(),
+        port: c.port,
+    })
+}
+
+pub fn build_role_state(
+    s: &ShellState,
+    ips: Vec<Ipv4Addr>,
+    busy: bool,
+    now: Instant,
+) -> RoleStateDto {
     let self_worker = match s.running.as_ref() {
         Some(r) => r
             .self_worker
@@ -56,6 +184,25 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
     // `candidate_ipv4s`와 같은 입력으로: 사설 주소가 없는데 후보가 남았으면 그 후보는 대체 목록.
     let candidates = candidate_ipv4s(&ips);
     let ips_public_fallback = !candidates.is_empty() && !ips.iter().any(|a| a.is_private());
+    let worker = (s.config.role == Role::Worker).then(|| match s.worker.as_ref() {
+        Some(w) => worker_status_from(role::worker_state(w, now).as_ref(), &w.servers, now),
+        None => {
+            let servers: Vec<SocketAddr> = s
+                .config
+                .worker
+                .code
+                .as_deref()
+                .and_then(|k| decode(k).ok())
+                .map(|c| {
+                    c.ips
+                        .into_iter()
+                        .map(|a| SocketAddr::from((a, c.port)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            worker_status_from(None, &servers, now)
+        }
+    });
     RoleStateDto {
         role: match s.config.role {
             Role::Local => "local",
@@ -74,9 +221,13 @@ pub fn build_role_state(s: &ShellState, ips: Vec<Ipv4Addr>, busy: bool) -> RoleS
             self_worker_excluded: s.notices.self_worker_excluded,
             config_warning: s.config_warning,
             start_error: s.notices.start_error.clone(),
+            worker_code_unreadable: s.notices.worker_code_unreadable,
         },
         app_url: s.running.as_ref().map(|r| r.base_url.clone()),
         ips_public_fallback,
+        install_id: s.config.install_id.clone(),
+        hostname: (s.env.hostname)(),
+        worker,
     }
 }
 
@@ -127,6 +278,7 @@ pub fn apply_dismiss(s: &mut ShellState, kind: &str) -> Result<(), String> {
         "self_worker_excluded" => s.notices.self_worker_excluded = false,
         "config_warning" => s.config_warning = false,
         "start_error" => s.notices.start_error = None,
+        "worker_code_unreadable" => s.notices.worker_code_unreadable = false,
         _ => return Err("알 수 없는 안내입니다".into()),
     }
     Ok(())
@@ -175,7 +327,7 @@ pub async fn role_state(
     let ips = list_local_ipv4s();
     let mut st = shell.state.lock().await;
     let busy = role::self_worker_busy_locked(&mut st).await;
-    Ok(build_role_state(&st, ips, busy))
+    Ok(build_role_state(&st, ips, busy, Instant::now()))
 }
 
 #[tauri::command]
@@ -194,6 +346,54 @@ pub async fn worker_command(
         return Err("서버가 실행 중이 아닙니다".into());
     }
     worker_command_for(&st, &ips, &ip, os, &version)
+}
+
+#[tauri::command]
+pub async fn connect_code(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+) -> Result<String, String> {
+    require_shell(&webview)?;
+    let ips = list_local_ipv4s();
+    let st = shell.state.lock().await;
+    if st.running.is_none() {
+        return Err("서버가 실행 중이 아닙니다".into());
+    }
+    connect_code_for(&st, &ips)
+}
+
+#[tauri::command]
+pub async fn check_code(webview: tauri::Webview, code: String) -> Result<CodePreviewDto, String> {
+    require_shell(&webview)?;
+    preview_code(&code)
+}
+
+#[tauri::command]
+pub async fn connect_worker(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+    code: String,
+) -> Result<(), String> {
+    require_shell(&webview)?;
+    role::connect_worker(&shell, code).await
+}
+
+#[tauri::command]
+pub async fn disconnect_worker(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+) -> Result<(), String> {
+    require_shell(&webview)?;
+    role::disconnect_worker(&shell).await
+}
+
+#[tauri::command]
+pub async fn reconnect_worker(
+    webview: tauri::Webview,
+    shell: State<'_, Shell>,
+) -> Result<(), String> {
+    require_shell(&webview)?;
+    role::reconnect_worker(&shell).await
 }
 
 #[tauri::command]
@@ -301,19 +501,233 @@ mod tests {
         s.parse().unwrap()
     }
 
+    fn code_with(ips: &[&str], port: u16, token: &str) -> String {
+        encode(&ConnectCode {
+            ips: ips.iter().map(|a| ip(a)).collect(),
+            port,
+            token: token.into(),
+        })
+    }
+
+    fn worker_state_cfg() -> ShellState {
+        let mut s = state(DesktopConfig {
+            role: Role::Worker,
+            install_id: Some("a1".repeat(16)),
+            ..DesktopConfig::default()
+        });
+        s.config.worker.code = Some(code_with(&["10.255.0.1"], 8081, &"deadbeef".repeat(4)));
+        s.config.worker.connected = true;
+        s.config.server.token = Some("cafebabe".repeat(4));
+        s
+    }
+
+    fn sa(s: &str) -> SocketAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn worker_status_mapping() {
+        let now = Instant::now();
+        let servers = [sa("10.0.0.1:8081"), sa("10.0.0.2:8081")];
+        let none = |st: &'static str| WorkerStatusDto {
+            state: st,
+            servers: vec!["10.0.0.1:8081".into(), "10.0.0.2:8081".into()],
+            addr: None,
+            run_tail: None,
+            scenario_name: None,
+            reason: None,
+            reason_detail: None,
+            retry_in_secs: None,
+        };
+        assert_eq!(
+            worker_status_from(Some(&PoolState::Connecting), &servers, now),
+            none("connecting")
+        );
+        assert_eq!(
+            worker_status_from(
+                Some(&PoolState::Idle {
+                    addr: sa("10.0.0.2:8081")
+                }),
+                &servers,
+                now
+            ),
+            WorkerStatusDto {
+                addr: Some("10.0.0.2:8081".into()),
+                ..none("idle")
+            }
+        );
+        let running = |id: &str, name: Option<&str>| PoolState::Running {
+            addr: sa("10.0.0.1:8081"),
+            run_id: id.into(),
+            scenario_name: name.map(str::to_owned),
+        };
+        assert_eq!(
+            worker_status_from(
+                Some(&running("01HXZZZZZZZZZZZZZZZABCDEF", Some("결제"))),
+                &servers,
+                now
+            ),
+            WorkerStatusDto {
+                addr: Some("10.0.0.1:8081".into()),
+                run_tail: Some("ABCDEF".into()),
+                scenario_name: Some("결제".into()),
+                ..none("running")
+            }
+        );
+        let d = worker_status_from(Some(&running("abc", None)), &servers, now);
+        assert_eq!(d.run_tail.as_deref(), Some("abc"));
+        assert_eq!(d.scenario_name, None);
+        let d = worker_status_from(
+            Some(&PoolState::Retrying {
+                reason: FailReason::AuthFailed,
+                retry_at: now + std::time::Duration::from_millis(1500),
+            }),
+            &servers,
+            now,
+        );
+        assert_eq!(
+            d,
+            WorkerStatusDto {
+                reason: Some("auth_failed"),
+                retry_in_secs: Some(2),
+                ..none("retrying")
+            }
+        );
+        let d = worker_status_from(
+            Some(&PoolState::Retrying {
+                reason: FailReason::Rejected("x".into()),
+                retry_at: now - std::time::Duration::from_secs(1),
+            }),
+            &servers,
+            now,
+        );
+        assert_eq!(
+            d,
+            WorkerStatusDto {
+                reason: Some("rejected"),
+                reason_detail: Some("x".into()),
+                retry_in_secs: Some(0),
+                ..none("retrying")
+            }
+        );
+        for (r, name) in [
+            (FailReason::Unreachable, "unreachable"),
+            (FailReason::Protocol, "protocol"),
+        ] {
+            let d = worker_status_from(
+                Some(&PoolState::Retrying {
+                    reason: r,
+                    retry_at: now,
+                }),
+                &servers,
+                now,
+            );
+            assert_eq!(d.reason, Some(name));
+            assert_eq!(d.reason_detail, None);
+        }
+        assert_eq!(
+            worker_status_from(Some(&PoolState::Excluded), &servers, now),
+            none("excluded")
+        );
+        assert_eq!(
+            worker_status_from(None, &servers, now),
+            none("disconnected")
+        );
+    }
+
+    #[test]
+    fn role_state_worker_fields() {
+        let d = build_role_state(&worker_state_cfg(), vec![], false, Instant::now());
+        assert_eq!(d.role, "worker");
+        let w = d.worker.unwrap();
+        assert_eq!(w.state, "disconnected");
+        assert_eq!(w.servers, vec!["10.255.0.1:8081"]);
+        assert_eq!(d.hostname, "h");
+        assert_eq!(d.install_id, Some("a1".repeat(16)));
+        assert!(
+            build_role_state(&server_state(), vec![], false, Instant::now())
+                .worker
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn role_state_unreadable_code_has_no_servers() {
+        let mut s = worker_state_cfg();
+        s.config.worker.code = Some("garbage".into());
+        let d = build_role_state(&s, vec![], false, Instant::now());
+        assert!(d.worker.unwrap().servers.is_empty());
+    }
+
+    #[test]
+    fn role_state_never_contains_code_or_token() {
+        let s = worker_state_cfg();
+        let j =
+            serde_json::to_string(&build_role_state(&s, vec![], false, Instant::now())).unwrap();
+        for bad in ["deadbeef", "cafebabe", "HANDICAP1-"] {
+            assert!(!j.contains(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn connect_code_rules() {
+        assert_eq!(
+            connect_code_for(&local_state(), &[ip("10.0.0.1")]).unwrap_err(),
+            "서버 모드에서만 만들 수 있습니다"
+        );
+        for none in [vec![], vec![ip("127.0.0.1")]] {
+            assert_eq!(
+                connect_code_for(&server_state(), &none).unwrap_err(),
+                "이 PC의 망 주소를 찾지 못했습니다"
+            );
+        }
+        assert_eq!(
+            connect_code_for(&server_state_with_token("tok"), &[ip("10.0.0.1")]).unwrap_err(),
+            "접속 토큰이 없습니다"
+        );
+        let many: Vec<Ipv4Addr> = (1..=20).map(|i| ip(&format!("10.0.0.{i}"))).collect();
+        let tok = "ab".repeat(16);
+        let c = connect_code_for(&server_state(), &many).unwrap();
+        let d = decode(&c).unwrap();
+        assert_eq!(d.ips.len(), 16);
+        assert_eq!(d.ips, many[..16]);
+        assert_eq!(d.port, 8093);
+        assert_eq!(d.token, tok);
+    }
+
+    #[test]
+    fn preview_code_hides_token() {
+        let tok = "deadbeef".repeat(4);
+        let p = preview_code(&code_with(&["10.0.0.1", "192.168.0.2"], 8081, &tok)).unwrap();
+        assert_eq!(p.ips, vec!["10.0.0.1", "192.168.0.2"]);
+        assert_eq!(p.port, 8081);
+        assert!(!p.non_private);
+        assert!(!serde_json::to_string(&p).unwrap().contains("deadbeef"));
+        let p = preview_code(&code_with(&["8.8.8.8"], 8081, &tok)).unwrap();
+        assert!(p.non_private);
+        assert_eq!(
+            preview_code("nonsense").unwrap_err(),
+            "접속 코드 형식이 아닙니다"
+        );
+    }
+
     #[test]
     fn role_state_never_contains_token() {
         let s = server_state_with_token(&"deadbeef".repeat(4));
-        assert!(!serde_json::to_string(&build_role_state(&s, vec![], false))
-            .unwrap()
-            .contains("deadbeef"));
+        assert!(
+            !serde_json::to_string(&build_role_state(&s, vec![], false, Instant::now()))
+                .unwrap()
+                .contains("deadbeef")
+        );
     }
     #[test]
     fn role_state_maps_port_change() {
         let mut s = server_state();
         s.notices.port_changed = Some((8081, 8093));
         assert_eq!(
-            build_role_state(&s, vec![], false).notices.port_changed,
+            build_role_state(&s, vec![], false, Instant::now())
+                .notices
+                .port_changed,
             Some([8081, 8093])
         );
     }
@@ -326,7 +740,8 @@ mod tests {
                     "192.168.0.12".parse().unwrap(),
                     "127.0.0.1".parse().unwrap()
                 ],
-                false
+                false,
+                Instant::now()
             )
             .ips,
             vec!["192.168.0.12"]
@@ -334,11 +749,14 @@ mod tests {
     }
     #[test]
     fn role_state_no_ips_is_empty() {
-        assert!(
-            build_role_state(&server_state(), vec!["127.0.0.1".parse().unwrap()], false)
-                .ips
-                .is_empty()
-        );
+        assert!(build_role_state(
+            &server_state(),
+            vec!["127.0.0.1".parse().unwrap()],
+            false,
+            Instant::now()
+        )
+        .ips
+        .is_empty());
     }
     #[test]
     fn role_state_maps_fields() {
@@ -348,7 +766,7 @@ mod tests {
         s.notices.save_failed = true;
         s.notices.self_worker_excluded = true;
         s.notices.start_error = Some("bind".into());
-        let d = build_role_state(&s, vec![], true);
+        let d = build_role_state(&s, vec![], true, Instant::now());
         assert_eq!(d.role, "server");
         assert!(d.switching);
         assert_eq!(d.grpc_port, 8093);
@@ -363,17 +781,24 @@ mod tests {
                 self_worker_excluded: true,
                 config_warning: true,
                 start_error: Some("bind".into()),
+                worker_code_unreadable: false,
             }
         );
         assert_eq!(d.app_url, None, "컨트롤러가 없으면 화면 주소 없음");
         assert_eq!(
-            build_role_state(&local_state(), vec![], false).role,
+            build_role_state(&local_state(), vec![], false, Instant::now()).role,
             "local"
         );
     }
     #[test]
     fn role_state_json_keys_match_role_html() {
-        let v = serde_json::to_value(build_role_state(&server_state(), vec![], false)).unwrap();
+        let v = serde_json::to_value(build_role_state(
+            &server_state(),
+            vec![],
+            false,
+            Instant::now(),
+        ))
+        .unwrap();
         let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
         keys.sort();
         assert_eq!(
@@ -381,6 +806,8 @@ mod tests {
             [
                 "app_url",
                 "grpc_port",
+                "hostname",
+                "install_id",
                 "ips",
                 "ips_public_fallback",
                 "notices",
@@ -388,7 +815,36 @@ mod tests {
                 "self_worker",
                 "self_worker_busy",
                 "server_os",
-                "switching"
+                "switching",
+                "worker"
+            ]
+        );
+        assert!(v["worker"].is_null(), "서버 역할은 worker 없음");
+        let w = serde_json::to_value(build_role_state(
+            &worker_state_cfg(),
+            vec![],
+            false,
+            Instant::now(),
+        ))
+        .unwrap();
+        let mut wk: Vec<&str> = w["worker"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        wk.sort();
+        assert_eq!(
+            wk,
+            [
+                "addr",
+                "reason",
+                "reason_detail",
+                "retry_in_secs",
+                "run_tail",
+                "scenario_name",
+                "servers",
+                "state"
             ]
         );
         let mut nk: Vec<&str> = v["notices"]
@@ -405,7 +861,8 @@ mod tests {
                 "port_changed",
                 "save_failed",
                 "self_worker_excluded",
-                "start_error"
+                "start_error",
+                "worker_code_unreadable"
             ]
         );
     }
@@ -466,17 +923,28 @@ mod tests {
     }
     #[test]
     fn public_fallback_flag_follows_candidates() {
-        let pubd = build_role_state(&server_state(), vec![ip("8.8.4.4"), ip("127.0.0.1")], false);
+        let pubd = build_role_state(
+            &server_state(),
+            vec![ip("8.8.4.4"), ip("127.0.0.1")],
+            false,
+            Instant::now(),
+        );
         assert_eq!(pubd.ips, vec!["8.8.4.4"]);
         assert!(pubd.ips_public_fallback);
         let private = build_role_state(
             &server_state(),
             vec![ip("8.8.4.4"), ip("192.168.0.12")],
             false,
+            Instant::now(),
         );
         assert_eq!(private.ips, vec!["192.168.0.12"]);
         assert!(!private.ips_public_fallback);
-        let none = build_role_state(&server_state(), vec![ip("127.0.0.1")], false);
+        let none = build_role_state(
+            &server_state(),
+            vec![ip("127.0.0.1")],
+            false,
+            Instant::now(),
+        );
         assert!(none.ips.is_empty());
         assert!(
             !none.ips_public_fallback,
@@ -518,16 +986,18 @@ mod tests {
         s.notices.save_failed = true;
         s.notices.self_worker_excluded = true;
         s.notices.start_error = Some("x".into());
+        s.notices.worker_code_unreadable = true;
         for k in [
             "port_changed",
             "save_failed",
             "self_worker_excluded",
             "config_warning",
             "start_error",
+            "worker_code_unreadable",
         ] {
             apply_dismiss(&mut s, k).unwrap();
         }
-        let n = build_role_state(&s, vec![], false).notices;
+        let n = build_role_state(&s, vec![], false, Instant::now()).notices;
         assert_eq!(
             n,
             NoticesDto {
@@ -536,6 +1006,7 @@ mod tests {
                 self_worker_excluded: false,
                 config_warning: false,
                 start_error: None,
+                worker_code_unreadable: false,
             }
         );
         assert!(apply_dismiss(&mut s, "token").is_err());
