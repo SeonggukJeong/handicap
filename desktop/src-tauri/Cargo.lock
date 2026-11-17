@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "handicap-controller",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "handicap-controller"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1991,7 +1991,7 @@ dependencies = [
 
 [[package]]
 name = "handicap-desktop-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "if-addrs",
  "rand 0.8.6",
@@ -2001,7 +2001,7 @@ dependencies = [
 
 [[package]]
 name = "handicap-engine"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2027,7 +2027,7 @@ dependencies = [
 
 [[package]]
 name = "handicap-proto"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "handicap-worker"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "handicap-worker-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "futures",
  "handicap-engine",
