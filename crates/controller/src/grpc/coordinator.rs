@@ -154,6 +154,11 @@ struct RunWorkers {
     /// Cancelled at every finalize site (Completed/Failed/Aborted/disconnect/
     /// dispatch-fail) → run_watchdog exits immediately on a healthy/terminal run.
     done: CancellationToken,
+    /// Set by `abort()` (inside the runs-lock block that copies the worker txs,
+    /// before any Abort is sent): the controller asked for this stop. A worker's
+    /// `Aborted` then keeps the legacy path; without it, it is a worker self-abort
+    /// (R8: fan out to siblings + record a reason).
+    abort_requested: bool,
 }
 
 /// Outcome of `reserve_idle_pool_capacity` (closed-loop capacity path). (spec R2/R3/R6.)
@@ -737,6 +742,7 @@ impl CoordinatorState {
                     precomputed_counts: precomputed,
                     first_load: first_load.clone(),
                     done: done.clone(),
+                    abort_requested: false,
                 },
             );
         }
@@ -891,7 +897,12 @@ impl CoordinatorState {
             None,
             Completed,
             Failed(Vec<WorkerTx>),
-            Aborted,
+            /// `self_abort`: `Some(non-terminal siblings)` = the worker stopped on its
+            /// own (R8); `None` = the controller requested it (`abort()` already
+            /// fanned out to everyone).
+            Aborted {
+                self_abort: Option<Vec<WorkerTx>>,
+            },
         }
 
         let decision = {
@@ -925,7 +936,23 @@ impl CoordinatorState {
             } else if phase == aborted {
                 rw.terminal = true;
                 rw.done.cancel(); // terminal → stop run_watchdog (G1a)
-                Finalize::Aborted
+                let self_abort = if rw.abort_requested {
+                    None
+                } else {
+                    Some(
+                        rw.workers
+                            .values()
+                            .filter(|e| {
+                                !matches!(
+                                    e.phase,
+                                    Phase::Completed | Phase::Failed | Phase::Aborted
+                                )
+                            })
+                            .map(|e| e.tx.clone())
+                            .collect(),
+                    )
+                };
+                Finalize::Aborted { self_abort }
             } else if phase == completed
                 && rw.workers.values().all(|e| e.phase == Phase::Completed)
                 && rw.workers.len() as u32 == rw.expected
@@ -967,7 +994,7 @@ impl CoordinatorState {
                 }
                 self.cleanup_dispatcher(run_id).await;
             }
-            Finalize::Aborted => {
+            Finalize::Aborted { self_abort: None } => {
                 let _ = runs::set_status(
                     &self.db,
                     run_id,
@@ -976,6 +1003,23 @@ impl CoordinatorState {
                     Some(crate::store::now_ms()),
                 )
                 .await;
+                self.cleanup_dispatcher(run_id).await;
+            }
+            Finalize::Aborted {
+                self_abort: Some(siblings),
+            } => {
+                let suffix = if siblings.is_empty() {
+                    ""
+                } else {
+                    " (other workers stopped)"
+                };
+                let reason = truncate_message(&format!(
+                    "worker {worker_id} stopped mid-run — run aborted{suffix}"
+                ));
+                if let Err(e) = runs::mark_aborted_if_active(&self.db, run_id, &reason).await {
+                    warn!(%run_id, error = %e, "failed to persist worker self-abort reason");
+                }
+                fan_out_abort(run_id, &siblings, "sibling worker aborted — run stopped").await;
                 self.cleanup_dispatcher(run_id).await;
             }
             Finalize::Failed(siblings) => {
@@ -1128,13 +1172,18 @@ impl CoordinatorState {
     /// early/duplicate teardown while workers are still draining. (A3c.)
     pub async fn abort(&self, run_id: &str) -> bool {
         let txs = {
-            let g = self.runs.lock().await;
-            match g.get(run_id) {
-                Some(rw) => rw
-                    .workers
-                    .values()
-                    .map(|e| e.tx.clone())
-                    .collect::<Vec<_>>(),
+            let mut g = self.runs.lock().await;
+            match g.get_mut(run_id) {
+                Some(rw) => {
+                    // Mark BEFORE releasing the lock / sending any Abort: a worker's
+                    // `Aborted` arriving mid-fan-out must see the controller-requested
+                    // flag (else it takes the R8 self-abort path).
+                    rw.abort_requested = true;
+                    rw.workers
+                        .values()
+                        .map(|e| e.tx.clone())
+                        .collect::<Vec<_>>()
+                }
                 None => return false,
             }
         };
@@ -3834,6 +3883,152 @@ mod tests {
             Some("stuck: no metrics"),
             "terminal 비클로버"
         );
+    }
+
+    // ---- R8: 한 부하기 중단 = run 전체 중단 ----
+
+    async fn two_worker_run(
+        db: &Db,
+    ) -> (
+        CoordinatorState,
+        String,
+        tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
+        tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
+    ) {
+        let run_id = seed_run(db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        let (tx0, r0) = fake_tx();
+        let (tx1, r1) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+        (coord, run_id, r0, r1)
+    }
+
+    fn is_abort(m: Result<ServerMessage, Status>) -> bool {
+        matches!(m.unwrap().payload, Some(ServerPayload::Abort(_)))
+    }
+
+    const ABORTED: i32 = pb::run_status::Phase::Aborted as i32;
+
+    #[tokio::test]
+    async fn self_abort_fans_out_to_siblings_with_message() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        assert!(is_abort(r1.try_recv().expect("형제에 Abort")));
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert_eq!(
+            row.message.as_deref(),
+            Some("worker w0 stopped mid-run — run aborted (other workers stopped)")
+        );
+    }
+
+    #[tokio::test]
+    async fn self_abort_single_worker_message_has_no_sibling_suffix() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert_eq!(
+            row.message.as_deref(),
+            Some("worker w0 stopped mid-run — run aborted")
+        );
+    }
+
+    #[tokio::test]
+    async fn controller_abort_then_worker_aborted_keeps_null_message() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
+        assert!(coord.abort(&run_id).await);
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert_eq!(row.message, None);
+        assert!(is_abort(r1.try_recv().expect("abort() 몫 Abort 1개")));
+        assert!(r1.try_recv().is_err(), "두 번째 fan-out 없음");
+    }
+
+    #[tokio::test]
+    async fn prior_guarded_message_survives() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
+        runs::mark_aborted_if_active(&db, &run_id, "X")
+            .await
+            .unwrap();
+        coord.abort(&run_id).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some("X"));
+        assert!(is_abort(r1.try_recv().expect("abort() 몫 Abort 1개")));
+        assert!(r1.try_recv().is_err(), "두 번째 fan-out 없음");
+    }
+
+    #[tokio::test]
+    async fn prior_db_abort_without_coord_abort_keeps_message() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
+        runs::mark_aborted_if_active(&db, &run_id, "X")
+            .await
+            .unwrap();
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some("X"));
+        assert!(is_abort(
+            r1.try_recv().expect("DB가 이미 terminal이어도 형제 중단")
+        ));
+    }
+
+    #[tokio::test]
+    async fn abort_flag_set_before_sends() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        // w1: 용량 1 채널을 미리 채워 abort()의 전송이 막히게 한다.
+        let (tx1, mut r1) = tokio::sync::mpsc::channel(1);
+        tx1.send(Ok(ServerMessage { payload: None })).await.unwrap();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+
+        let c2 = coord.clone();
+        let rid = run_id.clone();
+        let aborter = tokio::spawn(async move { c2.abort(&rid).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            coord.record_phase(&run_id, "w0", ABORTED, ""),
+        )
+        .await
+        .expect("record_phase가 막힘 = 표시가 전송 뒤");
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.message, None);
+
+        // 정리: w1 수신자를 비워 abort()를 끝낸다.
+        while tokio::time::timeout(Duration::from_millis(200), r1.recv())
+            .await
+            .is_ok()
+        {}
+        tokio::time::timeout(Duration::from_secs(2), aborter)
+            .await
+            .expect("abort() 종료")
+            .unwrap();
     }
 
     #[test]
