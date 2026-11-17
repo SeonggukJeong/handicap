@@ -1,7 +1,7 @@
 # 데스크톱 앱 부하기 모드 2차 (desktop-worker-mode) — 설계
 
 - 날짜: 2026-11-17
-- 상태: 설계
+- 상태: **2a 완료**(2026-11-17, 코드 `f5fdc89e`..`3e706a1c`, 판단·연기 roadmap §B65) · 2b 설계(plan은 2a master 합류 뒤)
 - 유형: user-path (+ correctness-bug: 한 부하기가 정상 종료로 빠지면 run은 `aborted`인데 다른 부하기는 계속 부하 — R8)
 - 출처: 사용자 요청(2026-11-16) "부하기들은 접속 버튼 눌러서 접속" — 1차(desktop-lan-mode, ADR-0057) spec §8 「2차 = 부하기 쪽 버튼」 ①–⑦
 - 관련: ADR-0057, ADR-0041, `docs/superpowers/specs/2026-11-16-desktop-lan-mode-design.md`(1차 — 이 문서는 그 R-번호를 `1차-R4`처럼 인용), `docs/dev/lan-workers.md`, roadmap §B64

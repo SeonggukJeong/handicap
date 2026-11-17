@@ -1420,3 +1420,43 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
   - computer-use는 날 실행 파일(`target/debug/desktop`)을 앱으로 인식하지 못한다 — `cargo tauri build --debug --bundles app` 뒤 번들 안 실행 파일을 env와 함께 직접 실행하고 `com.handicap.desktop`으로 권한 요청.
 
 - **(5) 릴리즈 노트 줄**: "설치판 앱 상단 「모드 전환」에서 「서버로 열기」를 누르면 이 PC가 서버가 되고, 다른 PC용 부하기 명령(Windows·macOS·Linux)을 복사해 붙여넣으면 그 PC가 부하를 나눠 냅니다. 서버 PC도 부하를 냅니다(끌 수 있음). 포터블 exe의 `--worker-mode pool`이 이번 버전부터 실제로 동작합니다(이전 버전은 무시했습니다) — `--worker-token`이 필요하고, `--worker-mode kubernetes`는 거절합니다."
+
+### B65. 데스크톱 부하기 모드 2a — 라이브러리·와이어 (desktop-worker-mode, 2026-11-17, 코드 `f5fdc89e`..`3e706a1c`, spec `docs/superpowers/specs/2026-11-17-desktop-worker-mode-design.md` 2a 절, plan `docs/superpowers/plans/2026-11-17-desktop-worker-mode-2a.md`) 판단·연기
+
+화면 변화 없음. 컨트롤러: 부하기가 스스로 멈추면 형제 부하기도 멈추고 run에 사유(R8), 풀 등록 뒤 수락 `Ping`, run 구성원이 아닌 워커의 상태 무시, 풀 모드가 아니면 풀 등록 거절. worker-core/worker: 배정 전 `Abort` 사유 보존·연결 상한·수락 콜백, 상태 사건·이유 분류·15초 유예 추적기·IP 탐침·서버 글자 다듬기, 데스크톱 연결 루프 `run_pool_desktop`(포기 없음·수락 뒤 카운터 0·틀린 상대 후보 건너뛰기). 2b(설치 ID·접속 코드·셸 화면)는 이 코드 위에서 plan을 새로 쓴다.
+
+- **(1) spec §5 판단 7건** (원문 spec §5 — 비용·해소 그대로)
+  - 설치 ID(사용자) — 비용: 명령으로 붙인 같은 PC는 두 대, 복제 후 겹침. 해소: 명령이 설정 파일의 ID를 읽는 옵션 / 겹침 감지.
+  - 토큰 불일치도 계속 재시도 — 비용: 영영 안 붙는 PC가 8초마다 시도(서버 로그 경고 반복 — 2a에서 데스크톱 쪽 로그는 이유가 바뀔 때만 warn). 해소: N회 뒤 멈춤.
+  - 「접속 끊기」·제외가 저장돼 재시작 후에도 끊김 — 비용: 잊으면 다음 날 안 붙음. 해소: 시작 시 자동 재접속 옵션. (2b)
+  - 실행 중 문구 = 시나리오 이름 + #끝6자 — 비용: 같은 시나리오 run끼리 라벨로 구분 못 함. 해소: `RunAssignment`에 라벨 필드.
+  - 부하기로 바꿀 때 활성 run 0개여도 확인 창 — 비용: 클릭 1회. 해소: 없음(대상 확인은 보안상 유지). (2b)
+  - 한 부하기 중단 = run 전체 중단(사용자, R8) — 비용: 부하기 한 대 문제로 긴 테스트가 통째로 끝난다. 해소: spec §6 「남은 부하기로 계속」.
+  - 수락 뒤 15초 유예 — 비용: 서버가 진짜 죽어도 15초간 「연결됨」. 해소: 유예 단축·「확인 중」 보조 문구.
+
+- **(2) 구현 중 판단 (틀렸을 때 비용 · 해소 경로)**
+  - **수락 `Ping`을 `pool_register_idle` 뒤로**(spec R3 구현 중 정정 `a13a333f`): 처음 설계는 「앞」이었으나 고정 ID DB 읽기 동안 「연결됨」인데 서버 목록엔 없는 틈이 생겼고 테스트가 그 틈을 변호하는 주석을 달았다. 비용: 동시 배정이 `Ping`보다 먼저 올 수 있다 — 워커는 `Assignment`를 묵시적 수락으로 받는다. 순서는 잠금을 쥔 결정적 테스트 `acceptance_ping_is_sent_after_pool_insert`가 지킨다. 수락 `Ping`은 `try_send`(채널이 차 있으면 이미 배정이 줄 서 있다는 뜻).
+  - **연결 상한 = 바깥 `tokio::time::timeout` 하나**(plan은 `Endpoint::connect_timeout`과 둘 다): 같은 값의 타이머 둘이 경합해 초과가 `ConnectTimeout`/`Connect` 중 무엇일지 정해지지 않았다. 처음엔 그걸 주석으로 덮었다가(사용자 지적 → `docs/dev/working-rules.md` §7 신설) 타이머를 하나로 줄였다. 비용: 없음(바깥 상한이 같은 구간의 상위 집합).
+  - **R8 구별 표시 `abort_requested`**는 `abort()`가 tx를 복사하는 잠금 블록 안에서, 어떤 Abort도 보내기 전에 세운다. 컨트롤러가 요청한 중단(REST·`abort_all`·`abort_active_runs`)은 옛 동작(사유 없음, 두 번째 fan-out 없음). 비용: 이 표시 없이 `abort()`를 부르는 새 경로가 생기면 그 경로가 R8 문구를 남긴다. 해소: `abort()`만 쓰게 유지(직접 `fan_out_abort` 금지).
+  - **run 구성원이 아닌 워커의 `RunStatus`는 무시**(보안 리뷰 S1): R8이 「아무 run이나 멈추는」 둘째 길을 열었기 때문. 비용: 제외·퇴출 뒤 늦게 온 `Aborted`는 버려진다(run이 끝났으면 debug, 살아 있으면 warn). 토큰 보유자가 다른 워커 ID로 등록하는 것은 그대로(선재).
+  - **풀 모드가 아닌 컨트롤러는 빈 run_id 등록을 `Abort{"controller is not in pool mode"}`로 거절**(최종 리뷰): 이전엔 배정 없이 영영 대기, 데스크톱은 「연결됨 · 대기」로 보였을 것. 비용: 비-풀 컨트롤러를 가리킨 CLI `run_pool` 부하기가 이제 재시도 로그를 남긴다(릴리즈 노트 줄).
+  - **틀린 상대 후보 건너뛰기**(보안 리뷰 S2): 수락 전 `AuthFailed`/`Protocol`/`Rejected`로 실패한 주소는 다른 후보가 남는 동안 다음 탐침에서 뺀다. 좁힌 라운드에서 아무도 응답 안 하면 비운다(최종 리뷰 B1 — 안 비우면 진짜 서버가 한 번 거절된 뒤 영영 빠졌다). 비용: 진짜 서버가 꺼져 있으면 틀린 상대가 두 사이클에 한 번 토큰을 받는다. 해소: 서버 인증(TLS·챌린지 — 아래 (4) D5).
+  - **서버 글자 다듬기**(보안 리뷰 N1): 배정 전 Abort 사유(200자)·시나리오 이름(80자)·run_id(64자)의 제어·방향 제어·U+2028/2029 문자를 U+FFFD로 바꾼 뒤 자른다(`pool_status::sanitize_clip` 한 곳).
+  - **`run_pool_desktop_with`(숨은 공개 함수, 도달 검사 주입)**: 틀린 호스트가 늘 먼저 응답하게 하는 테스트용. 그 테스트(`wrong_host_candidate_is_skipped_for_the_next_candidate`)는 127.0.0.2가 필요해 **macOS에선 건너뛰고(nextest엔 PASS로 보임) Linux CI에서만 돈다** — 첫 CI 로그에서 건너뛰기 문구 없이 실제로 돌았는지 확인할 것.
+
+- **(3) 미수정·선재·테스트 메모**
+  - 실행 화면이 `aborted` run의 사유를 안 보여 준다(`RunDetailPage`는 `failed`만, 인쇄 보고서는 요청 0건일 때만) — 1차의 「모드 전환으로 중단」·「앱 종료로 중단」 문구도 같다. 비용: 화면엔 사유 없는 `aborted`. **해소: 2b plan에 넣는다**(US2 — `aborted`에도 `message` 표시 + `ko.ts` + RTL).
+  - 포트 재사용 틈(테스트 `free_port()` 뒤 ~3초 사용) — 비용: 드문 flaky. 해소: 리스너를 묶어 넘기기.
+  - nextest LEAK 1회(`cancel_returns_without_excluded`, 통과) — 자식 프로세스 없음·`.config/nextest.toml` 없음이라 게이트 실패로 안 번진다. 재발하면 controller CLAUDE.md에 한 줄.
+  - 게이트 플레이크 1회 `multi_worker_fanout_e2e::two_worker_fanout_completes`(워커 SIGKILL, 재시도 통과) — 이번 diff와 무관(SIGKILL은 `Aborted`를 안 보내 R8에 안 닿는다). 재발하면 조사.
+  - 탐침 단위 테스트: 전부 실패 경우는 상한만 보고 하한(정말 기다렸는지)은 안 본다 · `tcp_reachable("127.0.0.1:1")`은 1번 포트가 닫혀 있다고 가정.
+  - spec R0a의 `HANDICAP_WORKER_TOKEN`(환경 변수로 토큰 받기) 연기는 그대로 — 2b에서 다시 판단.
+
+- **(4) 2b로 넘기는 보안 연기 (조건과 함께, 보안 리뷰 D1–D5)**
+  - D1: `role.html`이 사유·시나리오 이름·run_id를 보여 줄 때 — 글자로만(`textContent`, `innerHTML` 금지), `<bdi>`/`dir=auto`/`unicode-bidi: isolate`(보통 히브리·아랍 글자는 남는다), 긴 끊김 없는 글자·겹친 결합 문자 CSS(`overflow-wrap: anywhere` 등). 제어·방향 제어 문자는 2a가 이미 바꾼다.
+  - D2: 접속 코드 파서는 입력을 믿지 않는다 — IP 개수·포트 상한 외에 127.0.0.0/8·0.0.0.0·169.254.0.0/16·224.0.0.0/4·255.255.255.255 거절. 코드가 공격자 컨트롤러를 가리키면 이 PC가 그 시나리오를 돌린다(이 PC의 localhost·사내망·메타데이터로 요청) — 확인 창(R6)이 IP를 보여 주고 비사설이면 경고. 조건: 파서를 쓸 때.
+  - D3: 상태 화면은 코드의 목록이 아니라 실제로 붙은 주소(`PoolEvent::Accepted{addr}`)를 보여 준다 — 토큰을 받은 호스트가 보인다.
+  - D4: 접속 코드·`PoolTarget`을 품은 값은 Debug에서 가리고 `role_state`에 넣지 않는다 — 셸이 `PoolTarget`을 만드는 곳에 `?target`/`?cfg` 덤프 금지(`PoolTarget` Debug는 2a가 이미 가림).
+  - D5: 토큰 평문 전송·서버 미인증(TLS 연기, ADR-0041)이 데스크톱 부하기 역할로 비개발자에게, 멈추지 않는 자동 재시도와 함께 퍼진다 — 서버 인증 슬라이스의 우선순위 근거.
+
+- **(5) 릴리즈 노트 줄**: "실행 중 부하기 한 대를 멈추면(Ctrl+C·SIGTERM·K8s Pod 퇴출 포함) 다른 부하기도 함께 멈추고 그 사유가 run 기록(API·인쇄 보고서)에 남습니다(이전엔 run은 중단으로 표시되는데 다른 부하기가 끝까지 부하를 냈습니다). 또 풀 모드가 아닌 컨트롤러는 풀 부하기 등록을 「controller is not in pool mode」로 거절합니다(이전엔 배정받지 못한 채 기다렸습니다)."
