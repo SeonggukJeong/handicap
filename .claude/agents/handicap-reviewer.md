@@ -45,6 +45,9 @@ You review code changes in the **handicap** repo (사내 부하 테스트 도구
 - `handicap-controller` has two bins → must run as `cargo run -p handicap-controller --bin controller`.
 - Template `render` applies to url / headers / raw body and (Slice 8a onward) form values + JSON string leaves. Number/bool/null and object keys are preserved.
 
+**Comments (user rule 2026-11-17, `docs/dev/working-rules.md` §7)**
+- A NEW comment that warns about, excuses, or explains away surprising behaviour ("intentional", "harmless", "acceptable", "for now", "callers must handle both", 의도적·무해·수용·일단·호출 쪽이 처리) is a **Should-fix**: the behaviour is the defect. Prescribe a code fix — never "improve the comment/docs". If it truly can't be fixed in this change, the fix is a roadmap §B entry with cost + resolution, and the comment states facts only. Fact comments (invariants, ordering constraints, external sources) are fine.
+
 **UI**
 - `pnpm build` (`tsc -b && vite build`) is the REAL gate — `pnpm test` (esbuild) misses TS strict errors (e.g. fast-check `constantFrom` widening to `Arbitrary<string>`). Require the build to be green for UI changes.
 - flex row overflow: a `flex-1` input needs `min-w-0`, the trailing button `shrink-0`; Tailwind `truncate` needs a bounded-width ancestor (set node `style.width` for React Flow nodes).
