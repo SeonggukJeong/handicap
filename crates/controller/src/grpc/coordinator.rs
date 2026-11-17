@@ -2659,6 +2659,74 @@ mod tests {
         );
     }
 
+    /// 수락 Ping은 풀 삽입 뒤에 간다. 풀 잠금을 쥔 채 Register를 보내면 핸들러는 `pool_register_idle`
+    /// 에서 막혀 Ping이 오지 않아야 하고, 옛 순서(Ping 먼저)면 잠금 중에 Ping이 도착한다.
+    #[tokio::test]
+    async fn acceptance_ping_is_sent_after_pool_insert() {
+        use pb::coordinator_client::CoordinatorClient;
+        use pb::coordinator_server::CoordinatorServer;
+
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let st = CoordinatorState::new(db);
+        st.set_pool_mode(true);
+        st.set_worker_token(Some("t".to_string()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let svc = CoordinatorService { state: st.clone() };
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(CoordinatorServer::new(svc))
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .await
+        });
+
+        let g = st.pool.lock().await;
+        let mut client = CoordinatorClient::connect(format!("http://{addr}"))
+            .await
+            .unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        tx.send(WorkerMessage {
+            payload: Some(WorkerPayload::Register(pb::Register {
+                worker_id: "ping-order".into(),
+                run_id: String::new(),
+                capacity_vus: 10,
+                hostname: "h".into(),
+                stable_id: false,
+                token: "t".into(),
+            })),
+        })
+        .await
+        .unwrap();
+        let mut stream = client
+            .channel(ReceiverStream::new(rx))
+            .await
+            .unwrap()
+            .into_inner();
+
+        match tokio::time::timeout(Duration::from_millis(500), stream.message()).await {
+            Ok(msg) => {
+                let msg = msg.unwrap().expect("stream closed");
+                assert!(matches!(msg.payload, Some(ServerPayload::Ping(_))));
+                assert!(
+                    g.contains_key("ping-order"),
+                    "Ping arrived before the worker was in the pool"
+                );
+                drop(g);
+            }
+            Err(_) => {
+                drop(g);
+                let msg = tokio::time::timeout(Duration::from_secs(5), stream.message())
+                    .await
+                    .expect("no Ping after the pool lock was released")
+                    .unwrap()
+                    .expect("stream closed");
+                assert!(matches!(msg.payload, Some(ServerPayload::Ping(_))));
+                assert!(st.pool.lock().await.contains_key("ping-order"));
+            }
+        }
+        drop(tx);
+    }
+
     #[tokio::test]
     async fn token_unset_accepts_any() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();

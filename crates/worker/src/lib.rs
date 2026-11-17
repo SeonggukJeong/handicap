@@ -654,6 +654,7 @@ pub async fn run_pool_desktop(
         match res {
             Ok(link) => {
                 attempt = 0;
+                last_reason = None;
                 let scenario_name = Scenario::from_yaml(&link.assignment.scenario_yaml)
                     .ok()
                     .map(|s| clip(&s.name, 80));
@@ -686,6 +687,7 @@ pub async fn run_pool_desktop(
                 let reason = classify(&e);
                 let d = if accepted.load(Ordering::SeqCst) {
                     attempt = 0;
+                    last_reason = None;
                     log_failure(&mut last_reason, &reason, "desktop pool session lost");
                     let d = desktop_retry_delay(0);
                     events(PoolEvent::SessionLost { reason });

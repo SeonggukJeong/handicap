@@ -525,26 +525,6 @@ async fn worker_id_is_stable() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn accepted_means_listed_in_pool_with_stable_id() {
-    // 수락 Ping은 풀 등록 뒤에 간다: 반복해도 `Accepted` 직후 목록에 늘 보여야 한다.
-    for _ in 0..20 {
-        let port = free_port();
-        let rc = start_pool(port).await;
-        let desk = spawn_desktop(port, TOKEN);
-        // 촘촘히(1ms) 폴링해 `Accepted`를 보자마자 목록을 읽는다.
-        let deadline = tokio::time::Instant::now() + WAIT;
-        while accepted_count(&desk.snapshot()) == 0 {
-            assert!(tokio::time::Instant::now() < deadline, "never accepted");
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-        let w = pool_worker_now(&rc).await;
-        assert_eq!(w["stable"], true);
-        desk.stop().await;
-        rc.shutdown().await;
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancel_during_retry_sleep_returns_promptly() {
     let desk = spawn_desktop(free_port(), TOKEN);
     assert!(
