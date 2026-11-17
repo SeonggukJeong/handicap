@@ -2,6 +2,7 @@ pub mod datasets;
 pub mod environments;
 pub mod metrics;
 pub mod monitor_boards;
+pub mod open_loop;
 pub mod pool_overrides;
 pub mod presets;
 pub mod runs;
@@ -43,6 +44,7 @@ const MIGRATION_SQL_0019: &str = include_str!("migrations/0019_pool_worker_overr
 const MIGRATION_SQL_0020: &str = include_str!("migrations/0020_run_error_kind_metrics.sql");
 const MIGRATION_SQL_0022: &str = include_str!("migrations/0022_monitor_boards.sql");
 const MIGRATION_SQL_0023: &str = include_str!("migrations/0023_run_loop_exit_metrics.sql");
+const MIGRATION_SQL_0024: &str = include_str!("migrations/0024_run_open_loop_seconds.sql");
 // Inline literal (no migrations/*.sql file) — single trivial statement; grep MIGRATION_SQL_0017 to find it.
 const MIGRATION_SQL_0017: &str = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)";
 
@@ -89,6 +91,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_runs_label(&pool).await?; // migration 0021 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0022).execute(&pool).await?; // migration 0022: monitor_boards
     sqlx::query(MIGRATION_SQL_0023).execute(&pool).await?; // migration 0023: run_loop_exit_metrics
+    sqlx::query(MIGRATION_SQL_0024).execute(&pool).await?; // migration 0024: run_open_loop_seconds
     Ok(pool)
 }
 

@@ -1052,8 +1052,8 @@ mod tests {
         f.open_loop_seconds = vec![handicap_engine::OpenLoopSecond {
             ts_second: 5,
             launched: 1,
-            completed: 0,
-            dropped: 0,
+            completed: 2,
+            dropped: 3,
         }];
         f.open_loop_started_at_ms = Some(5_123);
         let b = flush_to_batch(f, "r", "w").expect("must be sent");
@@ -1062,8 +1062,8 @@ mod tests {
             vec![pb::OpenLoopSecond {
                 ts_second: 5,
                 launched: 1,
-                completed: 0,
-                dropped: 0
+                completed: 2,
+                dropped: 3
             }]
         );
         assert_eq!(b.open_loop_started_at_ms, 5_123);

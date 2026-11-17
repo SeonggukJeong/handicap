@@ -1956,6 +1956,42 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
     if let Err(e) = crate::store::metrics::insert_batch(&state.db, &rows).await {
         warn!(run_id = %batch.run_id, error = %e, "failed to insert metric batch");
     }
+    if !batch.open_loop_seconds.is_empty() {
+        let secs: Vec<(i64, i64, i64, i64)> = batch
+            .open_loop_seconds
+            .iter()
+            .map(|s| {
+                (
+                    s.ts_second,
+                    s.launched as i64,
+                    s.completed as i64,
+                    s.dropped as i64,
+                )
+            })
+            .collect();
+        if let Err(e) = crate::store::open_loop::insert_open_loop_seconds(
+            &state.db,
+            &batch.run_id,
+            &batch.worker_id,
+            &secs,
+        )
+        .await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert open-loop seconds");
+        }
+    }
+    if batch.open_loop_started_at_ms > 0 {
+        if let Err(e) = crate::store::open_loop::insert_worker_start(
+            &state.db,
+            &batch.run_id,
+            &batch.worker_id,
+            batch.open_loop_started_at_ms,
+        )
+        .await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert worker start");
+        }
+    }
     let loop_rows: Vec<crate::store::metrics::LoopMetricRow> = batch
         .loop_stats
         .iter()
@@ -2829,6 +2865,72 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(d, 8, "dropped must accumulate across batches");
+    }
+
+    #[tokio::test]
+    async fn ingest_stores_open_loop_seconds_and_start() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+
+        let mk = |secs: Vec<pb::OpenLoopSecond>, started: i64, w: &str| pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: w.to_string(),
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![],
+            phase_stats: vec![],
+            active_vu_samples: vec![],
+            error_kind_stats: vec![],
+            loop_exit_stats: vec![],
+            open_loop_seconds: secs,
+            open_loop_started_at_ms: started,
+            dropped: 4,
+        };
+        let secs = vec![
+            pb::OpenLoopSecond {
+                ts_second: 10,
+                launched: 5,
+                completed: 4,
+                dropped: 1,
+            },
+            pb::OpenLoopSecond {
+                ts_second: 11,
+                launched: 6,
+                completed: 6,
+                dropped: 0,
+            },
+        ];
+        ingest_metrics(&coord, &mk(secs, 7_000, "w0")).await;
+        ingest_metrics(&coord, &mk(vec![], 0, "w1")).await;
+
+        let rows = crate::store::open_loop::open_loop_seconds(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            (
+                rows[0].ts_second,
+                rows[0].launched,
+                rows[0].completed,
+                rows[0].dropped
+            ),
+            (10, 5, 4, 1)
+        );
+        assert_eq!(rows[1].ts_second, 11);
+        let starts = crate::store::open_loop::worker_starts(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(starts.len(), 1, "started_at_ms=0 must not create a row");
+        assert_eq!(starts[0].worker_id, "w0");
+        assert_eq!(starts[0].started_at_ms, 7_000);
+        let d: i64 = sqlx::query_scalar("SELECT dropped FROM runs WHERE id = ?")
+            .bind(&run_id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(d, 8, "runs.dropped accumulation unchanged");
     }
 
     #[tokio::test]

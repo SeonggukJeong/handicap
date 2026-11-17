@@ -70,7 +70,7 @@ async fn seed_run(db: &store::Db, scenario_id: &str, run_id: &str, status: &str)
     .unwrap();
 }
 
-/// run 산하 메트릭 8테이블에 각 1행 시드 (cascade 전수 삭제 검증용).
+/// run 산하 메트릭 10테이블에 각 1행 시드 (cascade 전수 삭제 검증용).
 async fn seed_metric_rows(db: &store::Db, run_id: &str) {
     for sql in [
         "INSERT INTO run_metrics(run_id,ts_second,step_id,worker_id,count,error_count,hdr_histogram,status_counts) VALUES(?,0,'S','',1,0,x'00','{}')",
@@ -81,6 +81,8 @@ async fn seed_metric_rows(db: &store::Db, run_id: &str) {
         "INSERT INTO run_active_vu_metrics(run_id,ts_second,worker_id,desired,actual) VALUES(?,0,'',1,1)",
         "INSERT INTO run_error_kind_metrics(run_id,step_id,kind,count) VALUES(?,'S','connect_refused',1)",
         "INSERT INTO run_loop_exit_metrics(run_id,step_id,pass_bucket,outcome,count,pass_sum) VALUES(?,'S',1,0,1,1)",
+        "INSERT INTO run_open_loop_seconds(run_id,worker_id,ts_second,launched,completed,dropped) VALUES(?,'w0',0,1,1,0)",
+        "INSERT INTO run_worker_starts(run_id,worker_id,started_at_ms) VALUES(?,'w0',1000)",
     ] {
         sqlx::query(sql).bind(run_id).execute(db).await.unwrap();
     }
@@ -167,6 +169,8 @@ async fn delete_cascade_removes_full_graph_and_spares_other_scenarios() {
         "run_active_vu_metrics",
         "run_error_kind_metrics",
         "run_loop_exit_metrics",
+        "run_open_loop_seconds",
+        "run_worker_starts",
     ] {
         assert_eq!(count(&db, t, "run_id", "R1").await, 0, "{t} orphan");
     }
