@@ -53,6 +53,19 @@
   .spinner { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent);
     border-radius: 50%; margin: 0 auto 12px; animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  #w-state, #w-detail, #w-ident { overflow-wrap: anywhere; }
+  #w-state { font-weight: 600; margin: 0 0 4px; }
+  #w-detail { margin: 0 0 8px; }
+  #w-ident { font-size: 12px; margin: 8px 0 0; }
+  #code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code-bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
+  details > summary { cursor: pointer; font-weight: 600; }
+  details[open] > summary { margin-bottom: 8px; }
+  textarea.codein { width: 100%; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px; resize: vertical; word-break: break-all; }
+  #confirm-text p { margin: 0 0 8px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -65,34 +78,60 @@
     <p id="mode" class="mode" hidden></p>
     <div class="row">
       <button id="switch" class="primary" type="button" hidden></button>
+      <button id="switch-server" type="button" hidden>서버로 열기</button>
       <button id="back" type="button" hidden>화면으로 돌아가기</button>
     </div>
   </section>
+  <section id="worker" class="card" hidden>
+    <h2>부하기 상태</h2>
+    <p id="w-state"></p>
+    <p id="w-detail" class="muted"></p>
+    <div class="row">
+      <button id="w-disconnect" type="button" hidden>접속 끊기</button>
+      <button id="w-reconnect" type="button" hidden>다시 접속</button>
+    </div>
+    <p id="w-ident" class="muted"></p>
+  </section>
   <section id="server" class="card" hidden>
     <div class="field">
-      <h2>이 PC의 IP</h2>
-      <div id="ips" class="ips"></div>
-      <p id="no-ip" class="muted" hidden>이 PC의 망 주소를 찾지 못했습니다</p>
+      <h2>부하기 PC 접속 코드</h2>
+      <div class="row">
+        <div id="code"></div>
+        <button id="code-copy" type="button" disabled>복사</button>
+        <span id="code-copy-msg" role="status"></span>
+      </div>
+      <p id="code-err" class="err" hidden></p>
+      <p class="muted">부하기 PC의 앱에서 「모드 전환」 → 「부하기로 접속」에 붙여넣으세요 — 같은 버전의 앱이어야 합니다</p>
+    </div>
+    <div class="field">
       <p id="ip-public" class="err" hidden>사설 망 주소가 아닙니다 — 이 주소는 바깥 망에 드러날 수 있습니다</p>
       <p id="plaintext" class="muted">연결은 암호화되지 않습니다 — 회사 망에서만 쓰세요. 부하기 PC는 테스트의 환경 값(비밀 포함)을 받습니다.</p>
     </div>
-    <div class="field">
-      <h2><label for="os">부하기 PC의 OS</label></h2>
-      <select id="os">
-        <option value="windows">Windows</option>
-        <option value="macos">macOS</option>
-        <option value="linux">Linux</option>
-      </select>
-    </div>
-    <div class="field">
-      <textarea id="cmd" class="cmd" rows="3" readonly aria-label="부하기 PC용 명령"></textarea>
-      <div class="row" style="margin-top:6px">
-        <button id="copy" type="button">부하기 PC용 명령 복사</button>
-        <span id="copy-msg" role="status"></span>
+    <details id="cmd-box" class="field">
+      <summary>명령으로 붙이기 (포터블 exe·터미널)</summary>
+      <div class="field">
+        <h2>이 PC의 IP</h2>
+        <div id="ips" class="ips"></div>
+        <p id="no-ip" class="muted" hidden>이 PC의 망 주소를 찾지 못했습니다</p>
       </div>
-      <p id="cmd-err" class="err" hidden></p>
-      <p id="os-guide" class="muted"></p>
-    </div>
+      <div class="field">
+        <h2><label for="os">부하기 PC의 OS</label></h2>
+        <select id="os">
+          <option value="windows">Windows</option>
+          <option value="macos">macOS</option>
+          <option value="linux">Linux</option>
+        </select>
+      </div>
+      <div class="field">
+        <textarea id="cmd" class="cmd" rows="3" readonly aria-label="부하기 PC용 명령"></textarea>
+        <div class="row" style="margin-top:6px">
+          <button id="copy" type="button">부하기 PC용 명령 복사</button>
+          <span id="copy-msg" role="status"></span>
+        </div>
+        <p id="cmd-err" class="err" hidden></p>
+        <p id="os-guide" class="muted"></p>
+      </div>
+    </details>
     <div class="field">
       <label class="row"><input id="sw" type="checkbox"> 이 PC도 부하 내기</label>
       <p id="sw-note" class="muted" hidden></p>
@@ -101,10 +140,21 @@
       <p id="firewall" class="muted"></p>
     </div>
   </section>
+  <section class="card">
+    <details id="join">
+      <summary>부하기로 접속</summary>
+      <textarea id="code-in" class="codein" rows="3" aria-label="접속 코드" spellcheck="false" autocomplete="off"></textarea>
+      <p class="muted">서버 PC의 「모드 전환」 화면에서 복사한 접속 코드를 붙여넣으세요</p>
+      <div class="row">
+        <button id="join-btn" type="button">부하기로 접속</button>
+      </div>
+      <p id="join-err" class="err" hidden></p>
+    </details>
+  </section>
 </main>
 <div id="confirm" class="overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-text">
   <div class="box">
-    <p id="confirm-text"></p>
+    <div id="confirm-text"></div>
     <div class="row" style="justify-content:center">
       <button id="confirm-ok" class="primary" type="button">중단하고 전환</button>
       <button id="confirm-cancel" type="button">취소</button>
@@ -152,11 +202,11 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
   var confirmOpen = false;
   var selIp = null, selOs = null, ipsKey = null, cmdKey = null;
   var swPending = false, swErr = "";
-  var copyTimer = null;
 
   function noticeList(st) {
     var n = st.notices, out = [];
-    if (n.port_changed) out.push(["port_changed", "부하기 접속 포트 " + n.port_changed[0] + "을 다른 프로그램이 쓰고 있어 " + n.port_changed[1] + "로 열었습니다 — 부하기들에 새 명령을 주세요"]);
+    if (n.port_changed) out.push(["port_changed", "부하기 접속 포트 " + n.port_changed[0] + "을 다른 프로그램이 쓰고 있어 " + n.port_changed[1] + "로 열었습니다 — 부하기들에 새 접속 코드(또는 명령)를 주세요"]);
+    if (n.worker_code_unreadable) out.push(["worker_code_unreadable", "저장된 접속 코드를 읽지 못했습니다 — 새 코드를 붙여넣어 주세요"]);
     if (n.save_failed) out.push(["save_failed", "역할을 저장하지 못했습니다 — 다음 실행 때 이전 역할로 열립니다"]);
     if (n.self_worker_excluded) out.push(["self_worker_excluded", "워커 화면에서 이 PC를 제외해 꺼졌습니다"]);
     if (n.config_warning) out.push(["config_warning", "저장된 역할 설정을 읽지 못해 혼자 쓰기로 열었습니다"]);
@@ -197,15 +247,29 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     });
 
     // 현재 모드 · 버튼 (컨트롤러가 떠 있을 때만 "열려 있음"을 말한다)
+    var isWorker = st.role === "worker";
     var mode = $("mode");
-    mode.hidden = !st.app_url;
-    mode.textContent = st.role === "server" ? "현재 모드: 서버로 열려 있음" : "현재 모드: 혼자 쓰기 (이 PC만 부하를 냅니다)";
+    mode.hidden = !isWorker && !st.app_url;
+    mode.textContent = isWorker ? "현재 모드: 부하기 (서버가 보내는 테스트를 실행합니다)"
+      : st.role === "server" ? "현재 모드: 서버로 열려 있음" : "현재 모드: 혼자 쓰기 (이 PC만 부하를 냅니다)";
     var sw = $("switch");
     sw.hidden = false;
-    sw.textContent = st.role === "server" ? "혼자 쓰기로 돌아가기" : "서버로 열기";
+    sw.textContent = st.role === "local" ? "서버로 열기" : "혼자 쓰기로 돌아가기";
     sw.disabled = locked;
-    $("back").hidden = !st.app_url;
+    var sws = $("switch-server");
+    sws.hidden = !isWorker;
+    sws.disabled = locked;
+    $("back").hidden = isWorker || !st.app_url;
     $("back").disabled = locked;
+
+    // 부하기 영역
+    $("worker").hidden = !isWorker;
+    if (isWorker) renderWorker(st, locked);
+
+    // 접속 코드 입력 (모든 역할) — 요소를 다시 만들지 않는다(입력·열림 상태 유지)
+    $("join").querySelector("summary").textContent = isWorker ? "다른 접속 코드로 바꾸기" : "부하기로 접속";
+    $("code-in").disabled = locked;
+    $("join-btn").disabled = locked;
 
     // 서버 영역
     var server = st.role === "server" && !!st.app_url;
@@ -213,6 +277,55 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     if (server) renderServer(st, locked);
 
     if (locked) setAllDisabled(true);
+  }
+
+  // 서버가 보낸 글자는 <bdi>의 textContent로만 넣는다.
+  // parts: 문자열(그대로) | { b: 서버 글자 }
+  function setParts(el, parts) {
+    el.textContent = "";
+    parts.forEach(function (p) {
+      if (typeof p === "string") { el.appendChild(document.createTextNode(p)); return; }
+      var b = document.createElement("bdi"); b.textContent = p.b; el.appendChild(b);
+    });
+  }
+  var REASON = {
+    unreachable: "서버에 연결할 수 없습니다 — 서버 PC가 켜져 있고 서버 모드인지, 방화벽이 막지 않는지 확인해 주세요",
+    auth_failed: "접속 코드의 토큰이 맞지 않습니다 — 서버 화면에서 새 코드를 받아 주세요",
+    protocol: "서버와 통신하지 못했습니다 — 두 PC의 앱 버전이 같은지 확인해 주세요"
+  };
+  function renderWorker(st, locked) {
+    var w = st.worker;
+    if (!w) return;
+    var s = [], dt = [];
+    var addr = w.addr ? [{ b: w.addr }] : [];
+    if (w.state === "connecting") {
+      s = ["서버에 연결하는 중…"];
+      w.servers.forEach(function (sv, i) { if (i) dt.push(", "); dt.push({ b: sv }); });
+    } else if (w.state === "idle") {
+      s = ["연결됨 · 대기 중"]; dt = addr;
+    } else if (w.state === "running") {
+      s = ["테스트 실행 중"];
+      if (w.scenario_name) { s.push(" · "); s.push({ b: w.scenario_name }); }
+      if (w.run_tail) { s.push(" · #"); s.push({ b: w.run_tail }); }
+      dt = addr;
+    } else if (w.state === "retrying") {
+      s = ["다시 시도 중"];
+      if (w.reason === "rejected") { s.push(" — 서버가 접속을 거절했습니다: "); s.push({ b: w.reason_detail || "" }); }
+      else if (REASON[w.reason]) s.push(" — " + REASON[w.reason]);
+      dt = [w.retry_in_secs ? w.retry_in_secs + "초 뒤 다시 시도" : "다시 시도하는 중…"];
+    } else if (w.state === "excluded") {
+      s = ["서버에서 제외됨 — 서버 「워커」 화면에서 제외했습니다"];
+    } else {
+      s = ["접속 끊김"];
+    }
+    setParts($("w-state"), s);
+    setParts($("w-detail"), dt);
+    setParts($("w-ident"), ["이 PC: ", { b: st.hostname }].concat(st.install_id ? [" · 워커 ID ", { b: st.install_id }] : []));
+    var live = w.state === "connecting" || w.state === "idle" || w.state === "running" || w.state === "retrying";
+    $("w-disconnect").hidden = !live;
+    $("w-disconnect").disabled = locked;
+    $("w-reconnect").hidden = live || w.servers.length === 0;
+    $("w-reconnect").disabled = locked;
   }
 
   function renderServer(st, locked) {
@@ -240,17 +353,35 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
 
     $("copy").disabled = locked || !$("cmd").value;
     updateCommand();
+    updateCode(st);
+    $("code-copy").disabled = locked || !codeVal;
 
     // 이 PC도 부하 내기
     var cb = $("sw"), note = $("sw-note");
     if (!swPending) cb.checked = st.self_worker;
     var why = "";
     if (st.self_worker_busy) why = "이 PC가 테스트를 실행하는 중이라 끝난 뒤 바꿀 수 있습니다";
-    else if (st.self_worker_unavailable) why = st.self_worker_unavailable;
     cb.disabled = locked || swPending || !!why;
     var noteText = why || swErr;
     note.textContent = noteText; note.hidden = !noteText;
     note.className = why ? "muted" : "err";
+  }
+
+  // 접속 코드는 요청형 IPC로만 받는다. console·오류 줄에 쓰지 않는다.
+  var codeKey = null, codeVal = "";
+  function updateCode(st) {
+    var key = st.ips.join(",") + "|" + st.grpc_port;
+    if (key === codeKey) return;
+    codeKey = key;
+    invoke("connect_code").then(function (text) {
+      if (codeKey !== key) return;
+      codeVal = text; $("code").textContent = text; $("code-err").hidden = true;
+      $("code-copy").disabled = overlayOn || !!(cur && cur.switching);
+    }, function (e) {
+      if (codeKey !== key) return;
+      codeKey = null; codeVal = ""; $("code").textContent = ""; $("code-copy").disabled = true;
+      $("code-err").textContent = errText(e); $("code-err").hidden = false;
+    });
   }
 
   function updateCommand() {
@@ -294,26 +425,28 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     ta.remove();
     return ok;
   }
-  function copyMsg(ok) {
-    var m = $("copy-msg");
-    clearTimeout(copyTimer);
+  var copyTimers = {};
+  function copyMsg(msgId, ok) {
+    var m = $(msgId);
+    clearTimeout(copyTimers[msgId]);
     if (ok) {
       m.className = "ok"; m.textContent = "복사됨";
-      copyTimer = setTimeout(function () { m.textContent = ""; }, 2000);
+      copyTimers[msgId] = setTimeout(function () { m.textContent = ""; }, 2000);
     } else {
       m.className = "err"; m.textContent = "복사하지 못했습니다 — 칸을 선택해 직접 복사하세요";
     }
   }
-  $("copy").addEventListener("click", function () {
-    var text = $("cmd").value;
+  function doCopy(text, msgId) {
     if (!text) return;
     var p;
     try {
       p = navigator.clipboard && navigator.clipboard.writeText
         ? navigator.clipboard.writeText(text) : Promise.reject("no clipboard");
     } catch (e) { p = Promise.reject(e); }
-    p.then(function () { copyMsg(true); }, function () { copyMsg(copyFallback(text)); });
-  });
+    p.then(function () { copyMsg(msgId, true); }, function () { copyMsg(msgId, copyFallback(text)); });
+  }
+  $("copy").addEventListener("click", function () { doCopy($("cmd").value, "copy-msg"); });
+  $("code-copy").addEventListener("click", function () { doCopy(codeVal, "code-copy-msg"); });
 
   $("os").addEventListener("change", function () {
     selOs = $("os").value;
@@ -332,11 +465,17 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     if (cur && cur.app_url) location.assign(cur.app_url);
   });
 
-  function askConfirm(n) {
+  // lines: 줄마다 <p>(textContent). okLabel: 확인 버튼 글자.
+  function askConfirm(lines, okLabel) {
     return new Promise(function (resolve) {
       confirmOpen = true;
-      $("confirm-text").textContent = "실행 중인 테스트 " + n + "개가 중단됩니다";
+      var box = $("confirm-text");
+      box.textContent = "";
+      lines.forEach(function (l) {
+        var p = document.createElement("p"); p.textContent = l; box.appendChild(p);
+      });
       var dlg = $("confirm"), ok = $("confirm-ok"), cancel = $("confirm-cancel");
+      ok.textContent = okLabel;
       ok.disabled = false; cancel.disabled = false;
       dlg.classList.add("on");
       cancel.focus();
@@ -371,37 +510,121 @@ if (window.top !== window.self) { document.documentElement.textContent = ""; thr
     if (overlayOn) setAllDisabled(true);
   }
 
-  $("switch").addEventListener("click", function () {
+  var STOP_LINE = "실행 중인 테스트가 중단됩니다 — 다른 부하기도 함께 멈춥니다";
+  // 부하기 역할이 테스트를 돌리는 중인지 — 최신 상태를 새로 읽는다.
+  function workerRunning() {
+    return invoke("role_state").then(function (st) {
+      return !!(st.worker && st.worker.state === "running");
+    });
+  }
+
+  // 덮개 + 동작 + 최소 600ms. 실패 사유는 화면 한 줄(코드는 사유에 없다).
+  function runWithOverlay(text, fn, onDone) {
+    setOverlay(text);
+    return Promise.allSettled([fn(), delay(600)]).then(function (rs) {
+      setOverlay("");
+      cmdKey = null; ipsKey = null; codeKey = null;
+      var failed = rs[0].status === "rejected";
+      return refresh().then(function () {
+        if (onDone) onDone(!failed);
+        if (!failed) return;
+        // 서버로의 실패는 셸이 「서버로 열지 못했습니다」 안내를 세운다 — 사유는 한 번만.
+        if (text === "서버 모드로 전환 중…" && cur && cur.notices.start_error != null) return;
+        showErr("전환하지 못했습니다: " + errText(rs[0].reason), "switch");
+      });
+    });
+  }
+  function failTop(e) {
+    showErr("전환하지 못했습니다: " + errText(e), "switch");
+    return refresh();
+  }
+
+  // 역할 전환 (혼자 쓰기 ↔ 서버, 부하기에서 둘 다)
+  function switchTo(target) {
     if (!cur || overlayOn) return;
-    var target = cur.role === "server" ? "local" : "server";
     showErr("");
-    invoke("active_run_count").then(function (n) {
-      return n > 0 ? askConfirm(n) : true;
+    var ask;
+    if (cur.role === "worker") {
+      ask = workerRunning().then(function (r) {
+        return r ? askConfirm([STOP_LINE], "중단하고 전환") : true;
+      });
+    } else {
+      ask = invoke("active_run_count").then(function (n) {
+        return n > 0 ? askConfirm(["실행 중인 테스트 " + n + "개가 중단됩니다"], "중단하고 전환") : true;
+      });
+    }
+    ask.then(function (go) {
+      if (!go) return;
+      return runWithOverlay(target === "server" ? "서버 모드로 전환 중…" : "혼자 쓰기로 돌아가는 중…",
+        function () { return invoke("switch_role", { target: target }); });
+    }, failTop);
+  }
+  $("switch").addEventListener("click", function () {
+    if (!cur) return;
+    switchTo(cur.role === "local" ? "server" : "local");
+  });
+  $("switch-server").addEventListener("click", function () { switchTo("server"); });
+
+  $("w-disconnect").addEventListener("click", function () {
+    if (!cur || overlayOn) return;
+    showErr("");
+    workerRunning().then(function (r) {
+      return r ? askConfirm([STOP_LINE], "중단하고 끊기") : true;
     }).then(function (go) {
       if (!go) return;
-      setOverlay(target === "server" ? "서버 모드로 전환 중…" : "혼자 쓰기로 돌아가는 중…");
-      return Promise.allSettled([invoke("switch_role", { target: target }), delay(600)]).then(function (rs) {
-        setOverlay("");
-        cmdKey = null; ipsKey = null;
-        return refresh().then(function () {
-          if (rs[0].status !== "rejected") return;
-          // 서버로의 실패는 셸이 「서버로 열지 못했습니다」 안내를 세운다 — 사유는 한 번만.
-          if (target === "server" && cur && cur.notices.start_error != null) return;
-          showErr("전환하지 못했습니다: " + errText(rs[0].reason), "switch");
+      return runWithOverlay("접속을 끊는 중…", function () { return invoke("disconnect_worker"); });
+    }, failTop);
+  });
+  $("w-reconnect").addEventListener("click", function () {
+    if (!cur || overlayOn) return;
+    showErr("");
+    runWithOverlay("다시 접속하는 중…", function () { return invoke("reconnect_worker"); });
+  });
+
+  // 부하기로 접속: 코드 검사 → 확인 → 접속. 코드 글자는 어디에도 되풀이하지 않는다.
+  $("join-btn").addEventListener("click", function () {
+    if (!cur || overlayOn || confirmOpen) return;
+    var code = $("code-in").value;
+    var err = $("join-err");
+    err.hidden = true; showErr("");
+    var isWorker = cur.role === "worker";
+    invoke("check_code", { code: code }).then(function (pv) {
+      var lines = ["이 서버에 부하기로 접속합니다: " + pv.ips.map(function (ip) { return ip + ":" + pv.port; }).join(", ") + " — 이 서버가 보내는 테스트를 이 PC가 실행합니다"];
+      if (pv.non_private) lines.push("사설 망 주소가 아닙니다 — 회사 망 밖의 서버일 수 있습니다");
+      var extra;
+      if (!isWorker) {
+        lines.push("이 PC의 시나리오 화면·예약 실행·운영 모니터가 멈춥니다(다른 역할로 돌아오면 다시 켜집니다)");
+        extra = invoke("active_run_count").then(function (n) {
+          if (n > 0) lines.push("실행 중인 테스트 " + n + "개가 중단됩니다");
         });
+      } else {
+        extra = workerRunning().then(function (r) { if (r) lines.push(STOP_LINE); });
+      }
+      return extra.then(function () {
+        return askConfirm(lines, "접속");
+      }).then(function (go) {
+        if (!go) return;
+        return runWithOverlay("부하기로 접속하는 중…", function () { return invoke("connect_worker", { code: code }); },
+          function (okd) {
+            if (!okd) return;
+            $("code-in").value = ""; $("join").open = false;
+          });
       });
     }, function (e) {
-      showErr("전환하지 못했습니다: " + errText(e), "switch");
-      return refresh();
+      err.textContent = errText(e); err.hidden = false;
     });
   });
 
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden && !overlayOn) refresh();
   });
+  // 1초 간격 하나: 부하기 역할은 매 틱, 서버 역할·전환 중은 3틱마다(3초).
+  var tick = 0;
   setInterval(function () {
-    if (cur && (cur.role === "server" || cur.switching) && !document.hidden && !overlayOn && !confirmOpen && !swPending) refresh();
-  }, 3000);
+    tick++;
+    if (!cur || document.hidden || overlayOn || confirmOpen || swPending) return;
+    if (cur.role === "worker" || ((cur.role === "server" || cur.switching) && tick % 3 === 0)) refresh();
+  }, 1000);
   refresh();
 })();
 </script>
