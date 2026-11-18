@@ -552,6 +552,7 @@ mod tests {
             ramp_seconds: 5,
             discard_seconds: 10,
             p99_cap_ms: None,
+            auto_stop: None,
         });
         p
     }
@@ -576,6 +577,36 @@ mod tests {
             .unwrap();
         assert!(run.profile.stair.is_some());
         assert_eq!(run.profile.stages.unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn stair_schedule_fire_keeps_auto_stop() {
+        let state = test_state().await;
+        let sid = seed_scenario(&state.db).await;
+        let t = Trigger::Once {
+            run_at: NOW - 1_000,
+        };
+        let mut p = stair_profile();
+        let auto = crate::stair::AutoStopConfig {
+            saturation: Some(crate::stair::SaturationStopMode::FirstFail),
+            emergency: Some(crate::stair::EmergencyStop {
+                error_rate_pct: 7.5,
+                p99_ms: 1500,
+                consecutive_seconds: 4,
+                min_requests: 30,
+            }),
+        };
+        p.stair.as_mut().unwrap().auto_stop = Some(auto.clone());
+        crate::stair::normalize_stair(&mut p).unwrap();
+        let id = insert_sched(&state.db, &sid, &p, &t, Some(NOW - 1_000)).await;
+        let sum = process_due_schedules(&state, NOW).await;
+        assert_eq!(sum.fired, 1);
+        let g = schedules::get(&state.db, &id).await.unwrap().unwrap();
+        let run = crate::store::runs::get(&state.db, g.last_run_id.as_deref().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.profile.stair.unwrap().auto_stop, Some(auto));
     }
 
     #[tokio::test]

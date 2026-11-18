@@ -385,3 +385,66 @@ async fn schedule_create_and_update_with_stair() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(resp.to_string().contains(msg), "PUT: {resp}");
 }
+
+#[tokio::test]
+async fn schedule_create_and_update_roundtrip_auto_stop() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = seed_scenario(&app).await;
+    let body = |profile: Value| {
+        json!({
+            "name": "stair", "scenario_id": sid, "profile": profile, "env": {},
+            "trigger": { "kind": "cron", "cron_expr": "0 3 * * *" }, "enabled": true
+        })
+    };
+    let sent = json!({
+        "saturation": "two_fails",
+        "emergency": { "error_rate_pct": 5, "p99_ms": 2000, "consecutive_seconds": 3, "min_requests": 20 }
+    });
+    let mut p = stair_profile();
+    p["stair"]["auto_stop"] = sent.clone();
+    let (status, created) = send(&app, Method::POST, "/api/schedules", Some(body(p.clone()))).await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    // f64 5.0은 JSON에서 5.0으로 돌아오므로 숫자 값으로 비교한다.
+    let got = &created["profile"]["stair"]["auto_stop"];
+    assert_eq!(got["saturation"], "two_fails");
+    assert_eq!(got["emergency"]["error_rate_pct"].as_f64(), Some(5.0));
+    assert_eq!(got["emergency"]["p99_ms"], 2000);
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let mut p2 = stair_profile();
+    p2["stair"]["auto_stop"] = json!({ "saturation": null, "emergency":
+        { "error_rate_pct": 0.5, "p99_ms": 100, "consecutive_seconds": 2, "min_requests": 5 } });
+    let (status, upd) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/schedules/{id}"),
+        Some(body(p2.clone())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{upd:?}");
+    assert_eq!(
+        upd["profile"]["stair"]["auto_stop"],
+        p2["stair"]["auto_stop"]
+    );
+
+    let mut bad = stair_profile();
+    bad["stair"]["auto_stop"] = json!({ "emergency":
+        { "error_rate_pct": 5, "p99_ms": 0, "consecutive_seconds": 3, "min_requests": 20 } });
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(body(bad.clone())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/schedules/{id}"),
+        Some(body(bad)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

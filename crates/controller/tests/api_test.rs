@@ -918,3 +918,48 @@ async fn create_stair_run_stores_stair_and_expanded_stages() {
         "계단 검증이 거절해야 한다(다른 400 아님): {body}"
     );
 }
+
+#[tokio::test]
+async fn create_stair_run_roundtrips_auto_stop_and_rejects_bad_range() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let yaml = "version: 1\nname: stair\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+    let post_run = |auto_stop: Value| {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/runs")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "scenario_id": scenario_id, "env": {}, "profile": {
+                    "max_in_flight": 50, "duration_seconds": 0,
+                    "stair": { "targets": [100, 200], "hold_seconds": 60, "ramp_seconds": 5,
+                               "discard_seconds": 10, "auto_stop": auto_stop }
+                } })
+                .to_string(),
+            ))
+            .unwrap()
+    };
+    let sent = json!({
+        "saturation": "first_fail",
+        "emergency": { "error_rate_pct": 7.5, "p99_ms": 1500, "consecutive_seconds": 4, "min_requests": 30 }
+    });
+    let resp = app.clone().oneshot(post_run(sent.clone())).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    let id = v["id"].as_str().unwrap();
+    let row = handicap_controller::store::runs::get(&db, id)
+        .await
+        .unwrap()
+        .unwrap();
+    let stored = serde_json::to_value(row.profile.stair.unwrap()).unwrap();
+    assert_eq!(stored["auto_stop"], sent);
+
+    let bad = json!({ "saturation": null,
+        "emergency": { "error_rate_pct": 0, "p99_ms": 1500, "consecutive_seconds": 4, "min_requests": 30 } });
+    let resp = app.clone().oneshot(post_run(bad)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

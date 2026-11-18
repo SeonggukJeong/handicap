@@ -3535,6 +3535,7 @@ steps:
                 ramp_seconds: ramp,
                 discard_seconds: discard,
                 p99_cap_ms: None,
+                auto_stop: None,
             }
         }
 

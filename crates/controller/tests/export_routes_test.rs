@@ -621,6 +621,7 @@ async fn report_stairs_csv_200_for_stair() {
         ramp_seconds: 0,
         discard_seconds: 0,
         p99_cap_ms: None,
+        auto_stop: None,
     };
     let (run_id, _) = seed_run_with_stair(&db, Some(cfg)).await;
     let app = make_app(db);

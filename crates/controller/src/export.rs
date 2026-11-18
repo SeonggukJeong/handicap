@@ -1670,6 +1670,7 @@ mod tests {
                 ramp_seconds: 1,
                 discard_seconds: 5,
                 p99_cap_ms: None,
+                auto_stop: None,
             },
             steps,
             headline: crate::stair::StairHeadline {

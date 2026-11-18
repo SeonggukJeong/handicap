@@ -20,6 +20,40 @@ pub struct StairConfig {
     pub discard_seconds: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p99_cap_ms: Option<u32>,
+    /// 자동 정지 설정. 없으면 둘 다 끔(a 저장본과 바이트 동일).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_stop: Option<AutoStopConfig>,
+}
+
+/// 안쪽 키는 직렬화 때 항상 나온다(끄면 `null`). 입력은 키 생략 허용.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoStopConfig {
+    #[serde(default)]
+    pub saturation: Option<SaturationStopMode>,
+    #[serde(default)]
+    pub emergency: Option<EmergencyStop>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SaturationStopMode {
+    TwoFails,
+    FirstFail,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmergencyStop {
+    pub error_rate_pct: f64,
+    pub p99_ms: u32,
+    pub consecutive_seconds: u32,
+    pub min_requests: u32,
+}
+
+/// 감시 객체인가 — auto_stop 칸이 하나라도 켜져 있을 때.
+pub fn monitor_wanted(c: &StairConfig) -> bool {
+    c.auto_stop
+        .as_ref()
+        .is_some_and(|a| a.saturation.is_some() || a.emergency.is_some())
 }
 
 /// 계단 i마다 `[상승 t_i, 유지 t_i]`. 엔진 stage는 앞 목표→이 목표 선형 보간이라
@@ -70,6 +104,20 @@ pub fn validate_stair(c: &StairConfig) -> Result<(), String> {
         && !(1..=600_000).contains(&cap)
     {
         return Err("p99 상한은 1ms 이상 600,000ms 이하여야 합니다".into());
+    }
+    if let Some(e) = c.auto_stop.as_ref().and_then(|a| a.emergency.as_ref()) {
+        if !(e.error_rate_pct.is_finite() && e.error_rate_pct > 0.0 && e.error_rate_pct <= 100.0) {
+            return Err("즉시 정지 오류율은 0 초과 100 이하여야 합니다".into());
+        }
+        if !(1..=600_000).contains(&e.p99_ms) {
+            return Err("즉시 정지 p99는 1ms 이상 600,000ms 이하여야 합니다".into());
+        }
+        if !(1..=60).contains(&e.consecutive_seconds) {
+            return Err("즉시 정지 연속 초는 1초 이상 60초 이하여야 합니다".into());
+        }
+        if !(1..=100_000).contains(&e.min_requests) {
+            return Err("즉시 정지 최소 요청 수는 1 이상 100,000 이하여야 합니다".into());
+        }
     }
     Ok(())
 }
@@ -1035,6 +1083,7 @@ mod tests {
             ramp_seconds: 5,
             discard_seconds: 10,
             p99_cap_ms: None,
+            auto_stop: None,
         }
     }
 
@@ -1155,6 +1204,7 @@ mod tests {
                 "cap 0",
                 StairConfig {
                     p99_cap_ms: Some(0),
+                    auto_stop: None,
                     ..cfg()
                 },
             ),
@@ -1162,6 +1212,7 @@ mod tests {
                 "cap huge",
                 StairConfig {
                     p99_cap_ms: Some(600_001),
+                    auto_stop: None,
                     ..cfg()
                 },
             ),
@@ -1198,6 +1249,7 @@ mod tests {
             ramp_seconds: 1,
             discard_seconds: 10,
             p99_cap_ms: Some(600_000),
+            auto_stop: None,
         };
         assert!(validate_stair(&c).is_ok());
         let c50 = StairConfig {
@@ -1206,6 +1258,134 @@ mod tests {
             ..cfg()
         };
         assert!(validate_stair(&c50).is_ok());
+    }
+
+    fn em() -> EmergencyStop {
+        EmergencyStop {
+            error_rate_pct: 5.0,
+            p99_ms: 2000,
+            consecutive_seconds: 3,
+            min_requests: 20,
+        }
+    }
+
+    fn with_em(e: EmergencyStop) -> StairConfig {
+        StairConfig {
+            auto_stop: Some(AutoStopConfig {
+                saturation: None,
+                emergency: Some(e),
+            }),
+            ..cfg()
+        }
+    }
+
+    #[test]
+    fn validate_rejects_bad_auto_stop() {
+        for v in [0.0, -1.0, 100.01, f64::NAN, f64::INFINITY] {
+            let c = with_em(EmergencyStop {
+                error_rate_pct: v,
+                ..em()
+            });
+            assert!(validate_stair(&c).is_err(), "error_rate_pct {v}");
+        }
+        for v in [0, 600_001] {
+            let c = with_em(EmergencyStop { p99_ms: v, ..em() });
+            assert!(validate_stair(&c).is_err(), "p99_ms {v}");
+        }
+        for v in [0, 61] {
+            let c = with_em(EmergencyStop {
+                consecutive_seconds: v,
+                ..em()
+            });
+            assert!(validate_stair(&c).is_err(), "consecutive {v}");
+        }
+        for v in [0, 100_001] {
+            let c = with_em(EmergencyStop {
+                min_requests: v,
+                ..em()
+            });
+            assert!(validate_stair(&c).is_err(), "min_requests {v}");
+        }
+    }
+
+    #[test]
+    fn validate_accepts_auto_stop_boundaries() {
+        let lo = EmergencyStop {
+            error_rate_pct: 0.01,
+            p99_ms: 1,
+            consecutive_seconds: 1,
+            min_requests: 1,
+        };
+        let hi = EmergencyStop {
+            error_rate_pct: 100.0,
+            p99_ms: 600_000,
+            consecutive_seconds: 60,
+            min_requests: 100_000,
+        };
+        assert!(validate_stair(&with_em(lo)).is_ok());
+        assert!(validate_stair(&with_em(hi)).is_ok());
+    }
+
+    #[test]
+    fn auto_stop_absent_bytes_unchanged() {
+        let s = r#"{"targets":[100,200],"hold_seconds":60,"ramp_seconds":5,"discard_seconds":10}"#;
+        let c: StairConfig = serde_json::from_str(s).unwrap();
+        assert!(c.auto_stop.is_none());
+        let out = serde_json::to_string(&c).unwrap();
+        assert_eq!(out, s);
+        assert!(!out.contains("auto_stop"));
+    }
+
+    #[test]
+    fn auto_stop_inner_keys_always_present() {
+        let c = with_em(em());
+        let v = serde_json::to_value(&c).unwrap();
+        let inner = v["auto_stop"].as_object().unwrap();
+        assert!(inner.contains_key("saturation"));
+        assert!(inner["saturation"].is_null());
+        assert!(inner["emergency"].is_object());
+        let c2 = StairConfig {
+            auto_stop: Some(AutoStopConfig {
+                saturation: Some(SaturationStopMode::FirstFail),
+                emergency: None,
+            }),
+            ..cfg()
+        };
+        let v2 = serde_json::to_value(&c2).unwrap();
+        let inner2 = v2["auto_stop"].as_object().unwrap();
+        assert_eq!(inner2["saturation"], "first_fail");
+        assert!(inner2.contains_key("emergency"));
+        assert!(inner2["emergency"].is_null());
+    }
+
+    #[test]
+    fn auto_stop_input_keys_may_be_omitted() {
+        let s = r#"{"targets":[100,200],"hold_seconds":60,"ramp_seconds":5,"discard_seconds":10,"auto_stop":{}}"#;
+        let c: StairConfig = serde_json::from_str(s).unwrap();
+        let a = c.auto_stop.unwrap();
+        assert!(a.saturation.is_none() && a.emergency.is_none());
+    }
+
+    #[test]
+    fn monitor_wanted_table() {
+        assert!(!monitor_wanted(&cfg()));
+        let none = StairConfig {
+            auto_stop: Some(AutoStopConfig {
+                saturation: None,
+                emergency: None,
+            }),
+            ..cfg()
+        };
+        assert!(!monitor_wanted(&none));
+        let sat = StairConfig {
+            auto_stop: Some(AutoStopConfig {
+                saturation: Some(SaturationStopMode::TwoFails),
+                emergency: None,
+            }),
+            ..cfg()
+        };
+        assert!(monitor_wanted(&sat));
+        assert!(monitor_wanted(&with_em(em())));
     }
 
     #[test]
@@ -1320,6 +1500,7 @@ mod judge_tests {
             ramp_seconds: 5,
             discard_seconds: 10,
             p99_cap_ms: cap,
+            auto_stop: None,
         }
     }
 

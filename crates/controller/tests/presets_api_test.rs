@@ -362,3 +362,58 @@ async fn preset_create_rejects_invalid_stair() {
         "계단 검증이 거절해야 한다: {body}"
     );
 }
+
+#[tokio::test]
+async fn preset_create_and_update_roundtrip_auto_stop() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, YAML).await;
+    let sent = json!({
+        "saturation": "two_fails",
+        "emergency": { "error_rate_pct": 5.5, "p99_ms": 2000, "consecutive_seconds": 3, "min_requests": 20 }
+    });
+    let mut p = stair_profile();
+    p["stair"]["auto_stop"] = sent.clone();
+    let (s, created) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "as", "profile": p, "env": {} }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{created:?}");
+    assert_eq!(created["profile"]["stair"]["auto_stop"], sent);
+    let pid = created["id"].as_str().unwrap().to_string();
+
+    let put = |profile: Value| {
+        Request::builder()
+            .method(Method::PUT)
+            .uri(format!("/api/presets/{pid}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "name": "as", "profile": profile, "env": {} }).to_string(),
+            ))
+            .unwrap()
+    };
+    let mut p2 = stair_profile();
+    p2["stair"]["auto_stop"] = json!({ "saturation": "first_fail", "emergency": null });
+    let resp = app.clone().oneshot(put(p2.clone())).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["profile"]["stair"]["auto_stop"], p2["stair"]["auto_stop"]);
+
+    let mut bad = stair_profile();
+    bad["stair"]["auto_stop"] = json!({ "emergency":
+        { "error_rate_pct": 100.01, "p99_ms": 2000, "consecutive_seconds": 3, "min_requests": 20 } });
+    let resp = app.clone().oneshot(put(bad.clone())).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let (s, _) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "bad", "profile": bad, "env": {} }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
