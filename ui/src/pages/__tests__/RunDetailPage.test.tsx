@@ -1512,3 +1512,81 @@ describe("RunDetailPage — 라벨 표시·편집 + 축약 통일 + 설정 요�
     expect(p.textContent).toContain("45");
   });
 });
+
+describe("RunDetailPage — 자동 정지 표지", () => {
+  const stop = {
+    kind: "saturation",
+    mode: "two_fails",
+    failed_steps: [1, 2],
+    decided_step: 2,
+    judged_through: 2,
+    phase: null,
+    decided_at_ms: 1,
+    stopped_at_ms: 2,
+    emergency: null,
+    slot_limited: false,
+  };
+  function mockRun(over: Record<string, unknown>) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R2") || url.endsWith("/api/runs/R2/")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R2",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "completed",
+            profile: {
+              vus: 1,
+              ramp_up_seconds: 0,
+              duration_seconds: 5,
+              stair: {
+                targets: [100, 200, 300],
+                hold_seconds: 10,
+                ramp_seconds: 1,
+                discard_seconds: 1,
+              },
+            },
+            env: {},
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+            ...over,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R2/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R2", windows: [] }));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("shows the badge (sibling of the heading) when completed with a stop record", async () => {
+    mockRun({ auto_stop: { stop, suspended_seconds: 0 } });
+    renderWithRouter("R2");
+    const badge = await screen.findByText(ko.runDetail.autoStopBadge);
+    expect(badge).toHaveAttribute("title", "3계단(300 req/s) 판정 뒤 자동 정지");
+    expect(badge.closest("h2")).toBeNull();
+  });
+
+  it("hides the badge when only suspended (stop null)", async () => {
+    mockRun({ auto_stop: { stop: null, suspended_seconds: 3 } });
+    renderWithRouter("R2");
+    await screen.findByText(/completed/i);
+    expect(screen.queryByText(ko.runDetail.autoStopBadge)).toBeNull();
+  });
+
+  it("hides the badge when aborted even with a record", async () => {
+    mockRun({ status: "aborted", auto_stop: { stop, suspended_seconds: 0 } });
+    renderWithRouter("R2");
+    await screen.findByText(/aborted/i);
+    expect(screen.queryByText(ko.runDetail.autoStopBadge)).toBeNull();
+  });
+
+  it("hides the badge without a record", async () => {
+    mockRun({});
+    renderWithRouter("R2");
+    await screen.findByText(/completed/i);
+    expect(screen.queryByText(ko.runDetail.autoStopBadge)).toBeNull();
+  });
+});

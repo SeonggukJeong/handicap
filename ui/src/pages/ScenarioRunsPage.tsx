@@ -20,6 +20,7 @@ import { EmptyState } from "../components/EmptyState";
 import { RunDialog } from "../components/run/RunDialog";
 import { RunListControls } from "../components/run/RunListControls";
 import { StatusBadge } from "../components/StatusBadge";
+import { AutoStopBadge } from "../components/AutoStopBadge";
 import { classifyRunStall } from "../api/runStall";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { RunVuCell } from "../components/run/RunVuCell";
@@ -426,6 +427,7 @@ export function ScenarioRunsPage() {
                         </td>
                         <td className="py-3 pr-4">
                           <StatusBadge status={r.status} />
+                          <AutoStopBadge run={r} />
                           {stall.kind !== "none" && (
                             <span
                               className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"

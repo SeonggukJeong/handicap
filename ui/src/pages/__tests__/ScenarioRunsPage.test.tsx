@@ -919,3 +919,52 @@ describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
     expect(cellBtn).toHaveAttribute("title", longLabel);
   });
 });
+
+describe("ScenarioRunsPage — 자동 정지 표지", () => {
+  const stop = {
+    kind: "emergency",
+    mode: null,
+    failed_steps: [],
+    decided_step: 1,
+    judged_through: 0,
+    phase: "measure",
+    decided_at_ms: 1,
+    stopped_at_ms: 2,
+    emergency: null,
+    slot_limited: false,
+  };
+  const stairProfile = {
+    vus: 2,
+    ramp_up_seconds: 0,
+    duration_seconds: 5,
+    loop_breakdown_cap: 256,
+    stair: { targets: [100, 200], hold_seconds: 10, ramp_seconds: 1, discard_seconds: 1 },
+  };
+
+  it("shows the badge only on completed rows with a stop record", async () => {
+    const withStop = {
+      ...makeRun("A1", "completed", 100),
+      profile: stairProfile,
+      auto_stop: { stop, suspended_seconds: 0 },
+    };
+    const suspendedOnly = {
+      ...makeRun("A2", "completed", 200),
+      auto_stop: { stop: null, suspended_seconds: 4 },
+    };
+    const aborted = {
+      ...makeRun("A3", "aborted", 300),
+      auto_stop: { stop, suspended_seconds: 0 },
+    };
+    const plain = makeRun("A4", "completed", 400);
+    mockApiRuns([withStop, suspendedOnly, aborted, plain]);
+    renderPageWithCompare();
+
+    const row = (id: string) => screen.getByLabelText(`실행 ${id} 선택`).closest("tr")!;
+    await screen.findByLabelText("실행 A1 선택");
+    const badge = within(row("A1")).getByText(ko.runDetail.autoStopBadge);
+    expect(badge).toHaveAttribute("title", "2계단(200 req/s) 측정 중 즉시 정지");
+    for (const id of ["A2", "A3", "A4"]) {
+      expect(within(row(id)).queryByText(ko.runDetail.autoStopBadge)).toBeNull();
+    }
+  });
+});

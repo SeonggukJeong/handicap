@@ -22,6 +22,7 @@ import {
 import { DEFAULT_HTTP_TIMEOUT_SECONDS } from "../api/schemas";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
+import { AutoStopBadge } from "../components/AutoStopBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { ValidityBadge } from "../components/ValidityBadge";
 import { ReportView } from "../components/report/ReportView";
@@ -169,6 +170,7 @@ export function RunDetailPage() {
             <span className="font-mono text-base text-slate-600">{runShortLabel(r.id)}</span>
           </h2>
           <StatusBadge status={r.status} />
+          <AutoStopBadge run={r} />
           <VerdictBadge verdict={report.data?.verdict} />
           <ValidityBadge validity={report.data?.validity} />
         </div>
