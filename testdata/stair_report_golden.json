@@ -6,7 +6,8 @@
       300,
       400,
       500,
-      600
+      600,
+      1000
     ],
     "hold_seconds": 25,
     "ramp_seconds": 1,
@@ -156,6 +157,32 @@
       "slot_limited": false,
       "head_p99_ratio": null,
       "discard_warning": false
+    },
+    {
+      "index": 6,
+      "target": 1000,
+      "achieved": 949.6,
+      "launched_rate": 1000.0,
+      "throughput_rps": 949.6,
+      "p50_us": 8003,
+      "p95_us": 8003,
+      "p99_us": 8003,
+      "error_rate": 0.0,
+      "dropped": 0,
+      "measured_seconds": 20,
+      "measure_start_ms": 1162000,
+      "measure_end_ms": 1182000,
+      "state": "saturated",
+      "reasons": [
+        {
+          "kind": "achieved",
+          "value": 0.9496
+        }
+      ],
+      "knee": false,
+      "slot_limited": true,
+      "head_p99_ratio": 1.0,
+      "discard_warning": false
     }
   ],
   "headline": {
@@ -172,7 +199,9 @@
   "max_in_flight": 50,
   "dropped_total": 8500,
   "dropped_explained": true,
-  "slot_limited_targets": [],
+  "slot_limited_targets": [
+    1000
+  ],
   "notes": {
     "t0_estimated": false,
     "open_loop_unknown": false
@@ -1425,6 +1454,214 @@
       "dropped": 550,
       "count": 0,
       "p99_us": 0
+    },
+    {
+      "offset_s": 156,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 157,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 158,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 159,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 160,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 161,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 162,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 163,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 164,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 165,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 166,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 167,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 168,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 169,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 170,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 171,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 172,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 173,
+      "launched": 1000,
+      "completed": 950,
+      "dropped": 0,
+      "count": 950,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 174,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 175,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 176,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 177,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 178,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 179,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 180,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
+    },
+    {
+      "offset_s": 181,
+      "launched": 1000,
+      "completed": 949,
+      "dropped": 0,
+      "count": 949,
+      "p99_us": 8003
     }
   ],
   "bands": [
@@ -1535,6 +1772,24 @@
       "kind": "measure",
       "start_s": 136,
       "end_s": 156
+    },
+    {
+      "index": 6,
+      "kind": "ramp",
+      "start_s": 156,
+      "end_s": 157
+    },
+    {
+      "index": 6,
+      "kind": "discard",
+      "start_s": 157,
+      "end_s": 162
+    },
+    {
+      "index": 6,
+      "kind": "measure",
+      "start_s": 162,
+      "end_s": 182
     }
   ],
   "target_line": [
@@ -1589,6 +1844,14 @@
     {
       "offset_s": 156,
       "target": 600
+    },
+    {
+      "offset_s": 157,
+      "target": 1000
+    },
+    {
+      "offset_s": 182,
+      "target": 1000
     }
   ]
 }

@@ -46,8 +46,10 @@ pub fn validate_stair(c: &StairConfig) -> Result<(), String> {
     if !(2..=50).contains(&c.targets.len()) {
         return Err("계단 목표는 2개 이상 50개 이하여야 합니다".into());
     }
-    if c.targets.iter().any(|t| !(1..=1_000_000).contains(t)) {
-        return Err("계단 목표는 각각 1 이상 1,000,000 이하여야 합니다".into());
+    if let Some(t) = c.targets.iter().find(|t| !(1..=1_000_000).contains(*t)) {
+        return Err(format!(
+            "계단 목표 {t}은(는) 1 이상 1,000,000 이하여야 합니다"
+        ));
     }
     if c.targets.windows(2).any(|w| w[1] <= w[0]) {
         return Err("계단 목표는 앞보다 커지는 순서(중복 불가)여야 합니다".into());
@@ -476,23 +478,33 @@ impl WorkerView<'_> {
 
 /// 스케줄러가 그 초에 도착을 만들었나(시작했거나 슬롯이 없어 버렸나).
 fn schedules(r: &OpenLoopSecondRow) -> bool {
-    r.launched + r.dropped > 0
+    r.launched > 0 || r.dropped > 0
 }
 
 fn nonneg(v: i64) -> u64 {
     v.max(0) as u64
 }
 
+/// 저장된 계수(음수는 0)를 포화 덧셈으로 더한다.
+fn add(acc: &mut u64, v: i64) {
+    *acc = acc.saturating_add(nonneg(v));
+}
+
+fn clamp_u32(v: i64) -> u32 {
+    u32::try_from(v.max(0)).unwrap_or(u32::MAX)
+}
+
 /// 워커 t0에서 계단 i의 측정 초 `[lo, hi)`: `[ts·1000, ts·1000+1000)`이 측정 구간에
 /// 완전히 들어가고 `ts ≤ last`인 정수 초.
+/// 시각은 부하기가 보낸 값이라 포화 산술로 계산한다(터무니없는 값에도 패닉 없음).
 fn measure_window(cfg: &StairConfig, t0_ms: i64, last: Option<i64>, i: usize) -> (i64, i64) {
     let step_ms = i64::from(cfg.ramp_seconds + cfg.hold_seconds) * 1000;
-    let start = t0_ms + i as i64 * step_ms;
-    let ms = start + i64::from(cfg.ramp_seconds + cfg.discard_seconds) * 1000;
-    let me = start + step_ms;
+    let start = t0_ms.saturating_add((i as i64).saturating_mul(step_ms));
+    let ms = start.saturating_add(i64::from(cfg.ramp_seconds + cfg.discard_seconds) * 1000);
+    let me = start.saturating_add(step_ms);
     let lo = ms.div_euclid(1000) + i64::from(ms.rem_euclid(1000) != 0);
     let hi = match last {
-        Some(l) => me.div_euclid(1000).min(l + 1),
+        Some(l) => me.div_euclid(1000).min(l.saturating_add(1)),
         None => lo,
     };
     (lo, hi.max(lo))
@@ -595,7 +607,7 @@ pub fn build_stair_report(
                     .min()
                     .or_else(|| open_loop.iter().map(|r| r.ts_second).min())
                     .unwrap_or(0);
-                min_ts * 1000
+                min_ts.saturating_mul(1000)
             }
         };
         // run 끝 = 스케줄러가 도착을 만든 마지막 초(completed-only 꼬리 제외).
@@ -628,31 +640,31 @@ pub fn build_stair_report(
         let mut launched = vec![0u64; n];
         let mut count = vec![0u64; n];
         for r in &w.open_loop {
-            let s = secs.entry(r.ts_second - t0_s).or_default();
-            s.launched += nonneg(r.launched);
-            s.completed += nonneg(r.completed);
-            s.dropped += nonneg(r.dropped);
+            let s = secs.entry(r.ts_second.saturating_sub(t0_s)).or_default();
+            add(&mut s.launched, r.launched);
+            add(&mut s.completed, r.completed);
+            add(&mut s.dropped, r.dropped);
             if let Some(i) = w.step_of(r.ts_second) {
-                completed[i] += nonneg(r.completed);
-                launched[i] += nonneg(r.launched);
-                steps_acc[i].dropped += nonneg(r.dropped);
+                add(&mut completed[i], r.completed);
+                add(&mut launched[i], r.launched);
+                add(&mut steps_acc[i].dropped, r.dropped);
             }
         }
         for r in &w.metrics {
             let h = decode_hdr(&r.hdr_histogram).ok().flatten();
-            let s = secs.entry(r.ts_second - t0_s).or_default();
-            s.count += nonneg(r.count);
+            let s = secs.entry(r.ts_second.saturating_sub(t0_s)).or_default();
+            add(&mut s.count, r.count);
             if let Some(h) = &h {
                 merge_opt(&mut s.hist, h);
             }
             if let Some(i) = w.step_of(r.ts_second) {
-                count[i] += nonneg(r.count);
+                add(&mut count[i], r.count);
                 let acc = &mut steps_acc[i];
-                acc.count += nonneg(r.count);
-                acc.errors += nonneg(r.error_count);
+                add(&mut acc.count, r.count);
+                add(&mut acc.errors, r.error_count);
                 if let Some(h) = &h {
                     merge_opt(&mut acc.hist, h);
-                    let part = if r.ts_second < w.windows[i].0 + HEAD_SECONDS {
+                    let part = if r.ts_second < w.windows[i].0.saturating_add(HEAD_SECONDS) {
                         &mut acc.head
                     } else {
                         &mut acc.rest
@@ -663,7 +675,7 @@ pub fn build_stair_report(
         }
         for (i, acc) in steps_acc.iter_mut().enumerate() {
             let (lo, hi) = w.windows[i];
-            let secs_w = hi - lo;
+            let secs_w = hi.saturating_sub(lo);
             acc.min_secs = Some(acc.min_secs.map_or(secs_w, |m| m.min(secs_w)));
             if secs_w > 0 {
                 let d = secs_w as f64;
@@ -674,14 +686,15 @@ pub fn build_stair_report(
         }
     }
 
-    let measure_len = cfg.hold_seconds - cfg.discard_seconds;
+    let measure_len = cfg.hold_seconds.saturating_sub(cfg.discard_seconds);
     let numbers: Vec<StepNumbers> = steps_acc
         .iter()
         .zip(&cfg.targets)
         .map(|(acc, &target)| {
-            let measured_seconds = acc.min_secs.unwrap_or(0).max(0) as u32;
+            let measured_seconds = clamp_u32(acc.min_secs.unwrap_or(0));
             // 예전 부하기라 달성을 모르고 측정 구간 요청도 0이면 판정할 근거가 없다.
-            let measured = 2 * measured_seconds >= measure_len && !(unknown && acc.count == 0);
+            let measured =
+                measured_seconds.saturating_mul(2) >= measure_len && !(unknown && acc.count == 0);
             StepNumbers {
                 target,
                 achieved: (!unknown).then_some(acc.achieved),
@@ -703,26 +716,29 @@ pub fn build_stair_report(
     let steps: Vec<StairStep> = (0..n)
         .map(|i| {
             let acc = &steps_acc[i];
-            let measured_seconds = acc.min_secs.unwrap_or(0).max(0) as u32;
+            let measured_seconds = clamp_u32(acc.min_secs.unwrap_or(0));
+            // 측정 안 됨으로 보이는 계단(화면·인쇄는 숫자 「—」)은 달성·시작·dropped도 비운다 —
+            // 내보내기가 부분 구간 숫자나 0을 측정값처럼 적지 않게.
+            let shown = j.states[i] != StepState::NotMeasured;
             let (lo, hi) = earliest.map_or((0, 0), |w| w.windows[i]);
             let head_p99 = q(&acc.head, 0.99);
             let rest_p99 = q(&acc.rest, 0.99);
-            let head_p99_ratio = (measured_seconds >= HEAD_MIN_MEASURED && rest_p99 > 0)
+            let head_p99_ratio = (shown && measured_seconds >= HEAD_MIN_MEASURED && rest_p99 > 0)
                 .then(|| head_p99 as f64 / rest_p99 as f64);
             StairStep {
                 index: i as u32,
                 target: cfg.targets[i],
-                achieved: numbers[i].achieved,
-                launched_rate: (!unknown).then_some(acc.launched_rate),
+                achieved: numbers[i].achieved.filter(|_| shown),
+                launched_rate: (!unknown && shown).then_some(acc.launched_rate),
                 throughput_rps: acc.throughput,
                 p50_us: q(&acc.hist, 0.50),
                 p95_us: q(&acc.hist, 0.95),
                 p99_us: numbers[i].p99_us,
                 error_rate: numbers[i].error_rate,
-                dropped: numbers[i].dropped,
+                dropped: numbers[i].dropped.filter(|_| shown),
                 measured_seconds,
-                measure_start_ms: lo * 1000,
-                measure_end_ms: hi * 1000,
+                measure_start_ms: lo.saturating_mul(1000),
+                measure_end_ms: hi.saturating_mul(1000),
                 state: j.states[i],
                 reasons: j.reasons[i].clone(),
                 knee: j.knee == Some(i),
@@ -744,19 +760,23 @@ pub fn build_stair_report(
         StepState::NotMeasured => j.saturation.is_some_and(|k| i > k),
         StepState::Ok => false,
     };
-    let step_ms = step_s * 1000;
+    let step_ms = (step_s * 1000).max(1);
     let mut any_dropped = false;
     let mut all_explained = true;
     for w in &workers {
         for r in w.open_loop.iter().filter(|r| r.dropped > 0) {
             any_dropped = true;
-            let a = r.ts_second * 1000 - w.t0_ms;
+            let a = r.ts_second.saturating_mul(1000).saturating_sub(w.t0_ms);
             if a < 0 {
                 all_explained = false;
                 continue;
             }
-            let first = ((a / step_ms) as usize).min(n - 1);
-            let last = (((a + 999) / step_ms) as usize).min(n - 1);
+            let first = usize::try_from(a / step_ms)
+                .unwrap_or(usize::MAX)
+                .min(n.saturating_sub(1));
+            let last = usize::try_from(a.saturating_add(999) / step_ms)
+                .unwrap_or(usize::MAX)
+                .min(n.saturating_sub(1));
             if !(first..=last).all(&explains) {
                 all_explained = false;
             }
@@ -976,6 +996,25 @@ mod tests {
         for (name, c) in bad {
             assert!(validate_stair(&c).is_err(), "{name} should be rejected");
         }
+    }
+
+    #[test]
+    fn validate_target_range_error_names_the_value() {
+        let e = validate_stair(&StairConfig {
+            targets: vec![0, 100],
+            ..cfg()
+        })
+        .unwrap_err();
+        assert_eq!(e, "계단 목표 0은(는) 1 이상 1,000,000 이하여야 합니다");
+        let e = validate_stair(&StairConfig {
+            targets: vec![100, 1_000_001],
+            ..cfg()
+        })
+        .unwrap_err();
+        assert_eq!(
+            e,
+            "계단 목표 1000001은(는) 1 이상 1,000,000 이하여야 합니다"
+        );
     }
 
     #[test]

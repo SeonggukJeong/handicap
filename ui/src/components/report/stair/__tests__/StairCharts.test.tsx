@@ -28,9 +28,10 @@ describe("StairCurveChart", () => {
   it("점 개수 = 측정된 계단 수, 상태별 색, knee 고리 1개", () => {
     const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
     const d = dots(container);
-    expect(d).toHaveLength(6);
+    expect(d).toHaveLength(7);
     const byState = (s: string) => d.filter((e) => e.getAttribute("data-state") === s);
     expect(byState("ok")).toHaveLength(4);
+    expect(byState("saturated")).toHaveLength(2);
     expect(byState("ok")[0].getAttribute("fill")).toBe("#10b981");
     expect(byState("spike")[0].getAttribute("fill")).toBe("#f59e0b");
     expect(byState("saturated")[0].getAttribute("fill")).toBe("#ef4444");
@@ -41,7 +42,7 @@ describe("StairCurveChart", () => {
     const st = mk();
     st.steps[5] = { ...st.steps[5], state: "not_measured", p99_us: 0, p50_us: 0 };
     const { container } = render(<StairCurveChart steps={st.steps} width={600} height={260} />);
-    expect(dots(container)).toHaveLength(5);
+    expect(dots(container)).toHaveLength(6);
   });
 
   it("점 라벨 「튐」「포화」와 달성률 줄, 범례", () => {

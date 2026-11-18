@@ -129,6 +129,14 @@ export function headlineParts(stair: StairReport): HeadlineParts {
   return { first, lines };
 }
 
+/** 안내 줄(계단 시작 시각 추정·예전 부하기) — 머리말 상자 아래에 붙는다. */
+export function noteTexts(stair: StairReport): string[] {
+  const out: string[] = [];
+  if (stair.notes.t0_estimated) out.push(t.noteT0);
+  if (stair.notes.open_loop_unknown) out.push(t.noteOpenLoopUnknown);
+  return out;
+}
+
 /** 머리말 첫 줄 + 둘째 줄들(인쇄 보고서가 재사용). */
 export function headlineText(stair: StairReport): string[] {
   const p = headlineParts(stair);

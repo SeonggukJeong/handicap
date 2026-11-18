@@ -169,8 +169,8 @@ fn map_db_err(e: sqlx::Error) -> ApiError {
     ApiError::from(e)
 }
 
-/// 공통 검증 게이트: 시나리오 존재(404) → profile(`validate_run_config`, 400) →
-/// trigger(`validate_trigger`, 400). 통과 시 trigger + next_run_at 계산값 반환.
+/// 공통 검증 게이트: 시나리오 존재(404) → 계단 정규화(`normalize_stair` — stair를 stages로
+/// 펼치고 검증, 400) → profile(`validate_run_config`, 400) → trigger(`validate_trigger`, 400). 통과 시 trigger + next_run_at 계산값 반환.
 async fn gate(
     state: &AppState,
     body: &mut ScheduleBody,

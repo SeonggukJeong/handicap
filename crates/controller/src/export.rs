@@ -590,46 +590,153 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
     wb.save_to_buffer().expect("xlsx buffer")
 }
 
-/// 계단 run 머리말(판정 첫 줄) 고정 한국어. UI 쪽 짝 = `ui/src/i18n/ko.ts`의
-/// `headlineText`(Task 11) — 6종(포화·포화 의심·끝까지 정상·일부 미측정·측정 없음) 같은 뜻.
-pub fn stair_headline_text(st: &crate::stair::StairReport) -> String {
+/// JS `Number.prototype.toFixed(d)`와 같은 결과(정확히 반 남으면 올림). Rust `{:.d$}`는
+/// 반 남으면 짝수로 맞춰(2.25 → "2.2") 화면(`toFixed`, 2.25 → "2.3")과 글자가 달라진다.
+fn js_to_fixed(x: f64, d: usize) -> String {
+    if !x.is_finite() || x.abs() >= 1e15 {
+        return format!("{x:.d$}");
+    }
+    if x < 0.0 {
+        let s = js_to_fixed(-x, d);
+        return if s.bytes().all(|b| b == b'0' || b == b'.') {
+            s
+        } else {
+            format!("-{s}")
+        };
+    }
+    // f64는 소수 1074자리 안에서 정확히 끝난다 — 이 자릿수의 문자열은 값 그대로다.
+    let exact = format!("{x:.1100}");
+    let (int, frac) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
+    let mut n: u128 = format!("{int}{}", &frac[..d]).parse().unwrap_or(0);
+    if frac.as_bytes().get(d).is_some_and(|&b| b >= b'5') {
+        n += 1;
+    }
+    if d == 0 {
+        return n.to_string();
+    }
+    let p = 10u128.pow(d as u32);
+    format!("{}.{:0d$}", n / p, n % p)
+}
+
+/// UI `floorPct1`: 비율을 % 소수 첫째로 *내림*(94.96% → "94.9%").
+fn floor_pct1(ratio: f64) -> String {
+    format!(
+        "{}%",
+        js_to_fixed((ratio * 1000.0 + 1e-9).floor() / 10.0, 1)
+    )
+}
+
+/// 머리말 첫 줄. UI 짝 = `ui/src/components/report/stair/stairFormat.ts` `headlineParts().first`.
+fn stair_headline_first(st: &crate::stair::StairReport) -> String {
     use crate::stair::HeadlineKind::*;
     let h = &st.headline;
-    let last = h.last_ok_target.or(h.through_target);
+    let n = |v: Option<u32>| v.map_or("—".to_string(), |v| v.to_string());
+    let last_or_through = h.last_ok_target.or(h.through_target);
     match h.kind {
-        Saturated => {
-            let k = h.saturated_target.unwrap_or_default();
-            match h.last_ok_target {
-                Some(l) => format!("포화 계단 {k} req/s · 마지막 정상 {l} req/s"),
-                None => {
-                    let mut t = format!("포화 계단 {k} req/s · 정상 계단 없음 — 첫 계단부터 실패");
-                    if h.first_fail_hint {
-                        t.push_str(
-                            " · 첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요",
-                        );
-                    }
-                    t
-                }
-            }
-        }
-        Unconfirmed => {
-            let k = h.saturated_target.unwrap_or_default();
-            let tail = match h.last_ok_target {
-                Some(l) => format!("마지막 정상 {l} req/s"),
-                None => "정상 계단 없음".to_string(),
-            };
-            format!("포화 의심 {k} req/s — 확인할 다음 계단 전에 run이 끝남 · {tail}")
-        }
+        Saturated => match h.last_ok_target {
+            Some(l) => format!(
+                "포화 계단 {} req/s · 마지막 정상 {l} req/s",
+                n(h.saturated_target)
+            ),
+            None => format!(
+                "포화 계단 {} req/s · 정상 계단 없음 — 첫 계단부터 실패",
+                n(h.saturated_target)
+            ),
+        },
+        Unconfirmed => match h.last_ok_target {
+            Some(l) => format!(
+                "포화 의심 {} req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 {l} req/s",
+                n(h.saturated_target)
+            ),
+            None => format!(
+                "포화 의심 {} req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음",
+                n(h.saturated_target)
+            ),
+        },
         AllOk => format!(
             "{} req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)",
-            last.unwrap_or_default()
+            n(last_or_through)
         ),
         OkThenUnmeasured => format!(
             "{} req/s까지 정상 · 이후 계단은 측정 안 됨",
-            last.unwrap_or_default()
+            n(last_or_through)
         ),
         NoData => "판정할 수 없음 — 측정이 끝난 계단이 없습니다".to_string(),
     }
+}
+
+/// 이 계단 앞에서 가장 가까운 `ok` 계단(판정 기준 계단). UI `refStep`과 같다.
+fn stair_ref_step(st: &crate::stair::StairReport, idx: usize) -> Option<&crate::stair::StairStep> {
+    st.steps[..idx.min(st.steps.len())]
+        .iter()
+        .rev()
+        .find(|s| s.state == crate::stair::StepState::Ok)
+}
+
+/// 계단 머리말 줄들 — 화면 판정 상자(`headlineParts`: 첫 줄 → 힌트 → 지연 상승 시작 →
+/// 튄 계단 → dropped 설명 → 슬롯 부족)와 같은 순서·글자, 그 뒤 안내 줄(`t0_estimated`,
+/// `open_loop_unknown`). CSV·XLSX 시트 첫 줄들에 그대로 쓴다.
+pub fn stair_headline_lines(st: &crate::stair::StairReport) -> Vec<String> {
+    use crate::stair::HeadlineKind;
+    let h = &st.headline;
+    let mut out = vec![stair_headline_first(st)];
+    if h.kind == HeadlineKind::Saturated && h.last_ok_target.is_none() && h.first_fail_hint {
+        out.push(
+            "첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요"
+                .to_string(),
+        );
+    }
+    if let Some(k) = st.knee_target {
+        let ki = st.steps.iter().position(|s| s.target == k);
+        let ratio = ki.filter(|&i| i > 0).and_then(|i| {
+            stair_ref_step(st, i)
+                .filter(|r| r.p99_us > 0)
+                .map(|r| st.steps[i].p99_us as f64 / r.p99_us as f64)
+        });
+        out.push(match ratio {
+            Some(x) => format!(
+                "지연 상승 시작 ≈ {k} req/s (p99가 아래 계단의 {}배 — 판정 기준 안이지만 참고)",
+                js_to_fixed(x, 1)
+            ),
+            None => format!("지연 상승 시작 ≈ {k} req/s (판정 기준 안이지만 참고)"),
+        });
+    }
+    if !st.spike_targets.is_empty() {
+        let list: Vec<String> = st.spike_targets.iter().map(u32::to_string).collect();
+        out.push(format!(
+            "튄 계단 {}개({} req/s) 넘김",
+            st.spike_targets.len(),
+            list.join(", ")
+        ));
+    }
+    let dropped_total = st.dropped_total.unwrap_or(0);
+    if st.dropped_explained && dropped_total > 0 {
+        out.push(format!(
+            "부하기가 못 보낸 요청 {}개는 모두 지연·오류로 무너진 계단에서 발생 — 시스템 포화로 판정에 반영됨",
+            group_thousands(dropped_total)
+        ));
+    }
+    if !st.slot_limited_targets.is_empty() {
+        let list: Vec<String> = st.slot_limited_targets.iter().map(u32::to_string).collect();
+        let cap = match st.max_in_flight {
+            Some(m) => format!("max_in_flight = {m}"),
+            None => "max_in_flight".to_string(),
+        };
+        out.push(format!(
+            "계단 {} req/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도({cap})가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요",
+            list.join(", ")
+        ));
+    }
+    if st.notes.t0_estimated {
+        out.push("ⓘ 부하기 일부가 예전 버전이라 계단 시작 시각을 첫 데이터로 추정했습니다(±1초). 측정 구간 경계가 조금 어긋날 수 있습니다.".to_string());
+    }
+    if st.notes.open_loop_unknown {
+        out.push(
+            "ⓘ 예전 버전 부하기라 계단별 달성·dropped를 모릅니다 — 판정은 지연·오류로만 했습니다."
+                .to_string(),
+        );
+    }
+    out
 }
 
 fn group_thousands(n: u64) -> String {
@@ -644,35 +751,35 @@ fn group_thousands(n: u64) -> String {
     out
 }
 
-/// 계단 행의 실패 사유 한 줄 요약. `p99_relative`의 기준(앞 정상) 계단이 1 ms 미만이면
-/// 배수 대신 절대 기준(5 ms 이상)으로 적는다(판정 규칙 5와 같음).
-fn stair_reasons_text(st: &crate::stair::StairReport, idx: usize) -> String {
-    use crate::stair::{ReasonKind, StepState};
+/// 계단 행의 실패 사유 — 화면 표(`reasonTexts`)와 같은 글자. `p99_relative`의 기준(앞 정상)
+/// 계단이 1 ms 미만이면 배수 대신 절대 기준(5 ms 이상)으로 적는다(판정 규칙 5와 같음).
+pub(crate) fn stair_reason_texts(st: &crate::stair::StairReport, idx: usize) -> Vec<String> {
+    use crate::stair::ReasonKind;
     let step = &st.steps[idx];
-    let ref_p99 = st.steps[..idx]
-        .iter()
-        .rev()
-        .find(|s| s.state == StepState::Ok)
-        .map(|s| s.p99_us);
-    step.reasons
+    let ref_p99 = stair_ref_step(st, step.index as usize).map(|s| s.p99_us);
+    let mut out: Vec<String> = step
+        .reasons
         .iter()
         .map(|r| match r.kind {
-            ReasonKind::Achieved => format!("달성 {:.0}%", r.value * 100.0),
-            ReasonKind::Dropped => format!("버림 {}개", group_thousands(r.value.round() as u64)),
-            ReasonKind::Errors => format!("오류 {:.1}%", r.value * 100.0),
-            ReasonKind::P99Cap => {
-                format!(
-                    "p99 상한 초과 {} ms",
-                    group_thousands(r.value.round() as u64)
-                )
-            }
+            ReasonKind::Achieved => format!("달성 {}", floor_pct1(r.value)),
+            ReasonKind::Dropped => format!("dropped {}", group_thousands(r.value.round() as u64)),
+            ReasonKind::Errors => format!("오류 {}", floor_pct1(r.value)),
+            ReasonKind::P99Cap => "p99 상한 초과".to_string(),
             ReasonKind::P99Relative => match ref_p99 {
-                Some(p) if p < 1000 => "p99 5 ms 이상 (앞 정상 1 ms 미만)".to_string(),
-                _ => format!("p99 앞 정상 대비 {:.1}배", r.value),
+                Some(p) if p < 1000 => "p99 5 ms 이상".to_string(),
+                _ => format!("p99 {}×", js_to_fixed(r.value, 1)),
             },
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect();
+    if step.slot_limited {
+        out.push("슬롯 부족 의심".to_string());
+    }
+    out
+}
+
+/// 사유 칸 한 줄(화면 표와 같은 ` · ` 구분).
+pub(crate) fn stair_reasons_text(st: &crate::stair::StairReport, idx: usize) -> String {
+    stair_reason_texts(st, idx).join(" · ")
 }
 
 fn stair_iso(ms: i64) -> String {
@@ -713,14 +820,27 @@ fn stair_state_name(s: crate::stair::StepState) -> &'static str {
     }
 }
 
-/// 계단 표 CSV: 1행 머리말, 2행 빈 줄, 3행부터 머리글+표. 측정 안 된 계단의 숫자 칸은 빈 칸.
-/// 계단 run이 아니면 `None`.
+/// 오류율(비율) 칸: 소수 여섯째 자리 고정. 0이 아닌데 그 자리에서 0으로 보일 값은 반올림하지
+/// 않고 전체 자릿수로 적는다 — 오류가 있었는데 없던 것처럼 읽히지 않게(화면 「<0.1%」와 같은 뜻).
+fn stair_rate(r: f64) -> String {
+    let fixed = format!("{r:.6}");
+    if r > 0.0 && fixed == "0.000000" {
+        r.to_string()
+    } else {
+        fixed
+    }
+}
+
+/// 계단 표 CSV: 머리말 줄마다 한 행(칸 하나, `stair_headline_lines` — 화면 판정 상자와 같은
+/// 줄·순서 + 안내 줄), 빈 줄 하나, 그다음 머리글+표. 머리말 줄 수는 run마다 다르니 읽는 쪽은
+/// 첫 빈 줄까지 건너뛴다. 측정 안 된 계단의 숫자 칸은 빈 칸. 계단 run이 아니면 `None`.
 pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
     use crate::stair::StepState;
     let st = report.stair.as_ref()?;
     let mut head = csv::Writer::from_writer(Vec::new());
-    head.write_record([stair_headline_text(st)])
-        .expect("csv headline");
+    for line in stair_headline_lines(st) {
+        head.write_record([line]).expect("csv headline");
+    }
     let mut out = head.into_inner().expect("csv flush");
     out.push(b'\n');
     let mut w = csv::Writer::from_writer(out);
@@ -731,23 +851,15 @@ pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
         w.write_record([
             s.index.to_string(),
             s.target.to_string(),
-            s.achieved.map(|a| format!("{a:.2}")).unwrap_or_default(),
+            num(s.achieved.map(|a| format!("{a:.2}")).unwrap_or_default()),
             num(format!("{:.2}", s.throughput_rps)),
             num(stair_ms(s.p50_us)),
             num(stair_ms(s.p95_us)),
             num(stair_ms(s.p99_us)),
-            num(s.error_rate.to_string()),
-            s.dropped.map(|d| d.to_string()).unwrap_or_default(),
-            if measured {
-                stair_iso(s.measure_start_ms)
-            } else {
-                String::new()
-            },
-            if measured {
-                stair_iso(s.measure_end_ms)
-            } else {
-                String::new()
-            },
+            num(stair_rate(s.error_rate)),
+            num(s.dropped.map(|d| d.to_string()).unwrap_or_default()),
+            num(stair_iso(s.measure_start_ms)),
+            num(stair_iso(s.measure_end_ms)),
             stair_state_name(s.state).to_string(),
             stair_reasons_text(st, i),
         ])
@@ -756,11 +868,16 @@ pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
     Some(w.into_inner().expect("csv flush"))
 }
 
+/// `Stairs` 시트: 머리말 줄들(CSV와 같은 `stair_headline_lines`) → 빈 행 → 머리글 → 표.
 fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
     use crate::stair::StepState;
     let ws = wb.add_worksheet();
     ws.set_name("Stairs").expect("sheet name");
-    ws.write_string(0, 0, stair_headline_text(st)).expect("w");
+    let lines = stair_headline_lines(st);
+    for (r, line) in lines.iter().enumerate() {
+        ws.write_string(r as u32, 0, line).expect("w");
+    }
+    let header_row = lines.len() as u32 + 1;
     let cols = [
         "index",
         "target_per_s",
@@ -779,28 +896,28 @@ fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
         "reasons",
     ];
     for (c, h) in cols.iter().enumerate() {
-        ws.write_string(2, c as u16, *h).expect("w");
+        ws.write_string(header_row, c as u16, *h).expect("w");
     }
     for (i, s) in st.steps.iter().enumerate() {
-        let r = 3 + i as u32;
+        let r = header_row + 1 + i as u32;
         let measured = s.state != StepState::NotMeasured;
         ws.write_number(r, 0, f64::from(s.index)).expect("w");
         ws.write_number(r, 1, f64::from(s.target)).expect("w");
-        if let Some(a) = s.achieved {
-            ws.write_number(r, 2, a).expect("w");
-        }
-        if let Some(l) = s.launched_rate {
-            ws.write_number(r, 3, l).expect("w");
-        }
         if measured {
+            if let Some(a) = s.achieved {
+                ws.write_number(r, 2, a).expect("w");
+            }
+            if let Some(l) = s.launched_rate {
+                ws.write_number(r, 3, l).expect("w");
+            }
             ws.write_number(r, 4, s.throughput_rps).expect("w");
             ws.write_number(r, 5, s.p50_us as f64 / 1000.0).expect("w");
             ws.write_number(r, 6, s.p95_us as f64 / 1000.0).expect("w");
             ws.write_number(r, 7, s.p99_us as f64 / 1000.0).expect("w");
             ws.write_number(r, 8, s.error_rate).expect("w");
-        }
-        if let Some(d) = s.dropped {
-            ws.write_number(r, 9, d as f64).expect("w");
+            if let Some(d) = s.dropped {
+                ws.write_number(r, 9, d as f64).expect("w");
+            }
         }
         ws.write_number(r, 10, f64::from(s.measured_seconds))
             .expect("w");
@@ -1604,9 +1721,8 @@ mod tests {
         bad.achieved = Some(186.0);
         bad.dropped = Some(12);
         bad.error_rate = 0.02;
-        let mut miss = stair_step(2, 300, StepState::NotMeasured, 0, vec![]);
-        miss.achieved = None;
-        miss.dropped = None;
+        // 측정 안 된 계단도 숫자 필드가 채워져 있을 수 있다 — 내보내기는 화면처럼 빈 칸으로.
+        let miss = stair_step(2, 300, StepState::NotMeasured, 0, vec![]);
         stair_report(
             HeadlineKind::Saturated,
             Some(200),
@@ -1637,13 +1753,81 @@ mod tests {
         );
         assert_eq!(
             lines[3],
-            "0,100,100.00,100.00,4.001,5.000,40.010,0,0,2023-11-14T22:13:20Z,2023-11-14T22:13:40Z,ok,"
+            "0,100,100.00,100.00,4.001,5.000,40.010,0.000000,0,2023-11-14T22:13:20Z,2023-11-14T22:13:40Z,ok,"
         );
         assert_eq!(
             lines[4],
-            "1,200,186.00,200.00,4.001,5.000,1234.000,0.02,12,2023-11-14T22:13:21Z,2023-11-14T22:13:41Z,saturated,\"달성 93%, 버림 12개, 오류 2.0%, p99 앞 정상 대비 3.4배\""
+            "1,200,186.00,200.00,4.001,5.000,1234.000,0.020000,12,2023-11-14T22:13:21Z,2023-11-14T22:13:41Z,saturated,달성 93.0% · dropped 12 · 오류 2.0% · p99 3.4×"
         );
         assert_eq!(lines[5], "2,300,,,,,,,,,,not_measured,");
+    }
+
+    #[test]
+    fn stairs_csv_error_rate_fixed_and_never_rounds_errors_away() {
+        assert_eq!(stair_rate(0.0), "0.000000");
+        assert_eq!(stair_rate(1.0 / 3.0), "0.333333");
+        assert_eq!(stair_rate(0.02), "0.020000");
+        // 0이 아닌 미세값은 0.000000으로 적지 않는다.
+        assert_eq!(stair_rate(2.5e-10), "0.00000000025");
+    }
+
+    #[test]
+    fn js_to_fixed_rounds_ties_up_like_the_ui() {
+        // Rust `{:.1}`은 2.25 → "2.2"(짝수), JS toFixed(1)은 "2.3".
+        assert_eq!(format!("{:.1}", 2.25), "2.2");
+        assert_eq!(js_to_fixed(2.25, 1), "2.3");
+        assert_eq!(js_to_fixed(0.25, 1), "0.3");
+        assert_eq!(js_to_fixed(2.5, 0), "3");
+        // 정확히 반이 아닌 값(0.15 = 0.1499…)은 내림 — JS와 같다.
+        assert_eq!(js_to_fixed(0.15, 1), "0.1");
+        assert_eq!(js_to_fixed(1.05, 1), "1.1");
+        assert_eq!(js_to_fixed(94.9, 1), "94.9");
+        assert_eq!(js_to_fixed(3.0, 1), "3.0");
+        assert_eq!(floor_pct1(0.9496), "94.9%");
+        assert_eq!(floor_pct1(0.95), "95.0%");
+    }
+
+    #[test]
+    fn stairs_reasons_match_screen_wording() {
+        use crate::stair::{HeadlineKind, Reason, ReasonKind, StepState};
+        let reason = |kind, value| Reason { kind, value };
+        let mut bad = stair_step(
+            1,
+            200,
+            StepState::Saturated,
+            9000,
+            vec![
+                reason(ReasonKind::Achieved, 0.9496),
+                reason(ReasonKind::Dropped, 1234.0),
+                reason(ReasonKind::Errors, 0.0234),
+                reason(ReasonKind::P99Cap, 25.0),
+                reason(ReasonKind::P99Relative, 2.25),
+            ],
+        );
+        bad.slot_limited = true;
+        let st = stair_report(
+            HeadlineKind::Saturated,
+            Some(200),
+            Some(100),
+            None,
+            false,
+            vec![stair_step(0, 100, StepState::Ok, 4000, vec![]), bad],
+        );
+        assert_eq!(
+            stair_reason_texts(&st, 1),
+            vec![
+                "달성 94.9%",
+                "dropped 1,234",
+                "오류 2.3%",
+                "p99 상한 초과",
+                "p99 2.3×",
+                "슬롯 부족 의심"
+            ]
+        );
+        assert_eq!(
+            stair_reasons_text(&st, 1),
+            "달성 94.9% · dropped 1,234 · 오류 2.3% · p99 상한 초과 · p99 2.3× · 슬롯 부족 의심"
+        );
     }
 
     #[test]
@@ -1675,44 +1859,104 @@ mod tests {
             csv.lines()
                 .nth(4)
                 .unwrap()
-                .ends_with("saturated,p99 5 ms 이상 (앞 정상 1 ms 미만)")
+                .ends_with("saturated,p99 5 ms 이상")
         );
     }
 
     #[test]
-    fn stair_headline_six_variants() {
+    fn stair_headline_first_line_seven_variants() {
         use crate::stair::HeadlineKind::*;
         let h = |k, sat, last, thr, hint| {
-            stair_headline_text(&stair_report(k, sat, last, thr, hint, vec![]))
+            stair_headline_lines(&stair_report(k, sat, last, thr, hint, vec![]))
         };
         assert_eq!(
-            h(Saturated, Some(200), None, None, false),
-            "포화 계단 200 req/s · 정상 계단 없음 — 첫 계단부터 실패"
+            h(Saturated, Some(200), Some(100), None, false),
+            vec!["포화 계단 200 req/s · 마지막 정상 100 req/s"]
         );
         assert_eq!(
+            h(Saturated, Some(200), None, None, false),
+            vec!["포화 계단 200 req/s · 정상 계단 없음 — 첫 계단부터 실패"]
+        );
+        // 힌트는 화면처럼 따로 한 줄.
+        assert_eq!(
             h(Saturated, Some(200), None, None, true),
-            "포화 계단 200 req/s · 정상 계단 없음 — 첫 계단부터 실패 · 첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요"
+            vec![
+                "포화 계단 200 req/s · 정상 계단 없음 — 첫 계단부터 실패",
+                "첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요"
+            ]
         );
         assert_eq!(
             h(Unconfirmed, Some(200), Some(100), None, false),
-            "포화 의심 200 req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 100 req/s"
+            vec!["포화 의심 200 req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 100 req/s"]
         );
         assert_eq!(
             h(Unconfirmed, Some(200), None, None, false),
-            "포화 의심 200 req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음"
+            vec!["포화 의심 200 req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음"]
         );
         assert_eq!(
             h(AllOk, None, Some(300), Some(300), false),
-            "300 req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)"
+            vec!["300 req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)"]
         );
         assert_eq!(
             h(OkThenUnmeasured, None, Some(300), Some(300), false),
-            "300 req/s까지 정상 · 이후 계단은 측정 안 됨"
+            vec!["300 req/s까지 정상 · 이후 계단은 측정 안 됨"]
         );
         assert_eq!(
             h(NoData, None, None, None, false),
-            "판정할 수 없음 — 측정이 끝난 계단이 없습니다"
+            vec!["판정할 수 없음 — 측정이 끝난 계단이 없습니다"]
         );
+    }
+
+    #[test]
+    fn stairs_csv_writes_every_headline_line_then_blank_then_table() {
+        use crate::stair::{HeadlineKind, Reason, ReasonKind, StepState};
+        let mut slot = stair_step(
+            1,
+            200,
+            StepState::Saturated,
+            4100,
+            vec![Reason {
+                kind: ReasonKind::Achieved,
+                value: 0.9,
+            }],
+        );
+        slot.slot_limited = true;
+        let mut st = stair_report(
+            HeadlineKind::Saturated,
+            Some(200),
+            Some(100),
+            None,
+            false,
+            vec![stair_step(0, 100, StepState::Ok, 4000, vec![]), slot],
+        );
+        st.slot_limited_targets = vec![200];
+        st.max_in_flight = Some(8);
+        st.notes.t0_estimated = true;
+        let mut r = report_with_steps(vec![step("a", 1, 1)]);
+        r.stair = Some(st.clone());
+        let lines = stair_headline_lines(&st);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[1].contains("max_in_flight = 8"), "{lines:?}");
+        assert!(
+            lines[2].starts_with("ⓘ 부하기 일부가 예전 버전"),
+            "{lines:?}"
+        );
+
+        let csv = String::from_utf8(report_to_stairs_csv(&r).unwrap()).unwrap();
+        let mut rd = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .flexible(true)
+            .from_reader(csv.as_bytes());
+        let recs: Vec<Vec<String>> = rd
+            .records()
+            .map(|r| r.unwrap().iter().map(str::to_string).collect())
+            .collect();
+        // csv 리더는 빈 줄을 건너뛴다 — 머리말 3줄 바로 뒤가 머리글.
+        for (i, l) in lines.iter().enumerate() {
+            assert_eq!(recs[i], vec![l.clone()]);
+        }
+        assert_eq!(recs[3][0], "index");
+        assert_eq!(csv.lines().nth(3), Some(""), "머리말 뒤 빈 줄 하나");
     }
 
     #[test]
@@ -1748,8 +1992,32 @@ mod tests {
         assert_eq!(
             ws.get_value((4, last_col)),
             Some(&Data::String(
-                "달성 93%, 버림 12개, 오류 2.0%, p99 앞 정상 대비 3.4배".into()
+                "달성 93.0% · dropped 12 · 오류 2.0% · p99 3.4×".into()
             ))
         );
+        // 측정 안 된 계단: 달성·launched·dropped도 빈 칸.
+        for c in [2u32, 3, 9] {
+            assert!(
+                matches!(ws.get_value((5, c)), None | Some(Data::Empty)),
+                "col {c}: {:?}",
+                ws.get_value((5, c))
+            );
+        }
+
+        // 머리말이 여러 줄이면 머리글이 그만큼 내려간다.
+        let mut st = saturated_sample();
+        st.notes.open_loop_unknown = true;
+        st.spike_targets = vec![150];
+        let mut r2 = report_with_steps(vec![step("a", 10, 50)]);
+        r2.stair = Some(st.clone());
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r2))).unwrap();
+        let ws = wb.worksheet_range("Stairs").unwrap();
+        let lines = stair_headline_lines(&st);
+        assert_eq!(lines.len(), 3);
+        for (i, l) in lines.iter().enumerate() {
+            assert_eq!(ws.get_value((i as u32, 0)), Some(&Data::String(l.clone())));
+        }
+        assert_eq!(ws.get_value((4, 0)), Some(&Data::String("index".into())));
     }
 }

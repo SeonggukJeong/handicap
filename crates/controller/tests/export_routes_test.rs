@@ -647,11 +647,12 @@ async fn report_stairs_csv_200_for_stair() {
         .await
         .unwrap();
     let text = String::from_utf8(body.to_vec()).unwrap();
-    assert!(
-        text.lines()
-            .nth(2)
-            .unwrap()
-            .starts_with("index,target_per_s"),
-        "{text}"
-    );
+    // 머리말 줄 수는 run마다 다르다 — 첫 빈 줄 다음이 표 머리글.
+    let lines: Vec<&str> = text.lines().collect();
+    let blank = lines
+        .iter()
+        .position(|l| l.is_empty())
+        .expect("머리말 뒤 빈 줄");
+    assert!(blank >= 1, "{text}");
+    assert!(lines[blank + 1].starts_with("index,target_per_s"), "{text}");
 }

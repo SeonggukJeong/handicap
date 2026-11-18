@@ -4321,12 +4321,13 @@ steps:
             );
         }
 
-        /// 대표 계단 run: 정상 → knee(⚠) → 튐 → 정상 → 포화(멈춤, ratio null).
+        /// 대표 계단 run: 정상 → knee(⚠) → 튐 → 정상 → 포화(멈춤, ratio null) →
+        /// 확인 계단(지연·오류 정상, 달성 94.96% → 슬롯 부족 의심).
         fn golden_fixture() -> (StairConfig, Fx) {
-            let c = scfg(&[100, 200, 300, 400, 500, 600], 1, 25, 5);
+            let c = scfg(&[100, 200, 300, 400, 500, 600, 1000], 1, 25, 5);
             let mut fx = Fx::default();
             fx.inp.starts.push(start("w", T0));
-            fx.fill("w", 1000, 156, |o| {
+            fx.fill("w", 1000, 182, |o| {
                 let i = o / 26;
                 let in_step = o % 26;
                 let head = (6..16).contains(&in_step);
@@ -4337,6 +4338,14 @@ steps:
                     2 => Some(sec(t, if head { 10_000 } else { 4_500 })),
                     3 => Some(sec(t, 40_000)),
                     4 => Some(sec(t, 8_000)),
+                    // 측정 20초 완료 합 = 950×12 + 949×8 = 18,992 → 달성 949.6/s = 목표의 94.96%.
+                    6 => Some(Sec {
+                        launched: 1000,
+                        completed: if in_step < 18 { 950 } else { 949 },
+                        dropped: 0,
+                        errors: 0,
+                        lat_us: 8_000,
+                    }),
                     _ if in_step < 6 => Some(sec(t, 50_000)),
                     _ if head => Some(Sec {
                         launched: 300,
@@ -4363,7 +4372,7 @@ steps:
             let r = fx.report(&c);
             let states: Vec<StepState> = r.steps.iter().map(|s| s.state).collect();
             use StepState::*;
-            assert_eq!(states, vec![Ok, Ok, Ok, Spike, Ok, Saturated]);
+            assert_eq!(states, vec![Ok, Ok, Ok, Spike, Ok, Saturated, Saturated]);
             assert_eq!(r.headline.kind, HeadlineKind::Saturated);
             assert_eq!(r.headline.saturated_target, Some(600));
             assert_eq!(r.headline.last_ok_target, Some(500));
@@ -4375,19 +4384,223 @@ steps:
             assert_eq!(r.steps[5].head_p99_ratio, None, "나머지 p99 0 → null");
             assert!(r.dropped_explained);
             assert_eq!(r.dropped_total, Some(8_500));
+            // 확인 계단: 달성만 실패 → 슬롯 부족 의심, 비율은 내림 표시 경계(94.96%).
+            let last = &r.steps[6];
+            assert!(last.slot_limited);
+            assert_eq!(r.slot_limited_targets, vec![1000]);
+            assert_eq!(last.reasons.len(), 1);
+            assert_eq!(last.reasons[0].kind, ReasonKind::Achieved);
+            assert!((last.reasons[0].value - 0.9496).abs() < 1e-12);
+        }
+
+        /// 화면(`stairFormat.ts`)과 내보내기(`export.rs`)가 같은 글자를 내는지 — UI 테스트
+        /// `stairExportParity.test.ts`가 같은 파일을 읽어 `headlineText`·`reasonTexts`와 비교한다.
+        /// 변형(`*_variant`·`reasons_all_kinds`·`reasons_fast_ref`)의 수정 내용은 UI 테스트에도 똑같이 있다.
+        fn export_text_golden(r: &StairReport) -> serde_json::Value {
+            use crate::export::{stair_headline_lines, stair_reasons_text};
+            use crate::stair::Reason;
+            let mut variant = r.clone();
+            variant.notes.t0_estimated = true;
+            variant.notes.open_loop_unknown = true;
+            variant.max_in_flight = None;
+            variant.headline.saturated_target = Some(100);
+            variant.headline.last_ok_target = None;
+            variant.headline.first_fail_hint = true;
+            let mut all = r.clone();
+            all.steps[5].reasons = [
+                (ReasonKind::Achieved, 0.9496),
+                (ReasonKind::Dropped, 1234.0),
+                (ReasonKind::Errors, 0.0234),
+                (ReasonKind::P99Cap, 25.0),
+                (ReasonKind::P99Relative, 2.25),
+            ]
+            .into_iter()
+            .map(|(kind, value)| Reason { kind, value })
+            .collect();
+            all.steps[5].slot_limited = true;
+            let mut fast = r.clone();
+            fast.steps[4].p99_us = 900;
+            serde_json::json!({
+                "headline_lines": stair_headline_lines(r),
+                "headline_lines_variant": stair_headline_lines(&variant),
+                "reasons": (0..r.steps.len())
+                    .map(|i| stair_reasons_text(r, i))
+                    .collect::<Vec<_>>(),
+                "reasons_all_kinds": stair_reasons_text(&all, 5),
+                "reasons_fast_ref": stair_reasons_text(&fast, 5),
+            })
+        }
+
+        #[test]
+        fn stair_export_text_matches_golden() {
+            let path = concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../testdata/stair_export_text_golden.json"
+            );
+            let (c, fx) = golden_fixture();
+            let got = serde_json::to_string_pretty(&export_text_golden(&fx.report(&c))).unwrap();
+            if std::env::var_os("STAIR_GOLDEN_UPDATE").is_some() {
+                std::fs::write(path, format!("{got}\n")).unwrap();
+            }
+            let want = std::fs::read_to_string(path).unwrap();
+            assert_eq!(got, want.trim_end(), "골든이 바뀌면 의도적으로 갱신");
+            let v: serde_json::Value = serde_json::from_str(&got).unwrap();
+            assert_eq!(v["reasons"][6], "달성 94.9% · 슬롯 부족 의심");
+            assert!(
+                v["headline_lines"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|l| l.as_str().unwrap().starts_with("계단 1000 req/s은(는)"))
+            );
+
+            // CSV 첫 줄들 = 머리말 줄 전부(슬롯 부족 줄 포함), 그다음 빈 줄.
+            let csv = String::from_utf8(crate::export::report_to_stairs_csv(&fx.full(&c)).unwrap())
+                .unwrap();
+            let lines = crate::export::stair_headline_lines(&fx.report(&c));
+            let mut rd = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .flexible(true)
+                .from_reader(csv.as_bytes());
+            let recs: Vec<String> = rd
+                .records()
+                .take(lines.len())
+                .map(|r| r.unwrap()[0].to_string())
+                .collect();
+            assert_eq!(recs, lines);
+            assert_eq!(csv.lines().nth(lines.len()), Some(""));
+        }
+
+        #[test]
+        fn stair_not_measured_step_numbers_are_blank_in_report_and_csv() {
+            // run이 계단1 측정 구간 1/3 지점에서 중단 → 측정 안 됨. 부분 구간에도 완료·dropped가 있다.
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 32, |o| {
+                if o < 21 {
+                    Some(sec(100, 2_000))
+                } else {
+                    Some(Sec {
+                        launched: 200,
+                        completed: 197,
+                        dropped: 3,
+                        errors: 0,
+                        lat_us: 2_000,
+                    })
+                }
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].measured_seconds, 5);
+            assert_eq!(r.steps[1].state, StepState::NotMeasured);
+            assert_eq!(
+                (
+                    r.steps[1].achieved,
+                    r.steps[1].launched_rate,
+                    r.steps[1].dropped
+                ),
+                (None, None, None)
+            );
+            assert_eq!(
+                r.steps[0].achieved,
+                Some(100.0),
+                "대조: 측정된 계단은 그대로"
+            );
+            assert_eq!(r.steps[0].dropped, Some(0));
+
+            let csv = String::from_utf8(crate::export::report_to_stairs_csv(&fx.full(&c)).unwrap())
+                .unwrap();
+            let row = csv.lines().find(|l| l.starts_with("1,200,")).unwrap();
+            assert_eq!(row, "1,200,,,,,,,,,,not_measured,");
+        }
+
+        #[test]
+        fn stair_discard_warning_not_on_unmeasured_step() {
+            // 유지 60·버림 0 → 측정 60초, 절반 30초. 계단1은 25초 측정 뒤 중단(≥ 20초라 ⚠ 계산 대상이던 경우).
+            let c = scfg(&[100, 200], 1, 60, 0);
+            let mut fx = Fx::default();
+            fx.inp.starts.push(start("w", T0));
+            fx.fill("w", 1000, 87, |o| {
+                let lat = if (62..72).contains(&o) { 10_000 } else { 4_000 };
+                Some(sec(if o < 61 { 100 } else { 200 }, lat))
+            });
+            let r = fx.report(&c);
+            assert_eq!(r.steps[1].measured_seconds, 25);
+            assert_eq!(r.steps[1].state, StepState::NotMeasured);
+            assert_eq!(r.steps[1].head_p99_ratio, None);
+            assert!(!r.steps[1].discard_warning);
+        }
+
+        #[test]
+        fn stair_dropped_in_unmeasured_step_after_unconfirmed_explained() {
+            // 계단1이 지연+dropped로 실패, 확인할 계단2는 측정 전에 run이 끝남 → 확인 못 한 실패.
+            let (c, fx) = partial_tail(&[100, 200, 300], 1);
+            let r = fx.report(&c);
+            let states: Vec<StepState> = r.steps.iter().map(|s| s.state).collect();
+            use StepState::*;
+            assert_eq!(states, vec![Ok, Unconfirmed, NotMeasured]);
+            assert!(!r.steps[1].slot_limited);
+            assert!(
+                fx.inp
+                    .open_loop
+                    .iter()
+                    .any(|row| row.ts_second >= 1042 && row.dropped > 0),
+                "계단2 구간(offset 42~)에도 dropped가 있다"
+            );
+            assert!(
+                r.dropped_explained,
+                "확인 못 한 실패 뒤 측정 안 된 계단의 dropped는 판정 밖"
+            );
+        }
+
+        #[test]
+        fn stair_report_survives_absurd_stored_times_and_counts() {
+            let c = scfg(&[100, 200], 1, 20, 5);
+            let mut fx = Fx::default();
+            // a: t0가 i64 끝, 시각·계수도 끝값.
+            fx.inp.starts.push(start("a", i64::MAX));
+            for ts in [i64::MAX, i64::MAX / 2, i64::MIN, 0] {
+                fx.inp.open_loop.push(OpenLoopSecondRow {
+                    worker_id: "a".into(),
+                    ts_second: ts,
+                    launched: i64::MAX,
+                    completed: i64::MAX,
+                    dropped: i64::MAX,
+                });
+                fx.rows.push(mrow("a", ts, "s", 1, 0, &[(2_000, 1)]));
+            }
+            // b: 시작 행 없음 → t0 = 최소 ts × 1000 폴백.
+            fx.rows
+                .push(mrow("b", i64::MAX / 2, "s", 1, 0, &[(2_000, 1)]));
+            // c: t0가 i64 시작, dropped 초는 끝.
+            fx.inp.starts.push(start("c", i64::MIN));
+            fx.inp.open_loop.push(OpenLoopSecondRow {
+                worker_id: "c".into(),
+                ts_second: i64::MAX,
+                launched: 1,
+                completed: 1,
+                dropped: 1,
+            });
+            let r = build_stair_report(&sprofile(&c), u64::MAX, &fx.rows, &fx.inp).unwrap();
+            assert_eq!(r.steps.len(), 2);
         }
 
         #[test]
         fn stair_report_matches_golden() {
-            const GOLDEN: &str = include_str!(concat!(
+            let path = concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../testdata/stair_report_golden.json"
-            ));
+            );
             let (c, fx) = golden_fixture();
             let got = serde_json::to_string_pretty(&fx.report(&c)).unwrap();
-            assert_eq!(got, GOLDEN.trim_end(), "골든이 바뀌면 의도적으로 갱신");
+            // 의도적 갱신: `STAIR_GOLDEN_UPDATE=1 cargo nextest run -p handicap-controller stair_`.
+            if std::env::var_os("STAIR_GOLDEN_UPDATE").is_some() {
+                std::fs::write(path, format!("{got}\n")).unwrap();
+            }
+            let golden = std::fs::read_to_string(path).unwrap();
+            assert_eq!(got, golden.trim_end(), "골든이 바뀌면 의도적으로 갱신");
             // typed round-trip: 골든은 ReportJson.stair로 역직렬화된다.
-            let back: StairReport = serde_json::from_str(GOLDEN).unwrap();
+            let back: StairReport = serde_json::from_str(&golden).unwrap();
             assert_eq!(back, fx.report(&c));
         }
     }

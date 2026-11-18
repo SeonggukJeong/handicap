@@ -332,6 +332,14 @@ async fn preset_create_and_update_with_stair() {
     bad["stair"]["targets"] = json!([200, 100]);
     let resp = app.clone().oneshot(put(bad)).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8_lossy(&bytes);
+    assert!(
+        body.contains("계단 목표는 앞보다 커지는 순서"),
+        "계단 검증이 거절해야 한다: {body}"
+    );
 }
 
 #[tokio::test]
@@ -341,11 +349,16 @@ async fn preset_create_rejects_invalid_stair() {
     let sid = create_scenario(&app, YAML).await;
     let mut bad = stair_profile();
     bad["stair"]["targets"] = json!([100]);
-    let (s, _) = post(
+    let (s, body) = post(
         &app,
         &format!("/api/scenarios/{sid}/presets"),
         json!({ "name": "bad", "profile": bad, "env": {} }),
     )
     .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(
+        body.to_string()
+            .contains("계단 목표는 2개 이상 50개 이하여야 합니다"),
+        "계단 검증이 거절해야 한다: {body}"
+    );
 }

@@ -297,7 +297,7 @@ pub async fn run_scenario(
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
-            let now_s = chrono_second();
+            let now_s = current_second();
             let (
                 drained,
                 loop_stats,
@@ -1301,7 +1301,7 @@ pub async fn run_scenario_vu_curve(
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
-            let now_s = chrono_second();
+            let now_s = current_second();
             let (
                 drained,
                 loop_stats,
@@ -1437,7 +1437,7 @@ pub async fn run_scenario_vu_curve(
         // 4 ticks/sec; `record_active_vu` uses a BTreeMap keyed by second so multiple
         // ticks within the same second overwrite — drain always yields one entry/sec.
         // `desired` reuses the value computed above; `actual` counts live slab tokens.
-        let sample_second = chrono_second();
+        let sample_second = current_second();
         let actual = {
             let g = slab.lock().expect("slab mutex");
             g.iter().flatten().count() as u32
@@ -2198,13 +2198,6 @@ pub(crate) fn select_branch<'a>(
         }
         sel
     }
-}
-
-fn chrono_second() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 fn epoch_millis() -> i64 {

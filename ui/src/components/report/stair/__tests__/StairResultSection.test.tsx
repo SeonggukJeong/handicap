@@ -152,7 +152,7 @@ describe("StairResultSection", () => {
     ]) {
       expect(within(table).getByRole("columnheader", { name: h })).toBeInTheDocument();
     }
-    expect(within(table).getAllByRole("row")).toHaveLength(1 + 6);
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 7);
   });
 
   it("상태 pill 6종과 사유 요약", () => {

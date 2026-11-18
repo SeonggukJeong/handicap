@@ -15,6 +15,9 @@ pub(crate) enum CountKind {
     Dropped,
 }
 
+/// 한 번에 채우는 0행의 최대 범위(초). `fill_hi - MAX_ZERO_FILL_SPAN ..= fill_hi` = 최대 3601행.
+const MAX_ZERO_FILL_SPAN: i64 = 3600;
+
 #[derive(Debug)]
 pub(crate) struct OpenLoopCounters {
     seconds: BTreeMap<i64, OpenLoopSecond>,
@@ -82,7 +85,12 @@ impl OpenLoopCounters {
         mut done: BTreeMap<i64, OpenLoopSecond>,
         fill_hi: i64,
     ) -> Vec<OpenLoopSecond> {
-        let fill_lo = self.start_second.max(self.last_emitted.saturating_add(1));
+        // 벽시계가 앞으로 크게 뛰면 건너뛴 초마다 0행이 생긴다 — 한 번에 채우는 0행은 지금에
+        // 가까운 MAX_ZERO_FILL_SPAN초까지만(그 앞 틈은 실제로 흐르지 않은 초라 비워 둔다).
+        let fill_lo = self
+            .start_second
+            .max(self.last_emitted.saturating_add(1))
+            .max(fill_hi.saturating_sub(MAX_ZERO_FILL_SPAN));
         if fill_lo <= fill_hi {
             for ts in fill_lo..=fill_hi {
                 done.entry(ts).or_insert(OpenLoopSecond {
@@ -149,6 +157,27 @@ mod tests {
         c.record_at(14, CountKind::Completed);
         let ts: Vec<i64> = c.drain_all().iter().map(|r| r.ts_second).collect();
         assert_eq!(ts, vec![10, 11, 12, 14]);
+    }
+
+    #[test]
+    fn forward_clock_jump_caps_zero_fill_and_never_reemits() {
+        let mut c = OpenLoopCounters::new(10);
+        c.record_at(10, CountKind::Launched);
+        assert_eq!(c.drain_completed(11), vec![row(10, 1, 0, 0)]);
+        // 벽시계가 1,000,000초 앞으로 뜀.
+        let now = 11 + 1_000_000;
+        let rows = c.drain_completed(now);
+        assert!(rows.len() <= 3601, "rows = {}", rows.len());
+        let ts: Vec<i64> = rows.iter().map(|r| r.ts_second).collect();
+        assert!(ts.windows(2).all(|w| w[0] < w[1]), "초는 오름차순");
+        assert_eq!(ts.last(), Some(&(now - 1)));
+        assert_eq!(ts.first(), Some(&(now - 1 - 3600)));
+        // 다음 drain은 이미 내보낸 초를 다시 내지 않는다.
+        c.record_at(now, CountKind::Completed);
+        let next = c.drain_completed(now + 2);
+        let ts: Vec<i64> = next.iter().map(|r| r.ts_second).collect();
+        assert_eq!(ts, vec![now, now + 1]);
+        assert_eq!(next[0], row(now, 0, 1, 0));
     }
 
     #[test]

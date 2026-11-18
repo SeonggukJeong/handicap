@@ -1925,6 +1925,9 @@ async fn stream_dataset(
 
 /// Insert one worker's metric batch (windows + loop + if). Unchanged from the
 /// previous inline arm; A3b adds run_metrics per-worker keying.
+/// open-loop 초·시작 시각이 컨트롤러 시계에서 이만큼(초) 넘게 벗어나면 저장하지 않는다.
+const OPEN_LOOP_CLOCK_SKEW_S: u64 = 86_400;
+
 async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
     // First batch from this run's workers = the engine flusher produced output =
     // not hung at startup. Cancel first_load (idempotent — no-op after the first).
@@ -1956,10 +1959,28 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
     if let Err(e) = crate::store::metrics::insert_batch(&state.db, &rows).await {
         warn!(run_id = %batch.run_id, error = %e, "failed to insert metric batch");
     }
+    // 계단 리포트는 이 시각들로 계단 구간을 잡는다. 시계에서 하루 넘게 벗어난 값은
+    // 부하기 시계 고장·조작으로 보고 버린다(리포트 산술도 포화로 막지만 행 자체를 남기지 않는다).
+    let now_s = crate::store::now_ms().div_euclid(1000);
+    let plausible_s = |ts: i64| ts.saturating_sub(now_s).unsigned_abs() <= OPEN_LOOP_CLOCK_SKEW_S;
     if !batch.open_loop_seconds.is_empty() {
+        let implausible = batch
+            .open_loop_seconds
+            .iter()
+            .filter(|s| !plausible_s(s.ts_second))
+            .count();
+        if implausible > 0 {
+            warn!(
+                run_id = %batch.run_id,
+                worker_id = %batch.worker_id,
+                implausible,
+                "dropping open-loop seconds far from controller clock"
+            );
+        }
         let secs: Vec<(i64, i64, i64, i64)> = batch
             .open_loop_seconds
             .iter()
+            .filter(|s| plausible_s(s.ts_second))
             .map(|s| {
                 (
                     s.ts_second,
@@ -1980,7 +2001,16 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert open-loop seconds");
         }
     }
-    if batch.open_loop_started_at_ms > 0 {
+    if batch.open_loop_started_at_ms > 0
+        && !plausible_s(batch.open_loop_started_at_ms.div_euclid(1000))
+    {
+        warn!(
+            run_id = %batch.run_id,
+            worker_id = %batch.worker_id,
+            started_at_ms = batch.open_loop_started_at_ms,
+            "dropping open-loop start far from controller clock"
+        );
+    } else if batch.open_loop_started_at_ms > 0 {
         if let Err(e) = crate::store::open_loop::insert_worker_start(
             &state.db,
             &batch.run_id,
@@ -2890,21 +2920,23 @@ mod tests {
             open_loop_started_at_ms: started,
             dropped: 4,
         };
+        let now_s = crate::store::now_ms() / 1000;
+        let started = (now_s - 2) * 1000 + 300;
         let secs = vec![
             pb::OpenLoopSecond {
-                ts_second: 10,
+                ts_second: now_s - 1,
                 launched: 5,
                 completed: 4,
                 dropped: 1,
             },
             pb::OpenLoopSecond {
-                ts_second: 11,
+                ts_second: now_s,
                 launched: 6,
                 completed: 6,
                 dropped: 0,
             },
         ];
-        ingest_metrics(&coord, &mk(secs, 7_000, "w0")).await;
+        ingest_metrics(&coord, &mk(secs, started, "w0")).await;
         ingest_metrics(&coord, &mk(vec![], 0, "w1")).await;
 
         let rows = crate::store::open_loop::open_loop_seconds(&db, &run_id)
@@ -2918,21 +2950,77 @@ mod tests {
                 rows[0].completed,
                 rows[0].dropped
             ),
-            (10, 5, 4, 1)
+            (now_s - 1, 5, 4, 1)
         );
-        assert_eq!(rows[1].ts_second, 11);
+        assert_eq!(rows[1].ts_second, now_s);
         let starts = crate::store::open_loop::worker_starts(&db, &run_id)
             .await
             .unwrap();
         assert_eq!(starts.len(), 1, "started_at_ms=0 must not create a row");
         assert_eq!(starts[0].worker_id, "w0");
-        assert_eq!(starts[0].started_at_ms, 7_000);
+        assert_eq!(starts[0].started_at_ms, started);
         let d: i64 = sqlx::query_scalar("SELECT dropped FROM runs WHERE id = ?")
             .bind(&run_id)
             .fetch_one(&db)
             .await
             .unwrap();
         assert_eq!(d, 8, "runs.dropped accumulation unchanged");
+    }
+
+    #[tokio::test]
+    async fn ingest_drops_open_loop_times_far_from_clock() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let now_s = crate::store::now_ms() / 1000;
+        let sec = |ts_second: i64| pb::OpenLoopSecond {
+            ts_second,
+            launched: 1,
+            completed: 1,
+            dropped: 0,
+        };
+        let mk = |secs: Vec<pb::OpenLoopSecond>, started: i64, w: &str| pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: w.to_string(),
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![],
+            phase_stats: vec![],
+            active_vu_samples: vec![],
+            error_kind_stats: vec![],
+            loop_exit_stats: vec![],
+            open_loop_seconds: secs,
+            open_loop_started_at_ms: started,
+            dropped: 0,
+        };
+        let secs = vec![
+            sec(i64::MAX / 2),
+            sec(i64::MIN),
+            sec(now_s - 90_000),
+            sec(now_s + 90_000),
+            sec(now_s),
+            sec(now_s - 80_000),
+        ];
+        ingest_metrics(&coord, &mk(secs, i64::MAX / 2, "w0")).await;
+        ingest_metrics(&coord, &mk(vec![], i64::MAX, "w1")).await;
+        ingest_metrics(&coord, &mk(vec![], now_s * 1000, "w2")).await;
+
+        let rows = crate::store::open_loop::open_loop_seconds(&db, &run_id)
+            .await
+            .unwrap();
+        let mut ts: Vec<i64> = rows.iter().map(|r| r.ts_second).collect();
+        ts.sort_unstable();
+        assert_eq!(
+            ts,
+            vec![now_s - 80_000, now_s],
+            "하루 넘게 벗어난 초는 버림"
+        );
+        let starts = crate::store::open_loop::worker_starts(&db, &run_id)
+            .await
+            .unwrap();
+        let ids: Vec<&str> = starts.iter().map(|s| s.worker_id.as_str()).collect();
+        assert_eq!(ids, vec!["w2"], "터무니없는 시작 시각은 버림");
     }
 
     #[tokio::test]

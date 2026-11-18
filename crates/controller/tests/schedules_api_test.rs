@@ -365,7 +365,8 @@ async fn schedule_create_and_update_with_stair() {
 
     let mut bad = stair_profile();
     bad["stair"]["hold_seconds"] = json!(19);
-    let (status, _) = send(
+    let msg = "계단 유지 시간은 20초 이상 3600초 이하여야 합니다";
+    let (status, resp) = send(
         &app,
         Method::POST,
         "/api/schedules",
@@ -373,7 +374,8 @@ async fn schedule_create_and_update_with_stair() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = send(
+    assert!(resp.to_string().contains(msg), "POST: {resp}");
+    let (status, resp) = send(
         &app,
         Method::PUT,
         &format!("/api/schedules/{id}"),
@@ -381,4 +383,5 @@ async fn schedule_create_and_update_with_stair() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(resp.to_string().contains(msg), "PUT: {resp}");
 }
