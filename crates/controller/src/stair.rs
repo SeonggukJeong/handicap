@@ -8,6 +8,7 @@ use handicap_engine::percentiles::{decode_hdr, merge_into};
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
 
+use crate::auto_stop::{AutoStopRecord, StopInfo, StopKind};
 use crate::store::metrics::WindowWithHdr;
 use crate::store::open_loop::{OpenLoopSecondRow, WorkerStartRow};
 use crate::store::runs::Profile;
@@ -184,6 +185,22 @@ pub enum StepState {
     Unconfirmed,
     After,
     NotMeasured,
+    /// 즉시 정지가 일어난 계단(측정 완결 전) — 자동 정지 기록이 있을 때만.
+    EmergencyStopped,
+    /// 판정 계단 뒤, 정지 시각 전에 시작한 계단 — 자동 정지 기록이 있을 때만.
+    Partial,
+    /// 정지 시각 전에 시작하지 않은 계단 — 자동 정지 기록이 있을 때만.
+    Skipped,
+}
+
+impl StepState {
+    /// 행에 측정 숫자(달성·시작율·dropped)를 보이나 — 리포트·내보내기·화면의 단일 기준.
+    pub fn shows_numbers(self) -> bool {
+        match self {
+            Self::Ok | Self::Spike | Self::Saturated | Self::Unconfirmed | Self::After => true,
+            Self::NotMeasured | Self::EmergencyStopped | Self::Partial | Self::Skipped => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -407,6 +424,8 @@ pub fn judge(steps: &[StepNumbers], cfg: &StairConfig) -> Judgement {
 pub struct StairInputs {
     pub open_loop: Vec<OpenLoopSecondRow>,
     pub starts: Vec<WorkerStartRow>,
+    /// 자동 정지 기록(status `completed` run만 — 호출자가 거른다).
+    pub auto_stop: Option<AutoStopRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -424,6 +443,8 @@ pub struct StairReport {
     pub seconds: Vec<StairSecond>,
     pub bands: Vec<StairBand>,
     pub target_line: Vec<TargetPoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_stop: Option<AutoStopRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -451,6 +472,15 @@ pub struct StairStep {
     pub slot_limited: bool,
     pub head_p99_ratio: Option<f64>,
     pub discard_warning: bool,
+    /// `partial` 행만: 가장 이른 t0 기준 계단 시작 → 정지 시각까지 초와 그때의 구간.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial: Option<PartialRun>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartialRun {
+    pub seconds: u32,
+    pub phase: BandKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -934,19 +964,43 @@ pub fn build_stair_report(
         }
     }
 
-    let numbers = acc.numbers(&vec![true; n], unknown);
+    let mut numbers = acc.numbers(&vec![true; n], unknown);
     let details = acc.details();
+    // 자동 정지 run: 감시가 결정 순간 판정에 쓴 경계(`judged_through`) 뒤 계단은 판정 밖(§5.1).
+    let stop = inp.auto_stop.as_ref().and_then(|r| r.stop.as_ref());
+    if let Some(s) = stop {
+        for (i, st) in numbers.iter_mut().enumerate() {
+            if i as i64 > s.judged_through {
+                st.measured = false;
+            }
+        }
+    }
     let j = judge(&numbers, cfg);
 
     // 측정 시각 = 가장 이른 t0 워커의 실제 포함 초.
     let earliest = workers.iter().min_by_key(|w| w.t0_ms);
+    // 행 상태: 판정 상태 위에 자동 정지 표시 상태를 얹는다(§5.2). 계단 시작 시각은 감시의 구간
+    // 귀속과 같이 시작 시각을 보낸 워커 중 가장 이른 t0 기준.
+    let stop_t0 = inp
+        .starts
+        .iter()
+        .map(|s| s.started_at_ms)
+        .min()
+        .or(earliest.map(|w| w.t0_ms));
+    let shown_states: Vec<(StepState, Option<PartialRun>)> = (0..n)
+        .map(|i| match stop {
+            Some(s) if i as i64 > s.judged_through => stop_row_state(cfg, s, stop_t0, i),
+            _ => (j.states[i], None),
+        })
+        .collect();
     let steps: Vec<StairStep> = (0..n)
         .map(|i| {
             let d = &details[i];
             let measured_seconds = d.measured_seconds;
             // 측정 안 됨으로 보이는 계단(화면·인쇄는 숫자 「—」)은 달성·시작·dropped도 비운다 —
             // 내보내기가 부분 구간 숫자나 0을 측정값처럼 적지 않게.
-            let shown = j.states[i] != StepState::NotMeasured;
+            let (state, partial) = shown_states[i];
+            let shown = state.shows_numbers();
             let (lo, hi) = earliest.and_then(|w| acc.window(w.id, i)).unwrap_or((0, 0));
             let head_p99 = d.head_p99_us;
             let rest_p99 = d.rest_p99_us;
@@ -966,7 +1020,7 @@ pub fn build_stair_report(
                 measured_seconds,
                 measure_start_ms: lo.saturating_mul(1000),
                 measure_end_ms: hi.saturating_mul(1000),
-                state: j.states[i],
+                state,
                 reasons: j.reasons[i].clone(),
                 knee: j.knee == Some(i),
                 slot_limited: j.slot_limited[i],
@@ -974,14 +1028,17 @@ pub fn build_stair_report(
                 discard_warning: head_p99_ratio.is_some()
                     && head_p99 >= HEAD_MIN_US
                     && head_p99 >= HEAD_RATIO_WARN.saturating_mul(rest_p99),
+                partial,
             }
         })
         .collect();
 
     // dropped가 생긴 모든 초가 "지연·오류로도 무너진 계단" 또는 포화 이후 계단 구간에 있을 때만 설명됨.
     // 초가 계단 경계에 걸치면 걸친 계단 모두가 설명돼야 한다. t0 이전 초는 설명 안 됨.
-    let explains = |i: usize| match j.states[i] {
+    let explains = |i: usize| match shown_states[i].0 {
         StepState::After => true,
+        // 자동 정지로 판정 밖이 된 계단은 「포화 뒤」와 같다.
+        StepState::EmergencyStopped | StepState::Partial | StepState::Skipped => true,
         StepState::Saturated | StepState::Unconfirmed | StepState::Spike => !j.slot_limited[i],
         // 포화 지점 뒤 측정 부족 계단(포화를 보고 run을 멈춘 경우)은 판정 밖이라 설명된다.
         StepState::NotMeasured => j.saturation.is_some_and(|k| i > k),
@@ -1075,7 +1132,47 @@ pub fn build_stair_report(
         seconds,
         bands,
         target_line,
+        auto_stop: inp.auto_stop.clone(),
     })
+}
+
+/// `judged_through` 뒤 계단 `i`의 표시 상태. 계단 시작 = `t0 + i·계단 ms`.
+fn stop_row_state(
+    cfg: &StairConfig,
+    s: &StopInfo,
+    t0_ms: Option<i64>,
+    i: usize,
+) -> (StepState, Option<PartialRun>) {
+    let decided = s.decided_step as usize;
+    if s.kind == StopKind::Emergency && i == decided {
+        return (StepState::EmergencyStopped, None);
+    }
+    if i <= decided {
+        // 즉시 정지 순간 아직 완결 안 된 앞 계단.
+        return (StepState::NotMeasured, None);
+    }
+    let Some(t0) = t0_ms else {
+        return (StepState::Skipped, None);
+    };
+    let step_ms = i64::from(cfg.ramp_seconds + cfg.hold_seconds) * 1000;
+    let start = t0.saturating_add((i as i64).saturating_mul(step_ms));
+    let elapsed = s.stopped_at_ms.saturating_sub(start);
+    if elapsed <= 0 {
+        return (StepState::Skipped, None);
+    }
+    let ramp_ms = i64::from(cfg.ramp_seconds) * 1000;
+    let discard_end_ms = ramp_ms + i64::from(cfg.discard_seconds) * 1000;
+    let phase = if elapsed < ramp_ms {
+        BandKind::Ramp
+    } else if elapsed < discard_end_ms {
+        BandKind::Discard
+    } else {
+        BandKind::Measure
+    };
+    let seconds =
+        u32::try_from(elapsed.div_euclid(1000) + i64::from(elapsed.rem_euclid(1000) != 0))
+            .unwrap_or(u32::MAX);
+    (StepState::Partial, Some(PartialRun { seconds, phase }))
 }
 
 #[cfg(test)]

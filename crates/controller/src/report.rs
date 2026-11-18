@@ -4761,5 +4761,438 @@ steps:
             let back: StairReport = serde_json::from_str(&golden).unwrap();
             assert_eq!(back, fx.report(&c));
         }
+
+        /// 자동 정지 리포트(계단 시험 b §5.1·§5.2): 기록의 `judged_through` 뒤는 판정 밖, 행 상태 셋.
+        mod auto_stop {
+            use super::*;
+            use crate::auto_stop::{AutoStopRecord, EmergencyStats, StopInfo, StopKind};
+            use crate::stair::{PartialRun, SaturationStopMode};
+
+            fn bad(completed: u64) -> Sec {
+                Sec {
+                    errors: completed / 2,
+                    ..sec(completed, 2_000)
+                }
+            }
+
+            fn rec(
+                kind: StopKind,
+                decided: u32,
+                judged: i64,
+                stopped_at_ms: i64,
+            ) -> AutoStopRecord {
+                let em = kind == StopKind::Emergency;
+                AutoStopRecord {
+                    stop: Some(StopInfo {
+                        kind,
+                        mode: Some(SaturationStopMode::FirstFail),
+                        failed_steps: if em { vec![] } else { vec![decided] },
+                        decided_step: decided,
+                        judged_through: judged,
+                        phase: em.then_some(BandKind::Measure),
+                        decided_at_ms: stopped_at_ms - 500,
+                        stopped_at_ms,
+                        emergency: em.then_some(EmergencyStats {
+                            max_error_rate: 0.5,
+                            max_p99_us: 2_000,
+                            seconds: 3,
+                            error_hit: true,
+                            p99_hit: false,
+                        }),
+                        slot_limited: false,
+                    }),
+                    suspended_seconds: 0,
+                }
+            }
+
+            fn states(r: &StairReport) -> Vec<StepState> {
+                r.steps.iter().map(|s| s.state).collect()
+            }
+
+            fn blank(r: &StairReport, i: usize) -> bool {
+                let s = &r.steps[i];
+                s.achieved.is_none() && s.launched_rate.is_none() && s.dropped.is_none()
+            }
+
+            /// 상승 1·유지 10·버림 0 = 계단 11초, 측정 10초(절반 5초).
+            fn c11(targets: &[u32]) -> StairConfig {
+                scfg(targets, 1, 10, 0)
+            }
+
+            #[test]
+            fn forced_boundary_ramp1_discard0() {
+                let c = c11(&[100, 200, 300]);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                // 계단1 실패(오류), 정지 지연으로 계단2 측정 초가 7초(절반 넘게) 쌓였다.
+                fx.fill("w", 1000, 30, |o| match o {
+                    0..11 => Some(sec(100, 2_000)),
+                    11..22 => Some(bad(200)),
+                    _ => Some(sec(300, 2_000)),
+                });
+                let free = fx.report(&c);
+                assert_eq!(
+                    states(&free),
+                    vec![StepState::Ok, StepState::Spike, StepState::Ok]
+                );
+                assert_eq!(free.headline.kind, HeadlineKind::AllOk);
+
+                let r0 = rec(StopKind::Saturation, 1, 1, 1_022_000 + 7_500);
+                fx.inp.auto_stop = Some(r0.clone());
+                let r = fx.report(&c);
+                assert_eq!(
+                    states(&r),
+                    vec![StepState::Ok, StepState::Unconfirmed, StepState::Partial]
+                );
+                assert_eq!(r.headline.kind, HeadlineKind::Unconfirmed);
+                assert_ne!(r.headline, free.headline);
+                assert_eq!(r.headline.saturated_target, Some(200));
+                assert_eq!(r.headline.last_ok_target, Some(100));
+                assert_eq!(
+                    r.steps[2].partial,
+                    Some(PartialRun {
+                        seconds: 8,
+                        phase: BandKind::Measure
+                    })
+                );
+                assert!(blank(&r, 2));
+                assert!(r.steps[2].reasons.is_empty());
+                assert_eq!(r.auto_stop, Some(r0));
+            }
+
+            #[test]
+            fn forced_boundary_skewed_t0_emergency() {
+                let c = c11(&[100, 200, 300]);
+                let mut fx = Fx::default();
+                // 워커 b는 4초 늦게 시작 — 즉시 정지 순간 b의 계단1은 아직 측정 중(완결 전).
+                fx.inp.starts.push(start("a", T0));
+                fx.inp.starts.push(start("b", T0 + 4_000));
+                fx.fill("a", 1000, 22, |o| {
+                    Some(if o < 11 { sec(100, 2_000) } else { bad(100) })
+                });
+                fx.fill("b", 1004, 18, |o| {
+                    Some(if o < 11 { sec(100, 2_000) } else { bad(100) })
+                });
+                let free = fx.report(&c);
+                // 대조: 강제 없으면 b의 계단1 측정 6초(≥ 5)가 판정에 들어간다.
+                assert_eq!(free.steps[1].measured_seconds, 6);
+                assert_eq!(free.steps[1].state, StepState::Unconfirmed);
+                assert_eq!(free.headline.kind, HeadlineKind::Unconfirmed);
+
+                fx.inp.auto_stop = Some(rec(StopKind::Emergency, 1, 0, 1_022_000));
+                let r = fx.report(&c);
+                assert_eq!(
+                    states(&r),
+                    vec![
+                        StepState::Ok,
+                        StepState::EmergencyStopped,
+                        StepState::Skipped
+                    ]
+                );
+                assert!(blank(&r, 1));
+                assert!(r.steps[1].reasons.is_empty(), "판정 입력 밖");
+                assert_eq!(r.steps[1].partial, None);
+                assert_eq!(r.headline.kind, HeadlineKind::OkThenUnmeasured);
+                assert_eq!(r.headline.saturated_target, None);
+                assert_eq!(r.headline.last_ok_target, Some(100));
+            }
+
+            #[test]
+            fn emergency_judged_through_at_or_past_decided() {
+                // 뒤처진 워커가 나쁜 초와 같은 메시지로 계단을 완결 → judged_through ≥ decided_step.
+                let c = c11(&[100, 200, 300]);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                fx.fill("w", 1000, 30, |o| match o {
+                    0..11 => Some(sec(100, 2_000)),
+                    11..22 => Some(bad(200)),
+                    _ => Some(sec(300, 2_000)),
+                });
+                fx.inp.auto_stop = Some(rec(StopKind::Emergency, 1, 1, 1_022_000 + 3_000));
+                let r = fx.report(&c);
+                assert_eq!(
+                    states(&r),
+                    vec![StepState::Ok, StepState::Unconfirmed, StepState::Partial]
+                );
+                assert!(
+                    !r.steps
+                        .iter()
+                        .any(|s| s.state == StepState::EmergencyStopped)
+                );
+                assert!(!blank(&r, 1), "판정된 계단은 숫자를 보인다");
+                assert!(!r.steps[1].reasons.is_empty());
+                // 판정 경계 뒤 계단2는 측정 7초가 쌓였어도 판정 밖.
+                assert!(blank(&r, 2));
+                assert_eq!(r.headline.kind, HeadlineKind::Unconfirmed);
+
+                // judged_through가 판정 계단보다 뒤여도 판정 계단 행은 실제 판정 그대로.
+                fx.inp.auto_stop = Some(rec(StopKind::Emergency, 0, 1, 1_022_000 + 3_000));
+                let r = fx.report(&c);
+                assert_eq!(
+                    states(&r),
+                    vec![StepState::Ok, StepState::Unconfirmed, StepState::Partial]
+                );
+            }
+
+            #[test]
+            fn first_fail_headline_unconfirmed() {
+                let c = c11(&[100, 200, 300]);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                fx.fill("w", 1000, 22, |o| {
+                    Some(if o < 11 { bad(100) } else { sec(200, 2_000) })
+                });
+                let free = fx.report(&c);
+                assert_eq!(free.headline.kind, HeadlineKind::Saturated, "대조");
+
+                fx.inp.auto_stop = Some(rec(StopKind::Saturation, 0, 0, 1_011_000 + 2_000));
+                let r = fx.report(&c);
+                assert_eq!(
+                    states(&r),
+                    vec![
+                        StepState::Unconfirmed,
+                        StepState::Partial,
+                        StepState::Skipped
+                    ]
+                );
+                assert_eq!(r.headline.kind, HeadlineKind::Unconfirmed);
+                assert_eq!(r.headline.saturated_target, Some(100));
+                assert_eq!(r.headline.last_ok_target, None);
+                assert!(!r.headline.first_fail_hint);
+            }
+
+            /// 계단0·1 정상(완전 측정), 계단2 지연·오류.
+            fn ok_ok_bad() -> (StairConfig, Fx) {
+                let c = c11(&[100, 200, 300]);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                fx.fill("w", 1000, 30, |o| match o {
+                    0..11 => Some(sec(100, 2_000)),
+                    11..22 => Some(sec(200, 2_000)),
+                    _ => Some(bad(300)),
+                });
+                (c, fx)
+            }
+
+            #[test]
+            fn last_ok_target_after_forcing() {
+                let (c, mut fx) = ok_ok_bad();
+                assert_eq!(fx.report(&c).headline.last_ok_target, Some(200), "대조");
+                fx.inp.auto_stop = Some(rec(StopKind::Emergency, 2, 0, 1_030_000));
+                let r = fx.report(&c);
+                assert_eq!(r.headline.last_ok_target, Some(100));
+                assert_eq!(r.headline.kind, HeadlineKind::OkThenUnmeasured);
+                assert_eq!(r.headline.through_target, Some(100));
+            }
+
+            #[test]
+            fn emergency_between_judged_and_decided_not_measured() {
+                let (c, mut fx) = ok_ok_bad();
+                fx.inp.auto_stop = Some(rec(StopKind::Emergency, 2, 0, 1_030_000));
+                let r = fx.report(&c);
+                assert_eq!(
+                    states(&r),
+                    vec![
+                        StepState::Ok,
+                        StepState::NotMeasured,
+                        StepState::EmergencyStopped
+                    ]
+                );
+                assert!(blank(&r, 1));
+                assert_eq!(r.steps[1].partial, None);
+            }
+
+            #[test]
+            fn partial_seconds_and_phase() {
+                // 상승 5·버림 5·유지 20 = 계단 25초. 계단1 시작 = 1,025,000 ms.
+                let c = scfg(&[100, 200, 300], 5, 20, 5);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                fx.fill("w", 1000, 27, |o| {
+                    Some(if o < 25 { bad(100) } else { sec(200, 2_000) })
+                });
+                for (d, seconds, phase) in [
+                    (1_500, 2, BandKind::Ramp),
+                    (2_000, 2, BandKind::Ramp),
+                    (4_999, 5, BandKind::Ramp),
+                    (5_000, 5, BandKind::Discard),
+                    (9_999, 10, BandKind::Discard),
+                    (10_000, 10, BandKind::Measure),
+                ] {
+                    fx.inp.auto_stop = Some(rec(StopKind::Saturation, 0, 0, 1_025_000 + d));
+                    let r = fx.report(&c);
+                    assert_eq!(r.steps[1].state, StepState::Partial, "d={d}");
+                    assert_eq!(
+                        r.steps[1].partial,
+                        Some(PartialRun { seconds, phase }),
+                        "d={d}"
+                    );
+                    assert_eq!(r.steps[2].state, StepState::Skipped, "d={d}");
+                    assert_eq!(r.steps[2].partial, None);
+                }
+            }
+
+            #[test]
+            fn skipped_steps_after_stop() {
+                let c = c11(&[100, 200, 300, 400, 500]);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                fx.fill("w", 1000, 25, |o| match o {
+                    0..11 => Some(sec(100, 2_000)),
+                    11..22 => Some(bad(200)),
+                    _ => Some(sec(300, 2_000)),
+                });
+                fx.inp.auto_stop = Some(rec(StopKind::Saturation, 1, 1, 1_022_000 + 2_500));
+                let r = fx.report(&c);
+                use StepState::*;
+                assert_eq!(states(&r), vec![Ok, Unconfirmed, Partial, Skipped, Skipped]);
+                for i in 2..5 {
+                    assert!(blank(&r, i), "step {i}");
+                }
+                assert_eq!(r.steps[3].partial, None);
+                // 경계: 정지 시각 = 계단3 시작이면 계단3은 실행 안 함.
+                fx.inp.auto_stop = Some(rec(StopKind::Saturation, 1, 1, 1_033_000));
+                let r = fx.report(&c);
+                assert_eq!(states(&r), vec![Ok, Unconfirmed, Partial, Skipped, Skipped]);
+                assert_eq!(
+                    r.steps[2].partial,
+                    Some(PartialRun {
+                        seconds: 11,
+                        phase: BandKind::Measure
+                    })
+                );
+            }
+
+            #[test]
+            fn new_states_explain_dropped() {
+                // 상승 2·유지 10 = 계단 12초, 전 계단 정상. dropped는 상승 초(측정 구간 밖)에만 —
+                // 기록이 없으면 정상 계단에 걸쳐 설명 안 됨(a 규칙).
+                let c = scfg(&[100, 200, 300, 400], 2, 10, 0);
+                let rec0 = rec(StopKind::Emergency, 1, 0, 1_024_000 + 1_000);
+                // 계단1(즉시 정지)·계단2(일부 실행)·계단3(실행 안 함)의 상승 첫 초.
+                for (ts, want) in [
+                    (1012, StepState::EmergencyStopped),
+                    (1024, StepState::Partial),
+                    (1036, StepState::Skipped),
+                ] {
+                    let mut fx = Fx::default();
+                    fx.inp.starts.push(start("w", T0));
+                    fx.fill("w", 1000, 48, |o| {
+                        Some(sec(100 * (o / 12 + 1) as u64, 2_000))
+                    });
+                    let row = fx
+                        .inp
+                        .open_loop
+                        .iter_mut()
+                        .find(|r| r.ts_second == ts)
+                        .unwrap();
+                    row.dropped = 3;
+                    assert!(!fx.report(&c).dropped_explained, "대조 ts={ts}");
+                    fx.inp.auto_stop = Some(rec0.clone());
+                    let r = fx.report(&c);
+                    assert_eq!(r.steps[((ts - 1000) / 12) as usize].state, want);
+                    assert!(r.dropped_explained, "ts={ts}");
+                }
+            }
+
+            #[test]
+            fn suspended_only_record_no_forcing() {
+                let (c, mut fx) = ok_ok_bad();
+                let free = fx.report(&c);
+                let rec0 = AutoStopRecord {
+                    stop: None,
+                    suspended_seconds: 3,
+                };
+                fx.inp.auto_stop = Some(rec0.clone());
+                let r = fx.report(&c);
+                assert_eq!(r.auto_stop, Some(rec0));
+                let mut stripped = r.clone();
+                stripped.auto_stop = None;
+                assert_eq!(stripped, free);
+            }
+
+            #[test]
+            fn non_autostop_stair_report_unchanged() {
+                // a 골든(`stair_report_matches_golden`)이 그대로 green — 여기서는 새 키가 없음을 본다.
+                let (c, fx) = golden_fixture();
+                let v = serde_json::to_value(fx.report(&c)).unwrap();
+                let obj = v.as_object().unwrap();
+                assert!(!obj.contains_key("auto_stop"));
+                for s in v["steps"].as_array().unwrap() {
+                    assert!(!s.as_object().unwrap().contains_key("partial"));
+                }
+            }
+
+            /// 두 실패 정지(계단2·3) + 일부 실행(계단4) + 실행 안 함(계단5).
+            fn autostop_golden_fixture() -> (StairConfig, Fx) {
+                let c = scfg(&[100, 200, 300, 400, 500, 600], 1, 20, 5);
+                let mut fx = Fx::default();
+                fx.inp.starts.push(start("w", T0));
+                fx.fill("w", 1000, 88, |o| {
+                    let i = o / 21;
+                    let t = 100 * (i as u64 + 1);
+                    Some(match i {
+                        0 | 1 => sec(t, 2_000),
+                        2 | 3 => Sec {
+                            launched: t,
+                            completed: t - 5,
+                            dropped: 5,
+                            errors: 0,
+                            lat_us: 20_000,
+                        },
+                        _ => sec(t, 30_000),
+                    })
+                });
+                fx.inp.auto_stop = Some(AutoStopRecord {
+                    stop: Some(StopInfo {
+                        kind: StopKind::Saturation,
+                        mode: Some(SaturationStopMode::TwoFails),
+                        failed_steps: vec![2, 3],
+                        decided_step: 3,
+                        judged_through: 3,
+                        phase: None,
+                        decided_at_ms: 1_084_200,
+                        stopped_at_ms: 1_084_000 + 3_500,
+                        emergency: None,
+                        slot_limited: false,
+                    }),
+                    suspended_seconds: 2,
+                });
+                (c, fx)
+            }
+
+            #[test]
+            fn stair_autostop_report_matches_golden() {
+                let path = concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../testdata/stair_autostop_report_golden.json"
+                );
+                let (c, fx) = autostop_golden_fixture();
+                let r = fx.report(&c);
+                use StepState::*;
+                assert_eq!(
+                    states(&r),
+                    vec![Ok, Ok, Saturated, Saturated, Partial, Skipped]
+                );
+                assert_eq!(
+                    r.steps[4].partial,
+                    Some(PartialRun {
+                        seconds: 4,
+                        phase: BandKind::Discard
+                    })
+                );
+                assert_eq!(r.headline.kind, HeadlineKind::Saturated);
+                assert_eq!(r.headline.last_ok_target, Some(200));
+                let got = serde_json::to_string_pretty(&r).unwrap();
+                // 의도적 갱신: `STAIR_GOLDEN_UPDATE=1 cargo nextest run -p handicap-controller stair_`.
+                if std::env::var_os("STAIR_GOLDEN_UPDATE").is_some() {
+                    std::fs::write(path, format!("{got}\n")).unwrap();
+                }
+                let golden = std::fs::read_to_string(path).unwrap();
+                assert_eq!(got, golden.trim_end(), "골든이 바뀌면 의도적으로 갱신");
+                let back: StairReport = serde_json::from_str(&golden).unwrap();
+                assert_eq!(back, r);
+            }
+        }
     }
 }

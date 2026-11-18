@@ -11,7 +11,12 @@ pub fn step_failed(j: &Judgement, i: usize) -> bool {
     match j.states[i] {
         StepState::Saturated | StepState::Unconfirmed | StepState::Spike => true,
         StepState::After => !j.reasons[i].is_empty(),
-        StepState::Ok | StepState::NotMeasured => false,
+        // 표시 상태 셋은 `judge`가 내지 않는다(리포트가 판정 뒤에 얹는다).
+        StepState::Ok
+        | StepState::NotMeasured
+        | StepState::EmergencyStopped
+        | StepState::Partial
+        | StepState::Skipped => false,
     }
 }
 

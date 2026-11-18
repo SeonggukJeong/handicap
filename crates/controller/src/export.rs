@@ -817,6 +817,9 @@ fn stair_state_name(s: crate::stair::StepState) -> &'static str {
         Unconfirmed => "unconfirmed",
         After => "after",
         NotMeasured => "not_measured",
+        EmergencyStopped => "emergency_stopped",
+        Partial => "partial",
+        Skipped => "skipped",
     }
 }
 
@@ -1652,6 +1655,7 @@ mod tests {
             slot_limited: false,
             head_p99_ratio: None,
             discard_warning: false,
+            partial: None,
         }
     }
 
@@ -1690,6 +1694,7 @@ mod tests {
             seconds: vec![],
             bands: vec![],
             target_line: vec![],
+            auto_stop: None,
         }
     }
 

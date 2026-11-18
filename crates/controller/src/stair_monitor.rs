@@ -1285,6 +1285,7 @@ mod tests {
                     started_at_ms: ms,
                 })
                 .collect(),
+            auto_stop: None,
         };
         let rep = build_stair_report(&profile, 0, &rows, &inp).unwrap();
         let mon: Vec<StepNumbers> = m.judged_numbers();

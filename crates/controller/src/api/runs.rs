@@ -1102,6 +1102,11 @@ pub async fn build_report_for_run(
         crate::stair::StairInputs {
             open_loop: crate::store::open_loop::open_loop_seconds(db, run_id).await?,
             starts: crate::store::open_loop::worker_starts(db, run_id).await?,
+            // 기록은 completed일 때만 의미 — aborted 행엔 경합으로 남은 기록이 있을 수 있다.
+            auto_stop: row
+                .auto_stop
+                .clone()
+                .filter(|_| row.status == RunStatus::Completed),
         }
     } else {
         crate::stair::StairInputs::default()

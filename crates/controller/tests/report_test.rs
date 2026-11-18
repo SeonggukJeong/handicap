@@ -358,3 +358,112 @@ async fn report_endpoint_includes_stair_for_stair_run() {
     assert_eq!(stair["headline"]["kind"], "all_ok");
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
 }
+
+/// 자동 정지 기록은 status `completed`일 때만 리포트에 싣고 판정 경계를 강제한다 — 경합으로
+/// 기록이 남은 aborted run은 기록을 무시한다(spec §4.6).
+#[tokio::test]
+async fn record_ignored_unless_completed() {
+    use handicap_controller::auto_stop::{AutoStopRecord, StopInfo, StopKind};
+    use handicap_controller::stair::SaturationStopMode;
+    use handicap_controller::store::open_loop::{insert_open_loop_seconds, insert_worker_start};
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let yaml = "version: 1\nname: stair\nsteps: []\n";
+    let mut profile: Profile = serde_json::from_value(serde_json::json!({
+        "duration_seconds": 0,
+        "max_in_flight": 50,
+        "stair": {"targets": [100, 200], "hold_seconds": 20, "ramp_seconds": 1, "discard_seconds": 5}
+    }))
+    .unwrap();
+    handicap_controller::stair::normalize_stair(&mut profile).unwrap();
+    sqlx::query(
+        "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+         VALUES('S-stair','stair',?,1,1,1)",
+    )
+    .bind(yaml)
+    .execute(&db)
+    .await
+    .unwrap();
+    // 계단0에서 멈췄다는 기록(judged_through 0) — 강제되면 계단1은 「일부 실행」.
+    let rec = AutoStopRecord {
+        stop: Some(StopInfo {
+            kind: StopKind::Saturation,
+            mode: Some(SaturationStopMode::FirstFail),
+            failed_steps: vec![0],
+            decided_step: 0,
+            judged_through: 0,
+            phase: None,
+            decided_at_ms: 1_021_000,
+            stopped_at_ms: 1_023_000,
+            emergency: None,
+            slot_limited: false,
+        }),
+        suspended_seconds: 0,
+    };
+    let rec_json = serde_json::to_string(&rec).unwrap();
+    let mut got = Vec::new();
+    for status in [RunStatus::Aborted, RunStatus::Completed] {
+        let row = store::runs::insert(&db, "S-stair", yaml, &profile, &serde_json::json!({}), None)
+            .await
+            .unwrap();
+        store::runs::set_status(&db, &row.id, status, Some(1), Some(2))
+            .await
+            .unwrap();
+        sqlx::query("UPDATE runs SET auto_stop_json = ? WHERE id = ?")
+            .bind(&rec_json)
+            .bind(&row.id)
+            .execute(&db)
+            .await
+            .unwrap();
+        insert_worker_start(&db, &row.id, "w0", 1_000_000)
+            .await
+            .unwrap();
+        let ol: Vec<(i64, i64, i64, i64)> = (0..42)
+            .map(|o| {
+                let t = if o < 21 { 100 } else { 200 };
+                (1000 + o, t, t, 0)
+            })
+            .collect();
+        insert_open_loop_seconds(&db, &row.id, "w0", &ol)
+            .await
+            .unwrap();
+        let metric_rows: Vec<MetricRow> = ol
+            .iter()
+            .map(|&(ts, _, c, _)| MetricRow {
+                run_id: row.id.clone(),
+                ts_second: ts,
+                step_id: "s".to_string(),
+                worker_id: "w0".to_string(),
+                count: c,
+                error_count: 0,
+                hdr_histogram: make_hdr_bytes(&[2_000]),
+                status_counts: format!(r#"{{"200":{c}}}"#),
+            })
+            .collect();
+        insert_batch(&db, &metric_rows).await.unwrap();
+        let resp = make_app(db.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/runs/{}/report", row.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        got.push(json["stair"].clone());
+    }
+    let (aborted, completed) = (&got[0], &got[1]);
+    assert!(!aborted.as_object().unwrap().contains_key("auto_stop"));
+    assert_eq!(aborted["steps"][1]["state"], "ok", "강제 없음");
+    assert_eq!(aborted["headline"]["kind"], "all_ok");
+    // 대조: completed면 기록을 싣고 계단1을 판정 밖으로 뺀다.
+    assert_eq!(completed["auto_stop"], serde_json::to_value(&rec).unwrap());
+    assert_eq!(completed["steps"][1]["state"], "partial");
+    assert_eq!(completed["steps"][1]["partial"]["seconds"], 2);
+    assert_eq!(completed["headline"]["kind"], "ok_then_unmeasured");
+}
