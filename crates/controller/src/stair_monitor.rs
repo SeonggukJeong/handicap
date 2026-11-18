@@ -1752,3 +1752,135 @@ mod tests {
         assert_eq!(stop.phase, Some(BandKind::Ramp));
     }
 }
+
+/// spec §7.1 수동 성능 측정 — 감시 배치당 처리 시간(`#[ignore]`, 게이트 밖).
+#[cfg(test)]
+mod perf {
+    use super::*;
+    use crate::report::fresh_hist;
+    use crate::stair::{AutoStopConfig, EmergencyStop};
+    use hdrhistogram::serialization::{Serializer, V2Serializer};
+    use std::time::{Duration, Instant};
+
+    const WORKERS: usize = 4;
+    const STEPS: i64 = 50;
+    const RAMP: i64 = 5;
+    const HOLD: i64 = 60;
+    const STEP_S: i64 = RAMP + HOLD;
+    const T0: i64 = 1_000_000;
+
+    /// 1 µs–10 s 로그 간격에 수천 표본을 기록한 실제 크기 HDR.
+    fn real_hdr(seed: u64) -> Vec<u8> {
+        let mut h = fresh_hist();
+        let mut x = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        for _ in 0..3000 {
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let frac = (x >> 11) as f64 / (1u64 << 53) as f64;
+            let us = 10f64.powf(frac * 7.0).max(1.0) as u64; // 1 µs .. 10 s
+            h.record(us).unwrap();
+        }
+        let mut b = Vec::new();
+        V2Serializer::new().serialize(&h, &mut b).unwrap();
+        b
+    }
+
+    #[test]
+    #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost_worst_case -- --ignored --nocapture"]
+    fn monitor_batch_cost_worst_case() {
+        let targets: Vec<u32> = (1..=STEPS as u32).map(|i| i * 40).collect();
+        let cfg = StairConfig {
+            targets: targets.clone(),
+            hold_seconds: HOLD as u32,
+            ramp_seconds: RAMP as u32,
+            discard_seconds: 10,
+            p99_cap_ms: None,
+            auto_stop: Some(AutoStopConfig {
+                saturation: Some(SaturationStopMode::TwoFails),
+                emergency: Some(EmergencyStop {
+                    error_rate_pct: 50.0,
+                    p99_ms: 600_000,
+                    consecutive_seconds: 60,
+                    min_requests: 20,
+                }),
+            }),
+        };
+        let mut m = StairMonitor::new(&cfg, WORKERS as u32);
+        let share: Vec<u32> = targets.iter().map(|t| t / WORKERS as u32).collect();
+        for w in 0..WORKERS {
+            m.on_msg(
+                MonitorMsg::Worker {
+                    worker_id: format!("w{w}"),
+                    step_targets: share.clone(),
+                },
+                T0 * 1000,
+            );
+        }
+
+        // 실제 크기 HDR 몇 벌을 돌려 쓴다(바이트 복제, 배치 구성은 측정 밖).
+        let hdrs: Vec<Vec<u8>> = (0..16).map(real_hdr).collect();
+        let total_s = STEPS * STEP_S;
+        let t0_ms = T0 * 1000;
+        // 배치 = 초 2개(open-loop 2행) + 스텝 window 16개(8 스텝 × 2초).
+        let mut batches: Vec<(MonitorMsg, i64)> = Vec::new();
+        let mut sec = 0;
+        while sec + 1 < total_s {
+            for w in 0..WORKERS {
+                let mut ol = Vec::new();
+                let mut windows = Vec::new();
+                for ts in [T0 + sec, T0 + sec + 1] {
+                    let step = (((ts - T0) / STEP_S) as usize).min(share.len() - 1);
+                    let per = share[step] as u64;
+                    ol.push(pb::OpenLoopSecond {
+                        ts_second: ts,
+                        launched: per,
+                        completed: per,
+                        dropped: 0,
+                    });
+                    for k in 0..8 {
+                        windows.push(pb::MetricWindow {
+                            ts_second: ts,
+                            step_id: format!("s{k}"),
+                            count: (per / 8).max(1),
+                            error_count: 0,
+                            hdr_histogram: hdrs[(ts as usize + k + w) % hdrs.len()].clone(),
+                            status_counts: Default::default(),
+                        });
+                    }
+                }
+                let now_ms = (T0 + sec + 2) * 1000;
+                batches.push((
+                    MonitorMsg::Batch(pb::MetricBatch {
+                        run_id: "R".into(),
+                        worker_id: format!("w{w}"),
+                        windows,
+                        open_loop_seconds: ol,
+                        open_loop_started_at_ms: t0_ms,
+                        ..Default::default()
+                    }),
+                    now_ms,
+                ));
+            }
+            sec += 2;
+        }
+
+        let n = batches.len();
+        let mut times: Vec<Duration> = Vec::with_capacity(n);
+        for (msg, now_ms) in batches {
+            let t = Instant::now();
+            let o = m.on_msg(msg, now_ms);
+            times.push(t.elapsed());
+            assert!(o.stop.is_none(), "정지가 걸리면 측정이 짧아진다");
+        }
+        times.sort();
+        let p = |q: f64| times[((n as f64 * q) as usize).min(n - 1)];
+        println!(
+            "monitor_batch_cost: batches={n} p50={:?} p99={:?} max={:?}",
+            p(0.5),
+            p(0.99),
+            times[n - 1]
+        );
+        assert!(p(0.99) < Duration::from_millis(5), "p99 {:?}", p(0.99));
+    }
+}
