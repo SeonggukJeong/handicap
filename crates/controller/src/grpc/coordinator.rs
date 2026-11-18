@@ -1363,7 +1363,7 @@ impl CoordinatorState {
                     Ok(true) => self.persist_verdict(run_id).await,
                     Ok(false) => warn!(
                         %run_id,
-                        "auto-stop completion lost the race (run no longer active): verdict skipped"
+                        "run completion lost the race (status no longer pending/running); verdict skipped"
                     ),
                     Err(e) => warn!(%run_id, error = %e, "failed to persist auto-stop completion"),
                 }
@@ -6660,6 +6660,26 @@ mod tests {
         assert!(
             row.auto_stop.is_none(),
             "정지가 효과 없음 + 보류 0 → 기록 NULL"
+        );
+    }
+
+    /// 정지가 효과 없이 전원 Completed여도 보류 초가 있으면 기록(stop: null)을 남긴다.
+    #[tokio::test]
+    async fn auto_stop_all_completed_with_suspended_records_null_stop() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.add_suspended(&run_id, 2).await;
+        coord.record_phase(&run_id, "w0", COMPLETED, "").await;
+        coord.record_phase(&run_id, "w1", COMPLETED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert_eq!(
+            row.auto_stop,
+            Some(AutoStopRecord {
+                stop: None,
+                suspended_seconds: 2,
+            })
         );
     }
 
