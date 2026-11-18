@@ -1,7 +1,14 @@
 import type { StairReport, StairState } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 import { formatHms } from "../../../monitor/time";
-import { errorRateText, formatCount, formatMs, reasonTexts, stateLabel } from "./stairFormat";
+import {
+  errorRateText,
+  formatCount,
+  formatMs,
+  reasonTexts,
+  showsNumbers,
+  stateLabel,
+} from "./stairFormat";
 
 const PILL: Record<StairState, string> = {
   ok: "bg-emerald-100 text-emerald-800",
@@ -10,6 +17,9 @@ const PILL: Record<StairState, string> = {
   unconfirmed: "border border-amber-500 bg-white text-amber-800",
   after: "bg-slate-100 text-slate-600",
   not_measured: "bg-slate-100 text-slate-600",
+  emergency_stopped: "border border-red-500 bg-white text-red-800",
+  partial: "bg-slate-100 text-slate-600",
+  skipped: "bg-slate-100 text-slate-600",
 };
 
 const DASH = "—";
@@ -46,7 +56,7 @@ export function StairTable({ stair }: { stair: StairReport }) {
           </thead>
           <tbody>
             {stair.steps.map((s) => {
-              const measured = s.state !== "not_measured";
+              const measured = showsNumbers(s.state);
               const reasons = reasonTexts(stair, s);
               return (
                 <tr key={s.index} className="border-t border-slate-200">

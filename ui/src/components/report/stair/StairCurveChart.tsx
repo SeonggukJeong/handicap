@@ -13,7 +13,7 @@ import { ko } from "../../../i18n/ko";
 import { labeledIndices } from "./stairPointLabels";
 import { logDomain } from "./stairChartDomain";
 import { STAIR_STATE_COLOR } from "./stairColors";
-import { floorPct1, formatMs, stateLabel } from "./stairFormat";
+import { floorPct1, formatMs, showsNumbers, stateLabel } from "./stairFormat";
 
 const c = ko.report.stair.chart;
 
@@ -105,7 +105,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
   const plotWidth =
     chartWidth == null ? undefined : chartWidth - Y_AXIS_WIDTH - MARGIN.left - MARGIN.right;
   const base = steps.map((s) => {
-    const measured = s.state !== "not_measured" && s.p99_us > 0;
+    const measured = showsNumbers(s.state) && s.p99_us > 0;
     return {
       p99: measured ? s.p99_us / 1000 : null,
       p50: measured && s.p50_us > 0 ? s.p50_us / 1000 : null,
@@ -124,12 +124,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
   const yDomain = logDomain(rows.flatMap((r) => [r.p99, r.p50]));
   const sat = steps.find((s) => s.state === "saturated" || s.state === "unconfirmed");
   const chart = (
-    <ComposedChart
-      width={width}
-      height={height}
-      data={rows}
-      margin={MARGIN}
-    >
+    <ComposedChart width={width} height={height} data={rows} margin={MARGIN}>
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis
         dataKey="idx"
@@ -187,11 +182,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
         {width != null && height != null ? (
           chart
         ) : (
-          <ResponsiveContainer
-            width="100%"
-            height={260}
-            onResize={(w) => setMeasuredWidth(w)}
-          >
+          <ResponsiveContainer width="100%" height={260} onResize={(w) => setMeasuredWidth(w)}>
             {chart}
           </ResponsiveContainer>
         )}
@@ -200,7 +191,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
         <span className="mr-2 font-medium">{c.achievedRow}</span>
         <ul className="inline-flex flex-wrap gap-x-4 gap-y-1">
           {steps.map((s) => {
-            const has = s.achieved != null && s.target > 0 && s.state !== "not_measured";
+            const has = s.achieved != null && s.target > 0 && showsNumbers(s.state);
             const ratio = has ? (s.achieved as number) / s.target : null;
             return (
               <li key={s.index}>

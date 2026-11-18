@@ -71,6 +71,23 @@ export type Stage = z.infer<typeof StageSchema>;
  *  (crates/controller/src/store/runs.rs Profile.http_timeout_seconds). */
 export const DEFAULT_HTTP_TIMEOUT_SECONDS = 30;
 
+// 자동 정지 설정. 서버가 saturation/emergency를 항상 직렬화(꺼짐=null)하므로 .nullable().
+export const AutoStopConfigSchema = z
+  .object({
+    saturation: z.enum(["two_fails", "first_fail"]).nullable(),
+    emergency: z
+      .object({
+        error_rate_pct: z.number(),
+        p99_ms: z.number().int(),
+        consecutive_seconds: z.number().int(),
+        min_requests: z.number().int(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type AutoStopConfig = z.infer<typeof AutoStopConfigSchema>;
+
 export const StairConfigSchema = z
   .object({
     targets: z.array(z.number().int().positive()),
@@ -79,6 +96,8 @@ export const StairConfigSchema = z
     discard_seconds: z.number().int().nonnegative(),
     // 서버 skip_serializing_if = Option::is_none → absent (never null) → .optional()
     p99_cap_ms: z.number().int().positive().optional(),
+    // 서버 skip_serializing_if = Option::is_none → absent → .optional()
+    auto_stop: AutoStopConfigSchema.optional(),
   })
   .strict();
 export type StairConfig = z.infer<typeof StairConfigSchema>;
@@ -90,6 +109,9 @@ export const StairStateSchema = z.enum([
   "unconfirmed",
   "after",
   "not_measured",
+  "emergency_stopped",
+  "partial",
+  "skipped",
 ]);
 export type StairState = z.infer<typeof StairStateSchema>;
 
@@ -122,6 +144,11 @@ export const StairStepSchema = z
     slot_limited: z.boolean(),
     head_p99_ratio: z.number().nullish(),
     discard_warning: z.boolean(),
+    // 서버 skip_serializing_if → absent
+    partial: z
+      .object({ seconds: z.number(), phase: z.enum(["ramp", "discard", "measure"]) })
+      .strict()
+      .optional(),
   })
   .strict();
 export type StairStep = z.infer<typeof StairStepSchema>;
@@ -156,6 +183,38 @@ export const StairBandSchema = z
   })
   .strict();
 
+// 자동 정지 기록. 내부 Option 필드는 항상 직렬화(null) → .nullable(); 기록 키 자체는 생략 가능.
+export const AutoStopRecordSchema = z
+  .object({
+    stop: z
+      .object({
+        kind: z.enum(["saturation", "emergency"]),
+        mode: z.enum(["two_fails", "first_fail"]).nullable(),
+        failed_steps: z.array(z.number().int()),
+        decided_step: z.number().int(),
+        judged_through: z.number().int(),
+        phase: z.enum(["ramp", "discard", "measure"]).nullable(),
+        decided_at_ms: z.number(),
+        stopped_at_ms: z.number(),
+        emergency: z
+          .object({
+            max_error_rate: z.number(),
+            max_p99_us: z.number(),
+            seconds: z.number(),
+            error_hit: z.boolean(),
+            p99_hit: z.boolean(),
+          })
+          .strict()
+          .nullable(),
+        slot_limited: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    suspended_seconds: z.number(),
+  })
+  .strict();
+export type AutoStopRecord = z.infer<typeof AutoStopRecordSchema>;
+
 export const StairReportSchema = z
   .object({
     config: StairConfigSchema,
@@ -171,6 +230,7 @@ export const StairReportSchema = z
     seconds: z.array(StairSecondSchema),
     bands: z.array(StairBandSchema),
     target_line: z.array(z.object({ offset_s: z.number(), target: z.number() }).strict()),
+    auto_stop: AutoStopRecordSchema.optional(),
   })
   .strict();
 export type StairReport = z.infer<typeof StairReportSchema>;
@@ -322,6 +382,8 @@ export const RunSchema = z.object({
   // run-identity: 사람이 붙이는 짧은 식별 라벨. plain Option<String>(skip_serializing_if
   // 없음) → None이 null로 옴 → .nullish()(.optional()만 쓰면 무라벨 run 파싱이 깨진다).
   label: z.string().nullish(),
+  // 계단 자동 정지 기록: 서버가 없으면 키 생략 → .optional().
+  auto_stop: AutoStopRecordSchema.optional(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

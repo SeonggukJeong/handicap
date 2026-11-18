@@ -334,3 +334,30 @@ describe("ReportView 배치", () => {
     expect(screen.queryByRole("region", { name: ko.report.stair.title })).toBeNull();
   });
 });
+
+describe("StairResultSection auto-stop states", () => {
+  it("새 상태 행은 숫자 「—」와 한국어 이름", () => {
+    const st = StairReportSchema.parse(
+      JSON.parse(
+        readFileSync(
+          nodePath.resolve(
+            __dirname,
+            "../../../../../../testdata/stair_autostop_report_golden.json",
+          ),
+          "utf8",
+        ),
+      ),
+    );
+    render(<StairResultSection stair={st} />);
+    const rows = rowsOf();
+    for (const i of [5, 6]) {
+      const cells = within(rows[i]).getAllByRole("cell");
+      expect(cells[2]).toHaveTextContent("—");
+      expect(cells[3]).toHaveTextContent("—");
+      expect(cells[5]).toHaveTextContent("—");
+    }
+    expect(rows[5]).toHaveTextContent("일부 실행");
+    expect(rows[6]).toHaveTextContent("실행 안 함");
+    expect(stateLabel("emergency_stopped")).toBe("즉시 정지");
+  });
+});

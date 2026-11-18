@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import nodePath from "node:path";
-import { ProfileSchema, ReportSchema, StairConfigSchema, StairReportSchema } from "../schemas";
+import {
+  ProfileSchema,
+  ReportSchema,
+  RunSchema,
+  StairConfigSchema,
+  StairReportSchema,
+} from "../schemas";
 import { api } from "../client";
 
 const golden = JSON.parse(
@@ -105,5 +111,78 @@ describe("StairConfigSchema / ProfileSchema.stair", () => {
 describe("reportStairsCsvUrl", () => {
   it("points at report-stairs.csv", () => {
     expect(api.reportStairsCsvUrl("a/b")).toMatch(/\/runs\/a%2Fb\/report-stairs\.csv$/);
+  });
+});
+
+const autoStopGolden = JSON.parse(
+  readFileSync(
+    nodePath.resolve(__dirname, "../../../../testdata/stair_autostop_report_golden.json"),
+    "utf8",
+  ),
+);
+
+describe("auto-stop schemas", () => {
+  it("parses the auto-stop report golden (partial/skipped states, record)", () => {
+    const r = StairReportSchema.parse(autoStopGolden);
+    expect(r.steps.map((x) => x.state)).toContain("partial");
+    expect(r.steps.map((x) => x.state)).toContain("skipped");
+    expect(r.steps[4].partial).toEqual({ seconds: 4, phase: "discard" });
+    expect(r.auto_stop?.stop?.kind).toBe("saturation");
+    expect(r.auto_stop?.stop?.phase).toBeNull();
+    expect(r.auto_stop?.suspended_seconds).toBe(2);
+  });
+  it("still parses the (a) golden without auto_stop", () => {
+    expect(StairReportSchema.parse(golden).auto_stop).toBeUndefined();
+  });
+  const run = {
+    id: "R",
+    scenario_id: "S",
+    scenario_yaml: "x",
+    status: "completed",
+    profile: { vus: 0, duration_seconds: 10 },
+    env: {},
+    started_at: 1,
+    ended_at: 2,
+    created_at: 0,
+  };
+  it("RunSchema accepts auto_stop with inner nulls, and absent key", () => {
+    const rec = {
+      stop: {
+        kind: "emergency",
+        mode: null,
+        failed_steps: [],
+        decided_step: 1,
+        judged_through: 1,
+        phase: null,
+        decided_at_ms: 1,
+        stopped_at_ms: 2,
+        emergency: {
+          max_error_rate: 0.5,
+          max_p99_us: 1,
+          seconds: 3,
+          error_hit: true,
+          p99_hit: false,
+        },
+        slot_limited: false,
+      },
+      suspended_seconds: 0,
+    };
+    expect(RunSchema.parse({ ...run, auto_stop: rec }).auto_stop?.stop?.kind).toBe("emergency");
+    expect(
+      RunSchema.parse({ ...run, auto_stop: { stop: null, suspended_seconds: 0 } }).auto_stop?.stop,
+    ).toBeNull();
+    expect(RunSchema.parse(run).auto_stop).toBeUndefined();
+  });
+  const cfg = { targets: [100], hold_seconds: 30, ramp_seconds: 2, discard_seconds: 5 };
+  it("profile stair.auto_stop round-trips with nulls", () => {
+    const auto_stop = {
+      saturation: null,
+      emergency: { error_rate_pct: 50, p99_ms: 3000, consecutive_seconds: 5, min_requests: 20 },
+    };
+    const p = ProfileSchema.parse({ vus: 0, duration_seconds: 5, stair: { ...cfg, auto_stop } });
+    expect(p.stair?.auto_stop).toEqual(auto_stop);
+  });
+  it("StairConfigSchema stays strict", () => {
+    expect(StairConfigSchema.safeParse({ ...cfg, bogus: 1 }).success).toBe(false);
   });
 });

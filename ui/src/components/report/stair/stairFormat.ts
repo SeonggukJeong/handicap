@@ -20,6 +20,11 @@ export function errorRateText(rate: number): string {
   return rate > 0 && txt === "0.0%" ? t.tinyErrorRate : txt;
 }
 
+/** 숫자(달성·처리량·지연…)를 보여 줄 수 있는 상태 — 서버 `shows_numbers()`와 같은 집합. */
+export function showsNumbers(s: StairState): boolean {
+  return !(s === "not_measured" || s === "emergency_stopped" || s === "partial" || s === "skipped");
+}
+
 export function stateLabel(s: StairState): string {
   return t.states[s];
 }

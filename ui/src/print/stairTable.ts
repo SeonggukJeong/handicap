@@ -6,6 +6,7 @@ import {
   formatCount,
   formatMs,
   reasonTexts,
+  showsNumbers,
   stateLabel,
 } from "../components/report/stair/stairFormat";
 
@@ -37,7 +38,7 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
     c.state,
   ];
   const rows = stair.steps.map((s): StairPrintRow => {
-    const measured = s.state !== "not_measured";
+    const measured = showsNumbers(s.state);
     const dash = (v: string): string => (measured ? v : DASH);
     return {
       index: s.index,

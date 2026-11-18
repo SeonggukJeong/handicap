@@ -14,6 +14,9 @@ const TONE: Record<StairState, string> = {
   unconfirmed: "p-warn",
   after: "p-muted",
   not_measured: "p-muted",
+  emergency_stopped: "p-bad",
+  partial: "p-muted",
+  skipped: "p-muted",
 };
 
 export function StairHeadline({ stair, short }: { stair: StairReport; short?: boolean }) {

@@ -7,4 +7,7 @@ export const STAIR_STATE_COLOR: Record<StairState, string> = {
   unconfirmed: "#f59e0b",
   after: "#94a3b8",
   not_measured: "#94a3b8",
+  emergency_stopped: "#b91c1c",
+  partial: "#94a3b8",
+  skipped: "#94a3b8",
 };
