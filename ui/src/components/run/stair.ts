@@ -7,6 +7,14 @@ export type StairDraft = {
   ramp: string;
   discard: string;
   p99Cap: string;
+  // 자동 정지. satMode는 satOn이 꺼져도 저장된 값을 유지해, 다시 켜면 그 값으로 돌아온다.
+  satOn: boolean;
+  satMode: "two_fails" | "first_fail";
+  emOn: boolean;
+  emErrorPct: string;
+  emP99Ms: string;
+  emSeconds: string;
+  emMinRequests: string;
 };
 
 export const STAIR_DEFAULTS: StairDraft = {
@@ -15,6 +23,14 @@ export const STAIR_DEFAULTS: StairDraft = {
   ramp: "5",
   discard: "15",
   p99Cap: "",
+  // 새 계단 run의 기본: 켜짐. 저장본을 여는 stairDraftFromConfig는 이 켜짐을 쓰지 않는다.
+  satOn: true,
+  satMode: "two_fails",
+  emOn: true,
+  emErrorPct: "5",
+  emP99Ms: "2000",
+  emSeconds: "3",
+  emMinRequests: "20",
 };
 
 export type StairTargetsError =
@@ -98,11 +114,28 @@ function intIn(s: string, lo: number, hi: number): number | null {
   return n >= lo && n <= hi ? n : null;
 }
 
+type StairErrorKey =
+  | "targets"
+  | "hold"
+  | "ramp"
+  | "discard"
+  | "p99Cap"
+  | "emErrorPct"
+  | "emP99Ms"
+  | "emSeconds"
+  | "emMinRequests";
+
+/** 0 < x <= 100인 유한 십진수(소수 허용, 지수 표기 불가). */
+function pctOk(s: string): boolean {
+  const t = s.trim();
+  if (!/^\d+(\.\d+)?$/.test(t)) return false;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 && n <= 100;
+}
+
 /** 필드별 오류 문구(한국어, 고치는 방법과 예시 포함). 오류 없으면 빈 객체. */
-export function stairErrors(
-  d: StairDraft,
-): Partial<Record<"targets" | "hold" | "ramp" | "discard" | "p99Cap", string>> {
-  const e: Partial<Record<"targets" | "hold" | "ramp" | "discard" | "p99Cap", string>> = {};
+export function stairErrors(d: StairDraft): Partial<Record<StairErrorKey, string>> {
+  const e: Partial<Record<StairErrorKey, string>> = {};
   const t = parseTargets(d.targets);
   if (!t.ok) e.targets = TARGETS_MSG[t.error];
   const hold = intIn(d.hold, 20, 3600);
@@ -113,17 +146,34 @@ export function stairErrors(
     e.discard = ko.loadModel.stairDiscardInvalid(maxDiscard);
   if (d.p99Cap.trim() !== "" && intIn(d.p99Cap, 1, 600_000) === null)
     e.p99Cap = ko.loadModel.stairP99CapInvalid;
+  if (d.emOn) {
+    if (!pctOk(d.emErrorPct)) e.emErrorPct = ko.loadModel.stairAutoStopErrorRateInvalid;
+    if (intIn(d.emP99Ms, 1, 600_000) === null) e.emP99Ms = ko.loadModel.stairAutoStopP99Invalid;
+    if (intIn(d.emSeconds, 1, 60) === null) e.emSeconds = ko.loadModel.stairAutoStopSecondsInvalid;
+    if (intIn(d.emMinRequests, 1, 100_000) === null)
+      e.emMinRequests = ko.loadModel.stairAutoStopMinRequestsInvalid;
+  }
   return e;
 }
 
 /** 저장된 StairConfig → 입력칸 draft(프리셋·재실행·스케줄 prefill). */
 export function stairDraftFromConfig(c: StairConfig): StairDraft {
+  const a = c.auto_stop;
+  const em = a?.emergency ?? null;
   return {
     targets: c.targets.join(", "),
     hold: String(c.hold_seconds),
     ramp: String(c.ramp_seconds),
     discard: String(c.discard_seconds),
     p99Cap: c.p99_cap_ms != null ? String(c.p99_cap_ms) : "",
+    // 저장된 그대로: auto_stop이 없으면 꺼짐(a 시절 저장본이 말없이 켜지지 않는다).
+    satOn: a?.saturation != null,
+    satMode: a?.saturation ?? STAIR_DEFAULTS.satMode,
+    emOn: a?.emergency != null,
+    emErrorPct: em ? String(em.error_rate_pct) : STAIR_DEFAULTS.emErrorPct,
+    emP99Ms: em ? String(em.p99_ms) : STAIR_DEFAULTS.emP99Ms,
+    emSeconds: em ? String(em.consecutive_seconds) : STAIR_DEFAULTS.emSeconds,
+    emMinRequests: em ? String(em.min_requests) : STAIR_DEFAULTS.emMinRequests,
   };
 }
 
@@ -137,5 +187,40 @@ export function draftToStairConfig(d: StairDraft): StairConfig | null {
     ramp_seconds: Number(d.ramp),
     discard_seconds: Number(d.discard),
     ...(d.p99Cap.trim() !== "" ? { p99_cap_ms: Number(d.p99Cap) } : {}),
+    ...(d.satOn || d.emOn
+      ? {
+          auto_stop: {
+            saturation: d.satOn ? d.satMode : null,
+            emergency: d.emOn
+              ? {
+                  error_rate_pct: Number(d.emErrorPct),
+                  p99_ms: Number(d.emP99Ms),
+                  consecutive_seconds: Number(d.emSeconds),
+                  min_requests: Number(d.emMinRequests),
+                }
+              : null,
+          },
+        }
+      : {}),
   };
+}
+
+/** 단순 모드 읽기 전용 카드의 자동 정지 한 줄. */
+export function autoStopSummary(c: StairConfig): string {
+  const a = c.auto_stop;
+  const parts: string[] = [];
+  if (a?.saturation) parts.push(ko.loadModel.stairAutoStopSummarySat[a.saturation]);
+  if (a?.emergency) {
+    const em = a.emergency;
+    parts.push(
+      ko.loadModel.stairAutoStopSummaryEmergency(
+        em.error_rate_pct,
+        em.p99_ms,
+        em.consecutive_seconds,
+      ),
+    );
+  }
+  return parts.length === 0
+    ? ko.loadModel.stairAutoStopSummaryOff
+    : `${ko.loadModel.stairAutoStopSummaryPrefix}${parts.join(" · ")}`;
 }

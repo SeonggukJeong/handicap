@@ -245,6 +245,19 @@ export const ko = {
         : `앞부분 버림은 0~${maxDiscard}초의 정수로 적어 주세요. 계단 유지보다 10초 이상 짧아야 측정 구간이 남아요 (예: 15)`,
     stairP99CapInvalid:
       "절대 p99 상한은 1~600000 ms의 정수로 적어 주세요 (예: 500). 쓰지 않으려면 비워 두세요",
+    stairAutoStopErrorRateInvalid:
+      "즉시 정지 오류율은 0보다 크고 100 이하인 숫자(%)로 적어 주세요 (예: 5)",
+    stairAutoStopP99Invalid: "즉시 정지 p99는 1~600000 ms의 정수로 적어 주세요 (예: 2000)",
+    stairAutoStopSecondsInvalid: "연속 초는 1~60의 정수로 적어 주세요 (예: 3)",
+    stairAutoStopMinRequestsInvalid: "초당 완료 개수 기준은 1~100000의 정수로 적어 주세요 (예: 20)",
+    stairAutoStopSummaryPrefix: "자동 정지: ",
+    stairAutoStopSummaryOff: "자동 정지: 꺼짐",
+    stairAutoStopSummarySat: {
+      two_fails: "연속 두 계단 실패",
+      first_fail: "첫 실패에서 바로 정지",
+    },
+    stairAutoStopSummaryEmergency: (pct: number, p99Ms: number, seconds: number) =>
+      `즉시 정지 ${pct}%/${p99Ms} ms/${seconds}초`,
     stairSummary: (steps: number, total: string, measureSeconds: number) => [
       { text: `${steps}계단`, bold: true },
       { text: ` · 총 ${total} · 계단마다 측정 ${measureSeconds}초` },

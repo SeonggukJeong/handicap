@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   STAIR_DEFAULTS,
+  autoStopSummary,
+  draftToStairConfig,
+  stairDraftFromConfig,
   expandStair,
   generateTargets,
   parseTargets,
@@ -109,5 +112,87 @@ describe("stairErrors", () => {
   it("blank / decimal numeric fields are errors", () => {
     expect(stairErrors({ ...ok, hold: "" }).hold).toBeTruthy();
     expect(stairErrors({ ...ok, ramp: "1.5" }).ramp).toBeTruthy();
+  });
+});
+
+describe("자동 정지 draft", () => {
+  const EM = { error_rate_pct: 5, p99_ms: 2000, consecutive_seconds: 3, min_requests: 20 };
+  const aEra = { targets: [100, 200], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 };
+  const base: StairDraft = { ...STAIR_DEFAULTS, targets: "100, 200" };
+
+  it("defaults_auto_stop_on", () => {
+    expect(draftToStairConfig(base)?.auto_stop).toEqual({ saturation: "two_fails", emergency: EM });
+  });
+  it("draft_from_config_without_auto_stop_is_off", () => {
+    const d = stairDraftFromConfig(aEra);
+    expect(d.satOn).toBe(false);
+    expect(d.emOn).toBe(false);
+    expect(d.emErrorPct).toBe("5");
+    const back = draftToStairConfig(d);
+    expect(back).toEqual(aEra);
+    expect(back).not.toHaveProperty("auto_stop");
+    expect(JSON.stringify(back)).toBe(JSON.stringify(aEra));
+  });
+  it("round_trip_with_auto_stop", () => {
+    for (const a of [
+      { saturation: "first_fail" as const, emergency: { ...EM, error_rate_pct: 5.5 } },
+      { saturation: "two_fails" as const, emergency: null },
+      { saturation: null, emergency: EM },
+    ]) {
+      const c = { ...aEra, auto_stop: a };
+      expect(draftToStairConfig(stairDraftFromConfig(c))).toEqual(c);
+    }
+  });
+  it("both_off_omits_key", () => {
+    const c = draftToStairConfig({ ...base, satOn: false, emOn: false });
+    expect(c).not.toHaveProperty("auto_stop");
+  });
+  it("꺼진 칸이 저장된 satMode를 유지한다", () => {
+    const d = stairDraftFromConfig({
+      ...aEra,
+      auto_stop: { saturation: null, emergency: EM },
+    });
+    expect(d.satOn).toBe(false);
+    expect(d.satMode).toBe("two_fails");
+  });
+  it("emergency_errors_only_when_on", () => {
+    for (const [k, v] of [
+      ["emErrorPct", "0"],
+      ["emErrorPct", "100.01"],
+      ["emErrorPct", "abc"],
+      ["emP99Ms", "1.5"],
+      ["emP99Ms", "0"],
+      ["emP99Ms", "600001"],
+      ["emSeconds", "61"],
+      ["emSeconds", "0"],
+      ["emMinRequests", "0"],
+      ["emMinRequests", "100001"],
+    ] as const) {
+      expect(stairErrors({ ...base, [k]: v })[k]).toBeTruthy();
+      expect(stairErrors({ ...base, emOn: false, [k]: v })).toEqual({});
+    }
+  });
+  it("decimal_error_rate_ok", () => {
+    expect(stairErrors({ ...base, emErrorPct: "5.5" })).toEqual({});
+    expect(stairErrors({ ...base, emErrorPct: "100" })).toEqual({});
+    expect(
+      draftToStairConfig({ ...base, emErrorPct: "5.5" })?.auto_stop?.emergency?.error_rate_pct,
+    ).toBe(5.5);
+  });
+  it("autoStopSummary", () => {
+    const c = { ...aEra };
+    expect(autoStopSummary({ ...c, auto_stop: { saturation: "two_fails", emergency: EM } })).toBe(
+      "자동 정지: 연속 두 계단 실패 · 즉시 정지 5%/2000 ms/3초",
+    );
+    expect(
+      autoStopSummary({ ...c, auto_stop: { saturation: "first_fail", emergency: null } }),
+    ).toBe("자동 정지: 첫 실패에서 바로 정지");
+    expect(autoStopSummary({ ...c, auto_stop: { saturation: null, emergency: EM } })).toBe(
+      "자동 정지: 즉시 정지 5%/2000 ms/3초",
+    );
+    expect(autoStopSummary(c)).toBe("자동 정지: 꺼짐");
+    expect(autoStopSummary({ ...c, auto_stop: { saturation: null, emergency: null } })).toBe(
+      "자동 정지: 꺼짐",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { LoadModelFields } from "../LoadModelFields";
 import type { LoadModelErrors } from "../loadModel";
 import type { Scenario, Step } from "../../../scenario/model";
 import { ko } from "../../../i18n/ko";
+import { STAIR_DEFAULTS } from "../stair";
 
 vi.mock("../VuSizingHelper", () => ({
   VuSizingHelper: () => <div data-testid="sizing-helper" />,
@@ -782,11 +783,8 @@ describe("도착률→요청 환산 힌트", () => {
 
 describe("LoadModelFields — 계단", () => {
   const stair = {
+    ...STAIR_DEFAULTS,
     targets: "100, 200, 800",
-    hold: "60",
-    ramp: "5",
-    discard: "15",
-    p99Cap: "",
   };
 
   it("세그먼트(타일 모드)·라디오 둘 다 open에서만 「계단」을 낸다", () => {

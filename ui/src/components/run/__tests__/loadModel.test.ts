@@ -337,12 +337,21 @@ describe("stair (계단)", () => {
     rateMode: "stair",
     maxInFlight: "300",
     workerCount: "2",
-    stair: { targets: "100, 200", hold: "60", ramp: "5", discard: "15", p99Cap: "" },
+    stair: { ...STAIR_DEFAULTS, targets: "100, 200" },
   });
   it("buildLoadProfile stair: stair + max_in_flight + worker_count + vus 0 + duration 0, stages 키 없음", () => {
     const p = buildLoadProfile(stairState());
     expect(p).toEqual({
-      stair: { targets: [100, 200], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 },
+      stair: {
+        targets: [100, 200],
+        hold_seconds: 60,
+        ramp_seconds: 5,
+        discard_seconds: 15,
+        auto_stop: {
+          saturation: "two_fails",
+          emergency: { error_rate_pct: 5, p99_ms: 2000, consecutive_seconds: 3, min_requests: 20 },
+        },
+      },
       max_in_flight: 300,
       worker_count: 2,
       vus: 0,
@@ -369,7 +378,21 @@ describe("stair (계단)", () => {
   it("deriveLoadMode: stair가 stages보다 우선(저장본에 공존)", () => {
     expect(
       deriveLoadMode({
-        stair: { targets: [100, 200], hold_seconds: 60, ramp_seconds: 5, discard_seconds: 15 },
+        stair: {
+          targets: [100, 200],
+          hold_seconds: 60,
+          ramp_seconds: 5,
+          discard_seconds: 15,
+          auto_stop: {
+            saturation: "two_fails",
+            emergency: {
+              error_rate_pct: 5,
+              p99_ms: 2000,
+              consecutive_seconds: 3,
+              min_requests: 20,
+            },
+          },
+        },
         stages: [{ target: 100, duration_seconds: 5 }],
       }),
     ).toEqual({ loadModel: "open", rateMode: "stair" });

@@ -3874,6 +3874,10 @@ describe("RunDialog — 계단 탭", () => {
       hold_seconds: 60,
       ramp_seconds: 5,
       discard_seconds: 15,
+      auto_stop: {
+        saturation: "two_fails",
+        emergency: { error_rate_pct: 5, p99_ms: 2000, consecutive_seconds: 3, min_requests: 20 },
+      },
     });
     expect(body.profile.max_in_flight).toBe(200);
     expect(body.profile.vus).toBe(0);

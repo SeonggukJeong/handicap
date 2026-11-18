@@ -83,7 +83,7 @@ it("open+stair: N계단 · 총 · 계단마다 측정 K초", () => {
     ...base,
     loadModel: "open",
     rateMode: "stair",
-    stair: { targets: "100,200,300", hold: "60", ramp: "5", discard: "15", p99Cap: "" },
+    stair: { ...STAIR_DEFAULTS, targets: "100,200,300" },
   });
   expect(r.main.map((s) => s.text).join("")).toBe("3계단 · 총 3분 15초 · 계단마다 측정 45초");
   expect(r.main.filter((s) => s.bold).map((s) => s.text)).toEqual(["3계단"]);
@@ -96,7 +96,7 @@ it("open+stair 입력 오류면 warn", () => {
     ...base,
     loadModel: "open",
     rateMode: "stair",
-    stair: { targets: "", hold: "60", ramp: "5", discard: "15", p99Cap: "" },
+    stair: { ...STAIR_DEFAULTS, targets: "" },
   });
   expect(r.tone).toBe("warn");
   expect(r.main).toEqual([{ text: "설정을 확인하세요" }]);
