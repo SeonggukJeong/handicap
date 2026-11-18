@@ -162,7 +162,7 @@ const P99_FAST_CAP_US: u64 = 5000;
 /// knee: 바로 앞 정상 계단 대비 p99 ≥ 1.5× (정수로 `2·cur ≥ 3·prev`) ∧ p99 ≥ 1 ms.
 const KNEE_MIN_US: u64 = 1000;
 
-/// 판정에 쓰는 계단 하나의 숫자. `measured`는 호출자가 `2·measured_seconds ≥ hold − discard`로 채운다.
+/// 판정에 쓰는 계단 하나의 숫자. `measured`는 누적기가 `complete ∧ 2·measured_seconds ≥ hold − discard`로 채운다.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StepNumbers {
     pub target: u32,
@@ -629,15 +629,15 @@ impl StairAccumulator {
         let windows = (0..n)
             .map(|i| measure_window(&self.cfg, t0_ms, bound, i))
             .collect();
-        self.workers.insert(
-            w.to_string(),
-            WorkerAcc {
+        // 첫 등록 유지 — 다시 불러도 쌓은 계수를 지우지 않는다.
+        self.workers
+            .entry(w.to_string())
+            .or_insert_with(|| WorkerAcc {
                 windows,
                 completed: vec![0; n],
                 launched: vec![0; n],
                 count: vec![0; n],
-            },
-        );
+            });
     }
 
     /// 등록 안 된 워커·해제된 계단의 행은 무시한다.

@@ -1931,6 +1931,17 @@ const OPEN_LOOP_CLOCK_SKEW_S: u64 = 86_400;
 const OPEN_LOOP_START_MAX_AGE_MS: i64 = 30 * 86_400_000;
 const OPEN_LOOP_START_MAX_AHEAD_MS: i64 = 86_400_000;
 
+/// open-loop 초가 컨트롤러 시계(`now_s`)에서 하루 안인가 — ingest와 계단 감시가 같이 쓴다.
+pub fn plausible_second(ts: i64, now_s: i64) -> bool {
+    ts.saturating_sub(now_s).unsigned_abs() <= OPEN_LOOP_CLOCK_SKEW_S
+}
+
+/// open-loop 시작 시각(ms, 0 아님)이 허용 범위 안인가 — ingest와 계단 감시가 같이 쓴다.
+pub fn plausible_start(ms: i64, now_ms: i64) -> bool {
+    ms >= now_ms.saturating_sub(OPEN_LOOP_START_MAX_AGE_MS)
+        && ms <= now_ms.saturating_add(OPEN_LOOP_START_MAX_AHEAD_MS)
+}
+
 async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
     // First batch from this run's workers = the engine flusher produced output =
     // not hung at startup. Cancel first_load (idempotent — no-op after the first).
@@ -1965,7 +1976,7 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
     // 계단 리포트는 이 시각들로 계단 구간을 잡는다. 시계에서 하루 넘게 벗어난 값은
     // 부하기 시계 고장·조작으로 보고 버린다(리포트 산술도 포화로 막지만 행 자체를 남기지 않는다).
     let now_s = crate::store::now_ms().div_euclid(1000);
-    let plausible_s = |ts: i64| ts.saturating_sub(now_s).unsigned_abs() <= OPEN_LOOP_CLOCK_SKEW_S;
+    let plausible_s = |ts: i64| plausible_second(ts, now_s);
     if !batch.open_loop_seconds.is_empty() {
         let implausible = batch
             .open_loop_seconds
@@ -2005,9 +2016,7 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
         }
     }
     let now_ms = crate::store::now_ms();
-    let start_plausible = batch.open_loop_started_at_ms
-        >= now_ms.saturating_sub(OPEN_LOOP_START_MAX_AGE_MS)
-        && batch.open_loop_started_at_ms <= now_ms.saturating_add(OPEN_LOOP_START_MAX_AHEAD_MS);
+    let start_plausible = plausible_start(batch.open_loop_started_at_ms, now_ms);
     if batch.open_loop_started_at_ms > 0 && !start_plausible {
         warn!(
             run_id = %batch.run_id,
