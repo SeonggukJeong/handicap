@@ -230,6 +230,25 @@ describe("정지 줄 ↔ Rust 골든", () => {
     expect(stopLineText(p, "T")).toContain(
       "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상",
     );
+    // 기록상 불가능한 (false,false)도 Rust와 같은 글자(p99 꼴).
+    const n = emergency();
+    n.auto_stop = {
+      stop: {
+        ...n.auto_stop!.stop!,
+        phase: "measure",
+        emergency: {
+          max_error_rate: 0,
+          max_p99_us: 2_500_000,
+          seconds: 3,
+          error_hit: false,
+          p99_hit: false,
+        },
+      },
+      suspended_seconds: 0,
+    };
+    expect(stopLineText(n, "T")).toContain(
+      "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상",
+    );
   });
 
   it("보류만 있으면 회색 줄 글자, 기록 없으면 둘 다 없음", () => {

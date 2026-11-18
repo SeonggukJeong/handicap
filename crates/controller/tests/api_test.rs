@@ -1040,6 +1040,13 @@ async fn run_response_auto_stop_only_when_completed() {
             .unwrap()
     );
     store::runs::mark_aborted(&db, &r2).await.unwrap();
+    // mark_aborted가 기록을 비우므로, 경합으로 남은 행을 직접 SQL로 재현해 API 필터를 시험한다.
+    sqlx::query("UPDATE runs SET auto_stop_json = ? WHERE id = ?")
+        .bind(serde_json::to_string(&rec).unwrap())
+        .bind(&r2)
+        .execute(&db)
+        .await
+        .unwrap();
     let v2 = get_run_json(&app, &r2).await;
     assert_eq!(v2["status"], "aborted");
     assert!(!v2.as_object().unwrap().contains_key("auto_stop"));

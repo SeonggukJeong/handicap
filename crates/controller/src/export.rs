@@ -747,9 +747,8 @@ pub(crate) fn stair_stop_line(st: &crate::stair::StairReport, time_text: &str) -
                         parts.push(format!("{p99} {secs}"));
                     }
                     (true, false) => parts.push(format!("{err} {secs}")),
-                    (false, true) => parts.push(format!("{p99} {secs}")),
-                    // 기록상 불가능한 조합(둘 다 아님) — 오류율 형태로 정직하게 표시.
-                    (false, false) => parts.push(format!("{err} {secs}")),
+                    // (false, false)는 기록상 불가능한 조합 — 화면과 같은 p99 꼴.
+                    (false, true) | (false, false) => parts.push(format!("{p99} {secs}")),
                 }
             }
             parts.push(match st.headline.last_ok_target {
@@ -2421,6 +2420,26 @@ mod tests {
             0.0,
             2_500_000,
             (false, true),
+        ));
+        st.steps[4].state = StepState::EmergencyStopped;
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.starts_with(
+                "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상"
+            ),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn stop_line_neither_hit_reads_like_p99() {
+        let mut st = emergency_report();
+        st.auto_stop = rec(emg_info(
+            4,
+            BandKind::Measure,
+            0.0,
+            2_500_000,
+            (false, false),
         ));
         st.steps[4].state = StepState::EmergencyStopped;
         let line = stair_stop_line(&st, "T").unwrap();
