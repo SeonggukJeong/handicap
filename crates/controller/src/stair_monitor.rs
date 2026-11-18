@@ -15,7 +15,7 @@ use crate::stair::{Bound, StairAccumulator, StairConfig};
 /// 시작 시각 전 보류 행 버퍼 상한 — 초 단위.
 pub const PENDING_MAX_SECONDS: usize = 30;
 
-/// coordinator가 감시 채널로 보내는 메시지. 배치를 상자에 넣지 않는다 — 배치당 할당 0(spec §4.5).
+/// coordinator가 감시 채널로 보내는 메시지. 배치는 소유권째 옮겨 받는다(HDR 복사 없음, spec §4.5) — 그래서 상자에 넣지 않는다.
 #[allow(clippy::large_enum_variant)]
 pub enum MonitorMsg {
     Batch(pb::MetricBatch),
@@ -355,8 +355,8 @@ mod tests {
     #[test]
     fn metric_windows_not_time_filtered() {
         let mut m = mon();
-        // t0를 시계에서 멀리(하루 안, 시작 시각 허용 범위 안) 잡아 구간이 시계와 멀다.
-        let far = T0 + 80_000;
+        // t0를 과거로 이틀 — 시작 시각은 30일까지 허용, open-loop 초 필터(하루)는 넘는다.
+        let far = T0 - 2 * 86_400;
         m.on_msg(
             batch("w", far * 1000, &[], &[(far + 2, 10, 5, 1000)]),
             NOW_MS,
