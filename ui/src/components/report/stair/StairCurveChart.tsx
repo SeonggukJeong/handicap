@@ -24,6 +24,8 @@ type Row = {
   state: StairStep["state"];
   knee: boolean;
   labeled: boolean;
+  /** 첫 점은 오른쪽, 마지막 점은 왼쪽으로 라벨을 펼쳐 svg 가장자리에서 잘리지 않게. */
+  anchor: "start" | "middle" | "end";
 };
 
 type DotProps = { cx?: number; cy?: number; payload?: Row; index?: number };
@@ -77,7 +79,7 @@ function renderDot({ cx, cy, payload, index }: DotProps) {
         <text
           x={cx}
           y={cy - 14}
-          textAnchor="middle"
+          textAnchor={payload.anchor}
           fontSize={11}
           fill="#334155"
           stroke="#ffffff"
@@ -109,6 +111,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
     idx,
     label: String(steps[idx].target),
     labeled: labeled.has(idx),
+    anchor: idx === 0 ? "start" : idx === steps.length - 1 ? "end" : "middle",
   }));
   const yDomain = logDomain(rows.flatMap((r) => [r.p99, r.p50]));
   const sat = steps.find((s) => s.state === "saturated" || s.state === "unconfirmed");
@@ -129,7 +132,9 @@ export function StairCurveChart({ steps, width, height }: Props) {
         allowDecimals={false}
         label={{ value: c.axisTarget, position: "insideBottom", offset: -12 }}
       />
-      <YAxis scale="log" width={72} domain={yDomain} allowDataOverflow />
+      {/* allowDataOverflow를 켜면 Recharts가 점 층을 plot 영역으로 잘라 위쪽 점 라벨이 잘린다 —
+          범위(yDomain)가 모든 값을 담으므로 넘칠 값이 없어 끈다. */}
+      <YAxis scale="log" width={72} domain={yDomain} />
       <YAxis yAxisId="bg" hide domain={[0, 1]} />
       {sat ? (
         <ReferenceArea

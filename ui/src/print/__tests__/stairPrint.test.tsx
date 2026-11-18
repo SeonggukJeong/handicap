@@ -218,6 +218,14 @@ describe("PrintDocument 계단", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(51);
   });
 
+  it("standard: 계단 표 제목은 1절 아래 소제목 「계단 부하 판정 결과」(h3, 「단계별 결과」와 헷갈리지 않게)", async () => {
+    await renderKind(build(golden), "standard");
+    const h = screen.getAllByRole("heading", { level: 3, name: "계단 부하 판정 결과" });
+    expect(h.length).toBeGreaterThan(0);
+    expect(screen.queryByRole("heading", { level: 2, name: /계단/ })).toBeNull();
+    expect(document.body.textContent).not.toContain("계단별 결과");
+  });
+
   it("standard: 화면처럼 안내 줄 둘(t0 추정·예전 부하기)과 표 아래 단위 안내", async () => {
     const st = structuredClone(golden);
     st.notes = { t0_estimated: true, open_loop_unknown: true };

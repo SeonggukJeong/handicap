@@ -2317,7 +2317,7 @@ export const ko = {
   },
   print: {
     stair: {
-      title: "계단별 결과",
+      title: "계단 부하 판정 결과",
       continued: " (이어짐)",
       summaryNote: "계단 표는 표준 보고서에 있습니다.",
     },
@@ -2617,9 +2617,9 @@ export const ko = {
       unreadable: "시나리오를 읽지 못해 일부 응답의 오류 여부를 확정하지 못했습니다",
     },
     claims: {
-      title: "이 결과로 말할 수 있는 것·없는 것",
-      can: "말할 수 있는 것",
-      cannot: "말할 수 없는 것",
+      title: "결과 해석의 범위와 한계",
+      can: "이 결과로 확인된 것",
+      cannot: "이 결과만으로 판단할 수 없는 것",
     },
     sentence: {
       verdictOver: (name: string, subj: string, actual: string, thr: string) =>

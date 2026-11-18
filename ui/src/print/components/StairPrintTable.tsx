@@ -62,7 +62,7 @@ export function StairTableTitle({ continued, measure }: { continued: boolean; me
       className="p-block p-block--title"
       data-measure={measure ? MEASURE_IDS.stairTitle : undefined}
     >
-      <h2 className="p-h2">{continued ? `${s.title}${s.continued}` : s.title}</h2>
+      <h3 className="p-h3">{continued ? `${s.title}${s.continued}` : s.title}</h3>
     </div>
   );
 }

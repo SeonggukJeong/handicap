@@ -288,6 +288,16 @@ describe("PrintDocument", () => {
     expect(screen.getByText("민원 신청 흐름 부하 측정 · #a91f3c")).toBeInTheDocument();
   });
 
+  it("claims_box_uses_report_wording", async () => {
+    const doc = { ...makeDoc(coreFixture), claims: { can: ["가"], cannot: ["나"] } };
+    const { root, container } = renderDoc(doc);
+    await ready(root);
+    expect(screen.getAllByRole("heading", { level: 3, name: "결과 해석의 범위와 한계" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("이 결과로 확인된 것").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("이 결과만으로 판단할 수 없는 것").length).toBeGreaterThan(0);
+    expect(container.textContent).not.toMatch(/말할 수/);
+  });
+
   it("measure_sheet_unmounted_after_layout", async () => {
     const { root, container } = renderDoc(makeDoc(coreFixture));
     expect(root).toHaveAttribute("data-layout-ready", "false");

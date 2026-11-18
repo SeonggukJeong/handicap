@@ -46,6 +46,16 @@ describe("StairCurveChart", () => {
     expect(Math.min(...cys)).toBeGreaterThan(28 + 10);
   });
 
+  it("점 라벨은 plot 경계에 잘리지 않는다 — 점·라벨 층에 clip 없음, 첫 점은 오른쪽·마지막 점은 왼쪽으로 펼침", () => {
+    const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    const ds = dots(container);
+    for (const d of ds) expect(d.closest("[clip-path]")).toBeNull();
+    const anchorOf = (d: Element) => d.parentElement?.querySelector("text")?.getAttribute("text-anchor");
+    expect(anchorOf(ds[0])).toBe("start");
+    expect(anchorOf(ds[ds.length - 1])).toBe("end");
+    expect(anchorOf(ds[1])).toBe("middle");
+  });
+
   it("50계단이면 의미 있는 점(knee·상태 전환 첫 점·최대)에만 라벨, 6계단은 전부", () => {
     const many = Array.from({ length: 50 }, (_, i) => ({
       ...golden.steps[0],
