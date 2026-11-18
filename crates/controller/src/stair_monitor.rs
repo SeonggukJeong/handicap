@@ -1874,7 +1874,15 @@ mod perf {
         let n = batches.len();
         let mut times: Vec<Duration> = Vec::with_capacity(n);
         let mut judging: Vec<Duration> = Vec::new();
-        for (now_ms, _, msg) in batches {
+        // 복제는 측정 밖. 미리 만든 배치를 on_msg 안에서 소유권째 해제하면 한꺼번에 깔린 메모리를
+        // 되돌려주는 비용(max 약 10–20 ms, 계단 경계와 무관한 고정 색인)이 들어가 실제(배치마다
+        // 새로 받아 바로 해제)와 달라진다 — 진단: 복제해 넣으면 max 1.5 ms.
+        for (now_ms, _, orig) in &batches {
+            let msg = match orig {
+                MonitorMsg::Batch(b) => MonitorMsg::Batch(b.clone()),
+                _ => unreachable!(),
+            };
+            let now_ms = *now_ms;
             let before = m.judged_through();
             let t = Instant::now();
             let o = m.on_msg(msg, now_ms);
