@@ -971,3 +971,104 @@ async fn create_stair_run_roundtrips_auto_stop_and_rejects_bad_range() {
         "auto_stop 검증이 거절해야 한다: {body}"
     );
 }
+
+fn sample_auto_stop_record(with_stop: bool) -> handicap_controller::auto_stop::AutoStopRecord {
+    let v = if with_stop {
+        json!({"stop": {"kind": "emergency", "mode": null, "failed_steps": [],
+            "decided_step": 2, "judged_through": 1, "phase": "measure",
+            "decided_at_ms": 10, "stopped_at_ms": 20,
+            "emergency": {"max_error_rate": 0.12, "max_p99_us": 3100000, "seconds": 3,
+                          "error_hit": true, "p99_hit": false},
+            "slot_limited": false}, "suspended_seconds": 0})
+    } else {
+        json!({"stop": null, "suspended_seconds": 4})
+    };
+    serde_json::from_value(v).expect("record")
+}
+
+async fn get_run_json(app: &axum::Router, run_id: &str) -> Value {
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/runs/{run_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+const AUTO_STOP_YAML: &str = "version: 1\nname: as\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+
+#[tokio::test]
+async fn run_response_auto_stop_only_when_completed() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, AUTO_STOP_YAML).await;
+
+    // completed + record -> key present
+    let r1 = create_run(&app, &sid).await;
+    let rec = sample_auto_stop_record(true);
+    assert!(
+        store::runs::complete_with_auto_stop(&db, &r1, 5, &rec)
+            .await
+            .unwrap()
+    );
+    let v1 = get_run_json(&app, &r1).await;
+    assert_eq!(v1["status"], "completed");
+    let obj1 = v1.as_object().unwrap();
+    assert!(obj1.contains_key("auto_stop"), "completed+record -> key");
+    assert_eq!(obj1["auto_stop"]["stop"]["kind"], "emergency");
+    assert_eq!(obj1["auto_stop"]["suspended_seconds"], 0);
+
+    // aborted + record (race) -> key absent
+    let r2 = create_run(&app, &sid).await;
+    assert!(
+        store::runs::complete_with_auto_stop(&db, &r2, 5, &rec)
+            .await
+            .unwrap()
+    );
+    store::runs::mark_aborted(&db, &r2).await.unwrap();
+    let v2 = get_run_json(&app, &r2).await;
+    assert_eq!(v2["status"], "aborted");
+    assert!(!v2.as_object().unwrap().contains_key("auto_stop"));
+
+    // no record -> key absent
+    let r3 = create_run(&app, &sid).await;
+    store::runs::set_status(&db, &r3, store::runs::RunStatus::Completed, None, Some(9))
+        .await
+        .unwrap();
+    let v3 = get_run_json(&app, &r3).await;
+    assert_eq!(v3["status"], "completed");
+    assert!(!v3.as_object().unwrap().contains_key("auto_stop"));
+}
+
+#[tokio::test]
+async fn non_stair_run_response_bytes_unchanged() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, AUTO_STOP_YAML).await;
+    let r = create_run(&app, &sid).await;
+    let v = get_run_json(&app, &r).await;
+    let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+    keys.sort_unstable();
+    // Literal list captured from the response BEFORE auto_stop was added.
+    let mut expected = vec![
+        "created_at",
+        "ended_at",
+        "env",
+        "id",
+        "label",
+        "last_metric_ts",
+        "message",
+        "profile",
+        "scenario_id",
+        "scenario_yaml",
+        "started_at",
+        "status",
+        "verdict",
+    ];
+    expected.sort_unstable();
+    assert_eq!(keys, expected);
+}

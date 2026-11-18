@@ -92,6 +92,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0022).execute(&pool).await?; // migration 0022: monitor_boards
     sqlx::query(MIGRATION_SQL_0023).execute(&pool).await?; // migration 0023: run_loop_exit_metrics
     sqlx::query(MIGRATION_SQL_0024).execute(&pool).await?; // migration 0024: run_open_loop_seconds
+    ensure_runs_auto_stop_json(&pool).await?; // migration 0025 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -204,6 +205,22 @@ async fn ensure_runs_label(db: &Db) -> anyhow::Result<()> {
             .await?;
     if has == 0 {
         sqlx::query("ALTER TABLE runs ADD COLUMN label TEXT")
+            .execute(db)
+            .await?;
+    }
+    Ok(())
+}
+
+/// migration 0025 (Rust-guarded): runs.auto_stop_json (nullable). 계단 자동 정지 기록
+/// (`AutoStopRecord` JSON) — status가 `completed`일 때만 의미가 있다. 기존 행 NULL.
+async fn ensure_runs_auto_stop_json(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'auto_stop_json'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE runs ADD COLUMN auto_stop_json TEXT")
             .execute(db)
             .await?;
     }
@@ -760,5 +777,33 @@ mod tests {
             res.is_err(),
             "FK violation should be rejected when foreign_keys=ON"
         );
+    }
+
+    #[tokio::test]
+    async fn ensure_runs_auto_stop_json_is_idempotent() {
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0001)
+            .execute(&pool)
+            .await
+            .unwrap();
+        ensure_runs_auto_stop_json(&pool).await.expect("first call");
+        ensure_runs_auto_stop_json(&pool)
+            .await
+            .expect("idempotent second call");
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'auto_stop_json'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(has, 1, "guard must not duplicate the column");
     }
 }

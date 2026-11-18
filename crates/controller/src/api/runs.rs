@@ -53,6 +53,9 @@ pub struct RunResponse {
     pub last_metric_ts: Option<i64>,
     /// 사용자(또는 스케줄러 자동) run 라벨. 없으면 JSON `null`(run-identity spec §3/§5).
     pub label: Option<String>,
+    /// 계단 자동 정지 기록 — status가 `completed`이고 값이 있을 때만(아니면 키 생략).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
 }
 
 pub(crate) fn loop_cap_ok(cap: u32, max: u32) -> bool {
@@ -1384,6 +1387,11 @@ fn fold_seed(run_id: &str) -> u32 {
 }
 
 fn to_response(r: runs::RunRow, last_metric_ts: Option<i64>) -> RunResponse {
+    let auto_stop = if r.status == RunStatus::Completed {
+        r.auto_stop
+    } else {
+        None
+    };
     RunResponse {
         id: r.id,
         scenario_id: r.scenario_id,
@@ -1398,6 +1406,7 @@ fn to_response(r: runs::RunRow, last_metric_ts: Option<i64>) -> RunResponse {
         verdict: r.verdict,
         last_metric_ts,
         label: r.label,
+        auto_stop,
     }
 }
 

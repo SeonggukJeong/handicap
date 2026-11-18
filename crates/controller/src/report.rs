@@ -1241,6 +1241,7 @@ mod tests {
             dropped: 0,
             verdict: None,
             label: None,
+            auto_stop: None,
         }
     }
 

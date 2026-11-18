@@ -273,6 +273,9 @@ pub struct RunRow {
     /// 계층(`normalize_label`)·스케줄러(`schedule_label`) 책임이며 스토어는 받은
     /// 값을 그대로 저장한다(run-identity spec §3). 유니크 강제 없음.
     pub label: Option<String>,
+    /// 계단 자동 정지 기록. status가 `completed`일 때만 의미가 있다(경합으로 `aborted`
+    /// 행에 남을 수 있음 — 소비자가 거른다). 손상 JSON도 None.
+    pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
 }
 
 pub async fn insert(
@@ -315,12 +318,17 @@ pub async fn insert(
         dropped: 0,
         verdict: None,
         label: label.map(str::to_string),
+        auto_stop: None,
     })
+}
+
+fn parse_auto_stop(raw: Option<String>) -> Option<crate::auto_stop::AutoStopRecord> {
+    raw.and_then(|s| serde_json::from_str(&s).ok())
 }
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -349,12 +357,13 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
             .get::<Option<String>, _>("verdict_json")
             .and_then(|s| serde_json::from_str(&s).ok()),
         label: r.get("label"),
+        auto_stop: parse_auto_stop(r.get("auto_stop_json")),
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -384,6 +393,7 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
                 .get::<Option<String>, _>("verdict_json")
                 .and_then(|s| serde_json::from_str(&s).ok()),
             label: r.get("label"),
+            auto_stop: parse_auto_stop(r.get("auto_stop_json")),
         });
     }
     Ok(out)
@@ -427,6 +437,27 @@ pub async fn set_status(
         );
     }
     Ok(())
+}
+
+/// 자동 정지 기록과 `completed`를 한 UPDATE로 쓴다(활성 run만). 바뀐 행이 1개면 `true` —
+/// 호출자는 `true`일 때만 verdict 배지를 영속한다(경합한 `mark_aborted` 뒤 aborted run 보호).
+pub async fn complete_with_auto_stop(
+    db: &Db,
+    id: &str,
+    ended_ms: i64,
+    rec: &crate::auto_stop::AutoStopRecord,
+) -> sqlx::Result<bool> {
+    let json = serde_json::to_string(rec).expect("serialize auto stop record");
+    let res = sqlx::query(
+        "UPDATE runs SET status = 'completed', ended_at = ?, auto_stop_json = ? \
+         WHERE id = ? AND status IN ('pending', 'running')",
+    )
+    .bind(ended_ms)
+    .bind(json)
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected() == 1)
 }
 
 pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
@@ -1216,5 +1247,77 @@ mod tests {
         assert!(json2.contains("\"apply_scenario_think_time\":false"));
         let back: Profile = serde_json::from_str(&json2).unwrap();
         assert!(!back.apply_scenario_think_time);
+    }
+
+    async fn auto_stop_run(db: &Db) -> String {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+        let yaml = "version: 1\nname: as-sc\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(db, &scenario, yaml).await.unwrap();
+        let p = profile_fixture(|_| {});
+        insert(db, &sc.id, yaml, &p, &serde_json::json!({}), None)
+            .await
+            .unwrap()
+            .id
+    }
+
+    fn auto_stop_rec() -> crate::auto_stop::AutoStopRecord {
+        crate::auto_stop::AutoStopRecord {
+            stop: None,
+            suspended_seconds: 7,
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_with_auto_stop_guarded() {
+        let db = test_db().await;
+        let rec = auto_stop_rec();
+
+        let id = auto_stop_run(&db).await;
+        set_status(&db, &id, RunStatus::Running, Some(1), None)
+            .await
+            .unwrap();
+        assert!(complete_with_auto_stop(&db, &id, 99, &rec).await.unwrap());
+        let got = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(got.status, RunStatus::Completed);
+        assert_eq!(got.ended_at, Some(99));
+        assert_eq!(got.auto_stop, Some(rec.clone()));
+
+        // aborted row: guarded -> false, status/record untouched.
+        let id2 = auto_stop_run(&db).await;
+        mark_aborted(&db, &id2).await.unwrap();
+        let before = get(&db, &id2).await.unwrap().unwrap();
+        assert!(!complete_with_auto_stop(&db, &id2, 99, &rec).await.unwrap());
+        let after = get(&db, &id2).await.unwrap().unwrap();
+        assert_eq!(after.status, RunStatus::Aborted);
+        assert_eq!(after.ended_at, before.ended_at);
+        assert!(after.auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_and_list_carry_auto_stop() {
+        let db = test_db().await;
+        let id = auto_stop_run(&db).await;
+        assert!(get(&db, &id).await.unwrap().unwrap().auto_stop.is_none());
+        assert!(
+            complete_with_auto_stop(&db, &id, 5, &auto_stop_rec())
+                .await
+                .unwrap()
+        );
+        let got = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(got.auto_stop, Some(auto_stop_rec()));
+        let listed = list_by_scenario(&db, &got.scenario_id).await.unwrap();
+        assert_eq!(listed[0].auto_stop, Some(auto_stop_rec()));
+
+        // corrupt JSON -> None, row still readable.
+        sqlx::query("UPDATE runs SET auto_stop_json = '{not json' WHERE id = ?")
+            .bind(&id)
+            .execute(&db)
+            .await
+            .unwrap();
+        assert!(get(&db, &id).await.unwrap().unwrap().auto_stop.is_none());
+        let listed = list_by_scenario(&db, &got.scenario_id).await.unwrap();
+        assert!(listed[0].auto_stop.is_none());
     }
 }
