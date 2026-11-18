@@ -797,6 +797,12 @@ impl StairAccumulator {
             w.count[i] = 0;
         }
     }
+
+    /// 계단 `i`의 HDR이 아직 살아 있나(해제 확인용).
+    #[cfg(test)]
+    pub(crate) fn step_hist_held(&self, i: usize) -> bool {
+        self.steps[i].hist.is_some()
+    }
 }
 
 #[derive(Default)]

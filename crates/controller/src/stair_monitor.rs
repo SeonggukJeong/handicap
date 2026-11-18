@@ -1,19 +1,25 @@
 //! 계단 run 자동 정지 감시 — 받은 배치를 ingest와 같은 규칙으로 걸러 누적기에 쌓는다.
-//! 수신 쪽(중복·타당성·시작 시각 전 보류 행)과 데이터 완결·계단 단위 포화 판정(spec §4.4)을 맡는다.
+//! 수신 쪽(중복·타당성·시작 시각 전 보류 행)과 데이터 완결·계단 단위 포화 판정(spec §4.4),
+//! 절대 초 단위 즉시 정지(spec §4.2(b))를 맡는다.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use handicap_engine::percentiles::decode_hdr;
+use handicap_engine::percentiles::{decode_hdr, merge_into};
 use handicap_proto::v1 as pb;
 use hdrhistogram::Histogram;
 use tracing::warn;
 
-use crate::auto_stop::{StopInfo, StopKind, saturation_stop};
+use crate::auto_stop::{
+    EmergencyHit, EmergencyStats, EmergencyTracker, StopInfo, StopKind, saturation_stop,
+};
 use crate::grpc::coordinator::{plausible_second, plausible_start};
-use crate::stair::{Bound, SaturationStopMode, StairAccumulator, StairConfig, judge};
+use crate::stair::{BandKind, Bound, SaturationStopMode, StairAccumulator, StairConfig, judge};
 
 /// 시작 시각 전 보류 행 버퍼 상한 — 초 단위.
 pub const PENDING_MAX_SECONDS: usize = 30;
+
+/// 즉시 정지용 초 버퍼 상한 — 넘으면 가장 오래된 초부터 판정 없이 버리고 보류로 센다.
+pub const SECOND_BUFFER_MAX: usize = 30;
 
 /// coordinator가 감시 채널로 보내는 메시지. 배치는 소유권째 옮겨 받는다(HDR 복사 없음, spec §4.5) — 그래서 상자에 넣지 않는다.
 #[allow(clippy::large_enum_variant)]
@@ -49,6 +55,14 @@ enum Row {
     },
 }
 
+/// 한 절대 초의 전 워커·전 스텝 합.
+#[derive(Default)]
+struct SecAcc {
+    count: u64,
+    errors: u64,
+    hist: Option<Histogram<u64>>,
+}
+
 #[derive(Default)]
 struct WorkerState {
     t0_ms: Option<i64>,
@@ -74,10 +88,18 @@ pub struct StairMonitor {
     pub ended: BTreeSet<String>,
     /// 판정에 넣은 계단 수(앞에서부터 이어진 완결 계단).
     judged: usize,
+    /// 계수를 해제한 계단 수 — 동결·정지 뒤에도 완결되는 대로 해제한다(메모리 상한, spec §4.4).
+    released: usize,
     /// 시간 기준 끝 전에 end-phase를 보고한 워커가 있다 — 이후 포화 판정 없음.
     frozen: bool,
-    /// 포화 정지를 이미 냈다.
-    saturation_stopped: bool,
+    /// 정지(어느 쪽이든)를 이미 냈다 — 이후 정지·판정 없음.
+    stopped: bool,
+    /// 즉시 정지 계수기(칸이 꺼져 있으면 None — 초 버퍼도 쌓지 않는다).
+    emergency: Option<EmergencyTracker>,
+    /// 아직 완결 안 된 절대 초.
+    secs: BTreeMap<i64, SecAcc>,
+    /// 판정했거나 보류로 버린 마지막 초 — 이 초 이하의 행은 다시 쌓지 않는다.
+    secs_done: Option<i64>,
 }
 
 impl StairMonitor {
@@ -93,8 +115,16 @@ impl StairMonitor {
             shares: BTreeMap::new(),
             ended: BTreeSet::new(),
             judged: 0,
+            released: 0,
             frozen: false,
-            saturation_stopped: false,
+            stopped: false,
+            emergency: cfg
+                .auto_stop
+                .as_ref()
+                .and_then(|a| a.emergency.as_ref())
+                .map(EmergencyTracker::new),
+            secs: BTreeMap::new(),
+            secs_done: None,
         }
     }
 
@@ -120,9 +150,22 @@ impl StairMonitor {
                 self.ended.insert(worker_id);
             }
         }
+        let saturation = self.judge_steps(now_ms);
+        let emergency = self.judge_seconds(now_ms);
+        // 같은 처리 순간 두 정지가 다 성립하면 즉시 정지가 이긴다.
+        let stop = emergency.or(saturation);
+        if stop.is_some() {
+            self.stopped = true;
+        }
+        let newly_suspended = if self.stopped {
+            self.secs.clear();
+            0
+        } else {
+            self.cap_seconds()
+        };
         Outcome {
-            stop: self.judge_steps(now_ms),
-            newly_suspended: 0,
+            stop,
+            newly_suspended,
         }
     }
 
@@ -175,29 +218,155 @@ impl StairMonitor {
         registered > 0 && registered >= self.expected
     }
 
-    /// 새로 완결된 계단을 한 계단씩 판정한다(첫 정지에서 멈춤). 판정한 계단은 계수를 해제한다.
+    /// 새로 완결된 계단을 한 계단씩 판정한다(첫 정지에서 멈춤). 완결된 계단은 계수를 해제한다 —
+    /// 동결·정지 뒤에는 판정 없이 해제만 하고 `judged`는 그대로 둔다.
     fn judge_steps(&mut self, now_ms: i64) -> Option<StopInfo> {
-        if self.frozen || self.saturation_stopped {
-            return None;
-        }
         let n = self.cfg.targets.len();
         let mode = self.cfg.auto_stop.as_ref().and_then(|a| a.saturation);
-        while self.judged < n && self.step_complete(self.judged) {
-            let i = self.judged;
-            let stop = mode.and_then(|mode| {
+        while self.released < n && self.step_complete(self.released) {
+            let i = self.released;
+            let judging = !self.frozen && !self.stopped;
+            let stop = mode.filter(|_| judging).and_then(|mode| {
                 let done: Vec<bool> = (0..n).map(|k| k <= i).collect();
                 let nums = self.acc.numbers(&done, false);
                 let j = judge(&nums, &self.cfg);
                 saturation_stop(&j, &done, mode).map(|s| (mode, s))
             });
             self.acc.release_step(i, false);
-            self.judged = i + 1;
+            self.released = i + 1;
+            if judging {
+                self.judged = i + 1;
+            }
             if let Some((mode, s)) = stop {
-                self.saturation_stopped = true;
                 return Some(saturation_info(mode, &s, now_ms));
             }
         }
         None
+    }
+
+    /// 시작 시각을 보낸 워커들의 t0(등록 미달이면 None).
+    fn registered_t0s(&self) -> Option<(i64, i64)> {
+        let mut t0s = self.workers.values().filter_map(|st| st.t0_ms);
+        let first = t0s.next()?;
+        let (mut lo, mut hi, mut n) = (first, first, 1u32);
+        for t0 in t0s {
+            lo = lo.min(t0);
+            hi = hi.max(t0);
+            n += 1;
+        }
+        (n >= self.expected).then_some((lo, hi))
+    }
+
+    /// 초 t가 감시 범위(첫 워커 t0 ~ 마지막 워커의 마지막 계단 끝)에 드나. 등록 미달이면 모름(None).
+    fn in_range(&self, t: i64) -> Option<bool> {
+        let (lo, hi) = self.registered_t0s()?;
+        let start = t.saturating_mul(1000);
+        Some(start.saturating_add(1000) > lo && start < hi.saturating_add(self.total_ms))
+    }
+
+    /// 초 t의 데이터가 다 왔나: 등록 완료 ∧ 시작 시각을 보낸 워커마다 끝났거나 수위 ≥ t.
+    fn second_complete(&self, t: i64) -> bool {
+        let mut registered = 0u32;
+        for (w, st) in &self.workers {
+            if st.t0_ms.is_none() {
+                continue;
+            }
+            registered += 1;
+            if !(self.finished(w, st) || st.level.is_some_and(|l| l >= t)) {
+                return false;
+            }
+        }
+        registered > 0 && registered >= self.expected
+    }
+
+    /// 완결된 초를 시각 순서로 계수기에 넣는다. 첫 정지만 쓴다(계수기는 그 뒤에도 Some을 낸다).
+    fn judge_seconds(&mut self, now_ms: i64) -> Option<StopInfo> {
+        self.emergency.as_ref()?;
+        let mut stop = None;
+        while let Some(&t) = self.secs.keys().next() {
+            if !self.second_complete(t) {
+                break;
+            }
+            let Some((_, acc)) = self.secs.pop_first() else {
+                break;
+            };
+            self.secs_done = Some(t);
+            if self.stopped || stop.is_some() || self.in_range(t) != Some(true) {
+                continue;
+            }
+            let p99 = acc.hist.as_ref().map_or(0, |h| h.value_at_quantile(0.99));
+            let hit = self
+                .emergency
+                .as_mut()
+                .and_then(|e| e.observe(t, acc.count, acc.errors, p99));
+            if let Some(hit) = hit {
+                stop = Some(self.emergency_info(&hit, now_ms));
+            }
+        }
+        stop
+    }
+
+    /// 초 버퍼가 상한을 넘으면 가장 오래된 초부터 판정 없이 버린다 — 감시 범위 밖으로 확인된 초는 세지 않는다.
+    fn cap_seconds(&mut self) -> u32 {
+        let mut suspended = 0;
+        while self.secs.len() > SECOND_BUFFER_MAX {
+            let Some((t, _)) = self.secs.pop_first() else {
+                break;
+            };
+            self.secs_done = Some(t);
+            if self.in_range(t) != Some(false) {
+                suspended += 1;
+            }
+        }
+        suspended
+    }
+
+    /// 초 t 시작(`t·1000`)이 가장 이른 t0 워커 기준 어느 계단·구간인가. t0 이전이면 계단 0 상승.
+    fn band_of(&self, t: i64) -> (u32, BandKind) {
+        let Some((t0, _)) = self.registered_t0s() else {
+            return (0, BandKind::Ramp);
+        };
+        let elapsed = t.saturating_mul(1000).saturating_sub(t0);
+        if elapsed < 0 {
+            return (0, BandKind::Ramp);
+        }
+        let n = self.cfg.targets.len().max(1) as i64;
+        let step_ms = (i64::from(self.cfg.ramp_seconds + self.cfg.hold_seconds) * 1000).max(1);
+        let i = (elapsed / step_ms).min(n - 1);
+        let within = elapsed - i * step_ms;
+        let ramp_ms = i64::from(self.cfg.ramp_seconds) * 1000;
+        let discard_end_ms = ramp_ms + i64::from(self.cfg.discard_seconds) * 1000;
+        let kind = if within < ramp_ms {
+            BandKind::Ramp
+        } else if within < discard_end_ms {
+            BandKind::Discard
+        } else {
+            BandKind::Measure
+        };
+        (i as u32, kind)
+    }
+
+    fn emergency_info(&self, hit: &EmergencyHit, now_ms: i64) -> StopInfo {
+        let (step, phase) = self.band_of(hit.last_bad_ts);
+        StopInfo {
+            kind: StopKind::Emergency,
+            mode: self.cfg.auto_stop.as_ref().and_then(|a| a.saturation),
+            failed_steps: Vec::new(),
+            decided_step: step,
+            // 동결됐으면 동결값 그대로.
+            judged_through: self.judged_through(),
+            phase: Some(phase),
+            decided_at_ms: now_ms,
+            stopped_at_ms: 0,
+            emergency: Some(EmergencyStats {
+                max_error_rate: hit.max_error_rate,
+                max_p99_us: hit.max_p99_us,
+                seconds: hit.seconds,
+                error_hit: hit.error_hit,
+                p99_hit: hit.p99_hit,
+            }),
+            slot_limited: false,
+        }
     }
 
     fn on_batch(&mut self, b: pb::MetricBatch, now_ms: i64) {
@@ -250,6 +419,18 @@ impl StairMonitor {
             }
             batch_max = batch_max.max(Some(win.ts_second));
             let hist = decode_hdr(&win.hdr_histogram).ok().flatten();
+            // 즉시 정지 초 버퍼 — 판정했거나 버린 초는 다시 쌓지 않는다.
+            if self.emergency.is_some()
+                && !self.stopped
+                && self.secs_done.is_none_or(|d| win.ts_second > d)
+            {
+                let sec = self.secs.entry(win.ts_second).or_default();
+                sec.count = sec.count.saturating_add(win.count);
+                sec.errors = sec.errors.saturating_add(win.error_count);
+                if let Some(h) = &hist {
+                    merge_into(sec.hist.get_or_insert_with(crate::report::fresh_hist), h);
+                }
+            }
             let row = Row::Metric {
                 count: win.count as i64,
                 errors: win.error_count as i64,
@@ -333,6 +514,9 @@ impl StairMonitor {
     }
     fn share(&self, w: &str) -> Option<&Vec<u32>> {
         self.shares.get(w)
+    }
+    fn sec_buffer_len(&self) -> usize {
+        self.secs.len()
     }
     /// 판정에 쓴 계단 숫자(해제된 계단은 캐시값).
     fn judged_numbers(&self) -> Vec<crate::stair::StepNumbers> {
@@ -930,6 +1114,7 @@ mod tests {
     #[test]
     fn monitor_matches_report_for_completed_steps() {
         let c = cfg5(None);
+        let measure_len = c.hold_seconds - c.discard_seconds;
         // 시작 시각이 어긋난 두 워커, 스텝 2개, 초마다 다른 값.
         let t0s = [("w0", T0MS + 300), ("w1", T0MS + 2700)];
         let mut rows: Vec<WindowWithHdr> = Vec::new();
@@ -1010,8 +1195,420 @@ mod tests {
             assert_eq!(n.dropped, s.dropped, "step {i} dropped");
             assert_eq!(n.error_rate, s.error_rate, "step {i} error_rate");
             assert_eq!(n.p99_us, s.p99_us, "step {i} p99");
+            // 리포트 계단엔 `measured` 칸이 없다 — 같은 규칙(2·측정 초 ≥ 유지 − 버림)을 리포트 측정 초에 적용.
+            assert_eq!(
+                n.measured,
+                s.measured_seconds * 2 >= measure_len,
+                "step {i} measured"
+            );
         }
         assert!(mon.iter().any(|n| n.dropped.unwrap() > 0));
         assert!(mon.iter().any(|n| n.error_rate > 0.0));
+    }
+
+    // ── 즉시 정지 — 초 버퍼·보류·두 정지 우선순위 ──────────────────────────
+    // 기준: 오류율 5 % · p99 2000 ms · 3초 연속 · 최소 20건. ERR = 오류율 50 %(나쁜 초).
+
+    use crate::auto_stop::EmergencyStats;
+    use crate::stair::{BandKind, EmergencyStop};
+
+    fn em() -> EmergencyStop {
+        EmergencyStop {
+            error_rate_pct: 5.0,
+            p99_ms: 2000,
+            consecutive_seconds: 3,
+            min_requests: 20,
+        }
+    }
+
+    fn cfg_em(mode: Option<SaturationStopMode>) -> StairConfig {
+        let mut c = cfg5(mode);
+        c.auto_stop.as_mut().unwrap().emergency = Some(em());
+        c
+    }
+
+    /// 워커마다 (id, t0_ms, from, to, 값)을 `chunk`초씩 번갈아 보낸다. 받은 Outcome을 모은다.
+    #[allow(clippy::type_complexity)]
+    fn interleave(
+        m: &mut StairMonitor,
+        ws: &[(&str, i64, i64, i64, &dyn Fn(i64) -> Sec)],
+        chunk: i64,
+    ) -> Vec<Outcome> {
+        let lo = ws.iter().map(|w| w.2).min().unwrap();
+        let hi = ws.iter().map(|w| w.3).max().unwrap();
+        let mut out = Vec::new();
+        let mut c = lo;
+        while c <= hi {
+            for &(w, t0, from, to, f) in ws {
+                let a = c.max(from);
+                let b = (c + chunk - 1).min(to);
+                if a <= b {
+                    out.push(m.on_msg(span(w, t0, a, b, f), NOW2));
+                }
+            }
+            c += chunk;
+        }
+        out
+    }
+
+    fn stops(o: &[Outcome]) -> Vec<&StopInfo> {
+        o.iter().filter_map(|o| o.stop.as_ref()).collect()
+    }
+
+    fn suspended(o: &[Outcome]) -> u32 {
+        o.iter().map(|o| o.newly_suspended).sum()
+    }
+
+    #[test]
+    fn emergency_stops_after_n_bad_seconds() {
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        assert!(
+            m.on_msg(span("w", T0MS, T0, T0 + 9, |_| OK), NOW2)
+                .stop
+                .is_none()
+        );
+        assert!(
+            m.on_msg(span("w", T0MS, T0 + 10, T0 + 11, |_| ERR), NOW2)
+                .stop
+                .is_none()
+        );
+        let stop = m
+            .on_msg(span("w", T0MS, T0 + 12, T0 + 12, |_| ERR), NOW2)
+            .stop
+            .expect("나쁜 초 3개째에서 정지");
+        assert_eq!(stop.kind, StopKind::Emergency);
+        assert_eq!(stop.mode, None);
+        assert!(stop.failed_steps.is_empty());
+        // T0+12: 계단 0, 상승 1초·버림 5초 뒤 → 측정.
+        assert_eq!(stop.decided_step, 0);
+        assert_eq!(stop.phase, Some(BandKind::Measure));
+        assert_eq!(stop.judged_through, -1);
+        assert_eq!(stop.decided_at_ms, NOW2);
+        assert_eq!(stop.stopped_at_ms, 0);
+        assert!(!stop.slot_limited);
+        assert_eq!(
+            stop.emergency,
+            Some(EmergencyStats {
+                max_error_rate: 0.5,
+                max_p99_us: 2000,
+                seconds: 3,
+                error_hit: true,
+                p99_hit: false,
+            })
+        );
+        // 정지는 한 번만 — 뒤이은 나쁜 초(계수기는 계속 Some)로 다시 정지하지 않는다.
+        assert!(
+            m.on_msg(span("w", T0MS, T0 + 13, T0 + 16, |_| ERR), NOW2)
+                .stop
+                .is_none()
+        );
+        // 한 배치 안에서도 첫 정지(3번째 나쁜 초 T0+12)만 쓴다 — 뒤 초(T0+25, 계단 1)가 덮지 않는다.
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        let stop = m
+            .on_msg(
+                span(
+                    "w",
+                    T0MS,
+                    T0,
+                    T0 + 25,
+                    |ts| if ts >= T0 + 10 { ERR } else { OK },
+                ),
+                NOW2,
+            )
+            .stop
+            .expect("정지");
+        assert_eq!(stop.decided_step, 0);
+        assert_eq!(stop.emergency.unwrap().seconds, 3);
+    }
+
+    #[test]
+    fn emergency_waits_for_slow_worker() {
+        /// 오류 없는 큰 표본 — w0의 50 % 오류를 5 % 밑으로 희석한다.
+        const BIG: Sec = Sec {
+            launched: 1000,
+            completed: 1000,
+            count: 1000,
+            errors: 0,
+            p99_us: 2000,
+        };
+        let mut m = StairMonitor::new(&cfg_em(None), 2);
+        m.on_msg(span("w0", T0MS, T0, T0 + 9, |_| OK), NOW2);
+        m.on_msg(span("w1", T0MS, T0, T0 + 9, |_| BIG), NOW2);
+        // w0만 나쁜 초 3개 — w1 수위(T0+9)가 그 초들보다 낮아 판정하지 않는다.
+        assert!(
+            m.on_msg(span("w0", T0MS, T0 + 10, T0 + 12, |_| ERR), NOW2)
+                .stop
+                .is_none()
+        );
+        // w1이 오면 합산 오류율 90/3060 < 5 % → 정상.
+        assert!(
+            m.on_msg(span("w1", T0MS, T0 + 10, T0 + 12, |_| BIG), NOW2)
+                .stop
+                .is_none()
+        );
+        m.on_msg(span("w0", T0MS, T0 + 13, T0 + 15, |_| ERR), NOW2);
+        let stop = m
+            .on_msg(span("w1", T0MS, T0 + 13, T0 + 15, |_| ERR), NOW2)
+            .stop
+            .expect("두 워커 다 나쁘면 정지");
+        assert_eq!(stop.kind, StopKind::Emergency);
+    }
+
+    #[test]
+    fn held_second_during_first_ramp_no_false_stop() {
+        const FEW: Sec = Sec {
+            launched: 3,
+            completed: 3,
+            count: 3,
+            errors: 3,
+            p99_us: 2000,
+        };
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        // 표본 3개뿐인 초(오류 100 %)가 10초 이어져도 보류 — 정지 없음.
+        assert!(
+            m.on_msg(span("w", T0MS, T0, T0 + 9, |_| FEW), NOW2)
+                .stop
+                .is_none()
+        );
+        // 판정은 살아 있다.
+        assert!(
+            m.on_msg(span("w", T0MS, T0 + 10, T0 + 12, |_| ERR), NOW2)
+                .stop
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn buffer_over_30s_suspends_and_resumes() {
+        let mut m = StairMonitor::new(&cfg_em(None), 2);
+        let mut out = vec![m.on_msg(span("w1", T0MS, T0, T0, |_| OK), NOW2)];
+        // w0 끝 3초가 나쁜 초.
+        let w0 = |ts: i64| if ts >= T0 + 38 { ERR } else { OK };
+        for (a, b) in [(T0, T0 + 9), (T0 + 10, T0 + 19), (T0 + 20, T0 + 29)] {
+            out.push(m.on_msg(span("w0", T0MS, a, b, w0), NOW2));
+        }
+        assert_eq!(suspended(&out), 0);
+        out.push(m.on_msg(span("w0", T0MS, T0 + 30, T0 + 40, w0), NOW2));
+        // w1이 40초 늦다 — T0+1..T0+40 중 가장 오래된 10초를 판정 없이 버린다.
+        assert_eq!(suspended(&out), 10);
+        assert_eq!(m.sec_buffer_len(), 30);
+        assert!(stops(&out).is_empty());
+        // w1이 따라잡는다. 버린 초(T0+5..T0+7)의 나쁜 행은 다시 쌓이지 않는다.
+        let w1 = |ts: i64| {
+            if (T0 + 5..=T0 + 7).contains(&ts) || ts >= T0 + 38 {
+                ERR
+            } else {
+                OK
+            }
+        };
+        let o = m.on_msg(span("w1", T0MS, T0 + 1, T0 + 40, w1), NOW2);
+        assert_eq!(o.newly_suspended, 0);
+        let stop = o.stop.expect("판정 재개 — 끝 3초에서 정지");
+        // T0+40: 계단 1(T0+21..), 측정 → 버린 T0+7(계단 0)이 아니다.
+        assert_eq!(stop.decided_step, 1);
+        assert_eq!(stop.phase, Some(BandKind::Measure));
+        assert_eq!(m.sec_buffer_len(), 0);
+    }
+
+    #[test]
+    fn finished_worker_does_not_hold_seconds() {
+        // w1은 3초 늦게 시작 — 시간 기준 끝 w0 = T0+104, w1 = T0+107. 감시 범위 끝 = T0+107.
+        let w1_t0 = T0MS + 3000;
+        let w1 = |ts: i64| if ts >= T0 + 105 { ERR } else { OK };
+        let ok = |_: i64| OK;
+
+        // (a) w0가 시간 기준 끝(−1 경계)에 도달.
+        let mut m = StairMonitor::new(&cfg_em(None), 2);
+        let out = interleave(
+            &mut m,
+            &[
+                ("w0", T0MS, T0, T0 + 104, &ok),
+                ("w1", w1_t0, T0 + 3, T0 + 107, &w1),
+            ],
+            10,
+        );
+        assert_eq!(suspended(&out), 0);
+        let s = stops(&out);
+        assert_eq!(s.len(), 1, "w1 꼬리 초가 판정된다");
+        assert_eq!(s[0].kind, StopKind::Emergency);
+        assert_eq!(s[0].decided_step, 4);
+
+        // (b) w0가 end-phase 보고(시간 기준 끝 전) — 포화는 동결, 즉시 정지는 계속.
+        let mut m = StairMonitor::new(&cfg_em(None), 2);
+        let mut out = interleave(
+            &mut m,
+            &[
+                ("w0", T0MS, T0, T0 + 100, &ok),
+                ("w1", w1_t0, T0 + 3, T0 + 100, &ok),
+            ],
+            10,
+        );
+        out.push(m.on_msg(ended("w0"), NOW2));
+        out.push(m.on_msg(span("w1", w1_t0, T0 + 101, T0 + 107, w1), NOW2));
+        assert_eq!(suspended(&out), 0);
+        let s = stops(&out);
+        assert_eq!(s.len(), 1, "끝난 w0가 w1 꼬리를 막지 않는다");
+        assert_eq!(s[0].kind, StopKind::Emergency);
+    }
+
+    #[test]
+    fn emergency_phase_and_step_from_earliest_t0() {
+        // 상승 5 · 유지 20 · 버림 5 → 계단 25초. 이른 워커 기준 T0+50..52 = 계단 2 상승,
+        // 늦은 워커(t0 +3초) 기준이면 계단 1 측정.
+        let mut c = cfg_em(None);
+        c.ramp_seconds = 5;
+        let mut m = StairMonitor::new(&c, 2);
+        let f = |ts: i64| if ts >= T0 + 50 { ERR } else { OK };
+        let out = interleave(
+            &mut m,
+            &[
+                ("w0", T0MS, T0, T0 + 52, &f),
+                ("w1", T0MS + 3000, T0 + 3, T0 + 52, &f),
+            ],
+            10,
+        );
+        let s = stops(&out);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].decided_step, 2);
+        assert_eq!(s[0].phase, Some(BandKind::Ramp));
+    }
+
+    #[test]
+    fn emergency_records_judged_through_at_decision() {
+        let mut m = StairMonitor::new(&cfg_em(Some(TwoFails)), 1);
+        assert!(
+            m.on_msg(span("w", T0MS, T0, end(1), |_| OK), NOW2)
+                .stop
+                .is_none()
+        );
+        assert_eq!(m.judged_through(), 1);
+        // T0+45..47: 계단 2(T0+42..) 상승 1초 뒤 버림 구간.
+        let stop = m
+            .on_msg(
+                span("w", T0MS, end(1) + 1, T0 + 47, |ts| {
+                    if ts >= T0 + 45 { ERR } else { OK }
+                }),
+                NOW2,
+            )
+            .stop
+            .expect("즉시 정지");
+        assert_eq!(stop.kind, StopKind::Emergency);
+        assert_eq!(stop.mode, Some(TwoFails));
+        assert_eq!(stop.decided_step, 2);
+        assert_eq!(stop.phase, Some(BandKind::Discard));
+        assert_eq!(stop.judged_through, 1);
+    }
+
+    #[test]
+    fn emergency_wins_same_message() {
+        let mut m = StairMonitor::new(&cfg_em(Some(TwoFails)), 2);
+        let base = steps(&[OK, OK, SLOW, SLOW, OK]);
+        // 계단 3 측정 끝 3초는 나쁜 초(오류 50 %) — 계단 3도 여전히 실패.
+        let f = move |ts: i64| {
+            if (end(3) - 2..=end(3)).contains(&ts) {
+                Sec { errors: 30, ..SLOW }
+            } else {
+                base(ts)
+            }
+        };
+        let out = interleave(
+            &mut m,
+            &[("w0", T0MS, T0, end(2), &f), ("w1", T0MS, T0, end(2), &f)],
+            10,
+        );
+        assert!(stops(&out).is_empty());
+        assert_eq!(m.judged_through(), 2);
+        assert!(
+            m.on_msg(span("w0", T0MS, end(2) + 1, end(3), &f), NOW2)
+                .stop
+                .is_none()
+        );
+        // w1의 한 배치가 계단 쌍 실패(2·3)와 3번째 나쁜 초를 함께 완결한다.
+        let stop = m
+            .on_msg(span("w1", T0MS, end(2) + 1, end(3), &f), NOW2)
+            .stop
+            .expect("정지");
+        assert_eq!(stop.kind, StopKind::Emergency);
+        assert_eq!(stop.decided_step, 3);
+        assert_eq!(stop.phase, Some(BandKind::Measure));
+        assert!(stop.emergency.is_some());
+        assert!(stop.failed_steps.is_empty());
+    }
+
+    #[test]
+    fn emergency_continues_after_freeze() {
+        let mut m = StairMonitor::new(&cfg_em(Some(TwoFails)), 2);
+        let ok = |_: i64| OK;
+        interleave(
+            &mut m,
+            &[("w0", T0MS, T0, end(0), &ok), ("w1", T0MS, T0, end(0), &ok)],
+            10,
+        );
+        assert_eq!(m.judged_through(), 0);
+        m.on_msg(span("w1", T0MS, end(0) + 1, T0 + 30, |_| OK), NOW2);
+        assert!(m.on_msg(ended("w1"), NOW2).stop.is_none());
+        let stop = m
+            .on_msg(
+                span("w0", T0MS, end(0) + 1, T0 + 40, |ts| {
+                    if (T0 + 35..=T0 + 37).contains(&ts) {
+                        ERR
+                    } else {
+                        OK
+                    }
+                }),
+                NOW2,
+            )
+            .stop
+            .expect("동결 뒤에도 즉시 정지");
+        assert_eq!(stop.kind, StopKind::Emergency);
+        assert_eq!(stop.judged_through, 0);
+        assert_eq!(stop.decided_step, 1);
+        assert_eq!(m.judged_through(), 0);
+    }
+
+    #[test]
+    fn step_hdr_released_after_judgement() {
+        let mut m = StairMonitor::new(&cfg5(Some(FirstFail)), 1);
+        // 같은 행을 받되 등록 미달(expected 2)이라 판정·해제를 안 하는 비교용 감시.
+        let mut unjudged = StairMonitor::new(&cfg5(Some(FirstFail)), 2);
+        let f = steps(&[OK, MID, OK, OK, OK]);
+        for x in [&mut m, &mut unjudged] {
+            x.on_msg(span("w", T0MS, T0, end(0), &f), NOW2);
+            x.on_msg(span("w", T0MS, end(0) + 1, T0 + 35, &f), NOW2);
+        }
+        assert_eq!(m.judged_through(), 0);
+        assert!(!m.acc().step_hist_held(0), "판정 끝난 계단 HDR 해제");
+        assert!(m.acc().step_hist_held(1), "진행 중 계단은 유지");
+        assert!(unjudged.acc().step_hist_held(0));
+        let all = [true; 5];
+        assert_eq!(
+            m.acc().numbers(&all, false)[0],
+            unjudged.acc().numbers(&all, false)[0]
+        );
+    }
+
+    #[test]
+    fn freeze_still_releases_step_hdrs() {
+        let mut m = StairMonitor::new(&cfg5(Some(TwoFails)), 2);
+        let ok = |_: i64| OK;
+        interleave(
+            &mut m,
+            &[("w0", T0MS, T0, end(0), &ok), ("w1", T0MS, T0, end(0), &ok)],
+            10,
+        );
+        m.on_msg(span("w1", T0MS, end(0) + 1, T0 + 30, |_| OK), NOW2);
+        m.on_msg(ended("w1"), NOW2);
+        for (a, b) in [
+            (end(0) + 1, end(1)),
+            (end(1) + 1, end(2)),
+            (end(2) + 1, T0 + 70),
+        ] {
+            m.on_msg(span("w0", T0MS, a, b, |_| OK), NOW2);
+        }
+        // 판정은 동결값, 그래도 완결된 계단 1·2의 HDR는 해제된다(메모리 상한 §4.4).
+        assert_eq!(m.judged_through(), 0);
+        assert!(!m.acc().step_hist_held(1));
+        assert!(!m.acc().step_hist_held(2));
+        assert!(m.acc().step_hist_held(3), "미완결 계단 3은 유지");
     }
 }
