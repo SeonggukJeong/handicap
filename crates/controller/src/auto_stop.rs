@@ -326,6 +326,31 @@ mod tests {
     }
 
     #[test]
+    fn hit_stats_are_max_or_and_reset_by_good_second() {
+        let mut t = emergency(3, 20);
+        // p99만 나쁜 초 → 정상 초로 끊김(통계도 같이 초기화돼야 한다)
+        assert!(t.observe(1, 100, 0, 3_000_000).is_none());
+        assert!(t.observe(2, 100, 0, 1_000).is_none());
+        // 오류율만 나쁜 3초: 0.2, 0.5, 0.3 / p99는 한도 안에서 가운데가 최대
+        assert!(t.observe(3, 100, 20, 1_000).is_none());
+        assert!(t.observe(4, 100, 50, 1_900_000).is_none());
+        let h = t.observe(5, 100, 30, 500).unwrap();
+        assert!(h.error_hit && !h.p99_hit);
+        assert_eq!(h.max_error_rate, 0.5);
+        assert_eq!(h.max_p99_us, 1_900_000);
+        assert_eq!(h.seconds, 3);
+
+        // 서로 다른 초에 걸린 두 조건은 OR로 합쳐진다.
+        let mut t = emergency(3, 20);
+        assert!(t.observe(1, 100, 0, 3_000_000).is_none());
+        assert!(t.observe(2, 100, 50, 1_000).is_none());
+        let h = t.observe(3, 100, 10, 1_000).unwrap();
+        assert!(h.error_hit && h.p99_hit);
+        assert_eq!(h.max_error_rate, 0.5);
+        assert_eq!(h.max_p99_us, 3_000_000);
+    }
+
+    #[test]
     fn record_json_shape() {
         let r = AutoStopRecord {
             stop: None,
