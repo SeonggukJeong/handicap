@@ -2596,7 +2596,7 @@ export const ko = {
     section: {
       overview: "1. 종합 결과",
       summaryBox: "요약 (자동 작성)",
-      steps: "2. 어디가 문제인가 — 단계별 결과",
+      steps: "2. 단계별 결과",
       chart: "3. 시간에 따른 변화",
       conditions: "4. 측정 조건과 해석 범위",
       glossary: "5. 용어 풀이",

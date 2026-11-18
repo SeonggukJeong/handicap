@@ -312,8 +312,8 @@ describe("PrintDocument", () => {
       });
       const p2 = within(pages[1]);
       expect(p2.getByText("요청 수")).toBeInTheDocument();
-      expect(p2.getByText("2. 어디가 문제인가 — 단계별 결과 (이어짐)")).toBeInTheDocument();
-      expect(within(pages[0]).getByText("2. 어디가 문제인가 — 단계별 결과")).toBeInTheDocument();
+      expect(p2.getByText("2. 단계별 결과 (이어짐)")).toBeInTheDocument();
+      expect(within(pages[0]).getByText("2. 단계별 결과")).toBeInTheDocument();
       expect(within(pages[0]).getByText(`1 / ${n}`)).toBeInTheDocument();
       expect(within(pages[n - 1]).getByText(`${n} / ${n}`)).toBeInTheDocument();
       // 모든 단계가 정확히 한 번씩 쪽에 실린다
