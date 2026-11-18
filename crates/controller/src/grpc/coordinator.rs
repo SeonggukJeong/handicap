@@ -1927,6 +1927,9 @@ async fn stream_dataset(
 /// previous inline arm; A3b adds run_metrics per-worker keying.
 /// open-loop 초·시작 시각이 컨트롤러 시계에서 이만큼(초) 넘게 벗어나면 저장하지 않는다.
 const OPEN_LOOP_CLOCK_SKEW_S: u64 = 86_400;
+/// 시작 시각은 모든 flush에 실려 오므로 오래 도는 run일수록 과거로 멀어진다 — 과거 쪽만 넉넉히 연다.
+const OPEN_LOOP_START_MAX_AGE_MS: i64 = 30 * 86_400_000;
+const OPEN_LOOP_START_MAX_AHEAD_MS: i64 = 86_400_000;
 
 async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
     // First batch from this run's workers = the engine flusher produced output =
@@ -2001,9 +2004,11 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert open-loop seconds");
         }
     }
-    if batch.open_loop_started_at_ms > 0
-        && !plausible_s(batch.open_loop_started_at_ms.div_euclid(1000))
-    {
+    let now_ms = crate::store::now_ms();
+    let start_plausible = batch.open_loop_started_at_ms
+        >= now_ms.saturating_sub(OPEN_LOOP_START_MAX_AGE_MS)
+        && batch.open_loop_started_at_ms <= now_ms.saturating_add(OPEN_LOOP_START_MAX_AHEAD_MS);
+    if batch.open_loop_started_at_ms > 0 && !start_plausible {
         warn!(
             run_id = %batch.run_id,
             worker_id = %batch.worker_id,
@@ -3021,6 +3026,43 @@ mod tests {
             .unwrap();
         let ids: Vec<&str> = starts.iter().map(|s| s.worker_id.as_str()).collect();
         assert_eq!(ids, vec!["w2"], "터무니없는 시작 시각은 버림");
+    }
+
+    #[tokio::test]
+    async fn ingest_keeps_open_loop_start_of_long_running_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let now_ms = crate::store::now_ms();
+        let day_ms = 86_400_000_i64;
+        let mk = |started: i64, w: &str| pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: w.to_string(),
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![],
+            phase_stats: vec![],
+            active_vu_samples: vec![],
+            error_kind_stats: vec![],
+            loop_exit_stats: vec![],
+            open_loop_seconds: vec![],
+            open_loop_started_at_ms: started,
+            dropped: 0,
+        };
+        ingest_metrics(&coord, &mk(now_ms - 2 * day_ms, "past")).await;
+        ingest_metrics(&coord, &mk(now_ms + 2 * day_ms, "future")).await;
+        ingest_metrics(&coord, &mk(now_ms - 31 * day_ms, "too_old")).await;
+
+        let starts = crate::store::open_loop::worker_starts(&db, &run_id)
+            .await
+            .unwrap();
+        let ids: Vec<&str> = starts.iter().map(|s| s.worker_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["past"],
+            "이틀 전 시작은 저장, 미래·30일 초과 과거는 버림"
+        );
     }
 
     #[tokio::test]
