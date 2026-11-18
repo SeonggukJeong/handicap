@@ -258,6 +258,28 @@ export const ko = {
     },
     stairAutoStopSummaryEmergency: (pct: number, p99Ms: number, seconds: number) =>
       `즉시 정지 ${pct}%/${p99Ms} ms/${seconds}초`,
+    stairAutoStopLegend: "자동 정지",
+    stairAutoStopSat: "포화가 확정되면 남은 계단을 실행하지 않음",
+    stairAutoStopSatTwoFails: "연속 두 계단 실패 시 (튄 계단은 넘김)",
+    stairAutoStopSatFirstFail: "첫 실패에서 바로 정지",
+    stairAutoStopSatFirstFailWarn:
+      "한 번 튄 계단으로도 멈출 수 있고, 리포트는 「포화 확인 못 함」으로 남습니다.",
+    stairAutoStopEm: "즉시 정지",
+    stairAutoStopEmLead: "— 오류율",
+    stairAutoStopEmErrorPctAria: "오류율 %",
+    stairAutoStopEmPctUnit: "% 초과 또는 p99",
+    stairAutoStopEmP99Aria: "p99 ms",
+    stairAutoStopEmMsUnit: "ms 초과가",
+    stairAutoStopEmSecondsAria: "초 연속",
+    stairAutoStopEmSecondsUnit: "초 연속",
+    stairAutoStopEmMinLead: "(초당 완료",
+    stairAutoStopEmMinAria: "초당 완료 개수 이상",
+    stairAutoStopEmMinTail: "개 이상인 초만 판정)",
+    stairAutoStopEmHelpLabel: "즉시 정지 설명",
+    stairAutoStopEmHelp:
+      "상승·버림 구간도 감시합니다. 부하기 데이터가 1–2초 늦게 오므로 실제 정지는 기준을 넘은 뒤 몇 초 걸립니다.",
+    stairAutoStopFinalWarn:
+      "자동 정지가 걸리면 설정한 계단을 다 돌지 않습니다. 판정한 다음 계단에 몇 초 들어간 뒤 멈출 수 있습니다. 실제로 준 부하와 멈춘 이유는 리포트 맨 위에 남습니다.",
     stairSummary: (steps: number, total: string, measureSeconds: number) => [
       { text: `${steps}계단`, bold: true },
       { text: ` · 총 ${total} · 계단마다 측정 ${measureSeconds}초` },

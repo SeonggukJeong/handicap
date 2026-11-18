@@ -122,4 +122,63 @@ describe("StairFields", () => {
     // 값이 있고 잘못되면 접힌 채라도 오류를 알 수 있게 자동 펼침
     expect(screen.getByText(ko.loadModel.stairP99CapInvalid)).toBeInTheDocument();
   });
+  describe("자동 정지 상자", () => {
+    const SAT = "포화가 확정되면 남은 계단을 실행하지 않음";
+    const WARN = /한 번 튄 계단으로도 멈출 수 있고/;
+    const FINAL = /자동 정지가 걸리면 설정한 계단을 다 돌지 않습니다/;
+
+    it("기본값: 두 체크 켜짐 · 두 번 연속 실패 선택 · 첫 실패 경고 없음 · 상자는 접히지 않고 보인다", () => {
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      expect(screen.getByRole("group", { name: "자동 정지" })).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: SAT })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "즉시 정지" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /연속 두 계단 실패 시/ })).toBeChecked();
+      expect(screen.queryByText(WARN)).not.toBeInTheDocument();
+      expect(screen.getByText(FINAL)).toBeInTheDocument();
+      expect(screen.getByLabelText("오류율 %")).toHaveValue(5);
+      expect(screen.getByLabelText("p99 ms")).toHaveValue(2000);
+      expect(screen.getByLabelText("초 연속")).toHaveValue(3);
+      expect(screen.getByLabelText("초당 완료 개수 이상")).toHaveValue(20);
+    });
+
+    it("첫 실패에서 바로 정지를 고르면 경고가 보인다", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      await user.click(screen.getByRole("radio", { name: /첫 실패에서 바로 정지/ }));
+      expect(screen.getByText(WARN)).toBeInTheDocument();
+    });
+
+    it("둘 다 끄면 마지막 경고 줄이 숨겨지고, 하위 칸은 비활성으로 남는다(값 유지)", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      await user.click(screen.getByRole("checkbox", { name: SAT }));
+      await user.click(screen.getByRole("checkbox", { name: "즉시 정지" }));
+      expect(screen.queryByText(FINAL)).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /첫 실패에서 바로 정지/ })).toBeDisabled();
+      expect(screen.getByLabelText("오류율 %")).toBeDisabled();
+      expect(screen.getByLabelText("오류율 %")).toHaveValue(5);
+      await user.click(screen.getByRole("checkbox", { name: "즉시 정지" }));
+      expect(screen.getByLabelText("오류율 %")).toBeEnabled();
+    });
+
+    it("포화 체크를 꺼도 첫 실패 경고는 숨겨진다", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={{ targets: "100, 200", satMode: "first_fail" }} />);
+      expect(screen.getByText(WARN)).toBeInTheDocument();
+      await user.click(screen.getByRole("checkbox", { name: SAT }));
+      expect(screen.queryByText(WARN)).not.toBeInTheDocument();
+    });
+
+    it("오류율 0이면 오류 문구 + aria-invalid, 꺼 두면 오류가 없다", async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={{ targets: "100, 200", emErrorPct: "0" }} />);
+      expect(screen.getByText(ko.loadModel.stairAutoStopErrorRateInvalid)).toBeInTheDocument();
+      expect(screen.getByLabelText("오류율 %")).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByLabelText("p99 ms")).toHaveAttribute("aria-invalid", "false");
+      await user.click(screen.getByRole("checkbox", { name: "즉시 정지" }));
+      expect(
+        screen.queryByText(ko.loadModel.stairAutoStopErrorRateInvalid),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

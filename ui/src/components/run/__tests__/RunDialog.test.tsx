@@ -3986,6 +3986,104 @@ describe("RunDialog — 계단 탭", () => {
     expect(postedBody().profile.stages).toBeUndefined();
   });
 
+  it("자동 정지 오류율 0이면 실행 버튼이 막히고 오류 문구가 보인다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openStairTab(user);
+    await typeList(user, "100, 200");
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
+    const pct = screen.getByLabelText("오류율 %");
+    await user.clear(pct);
+    await user.type(pct, "0");
+    expect(screen.getByText(ko.loadModel.stairAutoStopErrorRateInvalid)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+  });
+
+  it("a 시절 저장본(auto_stop 없음) 다시 실행: 두 체크 꺼짐, 제출 payload에 auto_stop 키 없음", async () => {
+    fetchMock.mockImplementation(() => runResponse());
+    const user = userEvent.setup();
+    renderWithInitial({ profile: STAIR_PROFILE as never, env: {} });
+    expect(
+      screen.getByRole("checkbox", { name: "포화가 확정되면 남은 계단을 실행하지 않음" }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "즉시 정지" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(postedBody().profile.stair).toBeDefined());
+    expect(postedBody().profile.stair).not.toHaveProperty("auto_stop");
+  });
+
+  it("auto_stop이 있는 저장본 다시 실행: 값이 상자에 그대로 보이고 payload도 같다", async () => {
+    fetchMock.mockImplementation(() => runResponse());
+    const user = userEvent.setup();
+    const saved = {
+      saturation: "first_fail",
+      emergency: { error_rate_pct: 7.5, p99_ms: 900, consecutive_seconds: 4, min_requests: 30 },
+    };
+    renderWithInitial({
+      profile: { ...STAIR_PROFILE, stair: { ...STAIR_PROFILE.stair, auto_stop: saved } } as never,
+      env: {},
+    });
+    expect(screen.getByRole("radio", { name: /첫 실패에서 바로 정지/ })).toBeChecked();
+    expect(screen.getByLabelText("오류율 %")).toHaveValue(7.5);
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(postedBody().profile.stair).toBeDefined());
+    expect(postedBody().profile.stair.auto_stop).toEqual(saved);
+  });
+
+  it("프리셋 불러오기(auto_stop 없음 · a 시절 저장본): 두 체크 꺼짐", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "PS",
+                name: "stair",
+                vus: 0,
+                duration_seconds: 0,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/PS")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "PS",
+            scenario_id: "S1",
+            name: "stair",
+            profile: STAIR_PROFILE,
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "PS");
+    await waitFor(() => expect(screen.getByRole("radio", { name: "계단" })).toBeChecked());
+    expect(screen.getByRole("checkbox", { name: "즉시 정지" })).not.toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "포화가 확정되면 남은 계단을 실행하지 않음" }),
+    ).not.toBeChecked();
+  });
+
+  it("단순 모드 계단 카드에 자동 정지 한 줄이 보인다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openStairTab(user);
+    await typeList(user, "100, 200");
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(
+      screen.getByText("자동 정지: 연속 두 계단 실패 · 즉시 정지 5%/2000 ms/3초"),
+    ).toBeInTheDocument();
+  });
+
   it("단순 모드에서 계단이 잘못돼 있으면 실행 버튼은 막힌다", async () => {
     const user = userEvent.setup();
     renderDialog();

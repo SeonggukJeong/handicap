@@ -6,6 +6,7 @@ import { HelpTip } from "../HelpTip";
 import { Field } from "../ui/Field";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import { AutoStopFields } from "./AutoStopFields";
 import { draftToStairConfig, generateTargets, stairSummary, type StairDraft } from "./stair";
 
 type Multiple = 1.5 | 2 | 2.5 | 3;
@@ -19,7 +20,20 @@ const MULTIPLES: { value: Multiple; label: string }[] = [
 type Props = {
   value: StairDraft;
   onChange: (next: StairDraft) => void;
-  errors: Partial<Record<"targets" | "hold" | "ramp" | "discard" | "p99Cap", string>>;
+  errors: Partial<
+    Record<
+      | "targets"
+      | "hold"
+      | "ramp"
+      | "discard"
+      | "p99Cap"
+      | "emErrorPct"
+      | "emP99Ms"
+      | "emSeconds"
+      | "emMinRequests",
+      string
+    >
+  >;
 };
 
 export function StairFields({ value, onChange, errors }: Props) {
@@ -241,6 +255,10 @@ export function StairFields({ value, onChange, errors }: Props) {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mt-3">
+        <AutoStopFields value={value} onChange={onChange} errors={errors} />
       </div>
     </div>
   );

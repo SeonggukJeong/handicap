@@ -446,6 +446,44 @@ describe("ScheduleForm — 계단", () => {
     expect(p.stages).toBeUndefined();
   });
 
+  it("자동 정지가 있는 저장 스케줄: 상자 값 유지, 저장 payload 동일", async () => {
+    const user = userEvent.setup();
+    const autoStop = {
+      saturation: "first_fail" as const,
+      emergency: { error_rate_pct: 8, p99_ms: 1500, consecutive_seconds: 5, min_requests: 40 },
+    };
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={{
+          name: "nightly",
+          scenario_id: "s1",
+          profile: { ...stairProfile, stair: { ...stairProfile.stair!, auto_stop: autoStop } },
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /첫 실패에서 바로 정지/ })).toBeChecked();
+    expect(screen.getByLabelText("오류율 %")).toHaveValue(8);
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].profile.stair.auto_stop).toEqual(autoStop);
+  });
+
+  it("a 시절 저장 스케줄(auto_stop 없음): 두 체크 꺼짐, payload에 키 없음", async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderStair();
+    expect(screen.getByRole("checkbox", { name: "즉시 정지" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].profile.stair).not.toHaveProperty("auto_stop");
+  });
+
   it("잘못된 목록이면 저장이 비활성", async () => {
     const user = userEvent.setup();
     renderStair();

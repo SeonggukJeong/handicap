@@ -29,6 +29,7 @@ import {
   STAIR_DEFAULTS,
   draftToStairConfig,
   expandStair,
+  autoStopSummary,
   stairDraftFromConfig,
   stairSummary,
   type StairDraft,
@@ -806,6 +807,7 @@ export function RunDialog({
                 formatDurationKo(stairSummary(stairConfig).totalSeconds),
               )}
             </p>
+            <p className="text-sm text-slate-700">{autoStopSummary(stairConfig)}</p>
             <p className="text-xs text-slate-500">{ko.runDialog.stairCardHint}</p>
           </div>
         )}
