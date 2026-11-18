@@ -747,7 +747,9 @@ pub(crate) fn stair_stop_line(st: &crate::stair::StairReport, time_text: &str) -
                         parts.push(format!("{p99} {secs}"));
                     }
                     (true, false) => parts.push(format!("{err} {secs}")),
-                    (false, _) => parts.push(format!("{p99} {secs}")),
+                    (false, true) => parts.push(format!("{p99} {secs}")),
+                    // 기록상 불가능한 조합(둘 다 아님) — 오류율 형태로 정직하게 표시.
+                    (false, false) => parts.push(format!("{err} {secs}")),
                 }
             }
             parts.push(match st.headline.last_ok_target {
@@ -2412,7 +2414,6 @@ mod tests {
 
     #[test]
     fn stop_line_p99_only() {
-        use StepState::*;
         let mut st = emergency_report();
         st.auto_stop = rec(emg_info(
             4,
@@ -2421,7 +2422,7 @@ mod tests {
             2_500_000,
             (false, true),
         ));
-        st.steps[4].state = EmergencyStopped;
+        st.steps[4].state = StepState::EmergencyStopped;
         let line = stair_stop_line(&st, "T").unwrap();
         assert!(
             line.starts_with(
@@ -2429,7 +2430,6 @@ mod tests {
             ),
             "{line}"
         );
-        let _ = Ok;
     }
 
     #[test]

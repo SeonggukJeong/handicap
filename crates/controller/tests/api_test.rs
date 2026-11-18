@@ -970,6 +970,16 @@ async fn create_stair_run_roundtrips_auto_stop_and_rejects_bad_range() {
         body.contains("즉시 정지 오류율은 0 초과 100 이하여야 합니다"),
         "auto_stop 검증이 거절해야 한다: {body}"
     );
+
+    // 오타 키는 조용히 무시(=감시 꺼짐)되지 않고 거절된다.
+    let typo = json!({ "emergancy": { "error_rate_pct": 5, "p99_ms": 1500,
+        "consecutive_seconds": 4, "min_requests": 30 } });
+    let resp = app.clone().oneshot(post_run(typo)).await.unwrap();
+    let code = resp.status();
+    assert!(
+        code == StatusCode::BAD_REQUEST || code == StatusCode::UNPROCESSABLE_ENTITY,
+        "typo key must be rejected, got {code}"
+    );
 }
 
 fn sample_auto_stop_record(with_stop: bool) -> handicap_controller::auto_stop::AutoStopRecord {

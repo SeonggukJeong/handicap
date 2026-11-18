@@ -163,6 +163,22 @@ describe("StairFields", () => {
       expect(g).toContainElement(screen.getByLabelText("초당 완료 개수 이상"));
     });
 
+    it("포화 라디오 둘은 포화 체크박스 이름의 radiogroup 안에 있다", () => {
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      const g = screen.getByRole("radiogroup", { name: SAT });
+      expect(g).toContainElement(screen.getByRole("radio", { name: /연속 두 계단 실패 시/ }));
+      expect(g).toContainElement(screen.getByRole("radio", { name: /첫 실패에서 바로 정지/ }));
+    });
+
+    it("지연 안내는 HelpTip 뒤가 아니라 상자에 바로 보인다(중복 없음)", () => {
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      const note = screen.getByText(/상승·버림 구간도 감시합니다/);
+      expect(note).toBeVisible();
+      expect(note).toHaveClass("text-xs", "text-slate-500");
+      expect(screen.getAllByText(/상승·버림 구간도 감시합니다/)).toHaveLength(1);
+      expect(screen.queryByRole("button", { name: "즉시 정지 설명" })).not.toBeInTheDocument();
+    });
+
     it("첫 실패에서 바로 정지를 고르면 경고가 보인다", async () => {
       const user = userEvent.setup();
       render(<Harness initial={{ targets: "100, 200" }} />);

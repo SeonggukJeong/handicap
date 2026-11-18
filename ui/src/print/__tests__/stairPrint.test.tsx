@@ -396,6 +396,10 @@ describe("자동 정지 인쇄 (stage-auto-stop)", () => {
     await waitFor(() =>
       expect(b.container.querySelector(".p-doc")).toHaveAttribute("data-layout-ready", "true"),
     );
-    expect(screen.getAllByText(suspendedLineText(st)!).length).toBeGreaterThan(0);
+    const line = screen.getAllByText(suspendedLineText(st)!);
+    expect(line.length).toBeGreaterThan(0);
+    // 옅은 회색(p-muted, 대비 ~2.2:1)이 아니라 다른 인쇄 각주와 같은 p-note.
+    expect(line[0]).toHaveClass("p-note");
+    expect(line[0]).not.toHaveClass("p-muted");
   });
 });

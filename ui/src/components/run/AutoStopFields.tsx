@@ -1,6 +1,5 @@
 import { useId } from "react";
 import { ko } from "../../i18n/ko";
-import { HelpTip } from "../HelpTip";
 import { Input } from "../ui/Input";
 import type { StairDraft } from "./stair";
 
@@ -48,7 +47,7 @@ export function AutoStopFields({ value, onChange, errors }: Props) {
     <fieldset className="mb-3 max-w-2xl rounded-md border border-slate-200 p-3">
       <legend className="px-1 text-sm font-medium text-slate-700">{k.stairAutoStopLegend}</legend>
 
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label id={`${id}-sat-label`} className="flex items-center gap-2 text-sm text-slate-700">
         <input
           type="checkbox"
           checked={value.satOn}
@@ -56,7 +55,11 @@ export function AutoStopFields({ value, onChange, errors }: Props) {
         />
         {k.stairAutoStopSat}
       </label>
-      <div className="mb-3 ml-6 mt-1 space-y-1">
+      <div
+        role="radiogroup"
+        aria-labelledby={`${id}-sat-label`}
+        className="mb-3 ml-6 mt-1 space-y-1"
+      >
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
             type="radio"
@@ -103,7 +106,6 @@ export function AutoStopFields({ value, onChange, errors }: Props) {
           <span aria-hidden="true">{k.stairAutoStopEmMsUnit}</span>
           {num("emSeconds", "emSeconds", k.stairAutoStopEmSecondsAria, "w-16", { min: 1, max: 60 })}
           <span aria-hidden="true">{k.stairAutoStopEmSecondsUnit}</span>
-          <HelpTip label={k.stairAutoStopEmHelpLabel}>{k.stairAutoStopEmHelp}</HelpTip>
         </div>
         <div className="ml-6 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
           <span aria-hidden="true">{k.stairAutoStopEmMinLead}</span>
@@ -113,6 +115,10 @@ export function AutoStopFields({ value, onChange, errors }: Props) {
           })}
           <span aria-hidden="true">{k.stairAutoStopEmMinTail}</span>
         </div>
+        <p className="ml-6 mt-1 text-xs text-slate-500">
+          <span aria-hidden="true">ⓘ </span>
+          {k.stairAutoStopEmHelp}
+        </p>
       </div>
       {errorKeys.map((key) => (
         <p key={key} id={`${id}-${key}-error`} className="ml-6 mt-1 text-sm text-red-600">

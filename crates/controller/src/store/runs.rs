@@ -273,8 +273,9 @@ pub struct RunRow {
     /// 계층(`normalize_label`)·스케줄러(`schedule_label`) 책임이며 스토어는 받은
     /// 값을 그대로 저장한다(run-identity spec §3). 유니크 강제 없음.
     pub label: Option<String>,
-    /// 계단 자동 정지 기록. status가 `completed`일 때만 의미가 있다(경합으로 `aborted`
-    /// 행에 남을 수 있음 — 소비자가 거른다). 손상 JSON도 None.
+    /// 계단 자동 정지 기록. `completed` 행에만 존재한다: `mark_aborted`가 지우고,
+    /// API(`to_response`·`build_report_for_run`)도 completed가 아니면 싣지 않는다(이중 가드).
+    /// 손상 JSON도 None.
     pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
 }
 
@@ -462,11 +463,13 @@ pub async fn complete_with_auto_stop(
 
 pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
     let now = super::now_ms();
-    sqlx::query("UPDATE runs SET status = 'aborted', ended_at = ? WHERE id = ?")
-        .bind(now)
-        .bind(id)
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "UPDATE runs SET status = 'aborted', ended_at = ?, auto_stop_json = NULL WHERE id = ?",
+    )
+    .bind(now)
+    .bind(id)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -1293,6 +1296,22 @@ mod tests {
         assert_eq!(after.status, RunStatus::Aborted);
         assert_eq!(after.ended_at, before.ended_at);
         assert!(after.auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn mark_aborted_clears_auto_stop_record() {
+        let db = test_db().await;
+        let id = auto_stop_run(&db).await;
+        assert!(
+            complete_with_auto_stop(&db, &id, 5, &auto_stop_rec())
+                .await
+                .unwrap()
+        );
+        assert!(get(&db, &id).await.unwrap().unwrap().auto_stop.is_some());
+        mark_aborted(&db, &id).await.unwrap();
+        let got = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(got.status, RunStatus::Aborted);
+        assert!(got.auto_stop.is_none());
     }
 
     #[tokio::test]

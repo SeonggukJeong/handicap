@@ -275,7 +275,6 @@ export const ko = {
     stairAutoStopEmMinLead: "(초당 완료",
     stairAutoStopEmMinAria: "초당 완료 개수 이상",
     stairAutoStopEmMinTail: "개 이상인 초만 판정)",
-    stairAutoStopEmHelpLabel: "즉시 정지 설명",
     stairAutoStopEmHelp:
       "상승·버림 구간도 감시합니다. 부하기 데이터가 1–2초 늦게 오므로 실제 정지는 기준을 넘은 뒤 몇 초 걸립니다.",
     stairAutoStopFinalWarn:

@@ -176,6 +176,18 @@ export function clockText(ms: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+type StopRecord = NonNullable<NonNullable<StairReport["auto_stop"]>["stop"]>;
+
+/** 정지 머리말 — 줄·배지가 같이 쓴다(단계 라벨·구간 이름 매핑은 여기 한 곳). */
+export function stopHeadText(stop: StopRecord, targets: ReadonlyArray<number | undefined>): string {
+  const n = stop.decided_step;
+  const label = t.stopLabel(n + 1, targets[n]);
+  if (stop.kind === "saturation") return t.stopSaturationHead(label);
+  const phase =
+    t.stopPhaseName[stop.phase === "ramp" || stop.phase === "discard" ? stop.phase : "measure"];
+  return t.stopEmergencyHead(label, phase);
+}
+
 /** 자동 정지 줄 — Rust `export.rs::stair_stop_line`과 같은 글자. 정지 기록이 없으면 null. */
 export function stopLineText(stair: StairReport, timeText: string): string | null {
   const stop = stair.auto_stop?.stop;
@@ -185,17 +197,17 @@ export function stopLineText(stair: StairReport, timeText: string): string | nul
     return s ? t.stopLabel(i + 1, s.target) : t.stopLabel(i + 1);
   };
   const parts: string[] = [];
-  let head: string;
+  const head = stopHeadText(
+    stop,
+    stair.steps.map((s) => s.target),
+  );
   if (stop.kind === "saturation") {
     const list = stop.failed_steps.map((i) => String(i + 1)).join("·");
     let reason =
       stop.mode === "first_fail" ? t.stopFirstFailReason(list) : t.stopTwoFailsReason(list);
     if (stop.slot_limited) reason += t.stopSlotLimitedSuffix;
     parts.push(reason);
-    head = t.stopSaturationHead(label(stop.decided_step));
   } else {
-    const phase =
-      t.stopPhaseName[stop.phase === "ramp" || stop.phase === "discard" ? stop.phase : "measure"];
     const e = stop.emergency;
     if (e) {
       const secs = t.stopConsecutive(e.seconds);
@@ -217,7 +229,6 @@ export function stopLineText(stair: StairReport, timeText: string): string | nul
       const i = stair.steps.findIndex((s) => s.target === lastOk);
       parts.push(i >= 0 ? t.stopLastOk(label(i)) : t.stopLastOkTarget(lastOk));
     }
-    head = t.stopEmergencyHead(label(stop.decided_step), phase);
   }
   stair.steps.forEach((s, i) => {
     if (s.partial) parts.push(t.stopPartialClause(i + 1, partialWhere(s.partial)));

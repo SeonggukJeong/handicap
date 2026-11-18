@@ -33,7 +33,7 @@ export function StairStop({ stair }: { stair: StairReport }) {
   if (!text) return null;
   return (
     <section>
-      <div className={stop ? "p-note p-bold p-warn" : "p-note p-muted"}>{text}</div>
+      <div className={stop ? "p-note p-bold p-warn" : "p-note"}>{text}</div>
     </section>
   );
 }

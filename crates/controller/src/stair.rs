@@ -28,6 +28,7 @@ pub struct StairConfig {
 
 /// 안쪽 키는 직렬화 때 항상 나온다(끄면 `null`). 입력은 키 생략 허용.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AutoStopConfig {
     #[serde(default)]
     pub saturation: Option<SaturationStopMode>,
@@ -43,6 +44,7 @@ pub enum SaturationStopMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EmergencyStop {
     pub error_rate_pct: f64,
     pub p99_ms: u32,
@@ -1177,6 +1179,16 @@ fn stop_row_state(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn auto_stop_config_rejects_unknown_keys() {
+        let bad = r#"{"targets":[1],"hold_seconds":1,"ramp_seconds":1,"discard_seconds":1,
+            "auto_stop":{"emergancy":{"error_rate_pct":5,"p99_ms":1,"consecutive_seconds":1,"min_requests":1}}}"#;
+        assert!(serde_json::from_str::<StairConfig>(bad).is_err());
+        let bad2 = r#"{"emergency":{"error_rate_pct":5,"p99_ms":1,"consecutive_seconds":1,"min_requests":1,"extra":1}}"#;
+        assert!(serde_json::from_str::<AutoStopConfig>(bad2).is_err());
+        assert!(serde_json::from_str::<AutoStopConfig>("{}").is_ok());
+    }
+
     use super::*;
 
     fn cfg() -> StairConfig {
