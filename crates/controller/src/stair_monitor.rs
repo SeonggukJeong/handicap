@@ -1786,9 +1786,8 @@ mod perf {
         b
     }
 
-    #[test]
-    #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost_worst_case -- --ignored --nocapture"]
-    fn monitor_batch_cost_worst_case() {
+    /// `skew`: 마지막 워커 t0 +3 s, 세 번째 워커는 초 1000–1010분 배치가 10초 늦게 한꺼번에 도착.
+    fn run(skew: bool) {
         let targets: Vec<u32> = (1..=STEPS as u32).map(|i| i * 40).collect();
         let cfg = StairConfig {
             targets: targets.clone(),
@@ -1818,19 +1817,20 @@ mod perf {
             );
         }
 
-        // 실제 크기 HDR 몇 벌을 돌려 쓴다(바이트 복제, 배치 구성은 측정 밖).
         let hdrs: Vec<Vec<u8>> = (0..16).map(real_hdr).collect();
         let total_s = STEPS * STEP_S;
-        let t0_ms = T0 * 1000;
-        // 배치 = 초 2개(open-loop 2행) + 스텝 window 16개(8 스텝 × 2초).
-        let mut batches: Vec<(MonitorMsg, i64)> = Vec::new();
+        // (도착 시각 ms, 순번, 메시지). 배치 = 초 2개 + 시나리오 스텝 16개 x 2초 = window 32개.
+        let mut batches: Vec<(i64, usize, MonitorMsg)> = Vec::new();
+        let mut seq = 0;
         let mut sec = 0;
         while sec + 1 < total_s {
             for w in 0..WORKERS {
+                let off = if skew && w == WORKERS - 1 { 3 } else { 0 };
+                let t0 = T0 + off;
                 let mut ol = Vec::new();
                 let mut windows = Vec::new();
-                for ts in [T0 + sec, T0 + sec + 1] {
-                    let step = (((ts - T0) / STEP_S) as usize).min(share.len() - 1);
+                for ts in [t0 + sec, t0 + sec + 1] {
+                    let step = (((ts - t0) / STEP_S) as usize).min(share.len() - 1);
                     let per = share[step] as u64;
                     ol.push(pb::OpenLoopSecond {
                         ts_second: ts,
@@ -1838,49 +1838,96 @@ mod perf {
                         completed: per,
                         dropped: 0,
                     });
-                    for k in 0..8 {
+                    for k in 0..16 {
                         windows.push(pb::MetricWindow {
                             ts_second: ts,
                             step_id: format!("s{k}"),
-                            count: (per / 8).max(1),
+                            count: (per / 16).max(1),
                             error_count: 0,
                             hdr_histogram: hdrs[(ts as usize + k + w) % hdrs.len()].clone(),
                             status_counts: Default::default(),
                         });
                     }
                 }
-                let now_ms = (T0 + sec + 2) * 1000;
+                let mut now_ms = (t0 + sec + 2) * 1000;
+                if skew && w == 2 && (1000..1010).contains(&sec) {
+                    now_ms = (T0 + 1010) * 1000;
+                }
                 batches.push((
+                    now_ms,
+                    seq,
                     MonitorMsg::Batch(pb::MetricBatch {
                         run_id: "R".into(),
                         worker_id: format!("w{w}"),
                         windows,
                         open_loop_seconds: ol,
-                        open_loop_started_at_ms: t0_ms,
+                        open_loop_started_at_ms: t0 * 1000,
                         ..Default::default()
                     }),
-                    now_ms,
                 ));
+                seq += 1;
             }
             sec += 2;
         }
+        batches.sort_by_key(|b| (b.0, b.1));
 
         let n = batches.len();
         let mut times: Vec<Duration> = Vec::with_capacity(n);
-        for (msg, now_ms) in batches {
+        let mut judging: Vec<Duration> = Vec::new();
+        for (now_ms, _, msg) in batches {
+            let before = m.judged_through();
             let t = Instant::now();
             let o = m.on_msg(msg, now_ms);
-            times.push(t.elapsed());
+            let d = t.elapsed();
+            times.push(d);
+            if m.judged_through() > before {
+                judging.push(d);
+            }
             assert!(o.stop.is_none(), "정지가 걸리면 측정이 짧아진다");
         }
-        times.sort();
-        let p = |q: f64| times[((n as f64 * q) as usize).min(n - 1)];
-        println!(
-            "monitor_batch_cost: batches={n} p50={:?} p99={:?} max={:?}",
-            p(0.5),
-            p(0.99),
-            times[n - 1]
+        // 판정·해제 경로가 실제로 돌았는가 — 아니면 p99가 공허하다.
+        assert_eq!(m.judged_through(), STEPS - 1);
+        assert_eq!(m.released, STEPS as usize);
+        assert!(
+            m.secs_done.unwrap() >= T0 + total_s - 10,
+            "{:?}",
+            m.secs_done
         );
-        assert!(p(0.99) < Duration::from_millis(5), "p99 {:?}", p(0.99));
+        assert!(!judging.is_empty());
+        times.sort();
+        judging.sort();
+        let p = |v: &[Duration], q: f64| v[((v.len() as f64 * q) as usize).min(v.len() - 1)];
+        println!(
+            "monitor_batch_cost skew={skew}: batches={n} p50={:?} p99={:?} max={:?} | judging batches={} p50={:?} p99={:?} max={:?}",
+            p(&times, 0.5),
+            p(&times, 0.99),
+            times[n - 1],
+            judging.len(),
+            p(&judging, 0.5),
+            p(&judging, 0.99),
+            judging[judging.len() - 1]
+        );
+        assert!(
+            p(&times, 0.99) < Duration::from_millis(5),
+            "p99 {:?}",
+            p(&times, 0.99)
+        );
+        assert!(
+            *judging.last().unwrap() < Duration::from_millis(5),
+            "판정 배치 max {:?}",
+            judging.last()
+        );
+    }
+
+    #[test]
+    #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
+    fn monitor_batch_cost_worst_case() {
+        run(false);
+    }
+
+    #[test]
+    #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
+    fn monitor_batch_cost_skewed_lagging() {
+        run(true);
     }
 }
