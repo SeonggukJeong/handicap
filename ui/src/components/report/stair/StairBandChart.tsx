@@ -10,6 +10,7 @@ import {
 import type { StairBandProps } from "./stairBandTypes";
 import { buildBandSeries } from "./stairBandSeries";
 import { ko } from "../../../i18n/ko";
+import { linearDomain, logDomain } from "./stairChartDomain";
 import { STAIR_STATE_COLOR } from "./stairColors";
 
 const c = ko.report.stair.chart;
@@ -36,9 +37,19 @@ export function StairBandChart({
   const ends = bands.map((b) => b.end_s);
   const x0 = starts.length ? Math.min(...starts) : 0;
   const x1 = ends.length ? Math.max(...ends) : data.length ? data[data.length - 1].offset_s : 1;
+  const p99Domain = logDomain(data.map((d) => d.p99_ms));
+  const rpsDomain = linearDomain([
+    ...targetLine.map((t) => t.target),
+    ...data.map((d) => d.launched),
+  ]);
   const stateOf = (i: number) => steps.find((s) => s.index === i)?.state ?? "not_measured";
   const chart = (
-    <ComposedChart width={width} height={height} data={data} margin={{ top: 8, right: 8 }}>
+    <ComposedChart
+      width={width}
+      height={height}
+      data={data}
+      margin={{ top: 8, right: 8, bottom: 14 }}
+    >
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis
         dataKey="offset_s"
@@ -48,12 +59,17 @@ export function StairBandChart({
         label={{ value: c.axisSeconds, position: "insideBottom", offset: -2 }}
         height={36}
       />
-      <YAxis yAxisId="l" label={{ value: c.axisRps, angle: -90, position: "insideLeft" }} />
+      <YAxis
+        yAxisId="l"
+        domain={rpsDomain}
+        allowDataOverflow
+        label={{ value: c.axisRps, angle: -90, position: "insideLeft" }}
+      />
       <YAxis
         yAxisId="r"
         orientation="right"
         scale="log"
-        domain={["auto", "auto"]}
+        domain={p99Domain}
         allowDataOverflow
         label={{ value: c.axisP99, angle: 90, position: "insideRight" }}
       />

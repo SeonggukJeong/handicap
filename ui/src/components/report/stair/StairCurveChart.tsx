@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import type { StairStep } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
+import { logDomain } from "./stairChartDomain";
 import { STAIR_STATE_COLOR } from "./stairColors";
 import { floorPct1, formatMs, stateLabel } from "./stairFormat";
 
@@ -91,6 +92,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
       knee: s.knee,
     };
   });
+  const yDomain = logDomain(rows.flatMap((r) => [r.p99, r.p50]));
   const sat = steps.find((s) => s.state === "saturated" || s.state === "unconfirmed");
   const chart = (
     <ComposedChart
@@ -111,7 +113,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
       />
       <YAxis
         scale="log"
-        domain={["auto", "auto"]}
+        domain={yDomain}
         allowDataOverflow
         label={{ value: c.axisMs, angle: -90, position: "insideLeft" }}
       />

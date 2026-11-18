@@ -40,6 +40,12 @@ describe("StairCurveChart", () => {
     expect(container.querySelectorAll('[data-testid="stair-knee"]')).toHaveLength(1);
   });
 
+  it("가장 높은 점이 위 테두리(y=28)에서 떨어져 라벨이 plot 안에 든다", () => {
+    const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    const cys = dots(container).map((e) => Number(e.getAttribute("cy")));
+    expect(Math.min(...cys)).toBeGreaterThan(28 + 10);
+  });
+
   it("측정 안 된 계단은 점을 그리지 않는다", () => {
     const st = mk();
     st.steps[5] = { ...st.steps[5], state: "not_measured", p99_us: 0, p50_us: 0 };
@@ -134,6 +140,26 @@ describe("StairBandChart", () => {
     const nonEmpty = golden.seconds.filter((s) => s.count > 0).length;
     expect(nonEmpty).toBeLessThan(golden.seconds.length);
     expect(container.querySelectorAll('[data-testid="stair-p99-dot"]')).toHaveLength(nonEmpty);
+  });
+
+  it("가장 높은 1초 p99 점이 위 테두리(y=8)에서 떨어져 그려진다", () => {
+    const seconds = golden.seconds.map((x, i) =>
+      i === 3 ? { ...x, count: 5, p99_us: 5_300_000 } : x,
+    );
+    const { container } = render(
+      <StairBandChart
+        seconds={seconds}
+        bands={golden.bands}
+        targetLine={golden.target_line}
+        steps={golden.steps}
+        width={800}
+        height={300}
+      />,
+    );
+    const cys = Array.from(container.querySelectorAll('[data-testid="stair-p99-dot"]'), (e) =>
+      Number(e.getAttribute("cy")),
+    );
+    expect(Math.min(...cys)).toBeGreaterThan(8 + 10);
   });
 
   it("buildBandSeries: count 0·빠진 초의 p99는 null(보간 없음)", () => {
