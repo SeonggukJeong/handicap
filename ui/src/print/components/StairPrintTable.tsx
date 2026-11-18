@@ -1,6 +1,6 @@
 import type { StairReport, StairState } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { headlineParts, headlineText } from "../../components/report/stair/stairFormat";
+import { headlineParts, headlineText, noteTexts } from "../../components/report/stair/stairFormat";
 import { MEASURE_IDS } from "../buildPrintDoc";
 import { buildStairRows, discardWarningSteps } from "../stairTable";
 
@@ -37,6 +37,20 @@ export function StairHeadline({ stair, short }: { stair: StairReport; short?: bo
           {l}
         </div>
       ))}
+      {noteTexts(stair).map((n) => (
+        <div key={n} className="p-note">
+          {n}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** 계단 표 아래 단위·측정 구간 경계 안내(화면 표 아래 줄과 같은 문구). */
+export function StairUnitsNote() {
+  return (
+    <section>
+      <div className="p-note">{ko.report.stair.unitsNote}</div>
     </section>
   );
 }

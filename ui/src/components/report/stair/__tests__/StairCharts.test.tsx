@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import nodePath from "node:path";
 import { StairReportSchema, type StairReport } from "../../../../api/schemas";
@@ -8,6 +8,8 @@ import { StairBandChart } from "../StairBandChart";
 import { buildBandSeries } from "../stairBandSeries";
 import { StairResultSection } from "../StairResultSection";
 import { ko } from "../../../../i18n/ko";
+import { STAIR_STATE_COLOR } from "../stairColors";
+import { stateLabel } from "../stairFormat";
 
 const golden = StairReportSchema.parse(
   JSON.parse(
@@ -53,6 +55,42 @@ describe("StairCurveChart", () => {
     expect(screen.getByText("25.0%")).toBeInTheDocument();
     expect(screen.getByText(c.legendP99)).toBeInTheDocument();
     expect(screen.getByText(c.legendP50)).toBeInTheDocument();
+  });
+
+  it("가로축 단위 라벨 「목표 (req/s)」", () => {
+    const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    const texts = Array.from(container.querySelectorAll("svg text")).map((e) => e.textContent);
+    expect(texts).toContain(c.axisTarget);
+  });
+
+  it("확인 못 한 실패 점은 「확인 못 함」 라벨 + 속 빈 점(튄 계단과 구별)", () => {
+    const st = mk();
+    st.steps[5] = { ...st.steps[5], state: "unconfirmed" };
+    st.steps[6] = { ...st.steps[6], state: "not_measured" };
+    const { container } = render(<StairCurveChart steps={st.steps} width={600} height={260} />);
+    expect(c.labelUnconfirmed).toBe("확인 못 함");
+    const svgText = Array.from(container.querySelectorAll("svg text")).map((e) => e.textContent);
+    expect(svgText.some((t) => t?.includes(c.labelUnconfirmed))).toBe(true);
+    expect(svgText.some((t) => t?.includes(c.labelSpike))).toBe(true);
+    const un = dots(container).find((e) => e.getAttribute("data-state") === "unconfirmed")!;
+    const spike = dots(container).find((e) => e.getAttribute("data-state") === "spike")!;
+    expect(un.getAttribute("fill")).toBe("#ffffff");
+    expect(un.getAttribute("stroke")).toBe(STAIR_STATE_COLOR.unconfirmed);
+    expect(spike.getAttribute("fill")).toBe(STAIR_STATE_COLOR.spike);
+  });
+
+  it("점 색 범례: 정상·튄 계단·포화·확인 못 한 실패", () => {
+    render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    const legend = screen.getByRole("list", { name: c.legendStatesLabel });
+    for (const s of ["ok", "spike", "saturated"] as const) {
+      const item = within(legend).getByText(stateLabel(s)).closest("li")!;
+      const sw = item.querySelector('span[aria-hidden="true"]') as HTMLElement;
+      expect(sw).toHaveStyle({ backgroundColor: STAIR_STATE_COLOR[s] });
+    }
+    const un = within(legend).getByText(stateLabel("unconfirmed")).closest("li")!;
+    const unSw = un.querySelector('span[aria-hidden="true"]') as HTMLElement;
+    expect(unSw).toHaveStyle({ borderColor: STAIR_STATE_COLOR.unconfirmed });
+    expect(within(legend).getAllByRole("listitem")).toHaveLength(4);
   });
 
   it("포화 지점부터 옅은 빨강 배경 1개", () => {

@@ -64,7 +64,7 @@ type Props = {
   env: Record<string, string>;
   /** 유효 목표 도착률 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 도착률, curve=stages 피크(상위 도출). */
   targetRps: string;
-  /** true면 곡선 변형 문구(formulaPeak/needTargetCurve) 사용 — open+curve에서 LoadModelFields가 전달. */
+  /** true면 최고 목표 기준 문구(formulaPeak/needTargetCurve) 사용 — LoadModelFields가 고정이 아닌 open 모드(곡선·계단)에서 전달. */
   peakBased?: boolean;
   /** true면 계단 문구(최대 목표·목표 목록) — peakBased와 함께 전달. */
   stairBased?: boolean;

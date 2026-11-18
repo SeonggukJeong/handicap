@@ -10,7 +10,7 @@ import {
 import type { StairStep } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 import { STAIR_STATE_COLOR } from "./stairColors";
-import { floorPct1, formatMs } from "./stairFormat";
+import { floorPct1, formatMs, stateLabel } from "./stairFormat";
 
 const c = ko.report.stair.chart;
 
@@ -25,10 +25,20 @@ type Row = {
 
 type DotProps = { cx?: number; cy?: number; payload?: Row; index?: number };
 
+/** 확인 못 한 실패는 표 pill처럼 속 빈 점 — 같은 주황인 튄 계단과 모양으로 구별한다. */
+function dotPaint(state: StairStep["state"]) {
+  return state === "unconfirmed"
+    ? { fill: "#ffffff", stroke: STAIR_STATE_COLOR.unconfirmed, strokeWidth: 2 }
+    : { fill: STAIR_STATE_COLOR[state] };
+}
+
+const LEGEND_STATES = ["ok", "spike", "saturated", "unconfirmed"] as const;
+
 function pointLabel(row: Row): string[] {
   const out: string[] = [];
   if (row.state === "spike") out.push(c.labelSpike);
   if (row.state === "saturated") out.push(c.labelSaturated);
+  if (row.state === "unconfirmed") out.push(c.labelUnconfirmed);
   if (row.knee) out.push(c.labelKnee);
   return out;
 }
@@ -58,7 +68,7 @@ function renderDot({ cx, cy, payload, index }: DotProps) {
         cx={cx}
         cy={cy}
         r={5}
-        fill={STAIR_STATE_COLOR[payload.state]}
+        {...dotPaint(payload.state)}
       />
       <text x={cx} y={cy - 14} textAnchor="middle" fontSize={11} fill="#334155">
         {text}
@@ -83,7 +93,12 @@ export function StairCurveChart({ steps, width, height }: Props) {
   });
   const sat = steps.find((s) => s.state === "saturated" || s.state === "unconfirmed");
   const chart = (
-    <ComposedChart width={width} height={height} data={rows} margin={{ top: 28, right: 16 }}>
+    <ComposedChart
+      width={width}
+      height={height}
+      data={rows}
+      margin={{ top: 28, right: 16, bottom: 18 }}
+    >
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis
         dataKey="idx"
@@ -92,6 +107,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
         ticks={steps.map((_, i) => i)}
         tickFormatter={(i: number) => String(steps[i]?.target ?? "")}
         allowDecimals={false}
+        label={{ value: c.axisTarget, position: "insideBottom", offset: -12 }}
       />
       <YAxis
         scale="log"
@@ -186,6 +202,25 @@ export function StairCurveChart({ steps, width, height }: Props) {
           <span className="inline-block w-3 h-3 bg-red-100 align-middle mr-1" />
           <span>{c.legendAfter}</span>
         </li>
+      </ul>
+      <ul
+        aria-label={c.legendStatesLabel}
+        className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600"
+      >
+        {LEGEND_STATES.map((s) => (
+          <li key={s}>
+            <span
+              aria-hidden="true"
+              className="inline-block w-3 h-3 rounded-full align-middle mr-1 border-2"
+              style={
+                s === "unconfirmed"
+                  ? { backgroundColor: "#ffffff", borderColor: STAIR_STATE_COLOR[s] }
+                  : { backgroundColor: STAIR_STATE_COLOR[s], borderColor: STAIR_STATE_COLOR[s] }
+              }
+            />
+            <span>{stateLabel(s)}</span>
+          </li>
+        ))}
       </ul>
     </div>
   );

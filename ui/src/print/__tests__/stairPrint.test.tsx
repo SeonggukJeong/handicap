@@ -171,16 +171,19 @@ describe("계단 인쇄 블록", () => {
     for (let i = 1; i < spans.length; i++) expect(spans[i][0]).toBe(spans[i - 1][1]);
   });
 
-  it("⚠ 버림 부족 계단이 있으면 표 뒤 stair:warnings 블록, 없으면 없음", () => {
+  it("⚠ 버림 부족 계단이 있으면 표 뒤 stair:warnings 블록, 없으면 없음 — 단위 안내는 늘 표 뒤", () => {
     const st = structuredClone(golden);
     st.steps[1] = { ...st.steps[1], discard_warning: true, head_p99_ratio: 2.5 };
-    expect(ids(standardBlocks(build(st), new Map())).slice(3, 6)).toEqual([
+    expect(ids(standardBlocks(build(st), new Map())).slice(3, 7)).toEqual([
       "stair:headline",
       "stair",
       "stair:warnings",
+      "stair:units",
     ]);
     for (const s of st.steps) s.discard_warning = false;
-    expect(ids(standardBlocks(build(st), new Map()))).not.toContain("stair:warnings");
+    const std = ids(standardBlocks(build(st), new Map()));
+    expect(std).not.toContain("stair:warnings");
+    expect(std.slice(3, 6)).toEqual(["stair:headline", "stair", "stair:units"]);
   });
 
   it("표 행 모델은 화면 표와 같은 열·형식", () => {
@@ -213,6 +216,23 @@ describe("PrintDocument 계단", () => {
       expect(screen.getAllByText(line).length).toBeGreaterThan(0);
     const table = screen.getByRole("table", { name: ko.report.stair.tableLabel });
     expect(within(table).getAllByRole("row")).toHaveLength(51);
+  });
+
+  it("standard: 화면처럼 안내 줄 둘(t0 추정·예전 부하기)과 표 아래 단위 안내", async () => {
+    const st = structuredClone(golden);
+    st.notes = { t0_estimated: true, open_loop_unknown: true };
+    await renderKind(build(st), "standard");
+    expect(screen.getAllByText(ko.report.stair.noteT0).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ko.report.stair.noteOpenLoopUnknown).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ko.report.stair.unitsNote).length).toBeGreaterThan(0);
+  });
+
+  it("standard: 안내 줄은 notes가 꺼져 있으면 없다", async () => {
+    const st = structuredClone(golden);
+    st.notes = { t0_estimated: false, open_loop_unknown: false };
+    await renderKind(build(st), "standard");
+    expect(screen.queryByText(ko.report.stair.noteT0)).toBeNull();
+    expect(screen.queryByText(ko.report.stair.noteOpenLoopUnknown)).toBeNull();
   });
 
   it("summary: 머리말 한 줄 + 안내, 계단 표 없음", async () => {

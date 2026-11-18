@@ -214,6 +214,7 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
     if (discardWarningSteps(doc.stair).length > 0) {
       out.push(atom(h, "stair:warnings"));
     }
+    out.push(atom(h, "stair:units"));
   }
   if (doc.otherRows.length > 0) out.push(atom(h, "other:standard"));
   out.push({

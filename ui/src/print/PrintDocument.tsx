@@ -32,6 +32,7 @@ import {
   StairHeadline,
   StairPrintTable,
   StairTableTitle,
+  StairUnitsNote,
   StairWarnings,
 } from "./components/StairPrintTable";
 import { SignatureBlock } from "./components/SignatureBlock";
@@ -83,6 +84,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return doc.stair ? <StairHeadline stair={doc.stair} short /> : null;
     case "stair:warnings":
       return doc.stair ? <StairWarnings stair={doc.stair} /> : null;
+    case "stair:units":
+      return doc.stair ? <StairUnitsNote /> : null;
     case "other:standard":
       return <OtherCriteria rows={doc.otherRows} mode="standard" />;
     case "other:summary3":
