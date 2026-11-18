@@ -1,6 +1,7 @@
 # 계단 시험 a — 계단 입력 + 계단 결과 표 + 포화 계단 표시 (설계)
 
 - 날짜: 2026-11-18 · 슬라이스: `stage-saturation-table` (roadmap §A16의 a) · 유형: user-path
+- 상태: **완료** (2026-11-18 master 합류, 코드 `c6bd24e5`..`918f8404`) — 판단·연기·라이브 결과 roadmap §B68, 구현 결과 `docs/build-log.md`. 다음 = b(자동 정지, §9).
 - 후속: **b = 자동 정지**(§9) — a를 master에 합친 뒤 릴리즈 없이 바로 이어 한다(사용자 결정 2026-11-18).
 - 화면 기준(사용자 승인 목업): `2026-11-18-stage-saturation-mockup-rundialog.png`(실행 창), `2026-11-18-stage-saturation-mockup-report.png`(리포트), 원본 `2026-11-18-stage-saturation-mockup.html`, 설계 확인 3건(리포트 내 위치·달성/처리량 열·목표 계단선) `2026-11-18-stage-saturation-mockup-decisions.png`. 꼬리표 **b**가 붙은 요소는 이번 범위가 아니다. 숫자는 지어낸 예시다.
 - **부재 중 판단**: 사용자가 자리를 비운 뒤(2026-11-18 새벽) 리뷰 반영 과정에서 정한 것은 "【부재 중 판단】"으로 표시했다. 기준 = `docs/dev/working-rules.md` §9(정직한 동작·성능 → QA 입문자 사용성). 슬라이스 마무리 때 roadmap §B 블록에 비용·되돌리는 법과 함께 옮긴다.
