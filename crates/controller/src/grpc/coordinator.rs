@@ -18,7 +18,7 @@ use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
-use crate::auto_stop::{StopInfo, StopKind};
+use crate::auto_stop::{AutoStopRecord, StopInfo, StopKind};
 use crate::binding::Mapping;
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::shard::{self, shard_split};
@@ -1195,7 +1195,10 @@ impl CoordinatorState {
 
         enum Finalize {
             None,
-            Completed,
+            /// `record`: `Some` = status와 한 UPDATE로 남길 자동 정지 기록(spec §4.6).
+            Completed {
+                record: Option<AutoStopRecord>,
+            },
             Failed(Vec<WorkerTx>),
             /// `self_abort`: `Some(non-terminal siblings)` = the worker stopped on its
             /// own (R8); `None` = the controller requested it (`abort()` already
@@ -1252,6 +1255,32 @@ impl CoordinatorState {
                     .filter_map(|(_, e)| e.tx.clone())
                     .collect();
                 Finalize::Failed(siblings)
+            } else if rw.auto_stop.is_some() && (phase == completed || phase == aborted) {
+                // 자동 정지 run: 형제 워커의 마지막 flush가 리포트·verdict에 다 들어가도록 전원
+                // end-phase까지 미룬다. 외부 중단 여부는 결과만 정한다(R1 — 트리거는 그대로).
+                let all_ended = rw.workers.len() as u32 == rw.expected
+                    && rw.workers.values().all(|e| {
+                        matches!(e.phase, Phase::Completed | Phase::Failed | Phase::Aborted)
+                    });
+                if !all_ended {
+                    Finalize::None
+                } else {
+                    rw.done.cancel(); // finalize → stop run_watchdog (G1a)
+                    if rw.external_abort {
+                        Finalize::Aborted { self_abort: None }
+                    } else if rw.workers.values().all(|e| e.phase == Phase::Completed) {
+                        Finalize::Completed {
+                            record: suspended_record(rw.suspended_seconds),
+                        }
+                    } else {
+                        Finalize::Completed {
+                            record: Some(AutoStopRecord {
+                                stop: rw.auto_stop.clone(),
+                                suspended_seconds: rw.suspended_seconds,
+                            }),
+                        }
+                    }
+                }
             } else if phase == aborted {
                 rw.done.cancel(); // finalize → stop run_watchdog (G1a)
                 let self_abort = if rw.abort_requested {
@@ -1279,7 +1308,9 @@ impl CoordinatorState {
                 && rw.workers.len() as u32 == rw.expected
             {
                 rw.done.cancel(); // finalize → stop run_watchdog (G1a)
-                Finalize::Completed
+                Finalize::Completed {
+                    record: suspended_record(rw.suspended_seconds),
+                }
             } else {
                 Finalize::None
             };
@@ -1304,7 +1335,7 @@ impl CoordinatorState {
 
         match decision {
             Finalize::None => {}
-            Finalize::Completed => {
+            Finalize::Completed { record: None } => {
                 let _ = runs::set_status(
                     &self.db,
                     run_id,
@@ -1313,21 +1344,28 @@ impl CoordinatorState {
                     Some(crate::store::now_ms()),
                 )
                 .await;
-                // 목록/타임라인 배지용 verdict 영속(forward-only 캐시). on-demand /report
-                // verdict와 동일 — 같은 evaluate_criteria를 동일한 완료-후 불변 메트릭에 적용.
-                // fail-soft: 리포트 빌드 실패는 finalize를 막지 않는다(run은 이미 Completed) —
-                // warn! + skip(배지가 NULL로 남을 뿐, run은 Completed).
-                match crate::api::runs::build_report_for_run(&self.db, run_id).await {
-                    Ok(report) => {
-                        if let Some(verdict) = &report.verdict {
-                            if let Err(e) = runs::set_verdict(&self.db, run_id, verdict).await {
-                                warn!(%run_id, error = %e, "failed to persist verdict badge");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!(%run_id, error = %e, "verdict badge skipped: report build failed");
-                    }
+                self.persist_verdict(run_id).await;
+                self.cleanup_dispatcher(run_id).await;
+            }
+            Finalize::Completed {
+                record: Some(record),
+            } => {
+                // status·기록을 가드 단일 UPDATE로 — 경합한 `mark_aborted` 뒤엔 행이 안 바뀌고,
+                // 그 aborted run에 verdict 배지를 붙이지 않는다.
+                match runs::complete_with_auto_stop(
+                    &self.db,
+                    run_id,
+                    crate::store::now_ms(),
+                    &record,
+                )
+                .await
+                {
+                    Ok(true) => self.persist_verdict(run_id).await,
+                    Ok(false) => warn!(
+                        %run_id,
+                        "auto-stop completion lost the race (run no longer active): verdict skipped"
+                    ),
+                    Err(e) => warn!(%run_id, error = %e, "failed to persist auto-stop completion"),
                 }
                 self.cleanup_dispatcher(run_id).await;
             }
@@ -1364,6 +1402,25 @@ impl CoordinatorState {
                 let _ = runs::mark_failed_if_active(&self.db, run_id, &reason).await;
                 fan_out_abort(run_id, &siblings, "sibling worker failed — fail-fast").await;
                 self.cleanup_dispatcher(run_id).await;
+            }
+        }
+    }
+
+    /// 목록/타임라인 배지용 verdict 영속(forward-only 캐시). on-demand /report verdict와
+    /// 동일 — 같은 evaluate_criteria를 동일한 완료-후 불변 메트릭에 적용. fail-soft: 리포트
+    /// 빌드 실패는 finalize를 막지 않는다(run은 이미 Completed) — warn! + skip(배지가 NULL로
+    /// 남을 뿐, run은 Completed).
+    async fn persist_verdict(&self, run_id: &str) {
+        match crate::api::runs::build_report_for_run(&self.db, run_id).await {
+            Ok(report) => {
+                if let Some(verdict) = &report.verdict {
+                    if let Err(e) = runs::set_verdict(&self.db, run_id, verdict).await {
+                        warn!(%run_id, error = %e, "failed to persist verdict badge");
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(%run_id, error = %e, "verdict badge skipped: report build failed");
             }
         }
     }
@@ -1545,6 +1602,8 @@ impl CoordinatorState {
             let reason = auto_stop_reason(&stop);
             rw.abort_requested = true;
             rw.auto_stop = Some(stop);
+            // 정지 뒤 ingest는 계단 아닌 run과 같은 비용 — 끝난 감시에 배치를 보내지 않는다.
+            rw.monitor = None;
             let txs: Vec<WorkerTx> = rw.workers.values().filter_map(|e| e.tx.clone()).collect();
             (txs, reason)
         };
@@ -1587,6 +1646,12 @@ impl CoordinatorState {
             .is_some_and(|rw| rw.external_abort)
     }
 
+    /// `None` = run이 finalize돼 맵에서 빠짐.
+    #[cfg(test)]
+    async fn done_cancelled(&self, run_id: &str) -> Option<bool> {
+        Some(self.runs.lock().await.get(run_id)?.done.is_cancelled())
+    }
+
     #[cfg(test)]
     async fn suspended_of(&self, run_id: &str) -> u32 {
         self.runs
@@ -1595,6 +1660,15 @@ impl CoordinatorState {
             .get(run_id)
             .map_or(0, |rw| rw.suspended_seconds)
     }
+}
+
+/// 정지가 효과를 내지 않은 완료의 기록 — 보류 초가 있을 때만(즉시 정지가 일부 시간 동작하지
+/// 않았음을 알림, spec §4.6).
+fn suspended_record(suspended_seconds: u32) -> Option<AutoStopRecord> {
+    (suspended_seconds > 0).then_some(AutoStopRecord {
+        stop: None,
+        suspended_seconds,
+    })
 }
 
 /// 워커에 보내는 자동 정지 사유 — 계단 번호는 1부터.
@@ -2476,15 +2550,22 @@ mod tests {
 
     /// criteria가 있는 run을 seed(메트릭 없음 → p95=0 <= 큰 임계 → verdict passed=true).
     async fn seed_run_with_criteria(db: &Db) -> String {
+        seed_run_criteria(
+            db,
+            runs::Criteria {
+                max_p95_ms: Some(100_000),
+                ..Default::default()
+            },
+        )
+        .await
+    }
+
+    async fn seed_run_criteria(db: &Db, criteria: runs::Criteria) -> String {
         let scenario_yaml = "version: 1\nname: t\nsteps: []\n";
         let sc: handicap_engine::Scenario = serde_yaml::from_str(scenario_yaml).unwrap();
         let scenario = crate::store::scenarios::insert(db, &sc, scenario_yaml)
             .await
             .unwrap();
-        let criteria = runs::Criteria {
-            max_p95_ms: Some(100_000),
-            ..Default::default()
-        };
         let profile = runs::Profile {
             vus: 4,
             ramp_up_seconds: 0,
@@ -6486,6 +6567,254 @@ mod tests {
         assert_eq!(
             abort_reason(m),
             "auto stop: saturation at step 4 (failed steps 3, 4)"
+        );
+    }
+
+    // ---- 계단 자동 정지: 미룬 finalize + 기록 영속 + verdict 가드 (Task 9) ----
+
+    const FAILED: i32 = pb::run_status::Phase::Failed as i32;
+
+    /// 두 워커 run(계단 아님 — 감시 없이 `auto_stop()`을 직접 부른다)을 자동 정지 상태로.
+    /// 반환 = (coord, 정지 기록). 두 워커에 보낸 Abort는 비워 둔다.
+    async fn auto_stopped_two_workers(db: &Db, run_id: &str) -> (CoordinatorState, StopInfo) {
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(
+                run_id.to_string(),
+                base_assignment(),
+                2,
+                4,
+                None,
+                LONG,
+                LONG,
+            )
+            .await;
+        let (tx0, mut r0) = fake_tx();
+        let (tx1, mut r1) = fake_tx();
+        coord.register(run_id, "w0", tx0).await;
+        coord.register(run_id, "w1", tx1).await;
+        assert!(coord.auto_stop(run_id, saturation_stop(3)).await);
+        assert!(is_abort(r0.try_recv().expect("w0에 Abort")));
+        assert!(is_abort(r1.try_recv().expect("w1에 Abort")));
+        let stop = coord.auto_stop_of(run_id).await.expect("정지 기록");
+        (coord, stop)
+    }
+
+    /// 한 초 한 스텝 창 — 요청 `count`개 중 `errors`개 오류.
+    fn err_batch(run_id: &str, w: &str, ts: i64, count: u64, errors: u64) -> pb::MetricBatch {
+        pb::MetricBatch {
+            run_id: run_id.into(),
+            worker_id: w.into(),
+            windows: vec![pb::MetricWindow {
+                ts_second: ts,
+                step_id: "s1".into(),
+                count,
+                error_count: errors,
+                hdr_histogram: hdr_bytes(2000),
+                status_counts: Default::default(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_stop_waits_all_end_phase() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        assert_eq!(
+            coord.done_cancelled(&run_id).await,
+            Some(false),
+            "w0 Aborted만으로는 finalize 안 함(run 남음·done 미취소)"
+        );
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert!(
+            matches!(row.status, RunStatus::Pending | RunStatus::Running),
+            "아직 활성: {:?}",
+            row.status
+        );
+        coord.record_phase(&run_id, "w1", ABORTED, "").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, None, "finalize = 제거");
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert!(row.ended_at.is_some());
+        assert_eq!(
+            row.auto_stop,
+            Some(AutoStopRecord {
+                stop: Some(stop),
+                suspended_seconds: 0,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_stop_all_completed_late_records_null_stop() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.record_phase(&run_id, "w0", COMPLETED, "").await;
+        coord.record_phase(&run_id, "w1", COMPLETED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert!(
+            row.auto_stop.is_none(),
+            "정지가 효과 없음 + 보류 0 → 기록 NULL"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_stop_mixed_completed_aborted_records_stop() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.add_suspended(&run_id, 2).await;
+        coord.record_phase(&run_id, "w0", COMPLETED, "").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, Some(false));
+        coord.record_phase(&run_id, "w1", ABORTED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert_eq!(
+            row.auto_stop,
+            Some(AutoStopRecord {
+                stop: Some(stop),
+                suspended_seconds: 2,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_stop_with_failed_is_failed() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        coord.record_phase(&run_id, "w1", FAILED, "boom").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, None);
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert!(row.auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn external_abort_before_auto_stop_aborted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, _r1) = two_worker_run(&db).await;
+        assert!(coord.abort(&run_id).await);
+        assert!(!coord.auto_stop(&run_id, saturation_stop(3)).await);
+        // 미룸 없음 — 첫 Aborted에서 지금처럼 finalize.
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, None);
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert!(row.auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn external_abort_after_auto_stop_aborted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.abort(&run_id).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, Some(false));
+        coord.record_phase(&run_id, "w1", ABORTED, "").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, None);
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert!(row.auto_stop.is_none());
+    }
+
+    /// R1: 자동 정지로 w0이 Aborted(미룸) → 사용자 중단 → w1이 자연 Completed. 전원 end-phase
+    /// 트리거가 외부 중단과 무관해야 backstop까지 매달리지 않는다.
+    #[tokio::test]
+    async fn auto_stop_then_external_abort_then_natural_completed_finalizes_aborted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        coord.abort(&run_id).await;
+        coord.record_phase(&run_id, "w1", COMPLETED, "").await;
+        assert_eq!(
+            coord.done_cancelled(&run_id).await,
+            None,
+            "마지막 end-phase에서 즉시 finalize"
+        );
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted);
+        assert!(row.auto_stop.is_none());
+    }
+
+    /// w1의 마지막 배치(w0의 Aborted 뒤에 도착)가 오류를 실어 verdict를 실패로 뒤집는다.
+    /// 리포트는 요청 때마다 DB에서 다시 만들므로, 회귀를 잡는 것은 finalize 시점의 영속 verdict뿐.
+    #[tokio::test]
+    async fn sibling_last_flush_in_persisted_verdict() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run_criteria(
+            &db,
+            runs::Criteria {
+                max_error_rate: Some(0.05),
+                ..Default::default()
+            },
+        )
+        .await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        let ts = crate::store::now_ms().div_euclid(1000) - 5;
+        ingest_and_forward(&coord, err_batch(&run_id, "w0", ts, 100, 0)).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        ingest_and_forward(&coord, err_batch(&run_id, "w1", ts, 100, 50)).await;
+        coord.record_phase(&run_id, "w1", ABORTED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        let v = row.verdict.expect("verdict 영속");
+        assert!(!v.passed, "w1 마지막 배치의 오류 25 % > 5 % → 실패");
+    }
+
+    #[tokio::test]
+    async fn verdict_skipped_when_update_lost() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run_with_criteria(&db).await;
+        let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
+        coord.record_phase(&run_id, "w0", ABORTED, "").await;
+        // finalize 전에 경합한 `abort_run`의 무조건 mark_aborted.
+        runs::mark_aborted(&db, &run_id).await.unwrap();
+        coord.record_phase(&run_id, "w1", ABORTED, "").await;
+        assert_eq!(coord.done_cancelled(&run_id).await, None);
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Aborted, "aborted 유지");
+        assert!(row.verdict.is_none(), "UPDATE를 잃은 run엔 verdict 없음");
+        assert!(row.auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn suspended_only_natural_completion_records() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, _r1) = two_worker_run(&db).await;
+        coord.add_suspended(&run_id, 3).await;
+        coord.record_phase(&run_id, "w0", COMPLETED, "").await;
+        coord.record_phase(&run_id, "w1", COMPLETED, "").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert_eq!(
+            row.auto_stop,
+            Some(AutoStopRecord {
+                stop: None,
+                suspended_seconds: 3,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_stop_drops_monitor_sender() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id) = stair_run(&db, stair_cfg(two_fails()), 1).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        assert!(coord.monitor_handle(&run_id).await.is_some());
+        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await);
+        assert!(
+            coord.monitor_handle(&run_id).await.is_none(),
+            "정지 뒤 ingest는 감시에 배치를 보내지 않는다"
         );
     }
 }

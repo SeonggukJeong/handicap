@@ -101,6 +101,8 @@ pub async fn run_monitor(
             _ = done.cancelled() => break,
             m = rx.recv() => match m {
                 Some(m) => m,
+                // 닿지 않음 — 이 작업이 송신자 복제(`handle`)를 들고 있어 채널이 닫히지 않는다.
+                // 끝은 `done` 취소나 정지 결정뿐.
                 None => break,
             },
         };
