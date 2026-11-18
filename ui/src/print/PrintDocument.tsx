@@ -31,6 +31,7 @@ import { GlossarySection } from "./components/GlossarySection";
 import {
   StairHeadline,
   StairPrintTable,
+  StairStop,
   StairTableTitle,
   StairUnitsNote,
   StairWarnings,
@@ -78,6 +79,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return <VerdictSection doc={doc} short />;
     case "kpis":
       return <KpiGrid kpis={doc.kpis} />;
+    case "stair:stop":
+      return doc.stair ? <StairStop stair={doc.stair} /> : null;
     case "stair:headline":
       return doc.stair ? <StairHeadline stair={doc.stair} /> : null;
     case "stair:headline:short":

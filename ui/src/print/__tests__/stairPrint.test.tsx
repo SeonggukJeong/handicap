@@ -12,7 +12,15 @@ import {
 } from "../buildPrintDoc";
 import { PAGE_BODY_MM, paginate, type Block, type LadderLevel } from "../paginate";
 import { buildStairRows } from "../stairTable";
-import { headlineParts, headlineText } from "../../components/report/stair/stairFormat";
+import {
+  clockText,
+  headlineParts,
+  headlineText,
+  reasonTexts,
+  stateLabel,
+  stopLineText,
+  suspendedLineText,
+} from "../../components/report/stair/stairFormat";
 import { StairReportSchema, type Report, type Run, type StairReport } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 
@@ -20,6 +28,15 @@ const golden = StairReportSchema.parse(
   JSON.parse(
     readFileSync(
       nodePath.resolve(__dirname, "../../../../testdata/stair_report_golden.json"),
+      "utf8",
+    ),
+  ),
+);
+
+const autoStopGolden = StairReportSchema.parse(
+  JSON.parse(
+    readFileSync(
+      nodePath.resolve(__dirname, "../../../../testdata/stair_autostop_report_golden.json"),
       "utf8",
     ),
   ),
@@ -273,5 +290,112 @@ describe("PrintDocument 계단", () => {
     plain.slot_limited_targets = [];
     await renderKind(build(plain), "summary");
     expect(screen.queryByText(/동시 실행 한도/)).toBeNull();
+  });
+});
+
+describe("자동 정지 인쇄 (stage-auto-stop)", () => {
+  it("정지 기록 있는 계단: stair:stop이 머리말 앞 (standard·summary 전 단계)", () => {
+    const doc = build(autoStopGolden);
+    const std = ids(standardBlocks(doc, new Map()));
+    expect(std.slice(0, 6)).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "stair:stop",
+      "stair:headline",
+      "stair",
+    ]);
+    for (let l = 0; l <= 8; l++) {
+      const sum = ids(summaryBlocks(doc, new Map(), l as LadderLevel));
+      expect(sum.indexOf("stair:stop")).toBe(sum.indexOf("stair:headline:short") - 1);
+      expect(sum.indexOf("stair:stop")).toBeGreaterThan(0);
+    }
+  });
+
+  it("보류만 있는 기록도 stair:stop(회색 줄), 기록 없으면 블록 없음", () => {
+    const st = structuredClone(autoStopGolden);
+    st.auto_stop = { stop: null, suspended_seconds: 4 };
+    expect(ids(standardBlocks(build(st), new Map()))).toContain("stair:stop");
+    st.auto_stop = { stop: null, suspended_seconds: 0 };
+    expect(ids(standardBlocks(build(st), new Map()))).not.toContain("stair:stop");
+  });
+
+  it("자동 정지 없는 계단 run 블록 id == 변경 전 실측 리터럴", () => {
+    const doc = build(golden);
+    expect(ids(standardBlocks(doc, new Map()))).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "stair:headline",
+      "stair",
+      "stair:warnings",
+      "stair:units",
+      "table",
+      "legend:full",
+      "chart",
+      "conditions",
+      "glossary",
+      "signature",
+    ]);
+    expect(ids(summaryBlocks(doc, new Map(), 0))).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "stair:headline:short",
+      "table",
+      "legend:full",
+    ]);
+    expect(ids(summaryBlocks(doc, new Map(), 8))).toEqual([
+      "header",
+      "verdict:short",
+      "kpis",
+      "stair:headline:short",
+      "table",
+      "legend:short",
+    ]);
+  });
+
+  it("행 상태: partial·skipped는 숫자 칸 「—」, 문구는 화면과 같다", () => {
+    const m = buildStairRows(autoStopGolden);
+    for (const r of m.rows.filter((x) => x.state === "partial" || x.state === "skipped")) {
+      expect(r.cells.slice(2, 10)).toEqual(Array(8).fill("—"));
+      expect(r.reasons).toEqual(reasonTexts(autoStopGolden, autoStopGolden.steps[r.index]));
+    }
+    expect(m.rows.map((r) => r.state)).toContain("partial");
+    expect(m.rows.map((r) => r.state)).toContain("skipped");
+    expect(m.rows[4].cells[10]).toBe(stateLabel("partial"));
+    expect(m.rows[5].cells[10]).toBe(stateLabel("skipped"));
+  });
+
+  it("emergency_stopped 행도 숫자 칸 「—」", () => {
+    const st = structuredClone(autoStopGolden);
+    st.steps[2] = { ...st.steps[2], state: "emergency_stopped" };
+    expect(buildStairRows(st).rows[2].cells.slice(2, 10)).toEqual(Array(8).fill("—"));
+  });
+
+  it("그려진 정지 줄 = stopLineText(clockText(stopped_at_ms)), 보류만이면 suspendedLineText", async () => {
+    const stop = autoStopGolden.auto_stop!.stop!;
+    const text = stopLineText(autoStopGolden, clockText(stop.stopped_at_ms))!;
+    const a = render(
+      <div className="p-root">
+        <PrintDocument doc={build(autoStopGolden)} kind="standard" />
+      </div>,
+    );
+    await waitFor(() =>
+      expect(a.container.querySelector(".p-doc")).toHaveAttribute("data-layout-ready", "true"),
+    );
+    expect(screen.getAllByText(text).length).toBeGreaterThan(0);
+    a.unmount();
+    const st = structuredClone(autoStopGolden);
+    st.auto_stop = { stop: null, suspended_seconds: 4 };
+    const b = render(
+      <div className="p-root">
+        <PrintDocument doc={build(st)} kind="summary" />
+      </div>,
+    );
+    await waitFor(() =>
+      expect(b.container.querySelector(".p-doc")).toHaveAttribute("data-layout-ready", "true"),
+    );
+    expect(screen.getAllByText(suspendedLineText(st)!).length).toBeGreaterThan(0);
   });
 });

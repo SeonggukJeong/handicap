@@ -1,6 +1,13 @@
 import type { StairReport, StairState } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { headlineParts, headlineText, noteTexts } from "../../components/report/stair/stairFormat";
+import {
+  clockText,
+  headlineParts,
+  headlineText,
+  noteTexts,
+  stopLineText,
+  suspendedLineText,
+} from "../../components/report/stair/stairFormat";
 import { MEASURE_IDS } from "../buildPrintDoc";
 import { buildStairRows, discardWarningSteps } from "../stairTable";
 
@@ -18,6 +25,18 @@ const TONE: Record<StairState, string> = {
   partial: "p-muted",
   skipped: "p-muted",
 };
+
+/** 자동 정지 줄(노랑 = 정지, 회색 = 보류만) — 화면 StairStopLine과 같은 글자, 시각은 인쇄 시점 지역 시각. */
+export function StairStop({ stair }: { stair: StairReport }) {
+  const stop = stair.auto_stop?.stop;
+  const text = stop ? stopLineText(stair, clockText(stop.stopped_at_ms)) : suspendedLineText(stair);
+  if (!text) return null;
+  return (
+    <section>
+      <div className={stop ? "p-note p-bold p-warn" : "p-note p-muted"}>{text}</div>
+    </section>
+  );
+}
 
 export function StairHeadline({ stair, short }: { stair: StairReport; short?: boolean }) {
   const lines = headlineText(stair);

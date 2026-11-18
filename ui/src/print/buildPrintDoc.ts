@@ -14,6 +14,7 @@ import { fmtDate } from "./format";
 import { readScenarioFacts } from "./scenarioFacts";
 import { targetSystems } from "./redact";
 import { discardWarningSteps } from "./stairTable";
+import { suspendedLineText } from "../components/report/stair/stairFormat";
 import { buildStepTable, type StepTableModel } from "./stepTable";
 import {
   calloutOneLine,
@@ -201,9 +202,15 @@ const atom = (h: Heights, id: string): Block => ({
 const hasCallouts = (doc: PrintDoc): boolean =>
   doc.callouts.uncounted !== null || doc.callouts.unknown !== null;
 
+/** 정지 줄(노랑) 또는 보류 줄(회색)이 있으면 `stair:stop` 블록 — 기록이 없으면 블록 없음. */
+const hasStairStop = (doc: PrintDoc): boolean =>
+  doc.stair !== null &&
+  (doc.stair.auto_stop?.stop != null || suspendedLineText(doc.stair) !== null);
+
 export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
   const out: Block[] = [atom(h, "header"), atom(h, "verdict:full"), atom(h, "kpis")];
   if (doc.stair !== null) {
+    if (hasStairStop(doc)) out.push(atom(h, "stair:stop"));
     out.push(atom(h, "stair:headline"), {
       kind: "table",
       id: "stair",
@@ -257,7 +264,10 @@ export function summaryBlocks(doc: PrintDoc, h: Heights, level: LadderLevel): Bl
     atom(h, level >= 6 ? "verdict:short" : "verdict:full"),
     atom(h, "kpis"),
   ];
-  if (doc.stair !== null) out.push(atom(h, "stair:headline:short"));
+  if (doc.stair !== null) {
+    if (hasStairStop(doc)) out.push(atom(h, "stair:stop"));
+    out.push(atom(h, "stair:headline:short"));
+  }
   if (doc.otherRows.some((r) => r.judgement === "fail")) {
     out.push(atom(h, level >= 5 ? "other:line" : level >= 4 ? "other:summary1" : "other:summary3"));
   }

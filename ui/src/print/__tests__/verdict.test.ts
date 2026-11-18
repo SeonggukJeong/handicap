@@ -327,3 +327,20 @@ describe("limitOtherRows / oneLine", () => {
     expect(otherCriteriaOneLine([])).toBeNull();
   });
 });
+
+describe("자동 정지 run 판정", () => {
+  it("status completed(+auto_stop)는 판정한다 — notJudged 아님", () => {
+    const crit = { min_rps: 1 } as unknown as Criteria;
+    const box = verdictBox({ count: 10, status: "completed", criteria: crit, verdict: null });
+    expect(box.kind).not.toBe("notJudged");
+    expect(box).toEqual({ kind: "notEvaluable" });
+    expect(
+      verdictBox({
+        count: 10,
+        status: "completed",
+        criteria: crit,
+        verdict: verdict([vrow({ metric: "rps" })]),
+      }),
+    ).toEqual({ kind: "pass", evaluated: 1 });
+  });
+});
