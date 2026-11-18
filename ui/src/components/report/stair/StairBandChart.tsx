@@ -59,12 +59,7 @@ export function StairBandChart({
         label={{ value: c.axisSeconds, position: "insideBottom", offset: -2 }}
         height={36}
       />
-      <YAxis
-        yAxisId="l"
-        domain={rpsDomain}
-        allowDataOverflow
-        label={{ value: c.axisRps, angle: -90, position: "insideLeft" }}
-      />
+      <YAxis yAxisId="l" domain={rpsDomain} allowDataOverflow />
       <YAxis
         yAxisId="r"
         orientation="right"
@@ -72,7 +67,6 @@ export function StairBandChart({
         scale="log"
         domain={p99Domain}
         allowDataOverflow
-        label={{ value: c.axisP99, angle: 90, position: "insideRight" }}
       />
       {bands.map((b, i) => (
         <ReferenceArea
@@ -123,6 +117,10 @@ export function StairBandChart({
   );
   return (
     <div>
+      <div className="flex justify-between text-xs text-slate-600">
+        <span>{c.axisRps}</span>
+        <span>{c.axisP99}</span>
+      </div>
       <div role="img" aria-label={c.bandLabel}>
         {width != null && height != null ? (
           chart

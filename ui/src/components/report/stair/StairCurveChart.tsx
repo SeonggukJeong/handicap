@@ -74,7 +74,16 @@ function renderDot({ cx, cy, payload, index }: DotProps) {
         {...dotPaint(payload.state)}
       />
       {payload.labeled ? (
-        <text x={cx} y={cy - 14} textAnchor="middle" fontSize={11} fill="#334155">
+        <text
+          x={cx}
+          y={cy - 14}
+          textAnchor="middle"
+          fontSize={11}
+          fill="#334155"
+          stroke="#ffffff"
+          strokeWidth={3}
+          paintOrder="stroke"
+        >
           {text}
         </text>
       ) : null}
@@ -120,13 +129,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
         allowDecimals={false}
         label={{ value: c.axisTarget, position: "insideBottom", offset: -12 }}
       />
-      <YAxis
-        scale="log"
-        width={72}
-        domain={yDomain}
-        allowDataOverflow
-        label={{ value: c.axisMs, angle: -90, position: "insideLeft" }}
-      />
+      <YAxis scale="log" width={72} domain={yDomain} allowDataOverflow />
       <YAxis yAxisId="bg" hide domain={[0, 1]} />
       {sat ? (
         <ReferenceArea
@@ -166,6 +169,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
   );
   return (
     <div>
+      <div className="text-xs text-slate-600">{c.axisMs}</div>
       <div role="img" aria-label={c.curveLabel}>
         {width != null && height != null ? (
           chart

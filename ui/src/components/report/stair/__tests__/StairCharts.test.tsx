@@ -66,6 +66,18 @@ describe("StairCurveChart", () => {
     expect(pointTexts(small.container)).toHaveLength(7);
   });
 
+  it("세로축 제목은 svg 밖 가로 캡션, 회전 축 라벨 없음, 점 라벨은 흰 테두리", () => {
+    const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    const cap = screen.getByText(c.axisMs);
+    expect(cap.closest("svg")).toBeNull();
+    expect(container.querySelector('text[transform*="rotate"]')).toBeNull();
+    const label = Array.from(container.querySelectorAll("text")).find(
+      (t) => t.getAttribute("fill") === "#334155",
+    );
+    expect(label?.getAttribute("stroke")).toBe("#ffffff");
+    expect(label?.getAttribute("paint-order")).toBe("stroke");
+  });
+
   it("측정 안 된 계단은 점을 그리지 않는다", () => {
     const st = mk();
     st.steps[5] = { ...st.steps[5], state: "not_measured", p99_us: 0, p50_us: 0 };
@@ -180,6 +192,22 @@ describe("StairBandChart", () => {
       Number(e.getAttribute("cy")),
     );
     expect(Math.min(...cys)).toBeGreaterThan(8 + 10);
+  });
+
+  it("세로축 제목 두 개는 svg 밖 가로 캡션, 회전 축 라벨 없음", () => {
+    const { container } = render(
+      <StairBandChart
+        seconds={golden.seconds}
+        bands={golden.bands}
+        targetLine={golden.target_line}
+        steps={golden.steps}
+        width={800}
+        height={300}
+      />,
+    );
+    expect(screen.getByText(c.axisRps).closest("svg")).toBeNull();
+    expect(screen.getByText(c.axisP99).closest("svg")).toBeNull();
+    expect(container.querySelector('text[transform*="rotate"]')).toBeNull();
   });
 
   it("buildBandSeries: count 0·빠진 초의 p99는 null(보간 없음)", () => {
