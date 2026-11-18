@@ -657,3 +657,54 @@ async fn report_stairs_csv_200_for_stair() {
     assert!(blank >= 1, "{text}");
     assert!(lines[blank + 1].starts_with("index,target_per_s"), "{text}");
 }
+
+#[tokio::test]
+async fn report_stairs_csv_autostop_run() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let cfg = handicap_controller::stair::StairConfig {
+        targets: vec![100, 200, 300],
+        hold_seconds: 1,
+        ramp_seconds: 0,
+        discard_seconds: 0,
+        p99_cap_ms: None,
+        auto_stop: None,
+    };
+    let (run_id, _) = seed_run_with_stair(&db, Some(cfg)).await;
+    let rec = serde_json::json!({
+        "stop": {
+            "kind": "saturation", "mode": "two_fails", "failed_steps": [0, 1],
+            "decided_step": 1, "judged_through": 1, "phase": null,
+            "decided_at_ms": 1_700_000_000_000_i64, "stopped_at_ms": 1_700_000_001_000_i64,
+            "emergency": null, "slot_limited": false
+        },
+        "suspended_seconds": 0
+    });
+    sqlx::query("UPDATE runs SET auto_stop_json = ? WHERE id = ?")
+        .bind(rec.to_string())
+        .bind(&run_id)
+        .execute(&db)
+        .await
+        .unwrap();
+    let app = make_app(db);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report-stairs.csv"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    let first = text.lines().next().unwrap();
+    assert!(
+        first.starts_with("2계단(200 req/s) 판정 뒤 자동 정지 — 1·2계단 연속 실패"),
+        "{text}"
+    );
+    assert!(first.contains("2023-11-14T22:13:21Z"), "{text}");
+}

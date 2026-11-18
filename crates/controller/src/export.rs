@@ -673,13 +673,142 @@ fn stair_ref_step(st: &crate::stair::StairReport, idx: usize) -> Option<&crate::
         .find(|s| s.state == crate::stair::StepState::Ok)
 }
 
+/// UI `errorRateText`: 0.1% 내림, 0이 아닌데 0.0%면 「<0.1%」.
+fn stair_error_rate_text(r: f64) -> String {
+    let txt = floor_pct1(r);
+    if r > 0.0 && txt == "0.0%" {
+        "<0.1%".to_string()
+    } else {
+        txt
+    }
+}
+
+/// UI `formatMs`: 1 ms 미만은 소수 둘째, 이상은 정수(반 올림).
+fn stair_ms_text(us: u64) -> String {
+    let ms = us as f64 / 1000.0;
+    js_to_fixed(ms, if us < 1000 { 2 } else { 0 })
+}
+
+/// 일부 실행 구간별 문구 조각(「N계단」 뒤에 붙는다). 상승은 「상승 S초 진입 후」, 버림·측정은
+/// 계단 시작부터 센 초라 「시작 S초 뒤(…중)」로 적는다.
+fn stair_partial_where(p: &crate::stair::PartialRun) -> String {
+    use crate::stair::BandKind::*;
+    match p.phase {
+        Ramp => format!("상승 {}초 진입 후", p.seconds),
+        Discard => format!("시작 {}초 뒤(버림 중)", p.seconds),
+        Measure => format!("시작 {}초 뒤(측정 중)", p.seconds),
+    }
+}
+
+/// 자동 정지 정지 줄(spec §5.3). 기록된 정지가 없으면 `None`. `time_text` = 정지 시각 글자.
+pub(crate) fn stair_stop_line(st: &crate::stair::StairReport, time_text: &str) -> Option<String> {
+    use crate::auto_stop::StopKind;
+    use crate::stair::{BandKind, SaturationStopMode, StepState};
+    let stop = st.auto_stop.as_ref()?.stop.as_ref()?;
+    let label = |i: usize| match st.steps.get(i) {
+        Some(s) => format!("{}계단({} req/s)", i + 1, s.target),
+        None => format!("{}계단", i + 1),
+    };
+    let d = stop.decided_step as usize;
+    let mut parts: Vec<String> = Vec::new();
+    let head = match stop.kind {
+        StopKind::Saturation => {
+            let list: Vec<String> = stop
+                .failed_steps
+                .iter()
+                .map(|i| (i + 1).to_string())
+                .collect();
+            let mut reason = match stop.mode {
+                Some(SaturationStopMode::FirstFail) => format!(
+                    "{}계단 실패, 첫 실패에서 정지(포화 확인 못 함)",
+                    list.join("·")
+                ),
+                _ => format!("{}계단 연속 실패", list.join("·")),
+            };
+            if stop.slot_limited {
+                reason.push_str(" (슬롯 부족 의심 — 부하기 한계일 수 있음)");
+            }
+            parts.push(reason);
+            format!("{} 판정 뒤 자동 정지", label(d))
+        }
+        StopKind::Emergency => {
+            let phase = match stop.phase {
+                Some(BandKind::Ramp) => "상승",
+                Some(BandKind::Discard) => "버림",
+                _ => "측정",
+            };
+            if let Some(e) = &stop.emergency {
+                let secs = format!("{}초 연속", e.seconds);
+                let err = format!("오류율 {}", stair_error_rate_text(e.max_error_rate));
+                let p99 = format!("p99 {} ms", stair_ms_text(e.max_p99_us));
+                match (e.error_hit, e.p99_hit) {
+                    (true, true) => {
+                        parts.push(err);
+                        parts.push(format!("{p99} {secs}"));
+                    }
+                    (true, false) => parts.push(format!("{err} {secs}")),
+                    (false, _) => parts.push(format!("{p99} {secs}")),
+                }
+            }
+            parts.push(match st.headline.last_ok_target {
+                Some(t) => match st.steps.iter().position(|s| s.target == t) {
+                    Some(i) => format!("마지막 정상 {}", label(i)),
+                    None => format!("마지막 정상 {t} req/s"),
+                },
+                None => "정상 계단 없음".to_string(),
+            });
+            format!("{} {phase} 중 즉시 정지", label(d))
+        }
+    };
+    for (i, s) in st.steps.iter().enumerate() {
+        if let Some(p) = &s.partial {
+            parts.push(format!("{}계단 {} 멈춤", i + 1, stair_partial_where(p)));
+        }
+    }
+    let skipped: Vec<usize> = st
+        .steps
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.state == StepState::Skipped)
+        .map(|(i, _)| i + 1)
+        .collect();
+    if let (Some(a), Some(b)) = (skipped.first(), skipped.last()) {
+        parts.push(if a == b {
+            format!("{a}계단 실행 안 함")
+        } else {
+            format!("{a}–{b}계단 실행 안 함")
+        });
+    }
+    parts.push(time_text.to_string());
+    Some(format!("{head} — {}", parts.join(" · ")))
+}
+
+/// 정지는 없고 감시 보류만 있었을 때의 줄.
+pub(crate) fn stair_suspended_line(st: &crate::stair::StairReport) -> Option<String> {
+    let rec = st.auto_stop.as_ref()?;
+    if rec.stop.is_some() || rec.suspended_seconds == 0 {
+        return None;
+    }
+    Some(format!(
+        "자동 정지 감시가 {}초 보류됐습니다(부하기 등록·데이터 지연) — 그동안 즉시 정지는 동작하지 않았습니다",
+        rec.suspended_seconds
+    ))
+}
+
 /// 계단 머리말 줄들 — 화면 판정 상자(`headlineParts`: 첫 줄 → 힌트 → 지연 상승 시작 →
 /// 튄 계단 → dropped 설명 → 슬롯 부족)와 같은 순서·글자, 그 뒤 안내 줄(`t0_estimated`,
 /// `open_loop_unknown`). CSV·XLSX 시트 첫 줄들에 그대로 쓴다.
 pub fn stair_headline_lines(st: &crate::stair::StairReport) -> Vec<String> {
     use crate::stair::HeadlineKind;
     let h = &st.headline;
-    let mut out = vec![stair_headline_first(st)];
+    let mut out = Vec::new();
+    let stop_line = st
+        .auto_stop
+        .as_ref()
+        .and_then(|r| r.stop.as_ref())
+        .and_then(|stop| stair_stop_line(st, &stair_iso(stop.stopped_at_ms)));
+    out.extend(stop_line.or_else(|| stair_suspended_line(st)));
+    out.push(stair_headline_first(st));
     if h.kind == HeadlineKind::Saturated && h.last_ok_target.is_none() && h.first_fail_hint {
         out.push(
             "첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요"
@@ -756,6 +885,24 @@ fn group_thousands(n: u64) -> String {
 pub(crate) fn stair_reason_texts(st: &crate::stair::StairReport, idx: usize) -> Vec<String> {
     use crate::stair::ReasonKind;
     let step = &st.steps[idx];
+    match step.state {
+        crate::stair::StepState::EmergencyStopped => return vec!["즉시 정지".to_string()],
+        crate::stair::StepState::Skipped => return vec!["실행 안 함".to_string()],
+        crate::stair::StepState::Partial => {
+            return vec![match &step.partial {
+                Some(p) => {
+                    let lead = if p.phase == crate::stair::BandKind::Ramp {
+                        ""
+                    } else {
+                        "계단 "
+                    };
+                    format!("일부 실행 — {lead}{} 정지", stair_partial_where(p))
+                }
+                None => "일부 실행".to_string(),
+            }];
+        }
+        _ => {}
+    }
     let ref_p99 = stair_ref_step(st, step.index as usize).map(|s| s.p99_us);
     let mut out: Vec<String> = step
         .reasons
@@ -838,7 +985,6 @@ fn stair_rate(r: f64) -> String {
 /// 줄·순서 + 안내 줄), 빈 줄 하나, 그다음 머리글+표. 머리말 줄 수는 run마다 다르니 읽는 쪽은
 /// 첫 빈 줄까지 건너뛴다. 측정 안 된 계단의 숫자 칸은 빈 칸. 계단 run이 아니면 `None`.
 pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
-    use crate::stair::StepState;
     let st = report.stair.as_ref()?;
     let mut head = csv::Writer::from_writer(Vec::new());
     for line in stair_headline_lines(st) {
@@ -849,7 +995,7 @@ pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
     let mut w = csv::Writer::from_writer(out);
     w.write_record(STAIR_CSV_COLUMNS).expect("csv header");
     for (i, s) in st.steps.iter().enumerate() {
-        let measured = s.state != StepState::NotMeasured;
+        let measured = s.state.shows_numbers();
         let num = |v: String| if measured { v } else { String::new() };
         w.write_record([
             s.index.to_string(),
@@ -873,7 +1019,6 @@ pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
 
 /// `Stairs` 시트: 머리말 줄들(CSV와 같은 `stair_headline_lines`) → 빈 행 → 머리글 → 표.
 fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
-    use crate::stair::StepState;
     let ws = wb.add_worksheet();
     ws.set_name("Stairs").expect("sheet name");
     let lines = stair_headline_lines(st);
@@ -903,7 +1048,7 @@ fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
     }
     for (i, s) in st.steps.iter().enumerate() {
         let r = header_row + 1 + i as u32;
-        let measured = s.state != StepState::NotMeasured;
+        let measured = s.state.shows_numbers();
         ws.write_number(r, 0, f64::from(s.index)).expect("w");
         ws.write_number(r, 1, f64::from(s.target)).expect("w");
         if measured {
@@ -2025,5 +2170,449 @@ mod tests {
             assert_eq!(ws.get_value((i as u32, 0)), Some(&Data::String(l.clone())));
         }
         assert_eq!(ws.get_value((4, 0)), Some(&Data::String("index".into())));
+    }
+
+    // ---- 자동 정지 줄·행 상태 (stage-auto-stop Task 11) ----
+
+    use crate::auto_stop::{AutoStopRecord, EmergencyStats, StopInfo, StopKind};
+    use crate::stair::{BandKind, HeadlineKind, PartialRun, SaturationStopMode, StepState};
+
+    /// 10계단(100..1000 req/s) 리포트. `states`는 계단별 상태, 정지 기록 = `rec`.
+    fn auto_report(
+        states: [StepState; 10],
+        last_ok: Option<u32>,
+        rec: Option<AutoStopRecord>,
+    ) -> crate::stair::StairReport {
+        let steps = states
+            .iter()
+            .enumerate()
+            .map(|(i, s)| stair_step(i as u32, 100 * (i as u32 + 1), *s, 4000, vec![]))
+            .collect();
+        let mut st = stair_report(
+            HeadlineKind::Saturated,
+            Some(300),
+            last_ok,
+            None,
+            false,
+            steps,
+        );
+        st.auto_stop = rec;
+        st
+    }
+
+    fn sat_info(mode: SaturationStopMode, failed: &[u32], slot: bool) -> StopInfo {
+        StopInfo {
+            kind: StopKind::Saturation,
+            mode: Some(mode),
+            failed_steps: failed.to_vec(),
+            decided_step: *failed.last().unwrap(),
+            judged_through: i64::from(*failed.last().unwrap()),
+            phase: None,
+            decided_at_ms: 1_700_000_000_000,
+            stopped_at_ms: 1_700_000_001_000,
+            emergency: None,
+            slot_limited: slot,
+        }
+    }
+
+    fn emg_info(
+        decided: u32,
+        phase: BandKind,
+        err: f64,
+        p99_us: u64,
+        hits: (bool, bool),
+    ) -> StopInfo {
+        StopInfo {
+            kind: StopKind::Emergency,
+            mode: None,
+            failed_steps: vec![],
+            decided_step: decided,
+            judged_through: i64::from(decided) - 1,
+            phase: Some(phase),
+            decided_at_ms: 1_700_000_000_000,
+            stopped_at_ms: 1_700_000_001_000,
+            emergency: Some(EmergencyStats {
+                max_error_rate: err,
+                max_p99_us: p99_us,
+                seconds: 3,
+                error_hit: hits.0,
+                p99_hit: hits.1,
+            }),
+            slot_limited: false,
+        }
+    }
+
+    fn rec(stop: StopInfo) -> Option<AutoStopRecord> {
+        Some(AutoStopRecord {
+            stop: Some(stop),
+            suspended_seconds: 0,
+        })
+    }
+
+    fn with_partial(
+        mut st: crate::stair::StairReport,
+        idx: usize,
+        s: u32,
+        phase: BandKind,
+    ) -> crate::stair::StairReport {
+        st.steps[idx].partial = Some(PartialRun { seconds: s, phase });
+        st
+    }
+
+    fn two_fails_report() -> crate::stair::StairReport {
+        use StepState::*;
+        let mut s = [Ok; 10];
+        s[6] = Saturated;
+        s[7] = Saturated;
+        s[8] = Partial;
+        s[9] = Skipped;
+        with_partial(
+            auto_report(
+                s,
+                Some(600),
+                rec(sat_info(SaturationStopMode::TwoFails, &[6, 7], false)),
+            ),
+            8,
+            2,
+            BandKind::Ramp,
+        )
+    }
+
+    fn first_fail_report() -> crate::stair::StairReport {
+        use StepState::*;
+        let mut s = [Ok; 10];
+        s[6] = Saturated;
+        s[7] = Partial;
+        s[8] = Skipped;
+        s[9] = Skipped;
+        with_partial(
+            auto_report(
+                s,
+                Some(600),
+                rec(sat_info(SaturationStopMode::FirstFail, &[6], false)),
+            ),
+            7,
+            1,
+            BandKind::Ramp,
+        )
+    }
+
+    fn emergency_report() -> crate::stair::StairReport {
+        use StepState::*;
+        let mut s = [Skipped; 10];
+        for st in s.iter_mut().take(4) {
+            *st = Ok;
+        }
+        s[4] = EmergencyStopped;
+        auto_report(
+            s,
+            Some(400),
+            rec(emg_info(4, BandKind::Ramp, 0.12, 100_000, (true, false))),
+        )
+    }
+
+    #[test]
+    fn stop_line_two_fails() {
+        assert_eq!(
+            stair_stop_line(&two_fails_report(), "TIME").unwrap(),
+            "8계단(800 req/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9계단 상승 2초 진입 후 멈춤 · 10계단 실행 안 함 · TIME"
+        );
+    }
+
+    #[test]
+    fn stop_line_first_fail() {
+        assert_eq!(
+            stair_stop_line(&first_fail_report(), "TIME").unwrap(),
+            "7계단(700 req/s) 판정 뒤 자동 정지 — 7계단 실패, 첫 실패에서 정지(포화 확인 못 함) · 8계단 상승 1초 진입 후 멈춤 · 9–10계단 실행 안 함 · TIME"
+        );
+    }
+
+    #[test]
+    fn stop_line_emergency() {
+        assert_eq!(
+            stair_stop_line(&emergency_report(), "TIME").unwrap(),
+            "5계단(500 req/s) 상승 중 즉시 정지 — 오류율 12.0% 3초 연속 · 마지막 정상 4계단(400 req/s) · 6–10계단 실행 안 함 · TIME"
+        );
+    }
+
+    #[test]
+    fn stop_line_golden() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/stair_stop_line_golden.json"
+        );
+        let want: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let got = serde_json::json!({
+            "two_fails": stair_stop_line(&two_fails_report(), "TIME").unwrap(),
+            "first_fail": stair_stop_line(&first_fail_report(), "TIME").unwrap(),
+            "emergency": stair_stop_line(&emergency_report(), "TIME").unwrap(),
+        });
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn stop_line_from_task10_golden_report_discard_phase() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/stair_autostop_report_golden.json"
+        );
+        let st: crate::stair::StairReport =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            stair_stop_line(&st, "TIME").unwrap(),
+            "4계단(400 req/s) 판정 뒤 자동 정지 — 3·4계단 연속 실패 · 5계단 시작 4초 뒤(버림 중) 멈춤 · 6계단 실행 안 함 · TIME"
+        );
+    }
+
+    #[test]
+    fn partial_wording_by_phase() {
+        let st = with_partial(two_fails_report(), 8, 7, BandKind::Discard);
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.contains(" · 9계단 시작 7초 뒤(버림 중) 멈춤 · "),
+            "{line}"
+        );
+        assert_eq!(
+            stair_reason_texts(&st, 8),
+            vec!["일부 실행 — 계단 시작 7초 뒤(버림 중) 정지"]
+        );
+        let st = with_partial(two_fails_report(), 8, 12, BandKind::Measure);
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.contains(" · 9계단 시작 12초 뒤(측정 중) 멈춤 · "),
+            "{line}"
+        );
+        assert_eq!(
+            stair_reason_texts(&st, 8),
+            vec!["일부 실행 — 계단 시작 12초 뒤(측정 중) 정지"]
+        );
+        let st = two_fails_report();
+        assert_eq!(
+            stair_reason_texts(&st, 8),
+            vec!["일부 실행 — 상승 2초 진입 후 정지"]
+        );
+    }
+
+    #[test]
+    fn multiple_partial_rows_each_get_a_clause() {
+        let mut st = two_fails_report();
+        st.steps[9].state = StepState::Partial;
+        st.steps[9].partial = Some(PartialRun {
+            seconds: 1,
+            phase: BandKind::Ramp,
+        });
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.contains(" · 9계단 상승 2초 진입 후 멈춤 · 10계단 상승 1초 진입 후 멈춤 · T"),
+            "{line}"
+        );
+        assert!(!line.contains("실행 안 함"), "{line}");
+    }
+
+    #[test]
+    fn stop_line_p99_only() {
+        use StepState::*;
+        let mut st = emergency_report();
+        st.auto_stop = rec(emg_info(
+            4,
+            BandKind::Measure,
+            0.0,
+            2_500_000,
+            (false, true),
+        ));
+        st.steps[4].state = EmergencyStopped;
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.starts_with(
+                "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상"
+            ),
+            "{line}"
+        );
+        let _ = Ok;
+    }
+
+    #[test]
+    fn stop_line_both_conditions() {
+        let mut st = emergency_report();
+        st.auto_stop = rec(emg_info(4, BandKind::Discard, 0.5, 2_500_000, (true, true)));
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.starts_with("5계단(500 req/s) 버림 중 즉시 정지 — 오류율 50.0% · p99 2500 ms 3초 연속 · 마지막 정상"),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn emergency_without_ok_step() {
+        let mut st = emergency_report();
+        st.headline.last_ok_target = None;
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(line.contains(" · 정상 계단 없음 · "), "{line}");
+    }
+
+    #[test]
+    fn stop_line_slot_limited_suffix() {
+        let mut st = two_fails_report();
+        st.auto_stop = rec(sat_info(SaturationStopMode::TwoFails, &[6, 7], true));
+        let line = stair_stop_line(&st, "T").unwrap();
+        assert!(
+            line.contains("7·8계단 연속 실패 (슬롯 부족 의심 — 부하기 한계일 수 있음) · 9계단"),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn skipped_single_and_range() {
+        assert!(
+            stair_stop_line(&two_fails_report(), "T")
+                .unwrap()
+                .contains(" · 10계단 실행 안 함 · ")
+        );
+        assert!(
+            stair_stop_line(&first_fail_report(), "T")
+                .unwrap()
+                .contains(" · 9–10계단 실행 안 함 · ")
+        );
+    }
+
+    #[test]
+    fn no_partial_omits_clause() {
+        let mut st = two_fails_report();
+        st.steps[8].state = StepState::Skipped;
+        st.steps[8].partial = None;
+        assert_eq!(
+            stair_stop_line(&st, "T").unwrap(),
+            "8계단(800 req/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9–10계단 실행 안 함 · T"
+        );
+    }
+
+    #[test]
+    fn tiny_error_rate_text() {
+        assert_eq!(stair_error_rate_text(0.0004), "<0.1%");
+        assert_eq!(stair_error_rate_text(0.0), "0.0%");
+        assert_eq!(stair_error_rate_text(0.12), "12.0%");
+        assert_eq!(stair_error_rate_text(0.0129), "1.2%");
+        assert_eq!(stair_ms_text(500), "0.50");
+        assert_eq!(stair_ms_text(999), "1.00");
+        assert_eq!(stair_ms_text(1000), "1");
+        assert_eq!(stair_ms_text(2_500_000), "2500");
+        assert_eq!(stair_ms_text(2500), "3");
+    }
+
+    #[test]
+    fn suspended_line_only() {
+        let mut st = two_fails_report();
+        st.auto_stop = Some(AutoStopRecord {
+            stop: None,
+            suspended_seconds: 4,
+        });
+        assert_eq!(stair_stop_line(&st, "T"), None);
+        assert_eq!(
+            stair_suspended_line(&st).unwrap(),
+            "자동 정지 감시가 4초 보류됐습니다(부하기 등록·데이터 지연) — 그동안 즉시 정지는 동작하지 않았습니다"
+        );
+        assert_eq!(
+            stair_headline_lines(&st)[0],
+            stair_suspended_line(&st).unwrap()
+        );
+        st.auto_stop = Some(AutoStopRecord {
+            stop: None,
+            suspended_seconds: 0,
+        });
+        assert_eq!(stair_suspended_line(&st), None);
+        assert!(!stair_headline_lines(&st)[0].contains("자동 정지"));
+    }
+
+    #[test]
+    fn stairs_csv_starts_with_stop_line_and_blank_numbers() {
+        let st = two_fails_report();
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.stair = Some(st.clone());
+        let csv = String::from_utf8(report_to_stairs_csv(&r).unwrap()).unwrap();
+        let first = csv.lines().next().unwrap();
+        let want = stair_stop_line(&st, "2023-11-14T22:13:21Z").unwrap();
+        assert!(
+            first.contains(&want) || first.trim_matches('"') == want,
+            "{first}"
+        );
+        let mut rd = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .flexible(true)
+            .from_reader(csv.as_bytes());
+        let recs: Vec<csv::StringRecord> = rd.records().map(|x| x.unwrap()).collect();
+        assert_eq!(recs[0][0], want);
+        let hdr = recs.iter().position(|r| &r[0] == "index").unwrap();
+        for (i, (state, reason)) in [
+            (8, ("partial", "일부 실행 — 상승 2초 진입 후 정지")),
+            (9, ("skipped", "실행 안 함")),
+        ] {
+            let row = &recs[hdr + 1 + i];
+            assert_eq!(&row[11], state);
+            assert_eq!(&row[12], reason);
+            for c in 2..11 {
+                assert_eq!(&row[c], "", "row {i} col {c}");
+            }
+        }
+        // 판정 계단 행은 숫자가 있다.
+        assert_ne!(&recs[hdr + 1 + 6][2], "");
+        // 즉시 정지 행.
+        let mut r2 = report_with_steps(vec![step("a", 10, 50)]);
+        r2.stair = Some(emergency_report());
+        let csv = String::from_utf8(report_to_stairs_csv(&r2).unwrap()).unwrap();
+        let mut rd = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .flexible(true)
+            .from_reader(csv.as_bytes());
+        let recs: Vec<csv::StringRecord> = rd.records().map(|x| x.unwrap()).collect();
+        let hdr = recs.iter().position(|r| &r[0] == "index").unwrap();
+        let row = &recs[hdr + 1 + 4];
+        assert_eq!((&row[11], &row[12]), ("emergency_stopped", "즉시 정지"));
+        assert_eq!(&row[2], "");
+        assert_eq!(&row[9], "");
+    }
+
+    #[test]
+    fn xlsx_stairs_sheet_has_stop_line() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let st = two_fails_report();
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.stair = Some(st.clone());
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r))).unwrap();
+        let ws = wb.worksheet_range("Stairs").unwrap();
+        let want = stair_stop_line(&st, "2023-11-14T22:13:21Z").unwrap();
+        assert_eq!(ws.get_value((0, 0)), Some(&Data::String(want)));
+        let lines = stair_headline_lines(&st).len() as u32;
+        let first = lines + 2;
+        let last_col = ws.width() as u32 - 1;
+        assert_eq!(
+            ws.get_value((first + 8, last_col - 1)),
+            Some(&Data::String("partial".into()))
+        );
+        assert_eq!(
+            ws.get_value((first + 9, last_col - 1)),
+            Some(&Data::String("skipped".into()))
+        );
+        for c in [2u32, 3, 4, 5, 8, 9, 11, 12] {
+            assert!(
+                matches!(ws.get_value((first + 8, c)), None | Some(Data::Empty)),
+                "partial col {c}: {:?}",
+                ws.get_value((first + 8, c))
+            );
+        }
+    }
+
+    #[test]
+    fn non_autostop_csv_unchanged() {
+        let st = saturated_sample();
+        assert!(stair_stop_line(&st, "T").is_none());
+        assert!(stair_suspended_line(&st).is_none());
+        let lines = stair_headline_lines(&st);
+        assert_eq!(
+            lines,
+            vec!["포화 계단 200 req/s · 마지막 정상 100 req/s".to_string()]
+        );
     }
 }
