@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import type { StairStep } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
+import { labeledIndices } from "./stairPointLabels";
 import { logDomain } from "./stairChartDomain";
 import { STAIR_STATE_COLOR } from "./stairColors";
 import { floorPct1, formatMs, stateLabel } from "./stairFormat";
@@ -22,6 +23,7 @@ type Row = {
   p50: number | null;
   state: StairStep["state"];
   knee: boolean;
+  labeled: boolean;
 };
 
 type DotProps = { cx?: number; cy?: number; payload?: Row; index?: number };
@@ -71,9 +73,11 @@ function renderDot({ cx, cy, payload, index }: DotProps) {
         r={5}
         {...dotPaint(payload.state)}
       />
-      <text x={cx} y={cy - 14} textAnchor="middle" fontSize={11} fill="#334155">
-        {text}
-      </text>
+      {payload.labeled ? (
+        <text x={cx} y={cy - 14} textAnchor="middle" fontSize={11} fill="#334155">
+          {text}
+        </text>
+      ) : null}
     </g>
   );
 }
@@ -81,17 +85,22 @@ function renderDot({ cx, cy, payload, index }: DotProps) {
 type Props = { steps: StairStep[]; width?: number; height?: number };
 
 export function StairCurveChart({ steps, width, height }: Props) {
-  const rows: Row[] = steps.map((s, idx) => {
+  const base = steps.map((s) => {
     const measured = s.state !== "not_measured" && s.p99_us > 0;
     return {
-      idx,
-      label: String(s.target),
       p99: measured ? s.p99_us / 1000 : null,
       p50: measured && s.p50_us > 0 ? s.p50_us / 1000 : null,
       state: s.state,
       knee: s.knee,
     };
   });
+  const labeled = labeledIndices(base);
+  const rows: Row[] = base.map((b, idx) => ({
+    ...b,
+    idx,
+    label: String(steps[idx].target),
+    labeled: labeled.has(idx),
+  }));
   const yDomain = logDomain(rows.flatMap((r) => [r.p99, r.p50]));
   const sat = steps.find((s) => s.state === "saturated" || s.state === "unconfirmed");
   const chart = (
@@ -113,6 +122,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
       />
       <YAxis
         scale="log"
+        width={72}
         domain={yDomain}
         allowDataOverflow
         label={{ value: c.axisMs, angle: -90, position: "insideLeft" }}

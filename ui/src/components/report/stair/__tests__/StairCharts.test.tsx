@@ -46,6 +46,26 @@ describe("StairCurveChart", () => {
     expect(Math.min(...cys)).toBeGreaterThan(28 + 10);
   });
 
+  it("50계단이면 의미 있는 점(knee·상태 전환 첫 점·최대)에만 라벨, 6계단은 전부", () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      ...golden.steps[0],
+      index: i,
+      target: i + 2,
+      state: (i >= 30 ? "saturated" : "ok") as StairReport["steps"][number]["state"],
+      knee: i === 20,
+      p99_us: (10 + i) * 1000,
+      p50_us: 5000,
+    }));
+    const big = render(<StairCurveChart steps={many} width={900} height={260} />);
+    const pointTexts = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll("text")).filter((t) => t.getAttribute("fill") === "#334155");
+    const texts = pointTexts(big.container);
+    expect(dots(big.container)).toHaveLength(50);
+    expect(texts).toHaveLength(3);
+    const small = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    expect(pointTexts(small.container)).toHaveLength(7);
+  });
+
   it("측정 안 된 계단은 점을 그리지 않는다", () => {
     const st = mk();
     st.steps[5] = { ...st.steps[5], state: "not_measured", p99_us: 0, p50_us: 0 };

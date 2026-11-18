@@ -68,6 +68,7 @@ export function StairBandChart({
       <YAxis
         yAxisId="r"
         orientation="right"
+        width={72}
         scale="log"
         domain={p99Domain}
         allowDataOverflow
