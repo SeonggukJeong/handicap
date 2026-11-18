@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { ValidityBanner } from "../ValidityBanner";
 import type { Validity } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
@@ -115,6 +115,10 @@ describe("ValidityBanner", () => {
     expect(headings).toHaveLength(1);
     const region = screen.getByRole("region", { name: ko.validity.bannerAria });
     expect(region).toContainElement(headings[0]);
+    // 인쇄본 「결과 해석의 범위와 한계」 상자와 같은 문구(보고서 문체)
+    expect(within(region).getByText("이 결과로 확인된 것")).toBeInTheDocument();
+    expect(within(region).getByText("이 결과만으로 판단할 수 없는 것")).toBeInTheDocument();
+    expect(region.textContent).not.toMatch(/말할 수/);
   });
 
   it("limited면 상세가 접혀 있다", () => {

@@ -1465,8 +1465,8 @@ export const ko = {
   // 결과 해석 — can_claim + cannot_claim 코드 맵 (spec §5.1). ValidityBanner의 접이식 상세.
   narrative: {
     title: "결과 해석",
-    canHeading: "말할 수 있는 것",
-    cannotHeading: "말할 수 없는 것",
+    canHeading: "이 결과로 확인된 것",
+    cannotHeading: "이 결과만으로 판단할 수 없는 것",
     can: {
       client_reachability_issue: "클라이언트 도달·연결 문제(대상 서버 한계가 아님)가 있습니다",
       http_error_statuses_seen: "HTTP 오류 상태코드가 관측되었습니다",
