@@ -13,7 +13,7 @@ export function AutoStopBadge({
   const title = stopHeadText(stop, run.profile.stair?.targets ?? []);
   return (
     <span
-      className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
+      className="ml-1 inline-block shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
       title={title}
     >
       {ko.runDetail.autoStopBadge}

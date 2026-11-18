@@ -27,6 +27,15 @@ describe("AutoStopBadge", () => {
     );
   });
 
+  it("좁은 화면에서 줄바꿈·수축하지 않는다", () => {
+    const { container } = render(
+      <AutoStopBadge run={run({ kind: "saturation", decided_step: 0 })} />,
+    );
+    const badge = container.querySelector("span[title]");
+    expect(badge).toHaveClass("whitespace-nowrap");
+    expect(badge).toHaveClass("shrink-0");
+  });
+
   it("포화 정지 상세", () => {
     const { container } = render(
       <AutoStopBadge run={run({ kind: "saturation", decided_step: 0 })} />,
