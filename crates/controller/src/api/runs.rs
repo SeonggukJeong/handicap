@@ -811,6 +811,7 @@ pub(crate) async fn spawn_run(
         profile: crate::grpc::profile::to_proto_profile(profile),
         env: env.clone(),
         data_bindings,
+        stair: profile.stair.clone(),
     };
     // Per-run liveness grace (G1a). Computed from the proto Profile BEFORE
     // `assignment` is moved into any enqueue branch. startup-A = floor (CLI ?? 90s)

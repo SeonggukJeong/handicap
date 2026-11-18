@@ -3,16 +3,20 @@
 //! 절대 초 단위 즉시 정지(spec §4.2(b))를 맡는다.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use handicap_engine::percentiles::{decode_hdr, merge_into};
 use handicap_proto::v1 as pb;
 use hdrhistogram::Histogram;
-use tracing::warn;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
 use crate::auto_stop::{
     EmergencyHit, EmergencyStats, EmergencyTracker, StopInfo, StopKind, saturation_stop,
 };
-use crate::grpc::coordinator::{plausible_second, plausible_start};
+use crate::grpc::coordinator::{CoordinatorState, plausible_second, plausible_start};
 use crate::stair::{BandKind, Bound, SaturationStopMode, StairAccumulator, StairConfig, judge};
 
 /// 시작 시각 전 보류 행 버퍼 상한 — 초 단위.
@@ -33,6 +37,93 @@ pub enum MonitorMsg {
     WorkerEnded {
         worker_id: String,
     },
+}
+
+/// 감시 채널 송신 쪽 — 무제한이라 보내는 쪽이 막히거나 버리지 않는다(spec §4.5).
+/// 큐 길이(보냈고 아직 안 받은 메시지 수)와 그 최댓값을 센다(spec §7 측정).
+#[derive(Clone)]
+pub struct MonitorHandle {
+    tx: UnboundedSender<MonitorMsg>,
+    queued: Arc<AtomicUsize>,
+    queued_max: Arc<AtomicUsize>,
+}
+
+impl MonitorHandle {
+    pub fn new() -> (Self, UnboundedReceiver<MonitorMsg>) {
+        let (tx, rx) = unbounded_channel();
+        (
+            Self {
+                tx,
+                queued: Arc::new(AtomicUsize::new(0)),
+                queued_max: Arc::new(AtomicUsize::new(0)),
+            },
+            rx,
+        )
+    }
+
+    /// 감시 작업이 이미 끝났으면(수신자 drop) 메시지는 버려진다.
+    pub fn send(&self, msg: MonitorMsg) {
+        let n = self.queued.fetch_add(1, Ordering::Relaxed) + 1;
+        self.queued_max.fetch_max(n, Ordering::Relaxed);
+        if self.tx.send(msg).is_err() {
+            self.queued.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+
+    fn received(&self) {
+        self.queued.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn queue_max(&self) -> usize {
+        self.queued_max.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+}
+
+/// run 하나의 감시 작업. `done`(run finalize) 취소나 정지 결정에서 끝난다.
+/// 정지는 `CoordinatorState::auto_stop`으로만 실행한다(spec §4.5).
+pub async fn run_monitor(
+    coord: CoordinatorState,
+    run_id: String,
+    mut monitor: StairMonitor,
+    mut rx: UnboundedReceiver<MonitorMsg>,
+    done: CancellationToken,
+    handle: MonitorHandle,
+) {
+    let mut batches: u64 = 0;
+    loop {
+        let msg = tokio::select! {
+            biased;
+            _ = done.cancelled() => break,
+            m = rx.recv() => match m {
+                Some(m) => m,
+                None => break,
+            },
+        };
+        handle.received();
+        if matches!(msg, MonitorMsg::Batch(_)) {
+            batches += 1;
+        }
+        // ingest의 타당성 필터와 같은 시계(`store::now_ms`) — 차이는 큐에서 기다린 시간뿐.
+        let out = monitor.on_msg(msg, crate::store::now_ms());
+        if out.newly_suspended > 0 {
+            coord.add_suspended(&run_id, out.newly_suspended).await;
+        }
+        if let Some(stop) = out.stop {
+            coord.auto_stop(&run_id, stop).await;
+            break;
+        }
+    }
+    info!(
+        run_id = %run_id,
+        queue_max = handle.queue_max(),
+        batches,
+        "auto-stop monitor finished"
+    );
 }
 
 #[derive(Debug, Default)]
