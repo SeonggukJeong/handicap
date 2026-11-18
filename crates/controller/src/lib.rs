@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod auto_stop;
 pub mod binding;
 #[cfg(feature = "bundle")]
 pub mod bundle;
