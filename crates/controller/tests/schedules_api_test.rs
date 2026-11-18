@@ -431,7 +431,8 @@ async fn schedule_create_and_update_roundtrip_auto_stop() {
     let mut bad = stair_profile();
     bad["stair"]["auto_stop"] = json!({ "emergency":
         { "error_rate_pct": 5, "p99_ms": 0, "consecutive_seconds": 3, "min_requests": 20 } });
-    let (status, _) = send(
+    let msg = "즉시 정지 p99는 1ms 이상 600,000ms 이하여야 합니다";
+    let (status, resp) = send(
         &app,
         Method::POST,
         "/api/schedules",
@@ -439,7 +440,8 @@ async fn schedule_create_and_update_roundtrip_auto_stop() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = send(
+    assert!(resp.to_string().contains(msg), "POST: {resp}");
+    let (status, resp) = send(
         &app,
         Method::PUT,
         &format!("/api/schedules/{id}"),
@@ -447,4 +449,5 @@ async fn schedule_create_and_update_roundtrip_auto_stop() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(resp.to_string().contains(msg), "PUT: {resp}");
 }

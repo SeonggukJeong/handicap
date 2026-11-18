@@ -1204,7 +1204,6 @@ mod tests {
                 "cap 0",
                 StairConfig {
                     p99_cap_ms: Some(0),
-                    auto_stop: None,
                     ..cfg()
                 },
             ),
@@ -1212,7 +1211,6 @@ mod tests {
                 "cap huge",
                 StairConfig {
                     p99_cap_ms: Some(600_001),
-                    auto_stop: None,
                     ..cfg()
                 },
             ),

@@ -962,4 +962,12 @@ async fn create_stair_run_roundtrips_auto_stop_and_rejects_bad_range() {
         "emergency": { "error_rate_pct": 0, "p99_ms": 1500, "consecutive_seconds": 4, "min_requests": 30 } });
     let resp = app.clone().oneshot(post_run(bad)).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8_lossy(&bytes);
+    assert!(
+        body.contains("즉시 정지 오류율은 0 초과 100 이하여야 합니다"),
+        "auto_stop 검증이 거절해야 한다: {body}"
+    );
 }

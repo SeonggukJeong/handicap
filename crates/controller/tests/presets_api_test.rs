@@ -407,13 +407,20 @@ async fn preset_create_and_update_roundtrip_auto_stop() {
     let mut bad = stair_profile();
     bad["stair"]["auto_stop"] = json!({ "emergency":
         { "error_rate_pct": 100.01, "p99_ms": 2000, "consecutive_seconds": 3, "min_requests": 20 } });
+    let msg = "즉시 정지 오류율은 0 초과 100 이하여야 합니다";
     let resp = app.clone().oneshot(put(bad.clone())).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let (s, _) = post(
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8_lossy(&bytes);
+    assert!(body.contains(msg), "PUT: {body}");
+    let (s, resp) = post(
         &app,
         &format!("/api/scenarios/{sid}/presets"),
         json!({ "name": "bad", "profile": bad, "env": {} }),
     )
     .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(resp.to_string().contains(msg), "POST: {resp}");
 }
