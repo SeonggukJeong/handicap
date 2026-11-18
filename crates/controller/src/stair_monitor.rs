@@ -316,6 +316,10 @@ impl StairMonitor {
             self.secs_done = Some(t);
             if self.in_range(t) != Some(false) {
                 suspended += 1;
+                // 모르는 초는 표본 적은 보류 초와 다르다 — 「N초 연속」이 그 초를 건너뛰지 않게 끊는다.
+                if let Some(e) = self.emergency.as_mut() {
+                    e.reset();
+                }
             }
         }
         suspended
@@ -332,6 +336,7 @@ impl StairMonitor {
         }
         let n = self.cfg.targets.len().max(1) as i64;
         let step_ms = (i64::from(self.cfg.ramp_seconds + self.cfg.hold_seconds) * 1000).max(1);
+        // 가장 이른 워커의 스케줄 끝을 넘은 꼬리 초(늦게 시작한 워커)는 마지막 계단(측정)으로 붙인다.
         let i = (elapsed / step_ms).min(n - 1);
         let within = elapsed - i * step_ms;
         let ramp_ms = i64::from(self.cfg.ramp_seconds) * 1000;
@@ -1131,7 +1136,9 @@ mod tests {
                 };
                 for ts in chunk..=(chunk + 4).min(last) {
                     let k = ts + wi as i64 * 7;
-                    let (l, cpl, d) = (40 + (k * 7 % 13), 40 + (k * 7 % 13) - k % 3, k % 17 / 16);
+                    // dropped는 계단 3부터만 — 앞 계단은 정상, 뒤 계단은 실패로 상태가 섞인다.
+                    let d = if ts >= T0 + 70 { k % 17 / 16 } else { 0 };
+                    let (l, cpl) = (40 + (k * 7 % 13), 40 + (k * 7 % 13) - k % 3);
                     b.open_loop_seconds.push(pb::OpenLoopSecond {
                         ts_second: ts,
                         launched: l as u64,
@@ -1175,7 +1182,7 @@ mod tests {
         let mut profile: crate::store::runs::Profile =
             serde_json::from_value(serde_json::json!({"duration_seconds": 0, "max_in_flight": 50}))
                 .unwrap();
-        profile.stair = Some(c);
+        profile.stair = Some(c.clone());
         let inp = StairInputs {
             open_loop: ol,
             starts: t0s
@@ -1188,6 +1195,7 @@ mod tests {
         };
         let rep = build_stair_report(&profile, 0, &rows, &inp).unwrap();
         let mon: Vec<StepNumbers> = m.judged_numbers();
+        let mon_states = judge(&mon, &c).states;
         assert_eq!(mon.len(), 5);
         for (i, n) in mon.iter().enumerate() {
             let s = &rep.steps[i];
@@ -1204,6 +1212,13 @@ mod tests {
         }
         assert!(mon.iter().any(|n| n.dropped.unwrap() > 0));
         assert!(mon.iter().any(|n| n.error_rate > 0.0));
+        // 판정 상태도 같다 — 정상과 실패가 섞여 있어야 대조가 공허하지 않다(계단 0–2 정상, 3–4 dropped 실패).
+        for (i, st) in mon_states.iter().enumerate() {
+            assert_eq!(*st, rep.steps[i].state, "step {i} state");
+        }
+        let states: Vec<_> = rep.steps.iter().map(|s| s.state).collect();
+        assert!(states.contains(&crate::stair::StepState::Ok));
+        assert!(states.iter().any(|s| *s != crate::stair::StepState::Ok));
     }
 
     // ── 즉시 정지 — 초 버퍼·보류·두 정지 우선순위 ──────────────────────────
@@ -1610,5 +1625,36 @@ mod tests {
         assert!(!m.acc().step_hist_held(1));
         assert!(!m.acc().step_hist_held(2));
         assert!(m.acc().step_hist_held(3), "미완결 계단 3은 유지");
+    }
+
+    #[test]
+    fn suspended_seconds_break_emergency_streak() {
+        // 나쁜 초 T0+10·11 관측(연속 2) → T0+12..21은 30초 상한으로 버려짐(보류) → T0+22 나쁜 초.
+        // 가운데 10초는 모르는 초라 연속이 아니다 — T0+22에서 정지하면 안 된다.
+        let bad = [10, 11, 22, 40, 41, 42];
+        let f = move |ts: i64| if bad.contains(&(ts - T0)) { ERR } else { OK };
+        let mut m = StairMonitor::new(&cfg_em(None), 2);
+        let out = interleave(
+            &mut m,
+            &[("w0", T0MS, T0, T0 + 11, &f), ("w1", T0MS, T0, T0 + 11, &f)],
+            10,
+        );
+        assert!(stops(&out).is_empty());
+        let o = m.on_msg(span("w0", T0MS, T0 + 12, T0 + 51, f), NOW2);
+        assert_eq!(o.newly_suspended, 10);
+        assert!(
+            m.on_msg(span("w1", T0MS, T0 + 12, T0 + 30, f), NOW2)
+                .stop
+                .is_none(),
+            "버린 초를 사이에 둔 나쁜 초는 이어 세지 않는다"
+        );
+        let stop = m
+            .on_msg(span("w1", T0MS, T0 + 31, T0 + 51, f), NOW2)
+            .stop
+            .expect("새 나쁜 초 3개에서 정지");
+        assert_eq!(stop.emergency.unwrap().seconds, 3);
+        // T0+42: 계단 2 첫 초 → 상승.
+        assert_eq!(stop.decided_step, 2);
+        assert_eq!(stop.phase, Some(BandKind::Ramp));
     }
 }

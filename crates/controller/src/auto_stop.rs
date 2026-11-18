@@ -91,6 +91,15 @@ impl EmergencyTracker {
         }
     }
 
+    /// 연속 계수와 그 통계를 처음으로 — 판정 못 하고 버린 초(감시 보류)가 연속을 끊는다.
+    pub fn reset(&mut self) {
+        self.streak = 0;
+        self.max_error_rate = 0.0;
+        self.max_p99_us = 0;
+        self.error_hit = false;
+        self.p99_hit = false;
+    }
+
     /// 한 절대 초의 합산값을 넣는다. 연속 N초가 채워지면 `Some`.
     pub fn observe(
         &mut self,
@@ -106,11 +115,7 @@ impl EmergencyTracker {
         let err_bad = (errors as f64) * 100.0 > self.error_rate_pct * (count as f64);
         let p99_bad = p99_us > self.p99_us_limit;
         if !(err_bad || p99_bad) {
-            self.streak = 0;
-            self.max_error_rate = 0.0;
-            self.max_p99_us = 0;
-            self.error_hit = false;
-            self.p99_hit = false;
+            self.reset();
             return None;
         }
         self.streak += 1;
