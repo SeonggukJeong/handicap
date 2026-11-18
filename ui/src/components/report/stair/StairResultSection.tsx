@@ -1,6 +1,7 @@
 import type { StairReport } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 import { PageSection } from "../../ui/PageSection";
+import { StairStopLine } from "./StairStopLine";
 import { StairHeadline } from "./StairHeadline";
 import { StairBandChart } from "./StairBandChart";
 import { StairCurveChart } from "./StairCurveChart";
@@ -9,6 +10,7 @@ import { StairTable } from "./StairTable";
 export function StairResultSection({ stair }: { stair: StairReport }) {
   return (
     <PageSection ariaLabel={ko.report.stair.title} title={ko.report.stair.title}>
+      <StairStopLine stair={stair} />
       <StairHeadline stair={stair} />
       <PageSection
         sub

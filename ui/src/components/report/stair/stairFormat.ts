@@ -39,7 +39,28 @@ function refStep(steps: StairStep[], idx: number): StairStep | undefined {
   return undefined;
 }
 
+type PartialRun = NonNullable<StairStep["partial"]>;
+
+function partialWhere(p: PartialRun): string {
+  switch (p.phase) {
+    case "ramp":
+      return t.stopPartialRamp(p.seconds);
+    case "discard":
+      return t.stopPartialDiscard(p.seconds);
+    case "measure":
+      return t.stopPartialMeasure(p.seconds);
+  }
+}
+
 export function reasonTexts(stair: StairReport, step: StairStep): string[] {
+  if (step.state === "emergency_stopped") return [t.rowEmergency];
+  if (step.state === "skipped") return [t.rowSkipped];
+  if (step.state === "partial") {
+    const p = step.partial;
+    if (!p) return [t.rowPartial];
+    const where = partialWhere(p);
+    return [p.phase === "ramp" ? t.rowPartialRamp(where) : t.rowPartialBand(where)];
+  }
   const out = step.reasons.map((r) => {
     switch (r.kind) {
       case "achieved":
@@ -146,4 +167,74 @@ export function noteTexts(stair: StairReport): string[] {
 export function headlineText(stair: StairReport): string[] {
   const p = headlineParts(stair);
   return [p.first, ...p.lines.map((l) => l.text)];
+}
+
+/** 화면 정지 시각: 지역 `HH:MM:SS`(0 채움). CSV·XLSX는 UTC ISO를 쓴다. */
+export function clockText(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** 자동 정지 줄 — Rust `export.rs::stair_stop_line`과 같은 글자. 정지 기록이 없으면 null. */
+export function stopLineText(stair: StairReport, timeText: string): string | null {
+  const stop = stair.auto_stop?.stop;
+  if (!stop) return null;
+  const label = (i: number) => {
+    const s = stair.steps[i];
+    return s ? t.stopLabel(i + 1, s.target) : t.stopLabel(i + 1);
+  };
+  const parts: string[] = [];
+  let head: string;
+  if (stop.kind === "saturation") {
+    const list = stop.failed_steps.map((i) => String(i + 1)).join("·");
+    let reason =
+      stop.mode === "first_fail" ? t.stopFirstFailReason(list) : t.stopTwoFailsReason(list);
+    if (stop.slot_limited) reason += t.stopSlotLimitedSuffix;
+    parts.push(reason);
+    head = t.stopSaturationHead(label(stop.decided_step));
+  } else {
+    const phase =
+      t.stopPhaseName[stop.phase === "ramp" || stop.phase === "discard" ? stop.phase : "measure"];
+    const e = stop.emergency;
+    if (e) {
+      const secs = t.stopConsecutive(e.seconds);
+      const err = t.stopErrorRate(errorRateText(e.max_error_rate));
+      const p99 = t.stopP99(formatMs(e.max_p99_us));
+      if (e.error_hit && e.p99_hit) {
+        parts.push(err);
+        parts.push(`${p99} ${secs}`);
+      } else if (e.error_hit) {
+        parts.push(`${err} ${secs}`);
+      } else {
+        parts.push(`${p99} ${secs}`);
+      }
+    }
+    const lastOk = stair.headline.last_ok_target;
+    if (lastOk == null) {
+      parts.push(t.stopNoOk);
+    } else {
+      const i = stair.steps.findIndex((s) => s.target === lastOk);
+      parts.push(i >= 0 ? t.stopLastOk(label(i)) : t.stopLastOkTarget(lastOk));
+    }
+    head = t.stopEmergencyHead(label(stop.decided_step), phase);
+  }
+  stair.steps.forEach((s, i) => {
+    if (s.partial) parts.push(t.stopPartialClause(i + 1, partialWhere(s.partial)));
+  });
+  const skipped = stair.steps.flatMap((s, i) => (s.state === "skipped" ? [i + 1] : []));
+  if (skipped.length > 0) {
+    const a = skipped[0];
+    const b = skipped[skipped.length - 1];
+    parts.push(a === b ? t.stopSkippedOne(a) : t.stopSkippedRange(a, b));
+  }
+  parts.push(timeText);
+  return `${head} — ${parts.join(" · ")}`;
+}
+
+/** 정지 없이 감시 보류만 있었을 때의 줄. */
+export function suspendedLineText(stair: StairReport): string | null {
+  const rec = stair.auto_stop;
+  if (!rec || rec.stop || rec.suspended_seconds === 0) return null;
+  return t.stopSuspendedLine(rec.suspended_seconds);
 }

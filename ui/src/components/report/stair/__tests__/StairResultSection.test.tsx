@@ -5,7 +5,7 @@ import nodePath from "node:path";
 import { MemoryRouter } from "react-router-dom";
 import { StairReportSchema, type StairReport, type StairStep } from "../../../../api/schemas";
 import { StairResultSection } from "../StairResultSection";
-import { formatMs, headlineText, stateLabel, floorPct1 } from "../stairFormat";
+import { formatMs, headlineText, stateLabel, floorPct1, clockText } from "../stairFormat";
 import { ReportView } from "../../ReportView";
 import { ko } from "../../../../i18n/ko";
 
@@ -359,5 +359,51 @@ describe("StairResultSection auto-stop states", () => {
     expect(rows[5]).toHaveTextContent("일부 실행");
     expect(rows[6]).toHaveTextContent("실행 안 함");
     expect(stateLabel("emergency_stopped")).toBe("즉시 정지");
+  });
+});
+
+describe("자동 정지 줄", () => {
+  const stopRec = (): NonNullable<StairReport["auto_stop"]> => ({
+    stop: {
+      kind: "saturation",
+      mode: "two_fails",
+      failed_steps: [4, 5],
+      decided_step: 5,
+      judged_through: 5,
+      phase: null,
+      decided_at_ms: 1_700_000_000_000,
+      stopped_at_ms: 1_700_000_001_000,
+      emergency: null,
+      slot_limited: false,
+    },
+    suspended_seconds: 0,
+  });
+
+  it("정지 줄이 판정 머리말보다 앞(DOM 순서), 시각은 HH:MM:SS", () => {
+    const st = mk({ auto_stop: stopRec() });
+    withStep(st, 6, { state: "partial", partial: { seconds: 2, phase: "ramp" } });
+    render(<StairResultSection stair={st} />);
+    const line = document.querySelector('[data-tone="auto-stop"]') as HTMLElement;
+    const head = document.querySelector('[data-tone="headline"]') as HTMLElement;
+    expect(line).not.toBeNull();
+    expect(line.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(line.textContent).toMatch(/\d{2}:\d{2}:\d{2}$/);
+    expect(line.textContent!.endsWith(clockText(1_700_000_001_000))).toBe(true);
+    expect(line.textContent).toContain("6계단");
+    expect(screen.getByText("일부 실행 — 상승 2초 진입 후 정지")).toBeInTheDocument();
+  });
+
+  it("보류만 있으면 회색 줄만", () => {
+    render(<StairResultSection stair={mk({ auto_stop: { stop: null, suspended_seconds: 4 } })} />);
+    expect(document.querySelector('[data-tone="auto-stop"]')).toBeNull();
+    expect(document.querySelector('[data-tone="auto-stop-suspended"]')!.textContent).toContain(
+      "4초 보류됐습니다",
+    );
+  });
+
+  it("기록 없으면 둘 다 없음", () => {
+    render(<StairResultSection stair={mk()} />);
+    expect(document.querySelector('[data-tone="auto-stop"]')).toBeNull();
+    expect(document.querySelector('[data-tone="auto-stop-suspended"]')).toBeNull();
   });
 });
