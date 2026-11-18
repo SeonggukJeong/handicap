@@ -461,19 +461,10 @@ const HEAD_RATIO_WARN: u64 = 2;
 const HEAD_MIN_US: u64 = 1000;
 
 struct WorkerView<'a> {
+    id: &'a str,
     t0_ms: i64,
     metrics: Vec<&'a WindowWithHdr>,
     open_loop: Vec<&'a OpenLoopSecondRow>,
-    /// 계단 i의 측정 초 `[lo, hi)` (ts_second).
-    windows: Vec<(i64, i64)>,
-}
-
-impl WorkerView<'_> {
-    fn step_of(&self, ts: i64) -> Option<usize> {
-        self.windows
-            .iter()
-            .position(|&(lo, hi)| (lo..hi).contains(&ts))
-    }
 }
 
 /// 스케줄러가 그 초에 도착을 만들었나(시작했거나 슬롯이 없어 버렸나).
@@ -497,31 +488,267 @@ fn clamp_u32(v: i64) -> u32 {
 /// 워커 t0에서 계단 i의 측정 초 `[lo, hi)`: `[ts·1000, ts·1000+1000)`이 측정 구간에
 /// 완전히 들어가고 `ts ≤ last`인 정수 초.
 /// 시각은 부하기가 보낸 값이라 포화 산술로 계산한다(터무니없는 값에도 패닉 없음).
-fn measure_window(cfg: &StairConfig, t0_ms: i64, last: Option<i64>, i: usize) -> (i64, i64) {
+fn measure_window(cfg: &StairConfig, t0_ms: i64, bound: Bound, i: usize) -> (i64, i64) {
     let step_ms = i64::from(cfg.ramp_seconds + cfg.hold_seconds) * 1000;
     let start = t0_ms.saturating_add((i as i64).saturating_mul(step_ms));
     let ms = start.saturating_add(i64::from(cfg.ramp_seconds + cfg.discard_seconds) * 1000);
     let me = start.saturating_add(step_ms);
     let lo = ms.div_euclid(1000) + i64::from(ms.rem_euclid(1000) != 0);
-    let hi = match last {
-        Some(l) => me.div_euclid(1000).min(l.saturating_add(1)),
-        None => lo,
+    let hi = match bound {
+        Bound::Upto(l) => me.div_euclid(1000).min(l.saturating_add(1)),
+        Bound::Open => me.div_euclid(1000),
     };
     (lo, hi.max(lo))
 }
 
+/// 계단 측정 구간의 끝을 어디서 자르나.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bound {
+    /// 리포트: 스케줄러가 도착을 만든 마지막 초(`last`)까지만.
+    Upto(i64),
+    /// 감시: 측정 구간 끝까지(판정엔 완결 계단만 쓰므로 자를 필요 없음).
+    Open,
+}
+
+/// 표(리포트)에 찍는 계단별 보조 숫자.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepDetail {
+    pub throughput: f64,
+    pub launched_rate: f64,
+    pub p50_us: u64,
+    pub p95_us: u64,
+    pub head_p99_us: u64,
+    pub rest_p99_us: u64,
+    pub measured_seconds: u32,
+}
+
+/// 워커 하나의 정수 계수. f64 나눗셈·합은 `StairAccumulator`가 worker_id 순서로만 한다.
+struct WorkerAcc {
+    /// 계단 i의 측정 초 `[lo, hi)` (ts_second).
+    windows: Vec<(i64, i64)>,
+    completed: Vec<u64>,
+    launched: Vec<u64>,
+    count: Vec<u64>,
+}
+
+impl WorkerAcc {
+    /// 계단 배정은 여기 한 곳뿐.
+    fn step_of(&self, ts: i64) -> Option<usize> {
+        self.windows
+            .iter()
+            .position(|&(lo, hi)| (lo..hi).contains(&ts))
+    }
+}
+
+/// 워커 합산 계수(정수·HDR는 합산 순서와 무관).
 #[derive(Default)]
-struct StepAcc {
-    achieved: f64,
-    launched_rate: f64,
-    throughput: f64,
+struct StepAgg {
     dropped: u64,
     count: u64,
     errors: u64,
-    min_secs: Option<i64>,
     hist: Option<Histogram<u64>>,
     head: Option<Histogram<u64>>,
     rest: Option<Histogram<u64>>,
+}
+
+/// 계단 집계 — 리포트(DB 행)와 감시(받은 배치)가 같이 쓴다.
+pub struct StairAccumulator {
+    cfg: StairConfig,
+    /// true면 앞부분/나머지 HDR(⚠ 계산)도 모은다 — 리포트용.
+    detail: bool,
+    /// worker_id 정렬 — f64 합 순서의 단일 기준.
+    workers: BTreeMap<String, WorkerAcc>,
+    steps: Vec<StepAgg>,
+    /// 감시가 판정을 끝내고 계수를 해제한 계단의 숫자.
+    released: Vec<Option<StepNumbers>>,
+}
+
+impl StairAccumulator {
+    pub fn new(cfg: &StairConfig, detail: bool) -> Self {
+        let n = cfg.targets.len();
+        Self {
+            cfg: cfg.clone(),
+            detail,
+            workers: BTreeMap::new(),
+            steps: (0..n).map(|_| StepAgg::default()).collect(),
+            released: vec![None; n],
+        }
+    }
+
+    /// 워커를 등록한다(워커당 한 번, 행을 밀어 넣기 전).
+    pub fn set_worker(&mut self, w: &str, t0_ms: i64, bound: Bound) {
+        let n = self.cfg.targets.len();
+        let windows = (0..n)
+            .map(|i| measure_window(&self.cfg, t0_ms, bound, i))
+            .collect();
+        self.workers.insert(
+            w.to_string(),
+            WorkerAcc {
+                windows,
+                completed: vec![0; n],
+                launched: vec![0; n],
+                count: vec![0; n],
+            },
+        );
+    }
+
+    /// 등록 안 된 워커·해제된 계단의 행은 무시한다.
+    pub fn push_open_loop(
+        &mut self,
+        w: &str,
+        ts: i64,
+        launched: i64,
+        completed: i64,
+        dropped: i64,
+    ) {
+        let Some(wa) = self.workers.get_mut(w) else {
+            return;
+        };
+        let Some(i) = wa.step_of(ts) else {
+            return;
+        };
+        if self.released[i].is_some() {
+            return;
+        }
+        add(&mut wa.completed[i], completed);
+        add(&mut wa.launched[i], launched);
+        add(&mut self.steps[i].dropped, dropped);
+    }
+
+    pub fn push_metric(
+        &mut self,
+        w: &str,
+        ts: i64,
+        count: i64,
+        errors: i64,
+        h: Option<&Histogram<u64>>,
+    ) {
+        let Some(wa) = self.workers.get_mut(w) else {
+            return;
+        };
+        let Some(i) = wa.step_of(ts) else {
+            return;
+        };
+        if self.released[i].is_some() {
+            return;
+        }
+        add(&mut wa.count[i], count);
+        let acc = &mut self.steps[i];
+        add(&mut acc.count, count);
+        add(&mut acc.errors, errors);
+        if let Some(h) = h {
+            merge_opt(&mut acc.hist, h);
+            if self.detail {
+                let part = if ts < wa.windows[i].0.saturating_add(HEAD_SECONDS) {
+                    &mut acc.head
+                } else {
+                    &mut acc.rest
+                };
+                merge_opt(part, h);
+            }
+        }
+    }
+
+    /// 워커 `w`의 계단 `i` 측정 초 `[lo, hi)`.
+    pub fn window(&self, w: &str, i: usize) -> Option<(i64, i64)> {
+        self.workers.get(w)?.windows.get(i).copied()
+    }
+
+    fn min_secs(&self, i: usize) -> Option<i64> {
+        self.workers
+            .values()
+            .map(|w| w.windows[i].1.saturating_sub(w.windows[i].0))
+            .min()
+    }
+
+    /// (달성, 시작율, 처리율) — 워커별 계수 ÷ 측정 초를 worker_id 순서로 더한다.
+    fn rates(&self, i: usize) -> (f64, f64, f64) {
+        let (mut achieved, mut launched, mut throughput) = (0.0, 0.0, 0.0);
+        for w in self.workers.values() {
+            let (lo, hi) = w.windows[i];
+            let secs_w = hi.saturating_sub(lo);
+            if secs_w > 0 {
+                let d = secs_w as f64;
+                achieved += w.completed[i] as f64 / d;
+                launched += w.launched[i] as f64 / d;
+                throughput += w.count[i] as f64 / d;
+            }
+        }
+        (achieved, launched, throughput)
+    }
+
+    fn step_numbers(&self, i: usize, complete: bool, unknown: bool) -> StepNumbers {
+        let acc = &self.steps[i];
+        let measure_len = self
+            .cfg
+            .hold_seconds
+            .saturating_sub(self.cfg.discard_seconds);
+        let measured_seconds = clamp_u32(self.min_secs(i).unwrap_or(0));
+        // 예전 부하기라 달성을 모르고 측정 구간 요청도 0이면 판정할 근거가 없다.
+        let measured = complete
+            && measured_seconds.saturating_mul(2) >= measure_len
+            && !(unknown && acc.count == 0);
+        StepNumbers {
+            target: self.cfg.targets[i],
+            achieved: (!unknown).then_some(self.rates(i).0),
+            dropped: (!unknown).then_some(acc.dropped),
+            error_rate: if acc.count == 0 {
+                0.0
+            } else {
+                acc.errors as f64 / acc.count as f64
+            },
+            p99_us: q(&acc.hist, 0.99),
+            measured,
+        }
+    }
+
+    /// 계단별 판정 입력. `complete[i]` = 계단 i의 데이터가 다 왔나(리포트는 전부 true).
+    pub fn numbers(&self, complete: &[bool], open_loop_unknown: bool) -> Vec<StepNumbers> {
+        (0..self.cfg.targets.len())
+            .map(|i| match &self.released[i] {
+                Some(n) => n.clone(),
+                None => self.step_numbers(
+                    i,
+                    complete.get(i).copied().unwrap_or(false),
+                    open_loop_unknown,
+                ),
+            })
+            .collect()
+    }
+
+    pub fn details(&self) -> Vec<StepDetail> {
+        (0..self.cfg.targets.len())
+            .map(|i| {
+                let acc = &self.steps[i];
+                let (_, launched_rate, throughput) = self.rates(i);
+                StepDetail {
+                    throughput,
+                    launched_rate,
+                    p50_us: q(&acc.hist, 0.50),
+                    p95_us: q(&acc.hist, 0.95),
+                    head_p99_us: q(&acc.head, 0.99),
+                    rest_p99_us: q(&acc.rest, 0.99),
+                    measured_seconds: clamp_u32(self.min_secs(i).unwrap_or(0)),
+                }
+            })
+            .collect()
+    }
+
+    /// 감시: 판정 끝난 계단 `i`의 숫자(완결)를 캐시하고 그 계단 HDR·계수를 해제한다.
+    /// 이후 `numbers()`는 `i`에 캐시값을 돌려준다(`judge`가 앞 계단 p99를 읽는다).
+    pub fn release_step(&mut self, i: usize, open_loop_unknown: bool) {
+        if i >= self.steps.len() || self.released[i].is_some() {
+            return;
+        }
+        let n = self.step_numbers(i, true, open_loop_unknown);
+        self.released[i] = Some(n);
+        self.steps[i] = StepAgg::default();
+        for w in self.workers.values_mut() {
+            w.completed[i] = 0;
+            w.launched[i] = 0;
+            w.count[i] = 0;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -583,6 +810,7 @@ pub fn build_stair_report(
         .collect();
 
     let mut notes = StairNotes::default();
+    let mut acc = StairAccumulator::new(cfg, true);
     let mut workers: Vec<WorkerView> = Vec::new();
     for (w, (metrics, open_loop)) in by {
         // 일 없는 워커(도착을 한 번도 안 만든 워커)는 계단 집계에서 뺀다.
@@ -620,35 +848,26 @@ pub fn build_stair_report(
                 .map(|r| r.ts_second)
                 .max()
         };
-        let windows = (0..n)
-            .map(|i| measure_window(cfg, t0_ms, last, i))
-            .collect();
+        // last가 없는 워커는 위 `active` 검사로 이미 빠졌다.
+        acc.set_worker(w, t0_ms, Bound::Upto(last.unwrap_or(i64::MIN)));
         workers.push(WorkerView {
+            id: w,
             t0_ms,
             metrics,
             open_loop,
-            windows,
         });
     }
     let unknown = notes.open_loop_unknown;
 
-    let mut steps_acc: Vec<StepAcc> = (0..n).map(|_| StepAcc::default()).collect();
     let mut secs: BTreeMap<i64, SecAcc> = BTreeMap::new();
     for w in &workers {
         let t0_s = w.t0_ms.div_euclid(1000);
-        let mut completed = vec![0u64; n];
-        let mut launched = vec![0u64; n];
-        let mut count = vec![0u64; n];
         for r in &w.open_loop {
             let s = secs.entry(r.ts_second.saturating_sub(t0_s)).or_default();
             add(&mut s.launched, r.launched);
             add(&mut s.completed, r.completed);
             add(&mut s.dropped, r.dropped);
-            if let Some(i) = w.step_of(r.ts_second) {
-                add(&mut completed[i], r.completed);
-                add(&mut launched[i], r.launched);
-                add(&mut steps_acc[i].dropped, r.dropped);
-            }
+            acc.push_open_loop(w.id, r.ts_second, r.launched, r.completed, r.dropped);
         }
         for r in &w.metrics {
             let h = decode_hdr(&r.hdr_histogram).ok().flatten();
@@ -657,82 +876,36 @@ pub fn build_stair_report(
             if let Some(h) = &h {
                 merge_opt(&mut s.hist, h);
             }
-            if let Some(i) = w.step_of(r.ts_second) {
-                add(&mut count[i], r.count);
-                let acc = &mut steps_acc[i];
-                add(&mut acc.count, r.count);
-                add(&mut acc.errors, r.error_count);
-                if let Some(h) = &h {
-                    merge_opt(&mut acc.hist, h);
-                    let part = if r.ts_second < w.windows[i].0.saturating_add(HEAD_SECONDS) {
-                        &mut acc.head
-                    } else {
-                        &mut acc.rest
-                    };
-                    merge_opt(part, h);
-                }
-            }
-        }
-        for (i, acc) in steps_acc.iter_mut().enumerate() {
-            let (lo, hi) = w.windows[i];
-            let secs_w = hi.saturating_sub(lo);
-            acc.min_secs = Some(acc.min_secs.map_or(secs_w, |m| m.min(secs_w)));
-            if secs_w > 0 {
-                let d = secs_w as f64;
-                acc.achieved += completed[i] as f64 / d;
-                acc.launched_rate += launched[i] as f64 / d;
-                acc.throughput += count[i] as f64 / d;
-            }
+            acc.push_metric(w.id, r.ts_second, r.count, r.error_count, h.as_ref());
         }
     }
 
-    let measure_len = cfg.hold_seconds.saturating_sub(cfg.discard_seconds);
-    let numbers: Vec<StepNumbers> = steps_acc
-        .iter()
-        .zip(&cfg.targets)
-        .map(|(acc, &target)| {
-            let measured_seconds = clamp_u32(acc.min_secs.unwrap_or(0));
-            // 예전 부하기라 달성을 모르고 측정 구간 요청도 0이면 판정할 근거가 없다.
-            let measured =
-                measured_seconds.saturating_mul(2) >= measure_len && !(unknown && acc.count == 0);
-            StepNumbers {
-                target,
-                achieved: (!unknown).then_some(acc.achieved),
-                dropped: (!unknown).then_some(acc.dropped),
-                error_rate: if acc.count == 0 {
-                    0.0
-                } else {
-                    acc.errors as f64 / acc.count as f64
-                },
-                p99_us: q(&acc.hist, 0.99),
-                measured,
-            }
-        })
-        .collect();
+    let numbers = acc.numbers(&vec![true; n], unknown);
+    let details = acc.details();
     let j = judge(&numbers, cfg);
 
     // 측정 시각 = 가장 이른 t0 워커의 실제 포함 초.
     let earliest = workers.iter().min_by_key(|w| w.t0_ms);
     let steps: Vec<StairStep> = (0..n)
         .map(|i| {
-            let acc = &steps_acc[i];
-            let measured_seconds = clamp_u32(acc.min_secs.unwrap_or(0));
+            let d = &details[i];
+            let measured_seconds = d.measured_seconds;
             // 측정 안 됨으로 보이는 계단(화면·인쇄는 숫자 「—」)은 달성·시작·dropped도 비운다 —
             // 내보내기가 부분 구간 숫자나 0을 측정값처럼 적지 않게.
             let shown = j.states[i] != StepState::NotMeasured;
-            let (lo, hi) = earliest.map_or((0, 0), |w| w.windows[i]);
-            let head_p99 = q(&acc.head, 0.99);
-            let rest_p99 = q(&acc.rest, 0.99);
+            let (lo, hi) = earliest.and_then(|w| acc.window(w.id, i)).unwrap_or((0, 0));
+            let head_p99 = d.head_p99_us;
+            let rest_p99 = d.rest_p99_us;
             let head_p99_ratio = (shown && measured_seconds >= HEAD_MIN_MEASURED && rest_p99 > 0)
                 .then(|| head_p99 as f64 / rest_p99 as f64);
             StairStep {
                 index: i as u32,
                 target: cfg.targets[i],
                 achieved: numbers[i].achieved.filter(|_| shown),
-                launched_rate: (!unknown && shown).then_some(acc.launched_rate),
-                throughput_rps: acc.throughput,
-                p50_us: q(&acc.hist, 0.50),
-                p95_us: q(&acc.hist, 0.95),
+                launched_rate: (!unknown && shown).then_some(d.launched_rate),
+                throughput_rps: d.throughput,
+                p50_us: d.p50_us,
+                p95_us: d.p95_us,
                 p99_us: numbers[i].p99_us,
                 error_rate: numbers[i].error_rate,
                 dropped: numbers[i].dropped.filter(|_| shown),

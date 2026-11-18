@@ -3688,6 +3688,162 @@ steps:
             r.validity.reasons.iter().any(|x| x.kind == kind)
         }
 
+        /// 공유 누적기(계단 시험 b §4.3): 리포트(DB 행) ↔ 감시(받은 순서가 섞인 배치) 비트 동일성.
+        mod accumulator {
+            use super::*;
+            use crate::stair::{Bound, StairAccumulator};
+
+            fn xorshift(s: &mut u64) -> u64 {
+                *s ^= *s << 13;
+                *s ^= *s >> 7;
+                *s ^= *s << 17;
+                *s
+            }
+
+            fn shuffle<T>(v: &mut [T], seed: u64) {
+                let mut s = seed;
+                for i in (1..v.len()).rev() {
+                    let j = (xorshift(&mut s) % (i as u64 + 1)) as usize;
+                    v.swap(i, j);
+                }
+            }
+
+            enum Ev<'a> {
+                Ol(&'a OpenLoopSecondRow),
+                M(&'a WindowWithHdr),
+            }
+
+            /// ramp 1 + hold 12(버림 2) = 계단 13초, 측정 10초.
+            fn cfg3() -> StairConfig {
+                scfg(&[1, 1, 1], 1, 12, 2)
+            }
+
+            /// (워커, t0 ms) — 서로 다른 t0, 하나는 초 경계 + 300 ms(측정 초 9).
+            const WORKERS: [(&str, i64); 3] =
+                [("w1", T0), ("w2", T0 + 2_000), ("w3", T0 + 5_000 + 300)];
+
+            /// 계단별 측정 구간에서 워커가 한 초에 낸 완료 수(나머지 측정 초는 0).
+            /// 워커별 달성율 = 4/10·5/10·6/9처럼 f64 합 순서에 민감한 값이 된다.
+            const PULSE: [[u64; 3]; 3] = [[4, 5, 6], [600, 500, 400], [5, 6, 4]];
+
+            fn fixture() -> Fx {
+                let mut fx = Fx::default();
+                for (k, (w, t0)) in WORKERS.iter().enumerate() {
+                    fx.inp.starts.push(start(w, *t0));
+                    fx.fill(w, t0.div_euclid(1000), 39, |o| {
+                        let (i, pos) = ((o / 13) as usize, o % 13);
+                        // 상승·버림 초는 5(측정에 섞이면 값이 바뀐다), 측정 초는 5번째만 펄스.
+                        let completed = match pos {
+                            0..=2 => 5,
+                            5 => PULSE[i][k],
+                            _ => 0,
+                        };
+                        let mut s = sec(completed, 1_000 * (k as u64 + 1) + 100 * i as u64);
+                        // 스케줄러는 매 초 도착을 만든다(마지막 초가 측정 구간 끝을 정한다).
+                        s.launched = s.launched.max(1);
+                        if i == 1 && k == 0 && pos == 5 {
+                            s.errors = 1;
+                        }
+                        Some(s)
+                    });
+                }
+                fx
+            }
+
+            fn feed(c: &StairConfig, fx: &Fx, seed: u64) -> StairAccumulator {
+                let mut acc = StairAccumulator::new(c, false);
+                let mut ws: Vec<(&str, i64)> = WORKERS.to_vec();
+                shuffle(&mut ws, seed);
+                for (w, t0) in ws {
+                    acc.set_worker(w, t0, Bound::Open);
+                }
+                let mut evs: Vec<Ev> = fx
+                    .inp
+                    .open_loop
+                    .iter()
+                    .map(Ev::Ol)
+                    .chain(fx.rows.iter().map(Ev::M))
+                    .collect();
+                shuffle(&mut evs, seed ^ 0x9E37_79B9_7F4A_7C15);
+                for e in &evs {
+                    match e {
+                        Ev::Ol(r) => acc.push_open_loop(
+                            &r.worker_id,
+                            r.ts_second,
+                            r.launched,
+                            r.completed,
+                            r.dropped,
+                        ),
+                        Ev::M(r) => {
+                            let h = handicap_engine::percentiles::decode_hdr(&r.hdr_histogram)
+                                .ok()
+                                .flatten();
+                            acc.push_metric(
+                                &r.worker_id,
+                                r.ts_second,
+                                r.count,
+                                r.error_count,
+                                h.as_ref(),
+                            );
+                        }
+                    }
+                }
+                acc
+            }
+
+            #[test]
+            fn accumulator_matches_report_bitwise_shuffled() {
+                let c = cfg3();
+                let fx = fixture();
+                let rep = fx.report(&c);
+                // 전 계단이 판정된 정상 계단(리포트가 숫자를 가리지 않음).
+                assert!(rep.steps.iter().all(|s| s.state == StepState::Ok));
+                // 계단 0 달성 = 워커별 (펄스 ÷ 측정 초) 를 worker_id 순으로 더한 손계산.
+                assert_eq!(
+                    rep.steps[0].achieved.unwrap().to_bits(),
+                    (4.0 / 10.0 + 5.0 / 10.0 + 6.0 / 9.0_f64).to_bits()
+                );
+                for seed in 1..=8u64 {
+                    let acc = feed(&c, &fx, seed);
+                    let nums = acc.numbers(&[true, true, true], false);
+                    assert_eq!(nums.len(), 3);
+                    for (i, n) in nums.iter().enumerate() {
+                        let s = &rep.steps[i];
+                        assert_eq!(
+                            n.achieved.map(f64::to_bits),
+                            s.achieved.map(f64::to_bits),
+                            "achieved seed {seed} step {i}"
+                        );
+                        assert_eq!(n.dropped, s.dropped, "dropped seed {seed} step {i}");
+                        assert_eq!(
+                            n.error_rate.to_bits(),
+                            s.error_rate.to_bits(),
+                            "error_rate seed {seed} step {i}"
+                        );
+                        assert_eq!(n.p99_us, s.p99_us, "p99 seed {seed} step {i}");
+                        assert_eq!(n.measured, s.measured_seconds * 2 >= 10);
+                        assert!(n.measured);
+                    }
+                    // 계단 1에 오류 1건이 들어갔다(이빨: 오류율이 0이 아님).
+                    assert!(nums[1].error_rate > 0.0);
+                }
+            }
+
+            #[test]
+            fn accumulator_open_bound_counts_full_window() {
+                let c = cfg3();
+                let mut acc = StairAccumulator::new(&c, false);
+                acc.set_worker("a", T0, Bound::Open);
+                acc.set_worker("b", T0, Bound::Upto(1005));
+                // 행이 하나도 없어도 Open은 측정 구간 끝까지.
+                assert_eq!(acc.window("a", 0), Some((1003, 1013)));
+                assert_eq!(acc.window("a", 2), Some((1029, 1039)));
+                // Upto(last)는 last+1초에서 자른다.
+                assert_eq!(acc.window("b", 0), Some((1003, 1006)));
+                assert_eq!(acc.window("nope", 0), None);
+            }
+        }
+
         #[test]
         fn stair_aligned_t0_counts_measure_seconds() {
             let c = scfg(&[100, 200], 1, 20, 5);
