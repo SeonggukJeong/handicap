@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   CartesianGrid,
   ComposedChart,
@@ -95,7 +96,14 @@ function renderDot({ cx, cy, payload, index }: DotProps) {
 
 type Props = { steps: StairStep[]; width?: number; height?: number };
 
+const Y_AXIS_WIDTH = 72;
+const MARGIN = { top: 28, right: 16, bottom: 18, left: 5 };
+
 export function StairCurveChart({ steps, width, height }: Props) {
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const chartWidth = width ?? measuredWidth;
+  const plotWidth =
+    chartWidth == null ? undefined : chartWidth - Y_AXIS_WIDTH - MARGIN.left - MARGIN.right;
   const base = steps.map((s) => {
     const measured = s.state !== "not_measured" && s.p99_us > 0;
     return {
@@ -105,7 +113,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
       knee: s.knee,
     };
   });
-  const labeled = labeledIndices(base);
+  const labeled = labeledIndices(base, plotWidth);
   const rows: Row[] = base.map((b, idx) => ({
     ...b,
     idx,
@@ -120,7 +128,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
       width={width}
       height={height}
       data={rows}
-      margin={{ top: 28, right: 16, bottom: 18 }}
+      margin={MARGIN}
     >
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis
@@ -134,7 +142,7 @@ export function StairCurveChart({ steps, width, height }: Props) {
       />
       {/* allowDataOverflow를 켜면 Recharts가 점 층을 plot 영역으로 잘라 위쪽 점 라벨이 잘린다 —
           범위(yDomain)가 모든 값을 담으므로 넘칠 값이 없어 끈다. */}
-      <YAxis scale="log" width={72} domain={yDomain} />
+      <YAxis scale="log" width={Y_AXIS_WIDTH} domain={yDomain} />
       <YAxis yAxisId="bg" hide domain={[0, 1]} />
       {sat ? (
         <ReferenceArea
@@ -179,7 +187,11 @@ export function StairCurveChart({ steps, width, height }: Props) {
         {width != null && height != null ? (
           chart
         ) : (
-          <ResponsiveContainer width="100%" height={260}>
+          <ResponsiveContainer
+            width="100%"
+            height={260}
+            onResize={(w) => setMeasuredWidth(w)}
+          >
             {chart}
           </ResponsiveContainer>
         )}

@@ -76,6 +76,15 @@ describe("StairCurveChart", () => {
     expect(pointTexts(small.container)).toHaveLength(7);
   });
 
+  it("폰 폭(330px)에서는 계단이 적어도 의미 있는 점에만 라벨 — 이웃 라벨이 겹치지 않게", () => {
+    const pointTexts = (cn: HTMLElement) =>
+      Array.from(cn.querySelectorAll("text")).filter((t) => t.getAttribute("fill") === "#334155");
+    const narrow = render(<StairCurveChart steps={golden.steps} width={330} height={260} />);
+    const wide = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
+    expect(pointTexts(narrow.container).length).toBeGreaterThan(0);
+    expect(pointTexts(narrow.container).length).toBeLessThan(pointTexts(wide.container).length);
+  });
+
   it("세로축 제목은 svg 밖 가로 캡션, 회전 축 라벨 없음, 점 라벨은 흰 테두리", () => {
     const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
     const cap = screen.getByText(c.axisMs);
