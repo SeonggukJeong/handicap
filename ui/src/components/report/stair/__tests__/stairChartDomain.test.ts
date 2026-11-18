@@ -8,6 +8,12 @@ describe("logDomain", () => {
     expect(lo).toBeLessThanOrEqual(5 / 1.5);
     expect(lo).toBeGreaterThan(0);
   });
+  it("넓은 범위(17..4993)는 범위의 15% 자리만큼 위아래 여유", () => {
+    const span = Math.log10(4993) - Math.log10(17);
+    const [lo, hi] = logDomain([17, 300, 4993]);
+    expect(hi).toBeGreaterThanOrEqual(4993 * 10 ** (0.15 * span) * 0.999);
+    expect(lo).toBeLessThanOrEqual((17 / 10 ** (0.15 * span)) * 1.001);
+  });
   it("값이 전부 같아도 위아래 여유가 생긴다", () => {
     const [lo, hi] = logDomain([71, 71, 71]);
     expect(hi).toBeGreaterThanOrEqual(71 * 1.5);
