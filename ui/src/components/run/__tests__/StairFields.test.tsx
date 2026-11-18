@@ -141,6 +141,28 @@ describe("StairFields", () => {
       expect(screen.getByLabelText("초당 완료 개수 이상")).toHaveValue(20);
     });
 
+    it("숫자 칸의 폭 클래스는 Input이 아니라 래퍼 div에 있다(Input의 w-full에 지지 않게)", () => {
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      const widths: [string, string][] = [
+        ["오류율 %", "w-16"],
+        ["p99 ms", "w-24"],
+        ["초 연속", "w-16"],
+        ["초당 완료 개수 이상", "w-20"],
+      ];
+      for (const [name, w] of widths) {
+        const input = screen.getByLabelText(name);
+        expect(input.parentElement).toHaveClass(w);
+        expect(input).not.toHaveClass(w);
+      }
+    });
+
+    it("즉시 정지 숫자 칸들은 「즉시 정지」 이름의 그룹 안에 있다", () => {
+      render(<Harness initial={{ targets: "100, 200" }} />);
+      const g = screen.getByRole("group", { name: "즉시 정지" });
+      expect(g).toContainElement(screen.getByLabelText("오류율 %"));
+      expect(g).toContainElement(screen.getByLabelText("초당 완료 개수 이상"));
+    });
+
     it("첫 실패에서 바로 정지를 고르면 경고가 보인다", async () => {
       const user = userEvent.setup();
       render(<Harness initial={{ targets: "100, 200" }} />);

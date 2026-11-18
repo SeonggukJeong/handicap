@@ -24,19 +24,21 @@ export function AutoStopFields({ value, onChange, errors }: Props) {
     widthClass: string,
     attrs: { min: number; max?: number; step?: string },
   ) => (
-    <Input
-      type="number"
-      compact
-      numeric
-      {...attrs}
-      aria-label={aria}
-      className={`inline-block ${widthClass}`}
-      value={value[field]}
-      disabled={!value.emOn}
-      onChange={(e) => set({ [field]: e.target.value } as Partial<StairDraft>)}
-      aria-invalid={errors[key] !== undefined}
-      aria-describedby={errors[key] ? `${id}-${key}-error` : undefined}
-    />
+    // 폭은 래퍼 div에: Input 자체의 w-full이 직접 건 w-* 클래스를 이긴다.
+    <div className={`${widthClass} shrink-0`}>
+      <Input
+        type="number"
+        compact
+        numeric
+        {...attrs}
+        aria-label={aria}
+        value={value[field]}
+        disabled={!value.emOn}
+        onChange={(e) => set({ [field]: e.target.value } as Partial<StairDraft>)}
+        aria-invalid={errors[key] !== undefined}
+        aria-describedby={errors[key] ? `${id}-${key}-error` : undefined}
+      />
+    </div>
   );
   const errorKeys = (["emErrorPct", "emP99Ms", "emSeconds", "emMinRequests"] as const).filter(
     (key) => errors[key] !== undefined,
@@ -80,35 +82,37 @@ export function AutoStopFields({ value, onChange, errors }: Props) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={value.emOn}
-            onChange={(e) => set({ emOn: e.target.checked })}
-          />
-          {k.stairAutoStopEm}
-        </label>
-        <span aria-hidden="true">{k.stairAutoStopEmLead}</span>
-        {num("emErrorPct", "emErrorPct", k.stairAutoStopEmErrorPctAria, "w-16", {
-          min: 0,
-          max: 100,
-          step: "any",
-        })}
-        <span aria-hidden="true">{k.stairAutoStopEmPctUnit}</span>
-        {num("emP99Ms", "emP99Ms", k.stairAutoStopEmP99Aria, "w-24", { min: 1, max: 600000 })}
-        <span aria-hidden="true">{k.stairAutoStopEmMsUnit}</span>
-        {num("emSeconds", "emSeconds", k.stairAutoStopEmSecondsAria, "w-16", { min: 1, max: 60 })}
-        <span aria-hidden="true">{k.stairAutoStopEmSecondsUnit}</span>
-        <HelpTip label={k.stairAutoStopEmHelpLabel}>{k.stairAutoStopEmHelp}</HelpTip>
-      </div>
-      <div className="ml-6 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
-        <span aria-hidden="true">{k.stairAutoStopEmMinLead}</span>
-        {num("emMinRequests", "emMinRequests", k.stairAutoStopEmMinAria, "w-20", {
-          min: 1,
-          max: 100000,
-        })}
-        <span aria-hidden="true">{k.stairAutoStopEmMinTail}</span>
+      <div role="group" aria-labelledby={`${id}-em-label`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
+          <label id={`${id}-em-label`} className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={value.emOn}
+              onChange={(e) => set({ emOn: e.target.checked })}
+            />
+            {k.stairAutoStopEm}
+          </label>
+          <span aria-hidden="true">{k.stairAutoStopEmLead}</span>
+          {num("emErrorPct", "emErrorPct", k.stairAutoStopEmErrorPctAria, "w-16", {
+            min: 0,
+            max: 100,
+            step: "any",
+          })}
+          <span aria-hidden="true">{k.stairAutoStopEmPctUnit}</span>
+          {num("emP99Ms", "emP99Ms", k.stairAutoStopEmP99Aria, "w-24", { min: 1, max: 600000 })}
+          <span aria-hidden="true">{k.stairAutoStopEmMsUnit}</span>
+          {num("emSeconds", "emSeconds", k.stairAutoStopEmSecondsAria, "w-16", { min: 1, max: 60 })}
+          <span aria-hidden="true">{k.stairAutoStopEmSecondsUnit}</span>
+          <HelpTip label={k.stairAutoStopEmHelpLabel}>{k.stairAutoStopEmHelp}</HelpTip>
+        </div>
+        <div className="ml-6 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
+          <span aria-hidden="true">{k.stairAutoStopEmMinLead}</span>
+          {num("emMinRequests", "emMinRequests", k.stairAutoStopEmMinAria, "w-20", {
+            min: 1,
+            max: 100000,
+          })}
+          <span aria-hidden="true">{k.stairAutoStopEmMinTail}</span>
+        </div>
       </div>
       {errorKeys.map((key) => (
         <p key={key} id={`${id}-${key}-error`} className="ml-6 mt-1 text-sm text-red-600">
