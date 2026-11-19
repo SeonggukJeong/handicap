@@ -185,7 +185,7 @@ print((st.get('headline') or {}).get('kind', 'na'))
   CPUS=$(awk -v t0="$FIRST_T" -v t1="$LAST_T" -v c0="$FIRST_C" -v c1="$LAST_C" -v w0="$FIRST_W" -v w1="$LAST_W" \
     'BEGIN{ if (t0=="" || t1-t0<=0 || c0=="" || c1=="") print "na na"; else printf "%.2f %.2f", (c1-c0)/(t1-t0)*100, (w1-w0)/(t1-t0)*100 }')
   QMAX=""
-  _tries=1; [[ "$AUTO_STOP" == "on" ]] && _tries=6
+  _tries=6
   for _ in $(seq 1 "$_tries"); do
     QMAX=$(sed -E 's/\x1b\[[0-9;]*m//g' "$CTRL_LOG" 2>/dev/null | grep 'auto-stop monitor finished' | grep -oE 'queue_max[= ]+[0-9]+' | tail -1 | grep -oE '[0-9]+$' || true)
     [[ -n "$QMAX" ]] && break

@@ -128,7 +128,7 @@ pub async fn run_monitor(
             }
             continue;
         };
-        // `None` = 외부 중단이 먼저 왔다 — run은 곧 aborted로 끝난다.
+        // `None` = 외부 중단이나 finalize가 먼저 — run이 곧 끝난다.
         if let Some(filled) = coord.auto_stop(&run_id, stop).await {
             monitor.set_stop(filled);
             if let Some(l) = monitor.live_if_changed() {
@@ -2221,7 +2221,7 @@ mod perf {
     }
 
     /// `skew`: 마지막 워커 t0 +3 s, 세 번째 워커는 초 1000–1010분 배치가 10초 늦게 한꺼번에 도착.
-    fn run(skew: bool) {
+    fn run(skew: bool, emergency: bool) -> usize {
         let targets: Vec<u32> = (1..=STEPS as u32).map(|i| i * 40).collect();
         let cfg = StairConfig {
             targets: targets.clone(),
@@ -2231,7 +2231,7 @@ mod perf {
             p99_cap_ms: None,
             auto_stop: Some(AutoStopConfig {
                 saturation: Some(SaturationStopMode::TwoFails),
-                emergency: Some(EmergencyStop {
+                emergency: emergency.then_some(EmergencyStop {
                     error_rate_pct: 50.0,
                     p99_ms: 600_000,
                     consecutive_seconds: 60,
@@ -2240,6 +2240,7 @@ mod perf {
             }),
         };
         let mut m = StairMonitor::new(&cfg, WORKERS as u32);
+        let (tx, _rx) = tokio::sync::watch::channel(m.live());
         let share: Vec<u32> = targets.iter().map(|t| t / WORKERS as u32).collect();
         for w in 0..WORKERS {
             m.on_msg(
@@ -2320,6 +2321,9 @@ mod perf {
             let before = m.judged_through();
             let t = Instant::now();
             let o = m.on_msg(msg, now_ms);
+            if let Some(l) = m.live_if_changed() {
+                tx.send_replace(l);
+            }
             let d = t.elapsed();
             times.push(d);
             if m.judged_through() > before {
@@ -2330,17 +2334,20 @@ mod perf {
         // 판정·해제 경로가 실제로 돌았는가 — 아니면 p99가 공허하다.
         assert_eq!(m.judged_through(), STEPS - 1);
         assert_eq!(m.released, STEPS as usize);
-        assert!(
-            m.secs_done.unwrap() >= T0 + total_s - 10,
-            "{:?}",
-            m.secs_done
-        );
+        if emergency {
+            assert!(
+                m.secs_done.unwrap() >= T0 + total_s - 10,
+                "{:?}",
+                m.secs_done
+            );
+        }
         assert!(!judging.is_empty());
         times.sort();
         judging.sort();
         let p = |v: &[Duration], q: f64| v[((v.len() as f64 * q) as usize).min(v.len() - 1)];
         println!(
-            "monitor_batch_cost skew={skew}: batches={n} p50={:?} p99={:?} max={:?} | judging batches={} p50={:?} p99={:?} max={:?}",
+            "monitor_batch_cost skew={skew} emergency={emergency}: decodes={} batches={n} p50={:?} p99={:?} max={:?} | judging batches={} p50={:?} p99={:?} max={:?}",
+            m.decodes,
             p(&times, 0.5),
             p(&times, 0.99),
             times[n - 1],
@@ -2359,17 +2366,27 @@ mod perf {
             "판정 배치 max {:?}",
             judging.last()
         );
+        m.decodes
     }
 
     #[test]
     #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
     fn monitor_batch_cost_worst_case() {
-        run(false);
+        run(false, true);
     }
 
     #[test]
     #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
     fn monitor_batch_cost_skewed_lagging() {
-        run(true);
+        run(true, true);
+    }
+
+    #[test]
+    #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
+    fn monitor_batch_cost_emergency_off() {
+        let on = run(false, true);
+        let off = run(false, false);
+        println!("monitor_batch_cost decodes on={on} off={off}");
+        assert!(off > 0 && off * 65 <= on * 50, "on={on} off={off}");
     }
 }
