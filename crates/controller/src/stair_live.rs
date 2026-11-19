@@ -320,11 +320,12 @@ mod tests {
 
     #[test]
     fn frozen_marks_unjudged_and_hides_forecast() {
-        let c = cfg(6, Some(TwoFails));
+        let c = cfg(6, Some(FirstFail));
         let j = jud("oo", 6);
         let mut i = inp(&c, 2, Some(&j));
-        i.frozen = true;
         i.current = Some((4, BandKind::Measure));
+        assert!(build_live(&i).next_fail_stops);
+        i.frozen = true;
         let l = build_live(&i);
         assert_eq!(&l.step_states[2..], &[L::Frozen; 4]);
         assert!(!l.next_fail_stops);
@@ -367,6 +368,18 @@ mod tests {
                 L::Skipped
             ]
         );
+    }
+
+    #[test]
+    fn recorded_stop_hides_forecast_without_stopped_flag() {
+        let c = cfg(6, Some(TwoFails));
+        let j = jud("ooof", 6);
+        assert!(build_live(&inp(&c, 4, Some(&j))).next_fail_stops);
+        let s = stop_info(StopKind::Saturation, 3, 3, T0 + 4 * step_ms(&c) + 2000);
+        let mut i = inp(&c, 4, Some(&j));
+        i.stop = Some(&s);
+        i.stop_t0_ms = Some(T0);
+        assert!(!build_live(&i).next_fail_stops);
     }
 
     #[test]
