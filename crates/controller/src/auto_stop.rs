@@ -96,6 +96,11 @@ impl EmergencyTracker {
         }
     }
 
+    /// 지금까지 이어진 나쁜 초 수. 보류 초는 늘리지도 끊지도 않는다.
+    pub fn streak(&self) -> u32 {
+        self.streak
+    }
+
     /// 연속 계수와 그 통계를 처음으로 — 판정 못 하고 버린 초(감시 보류)가 연속을 끊는다.
     pub fn reset(&mut self) {
         self.streak = 0;
@@ -274,6 +279,19 @@ mod tests {
 
     fn obs(t: &mut EmergencyTracker, ts: i64, v: (u64, u64, u64)) -> Option<EmergencyHit> {
         t.observe(ts, v.0, v.1, v.2)
+    }
+
+    #[test]
+    fn streak_counts_and_resets() {
+        let mut t = emergency(5, 20);
+        assert_eq!(t.streak(), 0);
+        obs(&mut t, 1, BAD_ERR);
+        obs(&mut t, 2, BAD_ERR);
+        assert_eq!(t.streak(), 2);
+        assert!(t.observe(3, 5, 0, 0).is_none());
+        assert_eq!(t.streak(), 2);
+        assert!(t.observe(4, 100, 0, 0).is_none());
+        assert_eq!(t.streak(), 0);
     }
 
     #[test]

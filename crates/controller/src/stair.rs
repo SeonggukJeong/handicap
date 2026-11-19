@@ -1139,7 +1139,7 @@ pub fn build_stair_report(
 }
 
 /// `judged_through` 뒤 계단 `i`의 표시 상태. 계단 시작 = `t0 + i·계단 ms`.
-fn stop_row_state(
+pub(crate) fn stop_row_state(
     cfg: &StairConfig,
     s: &StopInfo,
     t0_ms: Option<i64>,
