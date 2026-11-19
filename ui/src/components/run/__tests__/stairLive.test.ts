@@ -71,6 +71,7 @@ describe("StairLiveSchema", () => {
         emergency_now: { error_rate: 0.1, p99_us: 5, bad_streak: 1, held: false },
       }).success,
     ).toBe(true);
+    expect(StairLiveSchema.safeParse({ ...server, stop: stopBase }).success).toBe(true);
     expect(StairLiveSchema.safeParse({ ...server, step_states: ["bogus"] }).success).toBe(false);
     expect(StairLiveSchema.safeParse({ ...server, extra: 1 }).success).toBe(false);
     const run = {

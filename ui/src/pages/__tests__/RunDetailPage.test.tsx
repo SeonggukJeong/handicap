@@ -1603,3 +1603,80 @@ describe("RunDetailPage — 자동 정지 표지", () => {
     expect(screen.queryByText(ko.runDetail.autoStopBadge)).toBeNull();
   });
 });
+
+describe("RunDetailPage — 실행 중 계단 패널", () => {
+  const liveBody = {
+    current_step: 0,
+    phase: "measure",
+    step_states: ["measuring", "pending"],
+    last_ok_step: null,
+    next_fail_stops: false,
+    emergency_now: null,
+    suspended_seconds: 0,
+    frozen: false,
+    stop: null,
+  };
+  const stairProfile = {
+    vus: 0,
+    ramp_up_seconds: 0,
+    duration_seconds: 0,
+    stair: { targets: [100, 200], hold_seconds: 10, ramp_seconds: 1, discard_seconds: 1 },
+  };
+  function mockRun(over: Record<string, unknown>) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R3")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R3",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "running",
+            profile: stairProfile,
+            env: {},
+            started_at: 1,
+            ended_at: null,
+            created_at: 1,
+            ...over,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R3/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R3", windows: [] }));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("stair_live_panel_only_while_running", async () => {
+    mockRun({ auto_stop_live: liveBody });
+    const first = renderWithRouter("R3");
+    expect(await screen.findByRole("region", { name: "계단 진행" })).toBeInTheDocument();
+    first.unmount();
+
+    mockRun({ status: "completed", ended_at: 2, auto_stop_live: liveBody });
+    const second = renderWithRouter("R3");
+    await screen.findByText(/completed/i);
+    expect(screen.queryByRole("region", { name: "계단 진행" })).toBeNull();
+    second.unmount();
+
+    mockRun({ status: "completed", ended_at: 2 });
+    const third = renderWithRouter("R3");
+    await screen.findByText(/completed/i);
+    expect(screen.queryByRole("region", { name: "계단 진행" })).toBeNull();
+    third.unmount();
+
+    mockRun({
+      profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
+      auto_stop_live: liveBody,
+    });
+    const fourth = renderWithRouter("R3");
+    await screen.findByText(/running/i);
+    expect(screen.queryByRole("region", { name: "계단 진행" })).toBeNull();
+    fourth.unmount();
+
+    mockRun({});
+    renderWithRouter("R3");
+    await screen.findByText(/running/i);
+    expect(screen.queryByRole("region", { name: "계단 진행" })).toBeNull();
+  });
+});

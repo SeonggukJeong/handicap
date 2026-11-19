@@ -33,6 +33,7 @@ import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/run/RunVuCell";
+import { StairLivePanel } from "../components/run/StairLivePanel";
 import { Callout } from "../components/ui/Callout";
 import { PageSection } from "../components/ui/PageSection";
 import { Input } from "../components/ui/Input";
@@ -341,6 +342,15 @@ export function RunDetailPage() {
             >
               {ko.runDetail.reportGenerating}
             </div>
+          )}
+          {r.status === "running" && r.auto_stop_live && r.profile.stair && (
+            <PageSection
+              ariaLabel={ko.runDetail.stairLive.title}
+              title={ko.runDetail.stairLive.title}
+              className="mb-6"
+            >
+              <StairLivePanel live={r.auto_stop_live} stair={r.profile.stair} />
+            </PageSection>
           )}
           {liveSeconds.length > 0 && (
             <PageSection
