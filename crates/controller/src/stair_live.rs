@@ -644,4 +644,72 @@ mod tests {
         assert_eq!(keys, ["reasons", "ref_fast", "slot_limited"]);
         assert_eq!(v["step_reasons"][0]["reasons"], serde_json::json!([]));
     }
+
+    fn cost_judgement(n: usize, with_reasons: bool) -> Judgement {
+        let reasons = |i: usize| -> Vec<Reason> {
+            if !with_reasons {
+                return vec![];
+            }
+            let x = i as f64;
+            vec![
+                Reason {
+                    kind: ReasonKind::Achieved,
+                    value: 0.5 + x / 1000.0,
+                },
+                Reason {
+                    kind: ReasonKind::Dropped,
+                    value: 1000.0 + x,
+                },
+                Reason {
+                    kind: ReasonKind::Errors,
+                    value: 0.046 + x / 10_000.0,
+                },
+                Reason {
+                    kind: ReasonKind::P99Relative,
+                    value: 3.9 + x / 100.0,
+                },
+            ]
+        };
+        Judgement {
+            states: vec![StepState::After; n],
+            reasons: (0..n).map(reasons).collect(),
+            slot_limited: vec![false; n],
+            last_ok: None,
+            spikes: vec![],
+            saturation: Some(0),
+            knee: None,
+            headline: crate::stair::HeadlineKind::Saturated,
+            later_ok_after_first_fail: false,
+        }
+    }
+
+    /// 50계단 `build_live` + `clone` + JSON 직렬화 1회 비용 — 사유가 있는 판과 없는 판 비교(수동 실행).
+    #[test]
+    #[ignore]
+    fn live_cost_50_steps() {
+        const N: usize = 50;
+        const ITERS: u32 = 10_000;
+        let c = cfg(N, None);
+        let p99 = [1_000u64; N];
+        for with_reasons in [true, false] {
+            let j = cost_judgement(N, with_reasons);
+            let run = || {
+                let l = build_live(&LiveInputs {
+                    judged_p99_us: &p99,
+                    ..inp(&c, N, Some(&j))
+                });
+                let cl = l.clone();
+                serde_json::to_vec(&cl).unwrap()
+            };
+            let bytes = run().len();
+            let t = std::time::Instant::now();
+            for _ in 0..ITERS {
+                std::hint::black_box(run());
+            }
+            let mean_ns = t.elapsed().as_nanos() / u128::from(ITERS);
+            eprintln!(
+                "live_cost_50_steps reasons={with_reasons} mean_ns={mean_ns} json_bytes={bytes}"
+            );
+        }
+    }
 }

@@ -1531,6 +1531,148 @@ mod tests {
         assert!(states.iter().any(|s| *s != crate::stair::StepState::Ok));
     }
 
+    /// 워커 1개, 계단 i마다 (100건 중 오류 수, p99 µs)를 초마다 밀어 넣는다.
+    /// 5초 묶음 뒤 `judged_through`가 오르면 그때의 `(judged_through, live())`를 모은다.
+    fn gen_kinds_run(c: &StairConfig, steps: &[(u64, u64)]) -> (GenRun, Vec<(i64, LiveState)>) {
+        let mut rows: Vec<WindowWithHdr> = Vec::new();
+        let mut ol: Vec<OpenLoopSecondRow> = Vec::new();
+        let mut m = StairMonitor::new(c, 1);
+        let mut snaps: Vec<(i64, LiveState)> = Vec::new();
+        let mut seen = m.judged_through();
+        let last = T0 + STEP * steps.len() as i64 + 2;
+        for chunk in (T0..=last).step_by(5) {
+            let mut b = pb::MetricBatch {
+                run_id: "R".into(),
+                worker_id: "w0".into(),
+                open_loop_started_at_ms: T0MS,
+                ..Default::default()
+            };
+            for ts in chunk..=(chunk + 4).min(last) {
+                let i = (((ts - T0) / STEP) as usize).min(steps.len() - 1);
+                let (errors, p99) = steps[i];
+                let target = i64::from(c.targets[i]);
+                b.open_loop_seconds.push(pb::OpenLoopSecond {
+                    ts_second: ts,
+                    launched: target as u64,
+                    completed: target as u64,
+                    dropped: 0,
+                });
+                ol.push(OpenLoopSecondRow {
+                    worker_id: "w0".into(),
+                    ts_second: ts,
+                    launched: target,
+                    completed: target,
+                    dropped: 0,
+                });
+                let h = hdr(p99);
+                b.windows.push(pb::MetricWindow {
+                    ts_second: ts,
+                    step_id: "a".into(),
+                    count: 100,
+                    error_count: errors,
+                    hdr_histogram: h.clone(),
+                    status_counts: Default::default(),
+                });
+                rows.push(WindowWithHdr {
+                    ts_second: ts,
+                    step_id: "a".into(),
+                    worker_id: "w0".into(),
+                    count: 100,
+                    error_count: errors as i64,
+                    status_counts: "{}".into(),
+                    hdr_histogram: h,
+                });
+            }
+            m.on_msg(MonitorMsg::Batch(b), NOW2);
+            if m.judged_through() > seen {
+                seen = m.judged_through();
+                snaps.push((seen, m.live()));
+            }
+        }
+        let starts = vec![WorkerStartRow {
+            worker_id: "w0".into(),
+            started_at_ms: T0MS,
+        }];
+        (
+            GenRun {
+                m,
+                rows,
+                ol,
+                starts,
+                first_stop: None,
+            },
+            snaps,
+        )
+    }
+
+    #[test]
+    fn live_reasons_match_report_while_judging() {
+        use crate::stair::{ReasonKind, StepState};
+        use crate::stair_live::LiveStepState;
+        let c = StairConfig {
+            targets: vec![10, 20, 30, 40, 50, 60],
+            auto_stop: Some(AutoStopConfig {
+                saturation: None,
+                emergency: None,
+            }),
+            ..cfg5(None)
+        };
+        let input = [
+            (0, 500),
+            (5, 500),
+            (0, 500),
+            (0, 6000),
+            (0, 8000),
+            (0, 7000),
+        ];
+        let (g, snaps) = gen_kinds_run(&c, &input);
+        let rep = report_of(&c, &g, None);
+        let states: Vec<StepState> = rep.steps.iter().map(|s| s.state).collect();
+        assert_eq!(
+            states,
+            [
+                StepState::Ok,
+                StepState::Spike,
+                StepState::Ok,
+                StepState::Saturated,
+                StepState::Saturated,
+                StepState::After
+            ]
+        );
+        assert_eq!(rep.steps[1].reasons[0].kind, ReasonKind::Errors);
+        for i in [3, 4] {
+            assert_eq!(rep.steps[i].reasons[0].kind, ReasonKind::P99Relative);
+            assert!(rep.steps[i].p99_us >= 1000);
+        }
+        assert_ne!(rep.steps[3].state, StepState::Ok);
+        assert!(rep.steps[2].p99_us < 1000);
+        assert!(
+            snaps
+                .iter()
+                .any(|(_, s)| s.step_states[1] == LiveStepState::Unconfirmed)
+        );
+        assert_eq!(snaps.len(), 6);
+        for (jt, s) in &snaps {
+            assert_eq!(s.step_reasons.len(), s.step_states.len());
+            for i in 0..=(*jt as usize) {
+                let want_fast = (0..i)
+                    .rev()
+                    .find(|&k| rep.steps[k].state == StepState::Ok)
+                    .is_some_and(|k| rep.steps[k].p99_us < 1000);
+                let got = &s.step_reasons[i];
+                assert_eq!(
+                    got.reasons, rep.steps[i].reasons,
+                    "jt {jt} step {i} reasons"
+                );
+                assert_eq!(
+                    got.slot_limited, rep.steps[i].slot_limited,
+                    "jt {jt} step {i} slot_limited"
+                );
+                assert_eq!(got.ref_fast, want_fast, "jt {jt} step {i} ref_fast");
+            }
+        }
+    }
+
     // ── 즉시 정지 — 초 버퍼·보류·두 정지 우선순위 ──────────────────────────
     // 기준: 오류율 5 % · p99 2000 ms · 3초 연속 · 최소 20건. ERR = 오류율 50 %(나쁜 초).
 
