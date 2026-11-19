@@ -1416,6 +1416,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
   - ~~**2차 = 부하기 쪽 버튼**(spec §8 ①–⑦ 그대로: 재시도 이유 훅·등록 직후 Ping·배정 전 Abort 사유·IP 동시 탐침·같은 맥 부하기 ID override·실행 중 끊기 확인·부하기 ID 규칙 통일 `$env:COMPUTERNAME` vs `resolve_hostname()`).~~ ✅ 완료(desktop-worker-mode 2a §B65 + 2b §B66 — 부하기 ID는 설치 ID로 통일).
   - **Windows 설치판 부하기 모드 → 맥 서버**(2b 추가, 머지 차단 아님): 셸 origin에서 「부하기로 접속」·상태 화면 명령이 동작하는지, 방화벽, IP 탐침.
   - **Windows·Linux 실기**(머지 차단 아님): 방화벽 「액세스 허용」, PowerShell 명령 합류, 셸 origin·역할 화면 명령이 동작하는지(「이 화면에서는 쓸 수 없습니다」가 아니어야 — S2의 첫 실측), 예약 포트 범위(`netsh int ipv4 show excludedportrange protocol=tcp`)로 저장된 포트 → 빈 포트, 재시작 직후 8081 TIME_WAIT 재bind, AppImage·포터블 파일 이름 실물 대조.
+    - **2026-11-20 사용자 회사 실기(Windows ↔ Windows, 같은 대역)**: 설치판 버튼(서버 「접속 코드 복사」 → 부하기 「부하기로 접속」)으로 연결·소량 부하 run 성공 — 셸 origin에서 역할 화면 명령이 동작함(S2 첫 실측 통과). 방화벽 「액세스 허용」 창은 **양쪽 다 안 뜸**(그래도 연결됨 — 회사 관리 정책 추정, 원인 미확인). 남은 것: 예약 포트 범위·TIME_WAIT 재bind·Linux·맥 서버 조합.
   - **macOS SO_REUSEADDR**: 다른 프로세스가 `127.0.0.1:8081`을 잡고 있어도 `0.0.0.0:8081` bind가 성공해, 이 PC 부하기(127.0.0.1로 접속)가 엉뚱한 컨트롤러에 붙고 포트 변경 안내도 안 뜬다(CLI 컨트롤러 기본 gRPC 주소가 정확히 그것). 해소: `127.0.0.1:<port>` 선시도 또는 SO_REUSEADDR 없는 리스너(socket2).
   - **Register 전 메시지·시간 제한 없음**(선재, 이제 기본으로 망에 노출): 인증 전 `MetricBatch`가 처리된다(알려진 run id에만, `first_load` 취소). 해소: `authed` 플래그 + Register 전 타임아웃.
   - **토큰이 부하기 PC의 셸 기록·프로세스 목록·클립보드 기록에 남는다**(CLI 선재). 해소: 2차에서 `HANDICAP_WORKER_TOKEN` env + 재발급 절차 문서(`desktop-role.json`에서 `token` 삭제 → 재시작).

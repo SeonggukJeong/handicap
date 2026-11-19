@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../i18n/ko";
@@ -73,6 +73,78 @@ describe("Layout nav", () => {
       "href",
       "/schedules",
     );
+  });
+});
+
+describe("Layout 메뉴 묶음 (사용자 요청 2026-11-20)", () => {
+  beforeEach(() => {
+    mockVersion(undefined);
+  });
+
+  function navLinkNames(scope: HTMLElement) {
+    return within(scope)
+      .getAllByRole("link")
+      .map((a) => a.textContent);
+  }
+
+  it("메뉴가 만들기 → 실행 → 부하기·설정 순서로 놓인다", () => {
+    renderLayout();
+    const nav = screen.getByRole("navigation");
+    expect(navLinkNames(nav)).toEqual([
+      "시나리오",
+      "스텝 템플릿",
+      "데이터셋",
+      "환경",
+      "스케줄",
+      "모니터",
+      "워커",
+      "운영 상한",
+    ]);
+  });
+
+  it("세 묶음이 이름 붙은 그룹이고 각자 제 메뉴만 담는다", () => {
+    renderLayout();
+    const groups = within(screen.getByRole("navigation")).getAllByRole("group");
+    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual([
+      "만들기",
+      "실행",
+      "부하기·설정",
+    ]);
+    expect(navLinkNames(groups[0])).toEqual(["시나리오", "스텝 템플릿", "데이터셋", "환경"]);
+    expect(navLinkNames(groups[1])).toEqual(["스케줄", "모니터"]);
+    expect(navLinkNames(groups[2])).toEqual(["워커", "운영 상한"]);
+  });
+
+  it("묶음 사이에만 구분선이 하나씩 있다 (묶음 안에는 없다)", () => {
+    renderLayout();
+    const nav = screen.getByRole("navigation");
+    const kids = Array.from(nav.children);
+    const isSep = (el: Element) => el.getAttribute("data-nav-separator") === "";
+    expect(kids.map((el) => (isSep(el) ? "|" : el.getAttribute("role")))).toEqual([
+      "group",
+      "|",
+      "group",
+      "|",
+      "group",
+    ]);
+    for (const el of kids.filter(isSep)) {
+      expect(el).toHaveAttribute("aria-hidden", "true");
+    }
+    for (const g of within(nav).getAllByRole("group")) {
+      expect(g.querySelector("[data-nav-separator]")).toBeNull();
+    }
+  });
+
+  it("데스크톱·풀 모드면 「모드 전환」과 칩이 부하기·설정 묶음 끝에 붙는다", () => {
+    (window as unknown as Record<string, unknown>).__HANDICAP_DESKTOP__ = {
+      rolePageUrl: "tauri://localhost/role.html",
+    };
+    mockPool({ pool_mode: true, workers: [w("a"), w("b")] });
+    renderLayout();
+    const ops = within(screen.getByRole("navigation")).getByRole("group", {
+      name: "부하기·설정",
+    });
+    expect(navLinkNames(ops)).toEqual(["워커", "운영 상한", "모드 전환", "서버 · 부하기 2대"]);
   });
 });
 

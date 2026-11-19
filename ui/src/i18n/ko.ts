@@ -364,6 +364,10 @@ export const ko = {
     modeSwitch: "모드 전환",
     poolChip: (n: number) => `서버 · 부하기 ${n}대`,
     poolChipTitle: "부하기 목록 보기",
+    // 메뉴 묶음 접근명(화면엔 구분선만 — 사용자 결정 2026-11-20)
+    groupBuild: "만들기",
+    groupRun: "실행",
+    groupOps: "부하기·설정",
   },
   capacityGuard: {
     // bespoke createRun error (shown as a banner in non-RunDialog callers)
