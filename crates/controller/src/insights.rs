@@ -2,6 +2,7 @@
 //! Pure: backend computes structured insights; the UI renders the prose.
 //! Spec: docs/superpowers/specs/2026-06-03-a4c-actionable-report-summary-design.md
 use crate::report::{ReportStep, ReportSummary, ReportWindow, Verdict};
+use crate::store::open_loop::OpenLoopTotal;
 use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -28,8 +29,10 @@ pub struct Insight {
     /// ceil(target_eff × M ÷ achieved_arrival_rate). (ADR-0046)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended: Option<f64>,
-    /// 사이징/포화 원인: "slots"(max_in_flight 부족) | "sut"(대상 서버 한계, 슬롯 증설 무익).
-    /// None = 판별 불가. (ADR-0046: 2-way — loadgen arm 제거)
+    /// 사이징/포화 원인: "slots"(max_in_flight 부족) | "sut"(대상 서버 한계, 슬롯 증설 무익)
+    /// | "stall"(대상(또는 드물게 부하기) 간헐 멈춤 — 첫 버림 뒤 회복 초의 사용 슬롯 ≤ M/2,
+    /// recommended 없음).
+    /// None = 판별 불가. (ADR-0046: loadgen arm 제거)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
     /// DEPRECATED(ADR-0046): 사후 산출 제거 — 항상 None. 워커 텔레메트리 도입 시 재사용(roadmap §B20).
@@ -61,6 +64,18 @@ pub struct Insight {
     /// 선택될 수 있다(counts-only라 초당 kind 분해가 없어 스코프를 못 좁힘).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
+    /// `cause == "stall"`일 때만: 버림 뒤 회복 초에서 평소 쓰인 슬롯 수(중앙값).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub typical_in_flight: Option<u64>,
+    /// `cause == "stall"`일 때만: 설정된 max_in_flight(M).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_in_flight: Option<u32>,
+    /// `cause == "stall"`일 때만: 버림이 있던 초 수.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drop_seconds: Option<u64>,
+    /// `cause == "stall"`일 때만: 요청을 시도한 초 수.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub measured_seconds: Option<u64>,
 }
 
 impl Insight {
@@ -83,6 +98,93 @@ impl Insight {
             target_per_sec: None,
             runner_up_ms: None,
             error_kind: None,
+            typical_in_flight: None,
+            max_in_flight: None,
+            drop_seconds: None,
+            measured_seconds: None,
+        }
+    }
+}
+
+/// stall 판정 상수 (stall-saturation, spec §4.2–4.3).
+const TAU_RATE: f64 = 0.9; // 비교 초의 시도량 하한 = TAU_RATE × 버림 초 중앙값
+const TAU_IDLE: f64 = 0.5; // 회복 초 사용 슬롯 중앙값이 M의 이 비율 이하면 stall
+const MIN_COMPARABLE: usize = 3; // 비교 가능한 회복 초 최소 개수
+
+struct StallStats {
+    typical_in_flight: u64,
+    drop_seconds: u64,
+    measured_seconds: u64,
+}
+
+/// 입력 순서대로 `(F(s), A(s))`: 누적 R += launched − completed(자르지 않음),
+/// F = max(0, R)(보고용), A = launched + dropped(시도량).
+fn in_flight_series(totals: &[OpenLoopTotal]) -> Vec<(u64, u64)> {
+    let mut r: i64 = 0;
+    totals
+        .iter()
+        .map(|t| {
+            r += t.launched - t.completed;
+            (
+                u64::try_from(r.max(0)).unwrap_or(0),
+                u64::try_from(t.launched + t.dropped).unwrap_or(0),
+            )
+        })
+        .collect()
+}
+
+fn stall_stats(totals: &[OpenLoopTotal], m: u32) -> Option<StallStats> {
+    let series = in_flight_series(totals);
+    let dropped_idx: Vec<usize> = totals
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.dropped > 0)
+        .map(|(i, _)| i)
+        .collect();
+    let first = *dropped_idx.first()?;
+    let a_drop: Vec<u64> = dropped_idx.iter().map(|&i| series[i].1).collect();
+    let a_star = median(&a_drop);
+    let comparable: Vec<u64> = totals
+        .iter()
+        .enumerate()
+        .filter(|&(i, t)| i > first && t.dropped == 0 && series[i].1 as f64 >= TAU_RATE * a_star)
+        .map(|(i, _)| series[i].0)
+        .collect();
+    if comparable.len() < MIN_COMPARABLE {
+        return None;
+    }
+    let typical = median(&comparable);
+    if typical > TAU_IDLE * f64::from(m) {
+        return None;
+    }
+    Some(StallStats {
+        typical_in_flight: typical.round() as u64,
+        drop_seconds: dropped_idx.len() as u64,
+        measured_seconds: series.iter().filter(|(_, a)| *a > 0).count() as u64,
+    })
+}
+
+/// `cause=slots`인 포화 인사이트가 실제론 대상 간헐 멈춤이면 `cause=stall`로 바꾼다
+/// (권장 슬롯 수 제거). 조건 불충족이면 아무것도 하지 않는다.
+pub fn refine_saturation_stall(
+    insights: &mut [Insight],
+    totals: &[OpenLoopTotal],
+    max_in_flight: Option<u32>,
+) {
+    let Some(m) = max_in_flight else {
+        return;
+    };
+    for ins in insights.iter_mut() {
+        if ins.kind != "load_gen_saturated" || ins.cause.as_deref() != Some("slots") {
+            continue;
+        }
+        if let Some(st) = stall_stats(totals, m) {
+            ins.cause = Some("stall".to_string());
+            ins.recommended = None;
+            ins.typical_in_flight = Some(st.typical_in_flight);
+            ins.max_in_flight = Some(m);
+            ins.drop_seconds = Some(st.drop_seconds);
+            ins.measured_seconds = Some(st.measured_seconds);
         }
     }
 }
@@ -2114,6 +2216,241 @@ steps:
                 &[],
             );
             assert!(got.iter().all(|i| i.cause.as_deref() != Some("loadgen")));
+        }
+    }
+
+    // ── stall 판정 (stall-saturation, Task 2) ──────────────────────────────
+
+    use crate::store::open_loop::OpenLoopTotal;
+
+    fn tot(ts: i64, l: i64, c: i64, d: i64) -> OpenLoopTotal {
+        OpenLoopTotal {
+            ts_second: ts,
+            launched: l,
+            completed: c,
+            dropped: d,
+        }
+    }
+
+    fn slots_insight() -> Insight {
+        let mut i = Insight::new("load_gen_saturated", "warning");
+        i.cause = Some("slots".to_string());
+        i.recommended = Some(2507.0);
+        i
+    }
+
+    fn refined(totals: &[OpenLoopTotal], m: Option<u32>) -> Insight {
+        let mut v = [slots_insight()];
+        refine_saturation_stall(&mut v, totals, m);
+        let [i] = v;
+        i
+    }
+
+    /// spec §5 재현: M=2500, 60초, 흩어진 버림 18초 + 버림 없는 멈춘 4초.
+    fn repro_totals() -> Vec<OpenLoopTotal> {
+        let drops = [
+            10, 12, 15, 17, 19, 22, 24, 27, 29, 32, 34, 37, 39, 42, 44, 47, 49, 52,
+        ];
+        let mut v = Vec::new();
+        for s in 0..60i64 {
+            let row = if s == 0 {
+                tot(0, 7014, 7000, 0)
+            } else if drops.contains(&s) {
+                tot(s, 6000, 3514, 1000)
+            } else if drops.contains(&(s - 1)) {
+                tot(s, 7000, 9486, 0)
+            } else {
+                match s {
+                    // 버림 없이 멈춘 초: 끝 F = 1000·1500·2000·2400, A=7000(>=0.9a*)
+                    55 => tot(s, 7000, 6014, 0),
+                    56 | 57 => tot(s, 7000, 6500, 0),
+                    58 => tot(s, 7000, 6600, 0),
+                    59 => tot(s, 7000, 9386, 0),
+                    _ => tot(s, 7000, 7000, 0),
+                }
+            };
+            v.push(row);
+        }
+        v
+    }
+
+    fn assert_untouched(totals: &[OpenLoopTotal], m: Option<u32>) {
+        let got = refined(totals, m);
+        assert_eq!(got, slots_insight());
+    }
+
+    #[test]
+    fn stall_repro_scattered_drops() {
+        let got = refined(&repro_totals(), Some(2500));
+        assert_eq!(got.cause.as_deref(), Some("stall"));
+        assert_eq!(got.recommended, None);
+        assert_eq!(got.typical_in_flight, Some(14));
+        assert_eq!(got.max_in_flight, Some(2500));
+        assert_eq!(got.drop_seconds, Some(18));
+        assert_eq!(got.measured_seconds, Some(60));
+    }
+
+    #[test]
+    fn fill_up_phase_is_not_stall() {
+        let mut t = vec![tot(0, 100, 60, 0), tot(1, 100, 20, 0), tot(2, 100, 20, 0)];
+        for s in 3..40 {
+            t.push(tot(s, 60, 60, 40));
+        }
+        assert_untouched(&t, Some(500));
+    }
+
+    #[test]
+    fn target_knee_is_not_stall() {
+        let mut t = Vec::new();
+        for s in 0..8i64 {
+            let a = 100 * (s + 1);
+            t.push(tot(s, a, a, 0));
+        }
+        t.push(tot(8, 1000, 900, 0));
+        t.push(tot(9, 1000, 850, 0));
+        t.push(tot(10, 1000, 850, 0));
+        t.push(tot(11, 600, 0, 400));
+        for s in 12..30 {
+            t.push(tot(s, 600, 600, 400));
+        }
+        assert_untouched(&t, Some(1000));
+    }
+
+    #[test]
+    fn curve_shortage_then_long_low_plateau_is_slots() {
+        let mut t = vec![tot(0, 600, 0, 400), tot(1, 400, 0, 600)];
+        for s in 2..10 {
+            t.push(tot(s, 600, 600, 400));
+        }
+        t.push(tot(10, 950, 1000, 0));
+        t.push(tot(11, 930, 950, 0));
+        t.push(tot(12, 910, 930, 0));
+        t.push(tot(13, 100, 990, 0));
+        for s in 14..43 {
+            t.push(tot(s, 100, 100, 0));
+        }
+        assert_untouched(&t, Some(1000));
+    }
+
+    #[test]
+    fn steady_shortage_every_second_is_slots() {
+        let mut t = vec![tot(0, 1000, 0, 500)];
+        for s in 1..30 {
+            t.push(tot(s, 600, 600, 400));
+        }
+        let got = refined(&t, Some(1000));
+        assert_eq!(got.cause.as_deref(), Some("slots"));
+        assert_eq!(got.recommended, Some(2507.0));
+    }
+
+    #[test]
+    fn curve_low_stage_stall_is_stall() {
+        let mut t = vec![
+            tot(0, 100, 0, 100),
+            tot(1, 100, 0, 100),
+            tot(2, 100, 0, 100),
+            tot(3, 1000, 1270, 0),
+        ];
+        for s in 4..8 {
+            t.push(tot(s, 1000, 1000, 0));
+        }
+        let got = refined(&t, Some(1000));
+        assert_eq!(got.cause.as_deref(), Some("stall"));
+        assert_eq!(got.typical_in_flight, Some(30));
+        assert_eq!(got.drop_seconds, Some(3));
+        assert_eq!(got.measured_seconds, Some(8));
+    }
+
+    fn small_repro(recovery: i64) -> Vec<OpenLoopTotal> {
+        let mut t = vec![tot(0, 7014, 7000, 0), tot(1, 6000, 3514, 1000)];
+        t.push(tot(2, 7000, 9486, 0));
+        for s in 3..(2 + recovery) {
+            t.push(tot(s, 7000, 7000, 0));
+        }
+        t
+    }
+
+    #[test]
+    fn stall_needs_three_recovery_seconds() {
+        let got3 = refined(&small_repro(3), Some(2500));
+        assert_eq!(got3.cause.as_deref(), Some("stall"));
+        assert_untouched(&small_repro(2), Some(2500));
+    }
+
+    #[test]
+    fn empty_or_dropless_totals_are_noop() {
+        assert_untouched(&[], Some(2500));
+        let t: Vec<OpenLoopTotal> = (0..10).map(|s| tot(s, 100, 100, 0)).collect();
+        assert_untouched(&t, Some(2500));
+    }
+
+    #[test]
+    fn sut_insight_is_untouched() {
+        let mut sut = slots_insight();
+        sut.cause = Some("sut".to_string());
+        sut.recommended = None;
+        let orig = sut.clone();
+        let mut v = [sut];
+        refine_saturation_stall(&mut v, &repro_totals(), Some(2500));
+        assert_eq!(v[0], orig);
+    }
+
+    #[test]
+    fn refine_without_max_in_flight_is_noop() {
+        assert_untouched(&repro_totals(), None);
+    }
+
+    #[test]
+    fn measured_seconds_counts_only_attempt_seconds() {
+        let mut t = vec![tot(-2, 0, 0, 0)];
+        t.extend(repro_totals());
+        t.push(tot(60, 0, 0, 0));
+        t.push(tot(61, 0, 5, 0));
+        let got = refined(&t, Some(2500));
+        assert_eq!(got.cause.as_deref(), Some("stall"));
+        assert_eq!(got.measured_seconds, Some(60));
+    }
+
+    #[test]
+    fn in_flight_series_clamps_report_only() {
+        let t = [tot(0, 10, 0, 0), tot(1, 0, 15, 0), tot(2, 10, 0, 0)];
+        assert_eq!(in_flight_series(&t), vec![(10, 10), (0, 0), (5, 10)]);
+    }
+
+    #[test]
+    fn typical_in_flight_rounds_half_away() {
+        let t = [
+            tot(0, 100, 100, 0),
+            tot(1, 60, 0, 40),
+            tot(2, 100, 146, 0),
+            tot(3, 100, 100, 0),
+            tot(4, 101, 100, 0),
+            tot(5, 100, 100, 0),
+        ];
+        let got = refined(&t, Some(100));
+        assert_eq!(got.cause.as_deref(), Some("stall"));
+        assert_eq!(got.typical_in_flight, Some(15));
+    }
+
+    #[test]
+    fn non_stall_json_has_no_new_keys() {
+        let keys = [
+            "typical_in_flight",
+            "max_in_flight",
+            "drop_seconds",
+            "measured_seconds",
+        ];
+        let slots = refined(&[], Some(2500));
+        let v = serde_json::to_value(&slots).unwrap();
+        let o = v.as_object().unwrap();
+        for k in keys {
+            assert!(!o.contains_key(k), "slots JSON must not have {k}");
+        }
+        let stall = refined(&repro_totals(), Some(2500));
+        let v = serde_json::to_value(&stall).unwrap();
+        let o = v.as_object().unwrap();
+        for k in keys {
+            assert!(o.contains_key(k), "stall JSON must have {k}");
         }
     }
 }

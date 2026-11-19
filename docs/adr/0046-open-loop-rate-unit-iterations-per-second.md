@@ -23,3 +23,11 @@
 - 엔진 0-diff(현 동작의 공식화). 단일 스텝 시나리오는 두 단위가 일치해 기존 사용 영향 없음.
 - 곡선 run의 실측 점유시간은 저율 구간 유휴가 섞여 과대(=권장 슬롯 상한) 추정 — 안전 방향이며 "(상한 추정)" 병기, per-second dropped 시리즈 도입 시 정밀화.
 - 사전 권장(UI 헬퍼)과 사후 인사이트의 parity는 "포화 prior run의 실측 hold(M÷achieved_per_sec) 복원 + 동일 공식"으로 by-construction 격상(같은 목표면 동일값, 다른 목표면 올바른 스케일).
+
+## 덧붙임 (2026-11-20, stall-saturation)
+
+- cause는 3-way(slots/sut/stall)가 됐다. 판정 순서는 sut → stall → slots이고 stall은 slots 결과만 덮어쓴다.
+- 근거는 초 단위 계수(launched/completed/dropped)로 누적한 초별 사용 슬롯 — 첫 버림 뒤 회복 초의 사용 슬롯 중앙값이 M의 절반 이하면 stall.
+- 대상이 간헐로 멈추면 「M ÷ 달성」 항등식(포화 중 M개 슬롯 상시 사용)이 깨지므로 권장 슬롯 수를 내지 않는다(`recommended = None`).
+- 결과 해석 키는 `delivery_interrupted_by_stall`이다.
+- 설계: `docs/superpowers/specs/2026-11-20-stall-saturation-design.md`.

@@ -1306,6 +1306,10 @@ mod tests {
                 target_per_sec: None,
                 runner_up_ms: Some(90.0),
                 error_kind: None,
+                typical_in_flight: None,
+                max_in_flight: None,
+                drop_seconds: None,
+                measured_seconds: None,
             },
             // 사이징 3필드 + achieved/target_per_sec를 모두 채운 합성 행: 다섯 새 열
             // writer를 모두 운동시킨다. (실제 인사이트는 recommended[slots] ⊕
@@ -1329,6 +1333,10 @@ mod tests {
                 target_per_sec: Some(20.0),
                 runner_up_ms: None,
                 error_kind: Some("connection_reset".into()),
+                typical_in_flight: None,
+                max_in_flight: None,
+                drop_seconds: None,
+                measured_seconds: None,
             },
         ];
         let bytes = report_to_xlsx(&r);
@@ -1638,6 +1646,10 @@ mod tests {
             target_per_sec: None,
             runner_up_ms: None,
             error_kind: None,
+            typical_in_flight: None,
+            max_in_flight: None,
+            drop_seconds: None,
+            measured_seconds: None,
         }
     }
 

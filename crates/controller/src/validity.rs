@@ -287,6 +287,10 @@ mod tests {
             target_per_sec: None,
             runner_up_ms: None,
             error_kind: None,
+            typical_in_flight: None,
+            max_in_flight: None,
+            drop_seconds: None,
+            measured_seconds: None,
         }
     }
 
