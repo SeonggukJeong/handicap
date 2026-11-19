@@ -1609,6 +1609,10 @@ describe("RunDetailPage — 실행 중 계단 패널", () => {
     current_step: 0,
     phase: "measure",
     step_states: ["measuring", "pending"],
+    step_reasons: [
+      { reasons: [], slot_limited: false, ref_fast: false },
+      { reasons: [], slot_limited: false, ref_fast: false },
+    ],
     last_ok_step: null,
     next_fail_stops: false,
     emergency_now: null,

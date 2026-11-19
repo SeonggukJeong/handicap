@@ -27,10 +27,11 @@ function stairOf(n: number, withAuto: boolean): StairConfig {
 }
 
 function live(over: Partial<StairLive> = {}): StairLive {
-  return {
+  const base: StairLive = {
     current_step: null,
     phase: null,
     step_states: [],
+    step_reasons: [],
     last_ok_step: null,
     next_fail_stops: false,
     emergency_now: null,
@@ -39,6 +40,14 @@ function live(over: Partial<StairLive> = {}): StairLive {
     stop: null,
     ...over,
   };
+  if (over.step_reasons === undefined) {
+    base.step_reasons = base.step_states.map(() => ({
+      reasons: [],
+      slot_limited: false,
+      ref_fast: false,
+    }));
+  }
+  return base;
 }
 
 describe("StairLivePanel", () => {
@@ -208,7 +217,12 @@ describe("StairLivePanel chip colours", () => {
   it.each(coloured.map((s, i) => [s, i] as const))(
     "%s chip border and symbol reach 3:1 on white",
     (_state, i) => {
-      render(<StairLivePanel live={live({ step_states: coloured })} stair={stairOf(coloured.length, false)} />);
+      render(
+        <StairLivePanel
+          live={live({ step_states: coloured })}
+          stair={stairOf(coloured.length, false)}
+        />,
+      );
       const chip = screen.getAllByRole("listitem")[i];
       expect(contrastOnWhite(chip.style.borderColor)).toBeGreaterThanOrEqual(3);
       const symbol = chip.querySelector<HTMLElement>("span[aria-hidden]");

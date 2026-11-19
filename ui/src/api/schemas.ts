@@ -218,6 +218,15 @@ export const AutoStopRecordSchema = z
   .strict();
 export type AutoStopRecord = z.infer<typeof AutoStopRecordSchema>;
 
+// 실행 중 계단별 실패 이유 — 서버가 세 키를 항상 직렬화한다.
+export const StairLiveReasonsSchema = z
+  .object({
+    reasons: z.array(StairReasonSchema),
+    slot_limited: z.boolean(),
+    ref_fast: z.boolean(),
+  })
+  .strict();
+
 // 실행 중 계단 요약(GET /api/runs/{id}, 계단 run일 때만). 안쪽 Option은 항상 null로 직렬화 → .nullable().
 export const StairLiveSchema = z
   .object({
@@ -239,6 +248,7 @@ export const StairLiveSchema = z
         "frozen",
       ]),
     ),
+    step_reasons: z.array(StairLiveReasonsSchema),
     last_ok_step: z.number().int().nullable(),
     next_fail_stops: z.boolean(),
     emergency_now: z

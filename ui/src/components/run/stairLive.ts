@@ -4,6 +4,7 @@ import {
   clockText,
   errorRateText,
   formatMs,
+  reasonPartTexts,
   stopHeadText,
   stopReasonParts,
 } from "../report/stair/stairFormat";
@@ -31,6 +32,29 @@ export function liveStateLabel(s: LiveStepState, live: StairLive): string {
   return rt.states[s];
 }
 
+/** 이 계단의 실패 이유(사유 조각을 `, `로). 항목이 없거나 조각이 0이면 null. */
+export function liveReasonText(live: StairLive, i: number): string | null {
+  const r = live.step_reasons[i];
+  if (r == null) return null;
+  const parts = reasonPartTexts(r.reasons, r.slot_limited, r.ref_fast);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/** 칩 라벨 + 이유. 이유가 없으면 liveStateLabel 그대로. */
+export function liveStepLabel(live: StairLive, i: number): string {
+  const s = live.step_states[i];
+  const r = liveReasonText(live, i);
+  if (r == null) return liveStateLabel(s, live);
+  if (s === "unconfirmed" && live.stop == null && !live.frozen) return t.unconfirmedPendingWith(r);
+  return t.withReasons(liveStateLabel(s, live), r);
+}
+
+const REASON_GROUP_STATES: ReadonlySet<LiveStepState> = new Set([
+  "spike",
+  "saturated",
+  "unconfirmed",
+]);
+
 /** 앞쪽 연속 판정 칩 수. */
 function judgedCount(live: StairLive): number {
   let n = 0;
@@ -40,7 +64,7 @@ function judgedCount(live: StairLive): number {
 
 export function liveHeadText(live: StairLive, targets: readonly number[]): string | null {
   if (live.stop != null) return null;
-  if (live.current_step == null) return t.waitingFirst;
+  if (live.current_step == null) return judgedCount(live) > 0 ? null : t.waitingFirst;
   const phase = rt.stopPhaseName[live.phase ?? "measure"];
   return t.head(live.current_step + 1, targets.length, targets[live.current_step], phase);
 }
@@ -51,8 +75,16 @@ export function liveSummaryText(live: StairLive): string | null {
   const groups: string[] = [];
   let start = 0;
   for (let i = 1; i <= n; i++) {
-    if (i === n || live.step_states[i] !== live.step_states[start]) {
-      groups.push(t.group(start + 1, i, liveStateLabel(live.step_states[start], live)));
+    const alone =
+      REASON_GROUP_STATES.has(live.step_states[start]) && liveReasonText(live, start) != null;
+    if (i === n || alone || live.step_states[i] !== live.step_states[start]) {
+      groups.push(
+        t.group(
+          start + 1,
+          i,
+          alone ? liveStepLabel(live, start) : liveStateLabel(live.step_states[start], live),
+        ),
+      );
       start = i;
     }
   }

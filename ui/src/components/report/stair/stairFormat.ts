@@ -61,7 +61,17 @@ export function reasonTexts(stair: StairReport, step: StairStep): string[] {
     const where = partialWhere(p);
     return [p.phase === "ramp" ? t.rowPartialRamp(where) : t.rowPartialBand(where)];
   }
-  const out = step.reasons.map((r) => {
+  const ref = refStep(stair.steps, step.index);
+  return reasonPartTexts(step.reasons, step.slot_limited, ref != null && ref.p99_us < 1000);
+}
+
+/** 사유 조각(실행 중 라벨과 리포트 「사유」 칸이 같이 쓴다). */
+export function reasonPartTexts(
+  reasons: StairStep["reasons"],
+  slotLimited: boolean,
+  refFast: boolean,
+): string[] {
+  const out = reasons.map((r) => {
     switch (r.kind) {
       case "achieved":
         return t.reasonAchieved(floorPct1(r.value));
@@ -71,13 +81,11 @@ export function reasonTexts(stair: StairReport, step: StairStep): string[] {
         return t.reasonErrors(floorPct1(r.value));
       case "p99_cap":
         return t.reasonP99Cap;
-      case "p99_relative": {
-        const ref = refStep(stair.steps, step.index);
-        return ref && ref.p99_us < 1000 ? t.reasonP99Fast : t.reasonP99Relative(r.value.toFixed(1));
-      }
+      case "p99_relative":
+        return refFast ? t.reasonP99Fast : t.reasonP99Relative(r.value.toFixed(1));
     }
   });
-  if (step.slot_limited) out.push(t.reasonSlotLimited);
+  if (slotLimited) out.push(t.reasonSlotLimited);
   return out;
 }
 

@@ -1566,6 +1566,8 @@ export const ko = {
       pending: "예정",
       frozen: "판정 중단",
       unconfirmedPending: "실패(다음 계단 확인 중)",
+      withReasons: (label: string, reasons: string) => `${label}(${reasons})`,
+      unconfirmedPendingWith: (reasons: string) => `실패(${reasons}, 다음 계단 확인 중)`,
       head: (cur: number, n: number, target: number, phase: string) =>
         `계단 ${cur}/${n} (${target} req/s) ${phase} 중`,
       waitingFirst: "첫 데이터 대기 중",
