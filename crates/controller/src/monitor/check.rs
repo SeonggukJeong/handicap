@@ -1966,14 +1966,17 @@ steps:
             "/../../testdata/nested_json_vectors.json"
         )))
         .unwrap();
+        let mut checked = 0;
         for case in fx["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let bj = BodyJson::parse(case["body"].as_str().unwrap()).unwrap();
             for leaf in case["leaves"].as_array().unwrap() {
                 let path = leaf[0].as_str().unwrap();
                 assert_eq!(bj.path_first(path), Some(leaf[1].clone()), "{name} {path}");
+                checked += 1;
             }
         }
+        assert!(checked > 20, "fixture leaves checked: {checked}");
         for case in fx["known_divergence"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let bj = BodyJson::parse(case["body"].as_str().unwrap()).unwrap();

@@ -536,7 +536,7 @@ pub const KEYS_TOGGLE: &str = "Space 켜기·끄기";
 
 /// 값 목록의 `본문 전체` 줄 오른쪽 글자.
 pub const PICK_BODY_TEXT_VALUE: &str = "글자 포함 조건으로";
-/// `ko.monitor.previewUnwrapped`
+/// `ko.common.jsonUnwrappedNotice`
 pub const PICK_UNWRAPPED: &str = "문자열로 감싼 JSON을 풀어서 표시 중";
 pub const PICK_ENGINE_TRUNCATED: &str = "1 MiB에서 잘린 응답은 본문 조건을 달 수 없습니다";
 pub const PICK_TOO_LARGE: &str = "64KB를 넘는 본문은 값을 고를 수 없습니다";

@@ -588,7 +588,31 @@ mod tests {
         let cache = BodyCache::default();
         let v = body_path_first(&cache, &facts, "$.plain").unwrap();
         assert_eq!(v, Some(serde_json::json!(1)));
-        assert!(cache.root.get().is_none() && cache.nested.get().is_none());
+        assert!(
+            cache.root.get().is_none(),
+            "root unwrapped for a found path"
+        );
+        assert!(
+            cache.nested.get().is_none(),
+            "nested unwrapped for a found path"
+        );
+    }
+
+    #[test]
+    fn found_path_on_string_root_does_no_unwrap_work() {
+        let body = br#""{\"id\":7}""#;
+        let facts = lenient_facts(body, &[]);
+        let cache = BodyCache::default();
+        let v = body_path_first(&cache, &facts, "$").unwrap();
+        assert_eq!(v, Some(serde_json::json!("{\"id\":7}")));
+        assert!(
+            cache.root.get().is_none(),
+            "root unwrapped for a found path"
+        );
+        assert!(
+            cache.nested.get().is_none(),
+            "nested unwrapped for a found path"
+        );
     }
 
     fn lenient_facts<'a>(body: &'a [u8], headers: &'a [(String, String)]) -> ResponseFacts<'a> {

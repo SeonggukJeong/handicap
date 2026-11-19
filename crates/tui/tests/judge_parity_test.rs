@@ -418,7 +418,7 @@ fn mirrored_text_exists_in_ko_ts() {
         ("displayMax", text::DISPLAY_MAX),
         ("displayDup", text::DISPLAY_DUP),
         ("displayAuthHeader", text::DISPLAY_AUTH_HEADER),
-        ("previewUnwrapped", text::PICK_UNWRAPPED),
+        ("jsonUnwrappedNotice", text::PICK_UNWRAPPED),
         ("condVolatileHint", text::COND_VOLATILE_HINT),
     ] {
         assert!(

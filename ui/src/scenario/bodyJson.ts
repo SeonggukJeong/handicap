@@ -48,7 +48,8 @@ function unwrapNestedInPlace(root: unknown): number {
  *  (mirrors Rust `parse_body_json`; not an object/array by then -> the first parsed value),
  *  then string fields holding JSON-in-string objects/arrays are unwrapped too. The server
  *  looks a path up in the root-only value first and in the nested-unwrapped one only when
- *  missing (Rust `BodyJson::path_first`), so every path in this tree resolves there.
+ *  missing (monitor `BodyJson::path_first`; engine `extract.rs` `body_path_first`, which
+ *  looks in the original body first), so every path in this tree resolves there.
  *  `unwrapped` = total layers unwrapped. Not JSON -> null. */
 export function parseBodyJson(body: string): { value: unknown; unwrapped: number } | null {
   let first: unknown;

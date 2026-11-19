@@ -190,6 +190,44 @@
           "x"
         ]
       ]
+    },
+    {
+      "name": "root_wrapped_array",
+      "body": "\"[{\\\"id\\\":7}]\"",
+      "leaves": [
+        [
+          "$[0].id",
+          7
+        ]
+      ]
+    },
+    {
+      "name": "wrapped_scalar_array_field",
+      "body": "{\"a\":\"[1,2]\"}",
+      "leaves": [
+        [
+          "$.a[0]",
+          1
+        ],
+        [
+          "$.a[1]",
+          2
+        ]
+      ]
+    },
+    {
+      "name": "wrapped_nonascii_control_key",
+      "body": "{\"w\":\"{\\\"키\\\\n탭\\\":\\\"v\\\",\\\"id\\\":7}\"}",
+      "leaves": [
+        [
+          "$.w.id",
+          7
+        ],
+        [
+          "$.w['키\\u000a탭']",
+          "v"
+        ]
+      ]
     }
   ],
   "known_divergence": [

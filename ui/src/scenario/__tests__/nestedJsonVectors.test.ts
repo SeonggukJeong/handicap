@@ -37,6 +37,10 @@ function leavesOf(root: unknown): Leaf[] {
 const byPath = (a: Leaf, b: Leaf): number => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
 
 describe("nestedJsonVectors", () => {
+  it("fixture is not emptied", () => {
+    expect(vectors.cases.length).toBeGreaterThanOrEqual(14);
+    expect(vectors.known_divergence.length).toBe(3);
+  });
   for (const c of vectors.cases) {
     it(`cases: ${c.name}`, () => {
       const got = leavesOf(parseBodyJson(c.body)!.value).sort(byPath);
