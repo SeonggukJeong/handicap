@@ -7,10 +7,10 @@ import {
   defaultCondition,
   isSecretName,
   lastKeyOf,
-  parseBodyJson,
   targetLabel,
   type ConditionClick,
 } from "../../monitor/conditions";
+import { parseBodyJson } from "../../scenario/bodyJson";
 import { BodyBlock } from "../response/BodyBlock";
 import { HeaderTable } from "../response/HeaderTable";
 import { JsonValueTree } from "../response/JsonValueTree";
@@ -242,7 +242,9 @@ function StepRow({
               <>
                 {treeBody ? k.previewBodyClickHint : k.previewBody}
                 {parsedBody !== null && parsedBody.unwrapped >= 1 && (
-                  <span className="ml-2 font-normal text-slate-600">{k.previewUnwrapped}</span>
+                  <span className="ml-2 font-normal text-slate-600">
+                    {ko.common.jsonUnwrappedNotice}
+                  </span>
                 )}
               </>
             }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { JsonValueTree } from "../response/JsonValueTree";
-import { parseBodyJson } from "../../monitor/conditions";
+import { parseBodyJson } from "../../scenario/bodyJson";
 import { ko } from "../../i18n/ko";
 
 /** JsonValueTree draws every node at once — above this UTF-8 size show raw text only. */
@@ -60,7 +60,7 @@ export function RecordBody({
           )}
           {tooLarge && <span>{ko.monitor.recordTreeTooLarge}</span>}
           {tooDeep && <span>{ko.monitor.recordTreeTooDeep}</span>}
-          {tree !== null && tree.unwrapped > 0 && <span>{ko.monitor.previewUnwrapped}</span>}
+          {tree !== null && tree.unwrapped > 0 && <span>{ko.common.jsonUnwrappedNotice}</span>}
           {tree !== null && (
             <button
               type="button"

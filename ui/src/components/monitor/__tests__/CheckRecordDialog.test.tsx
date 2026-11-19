@@ -473,7 +473,7 @@ describe("CheckRecordDialog", () => {
       rec({}, [http({ body: JSON.stringify(JSON.stringify({ k: "v" })) })]),
     );
     wrap(dlg());
-    expect(await screen.findByText(ko.monitor.previewUnwrapped)).toBeInTheDocument();
+    expect(await screen.findByText(ko.common.jsonUnwrappedNotice)).toBeInTheDocument();
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/k: "v"/)).toBeInTheDocument();
   });

@@ -12,6 +12,7 @@ export const ko = {
     loadingRuns: "실행 목록 불러오는 중…",
     failedToLoad: (msg: string) => `불러오기 실패: ${msg}`,
     notFound: "찾을 수 없습니다.",
+    jsonUnwrappedNotice: "문자열로 감싼 JSON을 풀어서 표시 중",
     blockedByBlank: (step: string, vars: string) =>
       `앞 스텝 ${step}이(가) ${vars} 값을 주지 않아 요청을 보내지 않음`,
     save: "저장",
@@ -2396,7 +2397,6 @@ export const ko = {
     condTargetBodyText: "본문 전체",
     previewHeaders: "응답 헤더",
     previewBodyClickHint: "응답 본문 — 값을 누르면 조건이나 화면 표시를 추가합니다",
-    previewUnwrapped: "문자열로 감싼 JSON을 풀어서 표시 중",
     previewOpenFullCondition: "전체 보기·조건",
     axisNow: "지금",
     axisUnit: "(ms)",

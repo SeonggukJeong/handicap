@@ -79,13 +79,13 @@ describe("PreviewResult", () => {
   it("wrapped_json_shows_tree_and_notice", () => {
     setup(preview(JSON.stringify('{"code":1}')));
     expect(add("code")).toBeInTheDocument();
-    expect(screen.getByText(ko.monitor.previewUnwrapped)).toBeInTheDocument();
+    expect(screen.getByText(ko.common.jsonUnwrappedNotice)).toBeInTheDocument();
   });
 
   it("plain_object_has_no_unwrap_notice", () => {
     setup(preview('{"code":1}'));
     expect(add("code")).toBeInTheDocument();
-    expect(screen.queryByText(ko.monitor.previewUnwrapped)).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.common.jsonUnwrappedNotice)).not.toBeInTheDocument();
   });
 
   it("add_opens_choice_and_display_calls_back", async () => {
