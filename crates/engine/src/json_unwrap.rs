@@ -77,6 +77,27 @@ pub fn unwrap_nested(root: &Value) -> Option<Value> {
     changed.then_some(out)
 }
 
+/// `unwrap_nested`의 제자리 판: 풀리는 문자열을 푼 값으로 바꾸고(푼 값 안쪽도 이어서),
+/// 하나라도 바꿨으면 `true`. 복사하지 않고, 직접 쌓는 스택으로 `unwrap_nested`의 교체 순회와 같은 순서로 훑는다.
+pub fn unwrap_in_place(root: &mut Value) -> bool {
+    let mut changed = false;
+    let mut stack: Vec<&mut Value> = vec![root];
+    while let Some(node) = stack.pop() {
+        if let Value::String(s) = node
+            && let Some(inner) = unwrap_json_str(s)
+        {
+            *node = inner;
+            changed = true;
+        }
+        match node {
+            Value::Array(a) => stack.extend(a.iter_mut()),
+            Value::Object(o) => stack.extend(o.values_mut()),
+            _ => {}
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +221,116 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// 기준 둘(`unwrap_nested`, `old_unwrap_nested`)과 같은 결과.
+    fn assert_in_place_matches(v: &Value) {
+        let mut got = v.clone();
+        let changed = unwrap_in_place(&mut got);
+        for want in [unwrap_nested(v), old_unwrap_nested(v)] {
+            match want {
+                Some(w) => {
+                    assert!(changed, "{v}");
+                    assert_eq!(got, w, "{v}");
+                }
+                None => {
+                    assert!(!changed, "{v}");
+                    assert_eq!(&got, v, "{v}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unwrap_in_place_matches_reference() {
+        let inner = json!({"id":7,"deep":"{\"k\":\"x\"}"}).to_string();
+        let cases = vec![
+            json!({"a":1,"b":"x"}),
+            json!({"a":"[INFO] x","b":"{name}","c":"\"12\""}),
+            json!({"a":{"b":["{\"k\":1}"]}}),
+            json!("{\"k\":1}"),
+            json!({"data": inner, "empty":"[]", "eobj":" {} ", "n":"007"}),
+        ];
+        for v in &cases {
+            assert_in_place_matches(v);
+        }
+        let fx: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/nested_json_vectors.json"
+        )))
+        .unwrap();
+        let mut parsed = 0;
+        for key in ["cases", "known_divergence"] {
+            for case in fx[key].as_array().unwrap() {
+                let body = case["body"].as_str().unwrap();
+                if let Ok(v) = serde_json::from_str::<Value>(body) {
+                    assert_in_place_matches(&v);
+                    parsed += 1;
+                }
+            }
+        }
+        assert!(parsed >= 14, "parsed bodies: {parsed}");
+    }
+
+    #[test]
+    fn unwrap_in_place_deep_value() {
+        // 해제가 재귀라 큰 스택 스레드에서.
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                let mut v = deep_value();
+                assert!(unwrap_in_place(&mut v));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    fn arb_small() -> impl proptest::strategy::Strategy<Value = Value> {
+        use proptest::prelude::*;
+        let leaf = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            (0i64..1000).prop_map(|n| json!(n)),
+            "[a-z ]{0,4}".prop_map(Value::String),
+        ];
+        leaf.prop_recursive(2, 8, 3, |inner| {
+            prop_oneof![
+                proptest::collection::vec(inner.clone(), 0..3).prop_map(Value::Array),
+                proptest::collection::btree_map("[a-z]{1,3}", inner, 0..3)
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+            ]
+        })
+    }
+
+    /// 깊이 ≤4의 `Value` — 문자열 잎은 평범한 글자, 후보지만 안 풀리는 글자,
+    /// 작은 `Value`를 1–4겹 감싼 글자 중에서 뽑는다.
+    fn arb_value() -> impl proptest::strategy::Strategy<Value = Value> {
+        use proptest::prelude::*;
+        let wrapped = (arb_small(), 0usize..=3).prop_map(|(v, n)| Value::String(wrap(&v, n)));
+        let leaf = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            (0i64..1000).prop_map(|n| json!(n)),
+            "[a-z ]{0,6}".prop_map(Value::String),
+            prop_oneof![Just("[INFO] x"), Just("{name}"), Just("\"12\"")]
+                .prop_map(|s| Value::String(s.to_owned())),
+            wrapped,
+        ];
+        leaf.prop_recursive(4, 32, 4, |inner| {
+            prop_oneof![
+                proptest::collection::vec(inner.clone(), 0..4).prop_map(Value::Array),
+                proptest::collection::btree_map("[a-z]{1,3}", inner, 0..4)
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+            ]
+        })
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn unwrap_in_place_matches_reference_prop(v in arb_value()) {
+            assert_in_place_matches(&v);
+        }
     }
 
     #[test]
