@@ -337,6 +337,21 @@ describe("LatencyBars", () => {
       expect(layer.children[2]).toHaveAttribute("data-bar-hit");
     });
 
+    it("hit_columns_share_bar_slot_box_so_they_line_up", () => {
+      // jsdom has no layout: with `flex: 1 1 0` a column's width is its share of
+      // the free space plus its own padding, so every hit column (empty ones
+      // too) must carry the same padding as the bar slot under it.
+      renderSel(vi.fn());
+      const layer = screen.getByTestId("bar-hit-layer");
+      const bars = slots();
+      expect(bars[0].style.padding).not.toBe("");
+      Array.from(layer.children).forEach((hit, i) => {
+        const h = hit as HTMLElement;
+        expect(h.style.padding, `column ${i}`).toBe(bars[i].style.padding);
+        expect(h.style.flex, `column ${i}`).toBe(bars[i].style.flex);
+      });
+    });
+
     it("no_overlay_without_onSelect", () => {
       renderSel(undefined);
       expect(hits()).toHaveLength(0);

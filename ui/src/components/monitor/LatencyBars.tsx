@@ -283,7 +283,10 @@ export function LatencyBars({
           >
             {slots.map((r, i) =>
               r === null ? (
-                <div key={i} style={{ flex: "1 1 0", minWidth: 0 }} />
+                <div
+                  key={i}
+                  style={{ flex: "1 1 0", minWidth: 0, padding: slotPad, boxSizing: "border-box" }}
+                />
               ) : (
                 <div
                   key={i}
