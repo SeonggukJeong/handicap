@@ -149,7 +149,7 @@ for _ in $(seq 1 "$POLL_MAX"); do
     if [[ -z "$FIRST_T" ]]; then FIRST_T="$LAST_T"; FIRST_C="$LAST_C"; FIRST_W="$LAST_W"; fi
     r=$(ps -o rss= -p "$CTRL_PID" 2>/dev/null | awk 'NF{printf "%.1f", $1/1024}' || true)
     [[ -n "$r" ]] && RSS_LAST="$r"
-    if (( RSS_EVERY > 0 && TICK % RSS_EVERY == 0 )); then echo "RSS t=$TICK mb=$RSS_LAST"; fi
+    if (( RSS_EVERY > 0 )) && (( TICK % RSS_EVERY == 0 )); then echo "RSS t=$TICK mb=$RSS_LAST"; fi
     TICK=$(( TICK + 1 ))
   fi
   sleep 1
