@@ -126,6 +126,7 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 - 겹침 판정은 텍스트 노드 `Range.getClientRects()` 합집합 rect 교차 + `scrollWidth>clientWidth`로 — 단 2줄 clamp·`…` 텍스트는 Range가 전체 글리프 박스를 보고해 거짓 양성, 스크린샷으로 대조.
 - **한 메시지의 여러 tool 호출은 순차 실행** — "PUT하면서 동시에 browser_evaluate로 폴링"은 측정이 안 된다(폴링이 먼저 끝남). 지연 PUT(`sleep 3; curl …`)을 `run_in_background`로 띄운 뒤 폴링 evaluate를 시작(ops-monitor-1b US3).
 - **`ui/dist`를 다시 빌드한 뒤 같은 탭에서 `browser_navigate`만 하면 캐시된 옛 `index.html`(옛 해시 번들)이 뜬다** — `document.querySelector('script[src*=assets]').src` 해시를 `ui/dist/index.html`과 대조, 다르면 `location.reload()` 후 측정 (monitor-step-panels).
+- **자동 정지 run은 정지 결정 뒤 약 1초 안에 끝나 1초 간격 `browser_evaluate` 폴링으로는 정지 순간 화면(정지 줄·바뀐 칩)을 놓친다 — 페이지 안 `MutationObserver` 기록기(`window.__hist`에 패널 글자가 바뀔 때마다 [시각, 글자])를 심고 끝난 뒤 읽는다** (stage-live-panel). 첫 순간(「첫 데이터 대기 중」)도 같은 방법으로 — run을 페이지 안 `fetch`로 만들고 `history.pushState`+`popstate`로 이동하면 기록기가 살아남는다(이때 콘솔의 react-router 「blocker on a POP navigation」 경고는 시험 조작 탓).
 
 ## 헤드리스 Chrome PDF 쪽 수 검증 — 스크립트 파일로 감쌀 것 (a4-print-report 2026-11-06)
 

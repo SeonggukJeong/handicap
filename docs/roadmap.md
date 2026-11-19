@@ -214,7 +214,7 @@
 - **후속 정황 (2026-10-02 같은 세션)**: 사용자 확인 — URL은 도메인→**L4 대표주소**(DNS RR 쏠림 배제)·L4 사용 확인·DBA가 "왜 2번 DB로만?" 질의(DB 1대 고정 정황)·단순 조회 트래픽(샤드 키 쏠림 배제) → **source-IP persistence/hash가 최유력**. 인프라 변경(L4 persistence 해제)은 휴일 테스트 출근 인원 증가로 기각 → 구현 쪽 선호. **검토 후 기각한 대안**: L4 우회 목적지 지정(WAS 실IP 직결 — 데이터셋 `{{was}}` URL+`Host` 헤더 오버라이드는 현 엔진으로 동작 실측[서버 수신 `host=도메인`], HTTPS용으로는 reqwest `ClientBuilder::resolve` per-VU 오버라이드 스케치) — 대상이 **HTTPS + WAS 실IP 접근제어**라 이 환경에선 불가. 다른 환경용 별도 후보로는 유효. **구현 전 값싼 가설 검증 권장**: PC 3~4대(LAN 분산 워커)로 같은 부하를 걸어 DB 1번에도 부하가 생기는지 확인 — 생기면 A15 가설 확정. 전제: 부하 PC용 추가 IP 10~20개 할당 가능 여부(사용자 사내 확인 대기).
 - **결정 (2026-10-03)**: 사용자 확인 — L4는 **source-IP persistence**, 추가 IP 할당도 **가능**. 그러나 타 부서 협조 부담을 피해 **기존 LAN 분산 워커로 주변 PC 3~4대 사용**을 택함 → A15는 **주차**(재개 신호: PC 대수로 분산이 부족하거나 PC 확보가 반복 부담이 될 때). PC 단위 분산의 한계 = persistence가 신규 IP를 배정하는 방식에 따라 PC:WAS 매핑이 고르지 않을 수 있다(3대/WAS 2대면 최선도 2:1).
 
-### A16. 계단 결과 표 + 포화 계단 표시 (계단식 포화점 찾기) — **a 완료 (2026-11-18, stage-saturation-table `c6bd24e5`..`918f8404`, 판단·연기 §B68) · b 완료 (2026-11-19, stage-auto-stop `dc925569`..`65da0721` — 포화 확정·즉시 정지 기준 시 run 자동 정지, 판단·연기 §B69) · c(실행 중 계단 판정 패널 `stage-live-panel`) 다음 — spec `2026-11-18-stage-auto-stop-design.md` §8**
+### A16. 계단 결과 표 + 포화 계단 표시 (계단식 포화점 찾기) — **a 완료 (2026-11-18, stage-saturation-table `c6bd24e5`..`918f8404`, 판단·연기 §B68) · b 완료 (2026-11-19, stage-auto-stop `dc925569`..`65da0721` — 포화 확정·즉시 정지 기준 시 run 자동 정지, 판단·연기 §B69) · ~~c(실행 중 계단 판정 패널 `stage-live-panel`)~~ ✅ 완료 (2026-11-19, `3668110b`..`eb225566`, ADR-0059, 판단·연기 §B70 — 다음 후보: 실행 중 패널에 실패 이유 표시 §B70 (0))**
 
 - **누가**: 부하를 계단으로 올리며 "몇 req/s부터 지연이 무너지나"를 찾는 QA·운영. 첫 수요 = 사용자의 신규 MSA 시스템 전환 전 수용성 시험(게이트웨이 → WAS → DB, 대상 서비스 ~8개 × 단계 L0–L4, 운영 환경 저트래픽 시간대에 반복 실행).
 - **지금 막힘**: 계단 부하 자체는 `stages` 곡선(RunDialog 「계단」 모양 템플릿)으로 준다. 그러나 리포트는 run 전체 요약 + 1s 시계열뿐이라 **계단별 달성 RPS·p50/p95/p99·오류율·dropped 표가 없고, 어느 계단이 포화인지 판정도 없다.** SLO criteria(ADR-0028)도 run 전체 기준이다. redis-large-list-bench(2026-11)는 이 판정을 handicap 밖 Python으로 했다 — 계단마다 run을 따로 돌리고(워밍업 → 15초 버림 → 60초 측정) `bench/rllb/saturation.py`가 판정.
@@ -1601,12 +1601,12 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
   - **감시 dedup은 `<`**(같은 초가 배치를 넘어 오면 받아들임 — DB는 첫 값): 벽시계가 뒤로 뛸 때만 감시↔리포트가 갈림(spec 전제 「엔진은 각 초를 한 번 보냄」 밖).
 
 - **(2) 연기 (조건과 해소 경로)**
-  - **즉시 정지를 모든 run으로 확장**(사용자 결정으로 연기): 계단 아닌 run엔 감시 없음. 해소 = `monitor_wanted`를 open-loop 일반으로, 계단 판정 없이 초 판정만.
+  - **즉시 정지를 모든 run으로 확장**(사용자 결정으로 연기): 계단 아닌 run엔 감시 없음. 해소 = `coordinator.rs` `enqueue`의 감시 생성 지점(`base.stair.as_ref().map(...)` — c에서 `monitor_wanted` 삭제, 계단 run이면 항상 감시)을 open-loop 일반으로 넓히고, 계단 판정 없이 초 판정만.
   - **선재 틈 — 기존 Completed finalize**: `set_status`(반환 없음) 뒤 `set_verdict` 무조건 → 경합한 `mark_aborted` 뒤 aborted run에 verdict 배지 가능(spec §4.6). 해소 = 같은 가드 UPDATE + 바뀐 행 1개일 때만.
   - **자동 정지 뒤 형제 워커가 연결된 채 멈추면**(G1) 계획 시간 + 120초 backstop까지 running(spec §11, 단축 안 함).
   - **몫 0 워커가 있는 run**에서 실행 중 판정과 리포트 측정 초 ±1(spec §4.3·§11).
   - **finalize 시점 보류 초 약간 적게 셈**: 감시가 비동기라 done-cancel이 큐에 남은 메시지를 버림(spec §11 수용). 비용: 끝에만 보류 초가 몇 개 있는 run은 회색 안내를 잃을 수 있음.
-  - **`details()`가 해제된 계단에 0을 돌려줌**: 리포트는 해제하지 않고 감시는 `details()`를 안 불러 지금은 무해. **c(`stage-live-panel`)가 실행 중 패널에 `details()`를 쓰면 0이 보인다** — c에서 해제 전 숫자 보관 또는 `StepNumbers` 사용.
+  - **`details()`가 해제된 계단에 0을 돌려줌**: 리포트는 해제하지 않고 감시는 `details()`를 안 불러 지금은 무해. **c(`stage-live-panel`)가 실행 중 패널에 `details()`를 쓰면 0이 보인다** — c에서 해제 전 숫자 보관 또는 `StepNumbers` 사용. → **c는 `details()`를 쓰지 않아 발생 안 함(§B70 (2))**.
   - **최종 리뷰 M6**: 일부 실행·즉시 정지 행의 지연 숫자가 JSON·XLSX 10열에 남음(화면·인쇄·CSV는 비움) — `not_measured`와 같은 선재 형태, 회귀 아님. 해소 = 내보내기 `shows_numbers()` 기준 통일.
   - **run 목록 필터의 「자동 정지」 축**(spec 비목표).
   - **선재 좁은 화면(라이브 400px)**: 실행 창이 환경 변수 줄·run 표 때문에 가로 스크롤(515 vs 389). 해소 = 환경 변수 줄 줄바꿈·표 가로 스크롤 감싸기. (run 상세 머리 줄의 「해석 가능」 짓눌림은 이 슬라이스 머리 줄 `flex-wrap`(`65da0721`)으로 함께 해소.)
@@ -1618,3 +1618,37 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **(5) 라이브 검증·성능** → `docs/build-log.md` stage-auto-stop 단락(US1·US2·US4 + 추가 7항목 전부 통과, 성능 표).
 
 - **(6) 릴리즈 노트 줄(안)**: "계단 실행이 포화를 확인하면(연속 두 계단 실패, 또는 고르면 첫 실패) 스스로 멈추고, 오류율·p99가 몇 초 연속 기준을 넘으면 즉시 멈춥니다 — 리포트·CSV·XLSX·인쇄 맨 위에 언제 왜 멈췄는지 한 줄로 남습니다." · "새 계단 run은 자동 정지가 기본으로 켜져 있고, 예전에 저장한 프리셋·스케줄·다시 실행은 꺼진 채 열립니다."
+
+### B70. 계단 시험 c — 실행 중 계단 패널 (stage-live-panel, 2026-11-19, 코드 `3668110b`..`eb225566`, spec `docs/superpowers/specs/2026-11-18-stage-auto-stop-design.md` §8, plan `docs/superpowers/plans/2026-11-19-stage-live-panel.md`, ADR-0059) 판단·연기 — **사용자 관람 라이브 검증 뒤 master 합류(push 안 함)**
+
+계단 run이면 감시(`StairMonitor`)를 항상 만들고, 메시지마다 순수 함수 `stair_live::build_live`로 실행 중 요약(`LiveState`)을 계산해 `tokio::sync::watch`에 넣는다(`live_if_changed` — 요약을 정하는 정수 키가 바뀔 때만). `GET /api/runs/{id}`가 running 계단 run일 때만 그 값을 `auto_stop_live`로 싣고(계단 아닌 run은 바이트 동일), run 상세의 「계단 진행」 패널이 기존 1초 폴링으로 현재 계단·칩·예고·즉시 정지 현재값·정지 줄을 그린다. 판정 계단 칩 = 리포트 행 상태 이름 그대로, 정지 뒤 계단 = 리포트와 같은 `stop_row_state`.
+
+- **(0) 사용자 결정 (2026-11-19, 다시 묻지 않는다)**
+  - **실행 중 패널에 실패 이유 표시 → 다음 슬라이스**: 라이브에서 오류율 4.6%로 실패한 계단이 「튄 계단」으로만 보여 「지연은 그대로인데 튄 계단?」이 어색했다(「튄」 = 판정이 한 번 튀었다 돌아옴, 이유 무관 — a의 bench 규칙). 패널은 칩에 숫자를 싣지 않아(plan 세부화 10) 왜 실패했는지 안 보인다. 해소 = `LiveState`에 판정 계단별 `reasons`(이미 `judge`가 계산 — `details()` 불필요)를 싣고 요약·칩 툴팁에 「2 튄 계단(오류 4.6%)」·「포화(p99 3.9×)」. 용어 「튄 계단」은 바꾸지 않는다.
+  - **실행 중 칩 색만 진하게(`eb225566`)**: 리포트 팔레트(`STAIR_STATE_COLOR`) 그대로 쓰면 흰 칩 위 기호·테두리 대비가 정상 2.5·호박 2.2·회색 2.6(그래픽 3:1 미달) → 패널 전용 `LIVE_CHIP_COLOR`(4.8–6.5). 리포트·인쇄 색은 무변경.
+  - **회색 4종 칩(포화 이후·측정 안 됨·일부 실행·실행 안 함) 기호 없음 유지**(plan 모양): 정지 줄·요약 글자와 툴팁·스크린리더 라벨이 대신 말한다.
+  - **live-verify 응답기 = keep-alive 기본 + `close` 모드**(`fed539b5`·`6db97552`): 옛 HTTP/1.0 응답기는 초당 1천여 건부터 연결 수립 병목으로 거짓 포화(1440 req/s 오류 1.2%·p99 14.7 s). 연결 계측 검증(재사용률 0)은 `close` 모드로.
+
+- **(1) 구현 중 판단 (틀렸을 때 비용 · 되돌리기)**
+  - **plan-mandated 공허 테스트 보강**(Task 1 리뷰): `frozen_marks_unjudged_and_hides_forecast`가 two_fails+정상 입력이라 `!frozen` 가드 없이도 통과 → FirstFail + 같은 입력 비동결 true 단언. 비용 0.
+  - **성능 측정 중 수정 보류**: 최종 리뷰 수정(cargo·pnpm 게이트 CPU)을 종단 A/B 뒤로 미룸 — A/B는 수정 전 바이너리(M4는 결과 불변 리팩터), 50계단 메모리는 최종 바이너리. 비용: 대기 시간뿐.
+  - **A/B 응답기 교체**: 1차 A/B(live-verify `responder.py`)가 1440 req/s에서도 포화·m-on 자동 정지로 비교 불성립 → asyncio keep-alive 응답기로 용량 측정(전 계단 all_ok ≥ 11520) 뒤 b와 같은 1440→7200(용량의 62%)로 재측정. 비용: b 수치와 응답기가 달라 절대값 직접 비교 불가(쌍 비교는 유효).
+  - **`targets[current_step]` 범위 밖 우려 기각**(Task 4 리뷰): 서버 `step_states` 길이 = `cfg.targets.len()`이고 UI targets = 같은 profile — 비용: profile 불일치 시 「undefined req/s」(발생 경로 없음).
+  - **최종 리뷰 반영**(`ac49eab8`): I1 정지 뒤 「즉시 정지 감시」 줄 숨김(라이브로도 확인) · M1 `stop_t0` 최솟값 규칙에 이빨 · M2 칩 라벨 ko.ts · M3 주석 사실만 · M4 `EmergencyTracker::is_held` 단일 소스. Nit `LiveKey.held`(다른 키로 결정되는 중복)는 유지 — 비용: 키 한 칸.
+
+- **(2) 연기 (조건과 해소 경로)**
+  - **판정 직후 경계 초 어긋남**(라이브 US3-a′): 계단이 판정된 뒤 약 2초 동안 머리 줄이 「계단 2/4 측정 중 · … 2 실패」로 이전 계단을 「측정 중」이라 보여 줌(칩은 이미 ✗). 판정은 그 계단 마지막 초가 완결되면 나지만 `current`는 수위 최댓값의 `band_of`라 경계 초에서 한 박자 늦다. 해소 = `current`를 `max(band_of(level), judged)`로 올리거나 판정 계단과 같으면 다음 계단 상승으로 표시.
+  - **실행 중 실패 이유**(위 (0) 첫 줄).
+  - **`get_non_stair_run_has_no_live_key`가 `profile.stair` 가드(계단 아닌 running run 폴링에 잠금 0 — 성능 불변식)를 못 잡음**: 출력은 `skip_serializing_if`가 보호. 비용: 회귀 시 계단 아닌 running run 폴링마다 `runs` 잠금 1회. 해소 = `#[cfg(test)]` `live_of` 호출 카운터.
+  - **`LiveKey.stop_set`은 bool**: `set_stop`을 두 번 다른 값으로 부르면 `live_if_changed`가 stale None — 지금은 `auto_stop()`이 첫 회만 Some이라 1회 호출. 해소 = 키에 `stopped_at_ms`.
+  - **`judged` clamp에 `debug_assert` 없음**(Task 1 리뷰 minor) · **칩 대비 테스트의 상태 목록이 손으로 적힘**(새 칩 상태 자동 미포함 — 해소 = `StairLiveSchema` enum에서 measuring·pending 제외로 도출).
+  - **b §B69 (2) 「`details()` 0」은 c가 `details()`를 쓰지 않아 발생하지 않음**(Task 2·3 grep 게이트 0) — 실패 이유 표시 슬라이스도 `judge`의 `reasons`를 쓸 것.
+
+- **(3) 선재 버그**
+  - **400px run 상세 가로 넘침**(라이브 극단값): 실행 중 「메트릭 윈도우」 표(`RunDetailPage.tsx`, `min-w-full text-sm`)가 문서 폭 457 > 화면 389. 패널은 넘침 0. 해소 = 표를 `overflow-x-auto`로 감싸기(§B69 (2)의 실행 창 넘침과 같은 류).
+
+- **(4) 프로세스 메모**: ① 첫 라이브 시도의 4계단이 「정상」 — 시나리오에 `status: 200` 단언이 없어 응답기의 503이 오류로 안 셈(시험 설정 문제). 용량 제한 응답기로 계단 실패를 만들 땐 상태 단언 필수. ② 자동 정지 뒤 run은 약 1초 안에 끝나 1초 폴링 화면으로는 정지 순간을 놓친다 — 페이지 안 `MutationObserver` 기록기로 정지 줄·칩을 잡았다. ③ 사용자 요청으로 라이브 관람(headed Playwright). ④ `just doc-budget` WARN 2(래칫): `crates/controller/CLAUDE.md` +17 KB·`crates/engine/CLAUDE.md` +15 KB(여러 슬라이스 누적) — 다음 슬라이스 마무리 때 기능별 심화 섹션을 `docs/dev/`로 이동 검토(`docs/dev/root-doc-maintenance.md`).
+
+- **(5) 라이브 검증·성능** → `docs/build-log.md` stage-live-panel 단락(US3 전 항목·US5 성능 표).
+
+- **(6) 릴리즈 노트 줄(안)**: "계단 실행 중 run 상세에 「계단 진행」 패널이 생겼습니다 — 지금 몇 계단째인지, 계단마다 정상/실패/튄 계단/포화인지, 다음 계단이 실패하면 자동으로 멈춘다는 예고, 즉시 정지 감시 현재값이 보이고, 멈추는 순간 이유가 맨 위에 뜹니다(끝난 뒤 리포트 판정과 같음)."
