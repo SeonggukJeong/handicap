@@ -2,7 +2,7 @@
 
 > 2026-06-15 생성 (`claude-automation-recommender`). 이 repo에 **아직 없는** 자동화 후보만 — 기존 강한 셋업과 중복되지 않는 것. **추천 문서이지 구현물이 아님**; 각 항목 "구현" 라인을 시작점으로 다음 세션에서 선택 구현.
 >
-> **이미 있는 것(중복 추천 안 함)**: hooks `tdd-guard`·`git-guard`·`controller-bin-guard`·`spec-review-guard`·`format.sh`·`ui-gate-reminder`·`rebuild-worker-reminder` / skills `start-slice`·`finish-slice`·`live-verify`·`new-migration`·`dev-doctor`·`curate-memory` / agents `handicap-reviewer`·`spec-plan-reviewer` / 층상 pre-commit 게이트.
+> **이미 있는 것(중복 추천 안 함)**: hooks `tdd-guard`·`git-guard`·`controller-bin-guard`·`spec-review-guard`·`format.sh`·`commit-gate-reminder`(구 `ui-gate-reminder`)·`rebuild-worker-reminder` / skills `start-slice`·`finish-slice`·`live-verify`·`new-migration`·`dev-doctor`·`curate-memory` / agents `handicap-reviewer`·`spec-plan-reviewer` / 층상 pre-commit 게이트.
 
 ## 코드베이스 프로필
 - **Rust 워크스페이스**(engine/controller/worker/worker-core/proto): axum 0.8 · tonic gRPC · SQLite · HDR Histogram · prost · rust_xlsxwriter · calamine

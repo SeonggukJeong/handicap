@@ -6,9 +6,14 @@
 #      checks for docs/ui/.claude commits, so a stray <<<<<<< / >>>>>>> from a
 #      bad merge would otherwise sail through (it did once: Slice 9c).
 #   1. UI gate — when ui/ (non-.md) is staged: pnpm lint + test + build. The
-#      cargo gate skips ui-only commits and, with no git remote, the CI UI job
-#      never runs — so without this a ui/ commit has ZERO automated gate (a
-#      react-hooks/exhaustive-deps warning slipped through exactly this way).
+#      cargo gate skips ui-only commits and CI (ci.yml) runs only on push, so
+#      without this a local ui/ commit has no gate until the next push (a
+#      react-hooks/exhaustive-deps warning slipped through exactly this way,
+#      back when there was no remote at all).
+#
+# NOT run by git for: every commit `git rebase` writes (even `--continue` after
+# a conflict) and clean `git cherry-pick` / `git revert` picks — verified
+# 2026-11-20. .claude/hooks/commit-gate-reminder.sh flags those for a manual run.
 #   2. Cargo gate — when a cargo-affecting path is staged: fmt + build +
 #      clippy + tests (nextest, with an explicit doctest pass since nextest
 #      does not run doctests). Skipped entirely when only docs/ui/.claude/
