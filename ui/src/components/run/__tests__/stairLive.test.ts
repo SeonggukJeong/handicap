@@ -157,6 +157,7 @@ describe("liveStepLabel", () => {
     });
     expect(liveStepLabel(l, 1)).toBe("실패(오류 4.6%, 다음 계단 확인 중)");
     expect(liveStepLabel({ ...l, stop: stopBase }, 1)).toBe("확인 못 한 실패(오류 4.6%)");
+    expect(liveStepLabel({ ...l, frozen: true }, 1)).toBe("확인 못 한 실패(오류 4.6%)");
   });
 
   it("step_label_after_without_reasons_has_no_parens", () => {
@@ -279,6 +280,17 @@ describe("liveSummaryText", () => {
     ).toBe("1 정상 · 2 실패(오류 4.6%, 다음 계단 확인 중)");
     expect(liveSummaryText(live({ step_states: ["measuring", "pending"] }))).toBeNull();
     expect(liveSummaryText(live())).toBeNull();
+  });
+
+  it("summary_reason_step_is_alone_even_after_reasonless_same_state", () => {
+    expect(
+      liveSummaryText(
+        live({
+          step_states: ["ok", "saturated", "saturated"],
+          step_reasons: [empty, empty, R([rs("errors", 0.046)])],
+        }),
+      ),
+    ).toBe("1 정상 · 2 포화 · 3 포화(오류 4.6%)");
   });
 
   it("state_label_running_only_and_report", () => {

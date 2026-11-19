@@ -185,9 +185,8 @@ describe("RunDetailPage — 메트릭 표 가로 스크롤 상자", () => {
     renderWithRouter("RS1");
     const stepsRegion = await screen.findByRole("region", { name: /스텝/ });
     await within(stepsRegion).findByText("login");
-    const tables = await screen.findAllByRole("table");
-    expect(tables).toHaveLength(2);
-    for (const table of tables) {
+    await waitFor(() => expect(screen.getAllByRole("table")).toHaveLength(2));
+    for (const table of screen.getAllByRole("table")) {
       expect(table.parentElement).toHaveClass("overflow-x-auto");
     }
   });

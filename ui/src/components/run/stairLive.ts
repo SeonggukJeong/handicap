@@ -73,16 +73,17 @@ export function liveSummaryText(live: StairLive): string | null {
   const n = judgedCount(live);
   if (n === 0) return null;
   const groups: string[] = [];
+  const solo = live.step_states
+    .slice(0, n)
+    .map((s, i) => REASON_GROUP_STATES.has(s) && liveReasonText(live, i) != null);
   let start = 0;
   for (let i = 1; i <= n; i++) {
-    const alone =
-      REASON_GROUP_STATES.has(live.step_states[start]) && liveReasonText(live, start) != null;
-    if (i === n || alone || live.step_states[i] !== live.step_states[start]) {
+    if (i === n || solo[start] || solo[i] || live.step_states[i] !== live.step_states[start]) {
       groups.push(
         t.group(
           start + 1,
           i,
-          alone ? liveStepLabel(live, start) : liveStateLabel(live.step_states[start], live),
+          solo[start] ? liveStepLabel(live, start) : liveStateLabel(live.step_states[start], live),
         ),
       );
       start = i;

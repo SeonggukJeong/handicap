@@ -118,7 +118,9 @@ describe("StairLivePanel", () => {
       "6계단 측정 중",
     ];
     for (const label of expected) {
-      expect(screen.getByRole("listitem", { name: label })).toHaveAttribute("title", label);
+      const chip = screen.getByRole("listitem", { name: label });
+      expect(chip).toHaveAttribute("title", label);
+      expect(chip).toHaveAttribute("aria-label", label);
     }
   });
 
