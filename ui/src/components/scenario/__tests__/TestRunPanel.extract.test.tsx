@@ -1,8 +1,19 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TestRunPanel } from "../TestRunPanel";
 import type { ScenarioTrace, StepTrace } from "../../../api/schemas";
+import { ko } from "../../../i18n/ko";
+import { parseBodyJson } from "../../../scenario/bodyJson";
+
+vi.mock("../../../scenario/bodyJson", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../scenario/bodyJson")>();
+  return { ...actual, parseBodyJson: vi.fn(actual.parseBodyJson) };
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 function httpStep(over: Partial<StepTrace> = {}): StepTrace {
   return {
@@ -155,5 +166,71 @@ describe("TestRunPanel 추출 확인 줄 위치", () => {
     const btn = screen.getByRole("button", { name: "session 추출" });
     await user.click(btn);
     expect(btn.closest("tr")!.nextElementSibling).toContainElement(confirm());
+  });
+});
+
+describe("TestRunPanel 감싼 JSON 풀기", () => {
+  const wrappedBody = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ data: JSON.stringify({ id: 7, token: "T" }), ...extra });
+  const withBody = (body: string, over: Partial<StepTrace["response"] & object> = {}) =>
+    httpStep({ response: { ...httpStep().response!, body, ...over } });
+
+  it("wrapped body shows inner leaves and the notice", async () => {
+    const user = userEvent.setup();
+    const onAddExtract = vi.fn();
+    render(<TestRunPanel trace={trace(withBody(wrappedBody()))} onAddExtract={onAddExtract} />);
+    await expand(user);
+    expect(screen.getByText(ko.common.jsonUnwrappedNotice)).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "+추출" })[0]);
+    await user.click(screen.getByRole("button", { name: "추가" }));
+    expect(onAddExtract).toHaveBeenCalledWith("01J0000000000000000000000A", {
+      var: "id",
+      from: "body",
+      path: "$.data.id",
+    });
+  });
+
+  it("collapsed row does not parse the body", async () => {
+    const user = userEvent.setup();
+    render(<TestRunPanel trace={trace(withBody(wrappedBody()))} onAddExtract={vi.fn()} />);
+    expect(parseBodyJson).not.toHaveBeenCalled();
+    await expand(user);
+    expect(vi.mocked(parseBodyJson).mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("plain body shows no notice", async () => {
+    const user = userEvent.setup();
+    render(<TestRunPanel trace={trace(httpStep())} onAddExtract={vi.fn()} />);
+    await expand(user);
+    expect(screen.queryByText(ko.common.jsonUnwrappedNotice)).toBeNull();
+  });
+
+  it("long wrapped body shows the notice inside the full-view dialog", async () => {
+    const user = userEvent.setup();
+    const step = withBody(wrappedBody({ pad: "x".repeat(600) }));
+    render(<TestRunPanel trace={trace(step)} onAddExtract={vi.fn()} />);
+    await expand(user);
+    await user.click(screen.getByRole("button", { name: /전체 보기·추출/ }));
+    expect(
+      within(screen.getByRole("dialog")).getByText(ko.common.jsonUnwrappedNotice),
+    ).toBeInTheDocument();
+  });
+
+  it("truncated or non-JSON body keeps the fallback notice", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <TestRunPanel
+        trace={trace(withBody(wrappedBody(), { body_truncated: true }))}
+        onAddExtract={vi.fn()}
+      />,
+    );
+    await expand(user);
+    expect(screen.getByText(/추출 불가/)).toBeInTheDocument();
+    expect(screen.queryByText(ko.common.jsonUnwrappedNotice)).toBeNull();
+    unmount();
+    render(<TestRunPanel trace={trace(withBody("<html>"))} onAddExtract={vi.fn()} />);
+    await expand(user);
+    expect(screen.getByText(/추출 불가/)).toBeInTheDocument();
+    expect(screen.queryByText(ko.common.jsonUnwrappedNotice)).toBeNull();
   });
 });

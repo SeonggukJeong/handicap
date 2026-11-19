@@ -13,6 +13,7 @@ import { HeaderTable } from "../response/HeaderTable";
 import { ResponseBodyTree } from "./ResponseBodyTree";
 import { ExtractConfirmRow } from "./ExtractConfirmRow";
 import { ko } from "../../i18n/ko";
+import { parseBodyJson } from "../../scenario/bodyJson";
 
 function statusClass(status: number, error: string | null): string {
   if (error || status >= 400) return "bg-red-200 text-red-900";
@@ -66,6 +67,13 @@ function HttpRow({
   const onCreate = onAddExtract
     ? (extract: Extract) => onAddExtract(step.step_id, extract)
     : undefined;
+  // 접힌 줄은 본문을 읽지 않는다 — 한 번에 요청이 수천 줄, 줄마다 본문 최대 1 MiB.
+  const canTree = open && onCreate !== undefined && !!resp && !!resp.body && !resp.body_truncated;
+  const respBody = resp?.body;
+  const parsedBody = useMemo(
+    () => (canTree && respBody ? parseBodyJson(respBody) : null),
+    [canTree, respBody],
+  );
   const confirmAt = (at: "header" | "cookie" | "status") =>
     pending !== null && pending.at === at && onCreate && resp
       ? {
@@ -201,7 +209,19 @@ function HttpRow({
                 tree={
                   onCreate
                     ? {
-                        render: (v) => <ResponseBodyTree value={v} onCreate={onCreate} />,
+                        render: (v) => (
+                          <>
+                            {parsedBody !== null && parsedBody.unwrapped >= 1 && (
+                              <p className="mb-1 text-xs text-slate-600">
+                                {ko.common.jsonUnwrappedNotice}
+                              </p>
+                            )}
+                            <ResponseBodyTree
+                              value={parsedBody !== null ? parsedBody.value : v}
+                              onCreate={onCreate}
+                            />
+                          </>
+                        ),
                         openLabel: "전체 보기·추출",
                         fallbackNotice: (t) => (
                           <Callout variant="warn" className="mb-1">
