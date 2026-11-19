@@ -2,8 +2,10 @@
 //! 넘침은 프로세스 abort로 나타난다(`join()`으로 못 잡는다) — 테스트 실행의 종료 상태가 판정.
 //!
 //! 기준은 release 빌드다(사용자 결정 2026-11-20, roadmap §B72 (0) 선택지 (a)).
-//! ≈1 MiB 사례는 debug·release 모두에서 돈다. ≈16 MiB 사례는 release에서만 돈다 —
-//! 실행: `cargo test -p handicap-engine --release --test nested_json_depth`.
+//! 목표 1 MiB 사례(실제 본문 1.58 MB)는 debug·release 모두에서 돈다.
+//! 목표 16 MiB 사례(실제 본문 25.2 MB)는 release에서만 돈다. pre-commit·CI의 테스트는
+//! debug라 이 사례는 자동 게이트 밖이다 — 추출·글자화 경로를 고치면 손으로 돌릴 것:
+//! `cargo test -p handicap-engine --release --test nested_json_depth`.
 
 use handicap_engine::scenario::Extract;
 use handicap_engine::{ResponseFacts, evaluate_extracts};
@@ -58,7 +60,8 @@ fn check_chain(target: usize) {
     let deep_container = format!("${}.w[0]", "[0]".repeat(LAYERS));
     let (body, links) = build_chain(target);
     eprintln!("target={target} body_len={} links={links}", body.len());
-    assert!(body.len() >= target);
+    // 고리가 둘 이상이어야 안쪽 푼 값에서 찾을 때 고리를 실제로 건넌다.
+    assert!(links >= 2);
 
     for path in ["$.a.b", "$..zzz"] {
         let err = run_on_small_stack(&body, path).unwrap_err();
@@ -66,7 +69,10 @@ fn check_chain(target: usize) {
     }
     assert_eq!(run_on_small_stack(&body, "$..x").unwrap(), "1");
     assert!(run_on_small_stack(&body, "$..w").is_ok());
-    assert!(run_on_small_stack(&body, &deep_container).is_ok());
+    // 안쪽까지 푼 값에서만 찾히는 깊은 컨테이너 — 찾은 값이 통째로 글자가 됐는지 본다.
+    let deep = run_on_small_stack(&body, &deep_container).unwrap();
+    assert!(deep.starts_with('['), "{}", &deep[..deep.len().min(40)]);
+    assert!(deep.contains(r#""x":1"#));
 }
 
 #[test]
