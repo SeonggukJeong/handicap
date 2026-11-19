@@ -153,7 +153,7 @@ pub fn normalize_stair(p: &mut Profile) -> Result<(), String> {
 const ACHIEVED_MIN: f64 = 0.95;
 const ERROR_MAX: f64 = 0.01;
 const P99_MULT: u64 = 3;
-const P99_FAST_US: u64 = 1000;
+pub(crate) const P99_FAST_US: u64 = 1000;
 const P99_FAST_CAP_US: u64 = 5000;
 /// knee: 바로 앞 정상 계단 대비 p99 ≥ 1.5× (정수로 `2·cur ≥ 3·prev`) ∧ p99 ≥ 1 ms.
 const KNEE_MIN_US: u64 = 1000;

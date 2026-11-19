@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::auto_stop::{StopInfo, step_failed};
 use crate::stair::{
-    BandKind, Judgement, SaturationStopMode, StairConfig, StepState, stop_row_state,
+    BandKind, Judgement, P99_FAST_US, Reason, SaturationStopMode, StairConfig, StepState,
+    stop_row_state,
 };
 
 /// 리포트 `StepState` 9종과 같은 이름·같은 직렬화 + 실행 중 전용 3종.
@@ -34,11 +35,21 @@ pub struct EmergencyNow {
     pub held: bool,
 }
 
+/// 계단 하나의 판정 사유 — 리포트 `ReportJson` 사유 칸과 같은 `Reason`.
+/// `ref_fast`: 앞쪽 가장 가까운 정상 계단의 p99가 `P99_FAST_US` 미만(「p99 5 ms 이상」 문구 갈림).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LiveStepReasons {
+    pub reasons: Vec<Reason>,
+    pub slot_limited: bool,
+    pub ref_fast: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LiveState {
     pub current_step: Option<u32>,
     pub phase: Option<BandKind>,
     pub step_states: Vec<LiveStepState>,
+    pub step_reasons: Vec<LiveStepReasons>,
     pub last_ok_step: Option<u32>,
     pub next_fail_stops: bool,
     pub emergency_now: Option<EmergencyNow>,
@@ -63,6 +74,8 @@ pub struct LiveInputs<'a> {
     pub stop_t0_ms: Option<i64>,
     pub emergency_now: Option<EmergencyNow>,
     pub suspended_seconds: u32,
+    /// 마지막 판정에 넣은 계단별 p99(µs, 인덱스 = 계단). 판정 전이면 빈 슬라이스.
+    pub judged_p99_us: &'a [u64],
 }
 
 pub fn live_step_state(s: StepState) -> LiveStepState {
@@ -85,6 +98,15 @@ pub fn build_live(inp: &LiveInputs) -> LiveState {
         .judgement
         .map_or(&[][..], |j| &j.states[..inp.judged.min(j.states.len())]);
 
+    let judged = judged_states.len();
+    // 판정이 현재 구간을 앞질렀으면(감시가 구간 신호보다 먼저 판정) 다음 계단 상승 중으로 올려 보인다.
+    let current = match inp.current {
+        Some((c, _)) if (c as usize) < judged => {
+            (judged < n).then_some((judged as u32, BandKind::Ramp))
+        }
+        other => other,
+    };
+
     let step_states = (0..n)
         .map(|i| {
             if let Some(stop) = inp.stop
@@ -98,7 +120,7 @@ pub fn build_live(inp: &LiveInputs) -> LiveState {
             if inp.frozen {
                 return LiveStepState::Frozen;
             }
-            match inp.current {
+            match current {
                 Some((cur, _)) if i <= cur as usize => LiveStepState::Measuring,
                 _ => LiveStepState::Pending,
             }
@@ -106,7 +128,24 @@ pub fn build_live(inp: &LiveInputs) -> LiveState {
         .collect();
 
     let mode = inp.cfg.auto_stop.as_ref().and_then(|a| a.saturation);
-    let judged = judged_states.len();
+    let step_reasons = (0..n)
+        .map(|i| match inp.judgement {
+            Some(j) if i < judged => LiveStepReasons {
+                reasons: j.reasons[i].clone(),
+                slot_limited: j.slot_limited[i],
+                ref_fast: (0..i)
+                    .rev()
+                    .find(|&k| j.states[k] == StepState::Ok)
+                    .and_then(|k| inp.judged_p99_us.get(k))
+                    .is_some_and(|&p| p < P99_FAST_US),
+            },
+            _ => LiveStepReasons {
+                reasons: vec![],
+                slot_limited: false,
+                ref_fast: false,
+            },
+        })
+        .collect();
     let next_fail_stops = mode.is_some_and(|mode| {
         !inp.stopped
             && inp.stop.is_none()
@@ -118,9 +157,10 @@ pub fn build_live(inp: &LiveInputs) -> LiveState {
     });
 
     LiveState {
-        current_step: inp.current.map(|c| c.0),
-        phase: inp.current.map(|c| c.1),
+        current_step: current.map(|c| c.0),
+        phase: current.map(|c| c.1),
         step_states,
+        step_reasons,
         last_ok_step: inp.judgement.and_then(|j| j.last_ok).map(|i| i as u32),
         next_fail_stops,
         emergency_now: inp.emergency_now.clone(),
@@ -135,7 +175,8 @@ mod tests {
     use super::*;
     use crate::auto_stop::{StopInfo, StopKind};
     use crate::stair::{
-        AutoStopConfig, BandKind, SaturationStopMode, StairConfig, StepNumbers, StepState, judge,
+        AutoStopConfig, BandKind, ReasonKind, SaturationStopMode, StairConfig, StepNumbers,
+        StepState, judge,
     };
     use SaturationStopMode::{FirstFail, TwoFails};
 
@@ -191,7 +232,24 @@ mod tests {
             stop_t0_ms: None,
             emergency_now: None,
             suspended_seconds: 0,
+            judged_p99_us: &[],
         }
+    }
+
+    fn nums(c: &StairConfig, rows: &[(f64, u64)]) -> Vec<StepNumbers> {
+        (0..c.targets.len())
+            .map(|i| {
+                let (error_rate, p99_us) = rows.get(i).copied().unwrap_or((0.0, 0));
+                StepNumbers {
+                    target: c.targets[i],
+                    achieved: None,
+                    dropped: Some(0),
+                    error_rate,
+                    p99_us,
+                    measured: i < rows.len(),
+                }
+            })
+            .collect()
     }
 
     use LiveStepState as L;
@@ -405,6 +463,162 @@ mod tests {
     }
 
     #[test]
+    fn step_reasons_copy_judged_rows() {
+        let c = cfg(5, None);
+        let j = jud("ofoo", 5);
+        let l = build_live(&LiveInputs {
+            judged_p99_us: &[1000; 5],
+            ..inp(&c, 4, Some(&j))
+        });
+        assert_eq!(l.step_reasons.len(), 5);
+        assert_eq!(l.step_reasons[1].reasons, j.reasons[1]);
+        assert_eq!(l.step_reasons[1].reasons[0].kind, ReasonKind::Errors);
+        assert!(l.step_reasons[0].reasons.is_empty());
+        assert_eq!(
+            l.step_reasons[4],
+            LiveStepReasons {
+                reasons: vec![],
+                slot_limited: false,
+                ref_fast: false
+            }
+        );
+    }
+
+    #[test]
+    fn ref_fast_uses_nearest_ok_not_prev() {
+        let c = cfg(4, None);
+        let p = [500, 6000, 8000, 7000];
+        let j = judge(
+            &nums(&c, &[(0.0, 500), (0.0, 6000), (0.0, 8000), (0.0, 7000)]),
+            &c,
+        );
+        assert_eq!(
+            j.states,
+            vec![
+                StepState::Ok,
+                StepState::Saturated,
+                StepState::Saturated,
+                StepState::After
+            ]
+        );
+        let l = build_live(&LiveInputs {
+            judged_p99_us: &p,
+            ..inp(&c, 4, Some(&j))
+        });
+        for i in 1..4 {
+            assert_eq!(
+                l.step_reasons[i].reasons[0].kind,
+                ReasonKind::P99Relative,
+                "step {i}"
+            );
+            assert!(l.step_reasons[i].ref_fast, "step {i}");
+        }
+    }
+
+    #[test]
+    fn ref_fast_false_without_ok_ref() {
+        let c = cfg(2, None);
+        let p = [500, 500];
+        let j = judge(&nums(&c, &[(0.5, 500), (0.0, 500)]), &c);
+        assert_eq!(j.states, vec![StepState::Saturated, StepState::After]);
+        let l = build_live(&LiveInputs {
+            judged_p99_us: &p,
+            ..inp(&c, 2, Some(&j))
+        });
+        assert!(!l.step_reasons[0].ref_fast);
+        assert!(!l.step_reasons[1].ref_fast);
+    }
+
+    #[test]
+    fn unjudged_and_stop_rows_have_empty_reasons() {
+        let c = cfg(6, Some(TwoFails));
+        let j = jud("ooff", 6);
+        let s = stop_info(StopKind::Saturation, 3, 3, T0 + 4 * step_ms(&c) + 2000);
+        let mut i = inp(&c, 4, Some(&j));
+        i.stop = Some(&s);
+        i.stopped = true;
+        i.stop_t0_ms = Some(T0);
+        i.judged_p99_us = &[1000; 6];
+        let l = build_live(&i);
+        let empty = LiveStepReasons {
+            reasons: vec![],
+            slot_limited: false,
+            ref_fast: false,
+        };
+        assert_eq!(l.step_reasons.len(), 6);
+        assert!(!l.step_reasons[2].reasons.is_empty());
+        for r in &l.step_reasons[4..] {
+            assert_eq!(*r, empty);
+        }
+    }
+
+    #[test]
+    fn current_lifts_to_next_ramp_when_judged() {
+        let c = cfg(4, Some(TwoFails));
+        let j = jud("oo", 4);
+        let l = build_live(&LiveInputs {
+            current: Some((1, BandKind::Measure)),
+            judged_p99_us: &[1000; 4],
+            ..inp(&c, 2, Some(&j))
+        });
+        assert_eq!((l.current_step, l.phase), (Some(2), Some(BandKind::Ramp)));
+        assert_eq!(l.step_states[2], L::Measuring);
+        assert_eq!(l.step_states[3], L::Pending);
+    }
+
+    #[test]
+    fn current_null_when_all_judged() {
+        let c = cfg(4, None);
+        let j = jud("oooo", 4);
+        let mut i = inp(&c, 4, Some(&j));
+        i.current = Some((3, BandKind::Measure));
+        let l = build_live(&i);
+        assert_eq!((l.current_step, l.phase), (None, None));
+    }
+
+    #[test]
+    fn current_unchanged_when_not_behind() {
+        let c = cfg(4, None);
+        let j = jud("oo", 4);
+        let mut i = inp(&c, 2, Some(&j));
+        i.current = Some((2, BandKind::Discard));
+        let l = build_live(&i);
+        assert_eq!(
+            (l.current_step, l.phase),
+            (Some(2), Some(BandKind::Discard))
+        );
+        i.current = Some((3, BandKind::Ramp));
+        let l = build_live(&i);
+        assert_eq!((l.current_step, l.phase), (Some(3), Some(BandKind::Ramp)));
+    }
+
+    #[test]
+    fn stop_record_with_lagging_current_lifts() {
+        let c = cfg(6, Some(TwoFails));
+        let j = jud("ooff", 6);
+        let s = stop_info(StopKind::Saturation, 3, 3, T0 + 4 * step_ms(&c) + 2000);
+        let mut i = inp(&c, 4, Some(&j));
+        i.stop = Some(&s);
+        i.stopped = true;
+        i.stop_t0_ms = Some(T0);
+        i.current = Some((3, BandKind::Measure));
+        let l = build_live(&i);
+        assert_eq!((l.current_step, l.phase), (Some(4), Some(BandKind::Ramp)));
+    }
+
+    #[test]
+    fn frozen_lag_lifts_current_keeps_frozen_chips() {
+        let c = cfg(4, None);
+        let j = jud("oo", 4);
+        let mut i = inp(&c, 2, Some(&j));
+        i.frozen = true;
+        i.current = Some((1, BandKind::Measure));
+        let l = build_live(&i);
+        assert_eq!((l.current_step, l.phase), (Some(2), Some(BandKind::Ramp)));
+        assert_eq!(&l.step_states[2..], &[L::Frozen, L::Frozen]);
+    }
+
+    #[test]
     fn serializes_nulls() {
         let c = cfg(3, Some(TwoFails));
         let v = serde_json::to_value(build_live(&inp(&c, 0, None))).unwrap();
@@ -420,5 +634,14 @@ mod tests {
             assert!(o[k].is_null(), "{k}");
         }
         assert_eq!(v["step_states"][0], "pending");
+        let mut keys: Vec<&str> = v["step_reasons"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["reasons", "ref_fast", "slot_limited"]);
+        assert_eq!(v["step_reasons"][0]["reasons"], serde_json::json!([]));
     }
 }

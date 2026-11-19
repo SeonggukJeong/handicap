@@ -213,6 +213,8 @@ pub struct StairMonitor {
     secs_done: Option<i64>,
     /// `judged` 계단까지 넣은 마지막 `judge` 결과(자동 정지 칸과 무관하게 계산).
     judgement: Option<Judgement>,
+    /// `judgement`를 낸 판정에 넣은 계단별 p99(µs).
+    judged_p99_us: Vec<u64>,
     /// 즉시 정지 계수기에 넣은 마지막 초.
     last_second: Option<LastSecond>,
     /// 보류로 버린 초의 누적(`Outcome.newly_suspended` 합).
@@ -273,6 +275,7 @@ impl StairMonitor {
             secs: BTreeMap::new(),
             secs_done: None,
             judgement: None,
+            judged_p99_us: Vec::new(),
             last_second: None,
             suspended_total: 0,
             stop_record: None,
@@ -300,6 +303,7 @@ impl StairMonitor {
             stop_t0_ms: self.stop_t0_ms(),
             emergency_now: self.emergency_now(),
             suspended_seconds: self.suspended_total,
+            judged_p99_us: &self.judged_p99_us,
         })
     }
 
@@ -471,6 +475,7 @@ impl StairMonitor {
                 let nums = self.acc.numbers(&done, false);
                 let j = judge(&nums, &self.cfg);
                 stop = mode.and_then(|mode| saturation_stop(&j, &done, mode).map(|s| (mode, s)));
+                self.judged_p99_us = nums.iter().map(|s| s.p99_us).collect();
                 self.judgement = Some(j);
             }
             self.acc.release_step(i, false);
