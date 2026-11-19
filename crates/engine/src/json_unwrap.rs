@@ -286,13 +286,23 @@ mod tests {
             .unwrap();
     }
 
+    /// `wrap`이 감싸는 작은 값 — 잎이 이미 감싼 글자일 수 있어, 푼 값 안에 또 푸는 필드가 생긴다.
     fn arb_small() -> impl proptest::strategy::Strategy<Value = Value> {
         use proptest::prelude::*;
-        let leaf = prop_oneof![
+        let tiny = prop_oneof![
             Just(Value::Null),
-            any::<bool>().prop_map(Value::Bool),
             (0i64..1000).prop_map(|n| json!(n)),
-            "[a-z ]{0,4}".prop_map(Value::String),
+            "[a-z]{0,3}".prop_map(Value::String),
+            proptest::collection::btree_map("[a-z]{1,3}", (0i64..10).prop_map(|n| json!(n)), 0..3)
+                .prop_map(|m| Value::Object(m.into_iter().collect())),
+        ];
+        let wrapped_leaf = (tiny, 0usize..=2).prop_map(|(v, n)| Value::String(wrap(&v, n)));
+        let leaf = prop_oneof![
+            1 => Just(Value::Null),
+            1 => any::<bool>().prop_map(Value::Bool),
+            1 => (0i64..1000).prop_map(|n| json!(n)),
+            1 => "[a-z ]{0,4}".prop_map(Value::String),
+            4 => wrapped_leaf,
         ];
         leaf.prop_recursive(2, 8, 3, |inner| {
             prop_oneof![
