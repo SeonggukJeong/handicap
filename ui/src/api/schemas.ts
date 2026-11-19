@@ -87,6 +87,7 @@ export const AutoStopConfigSchema = z
   })
   .strict();
 export type AutoStopConfig = z.infer<typeof AutoStopConfigSchema>;
+export type EmergencyStopConfig = NonNullable<AutoStopConfig["emergency"]>;
 
 export const StairConfigSchema = z
   .object({
@@ -183,37 +184,78 @@ export const StairBandSchema = z
   })
   .strict();
 
-// 자동 정지 기록. 내부 Option 필드는 항상 직렬화(null) → .nullable(); 기록 키 자체는 생략 가능.
-export const AutoStopRecordSchema = z
+// 정지 기록 본문 — 리포트(auto_stop.stop)와 실행 중 요약(auto_stop_live.stop)이 공유.
+export const StopInfoSchema = z
   .object({
-    stop: z
+    kind: z.enum(["saturation", "emergency"]),
+    mode: z.enum(["two_fails", "first_fail"]).nullable(),
+    failed_steps: z.array(z.number().int()),
+    decided_step: z.number().int(),
+    judged_through: z.number().int(),
+    phase: z.enum(["ramp", "discard", "measure"]).nullable(),
+    decided_at_ms: z.number(),
+    stopped_at_ms: z.number(),
+    emergency: z
       .object({
-        kind: z.enum(["saturation", "emergency"]),
-        mode: z.enum(["two_fails", "first_fail"]).nullable(),
-        failed_steps: z.array(z.number().int()),
-        decided_step: z.number().int(),
-        judged_through: z.number().int(),
-        phase: z.enum(["ramp", "discard", "measure"]).nullable(),
-        decided_at_ms: z.number(),
-        stopped_at_ms: z.number(),
-        emergency: z
-          .object({
-            max_error_rate: z.number(),
-            max_p99_us: z.number(),
-            seconds: z.number(),
-            error_hit: z.boolean(),
-            p99_hit: z.boolean(),
-          })
-          .strict()
-          .nullable(),
-        slot_limited: z.boolean(),
+        max_error_rate: z.number(),
+        max_p99_us: z.number(),
+        seconds: z.number(),
+        error_hit: z.boolean(),
+        p99_hit: z.boolean(),
       })
       .strict()
       .nullable(),
+    slot_limited: z.boolean(),
+  })
+  .strict();
+
+// 자동 정지 기록. 내부 Option 필드는 항상 직렬화(null) → .nullable(); 기록 키 자체는 생략 가능.
+export const AutoStopRecordSchema = z
+  .object({
+    stop: StopInfoSchema.nullable(),
     suspended_seconds: z.number(),
   })
   .strict();
 export type AutoStopRecord = z.infer<typeof AutoStopRecordSchema>;
+
+// 실행 중 계단 요약(GET /api/runs/{id}, 계단 run일 때만). 안쪽 Option은 항상 null로 직렬화 → .nullable().
+export const StairLiveSchema = z
+  .object({
+    current_step: z.number().int().nullable(),
+    phase: z.enum(["ramp", "discard", "measure"]).nullable(),
+    step_states: z.array(
+      z.enum([
+        "ok",
+        "spike",
+        "saturated",
+        "unconfirmed",
+        "after",
+        "not_measured",
+        "emergency_stopped",
+        "partial",
+        "skipped",
+        "measuring",
+        "pending",
+        "frozen",
+      ]),
+    ),
+    last_ok_step: z.number().int().nullable(),
+    next_fail_stops: z.boolean(),
+    emergency_now: z
+      .object({
+        error_rate: z.number(),
+        p99_us: z.number(),
+        bad_streak: z.number().int(),
+        held: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    suspended_seconds: z.number(),
+    frozen: z.boolean(),
+    stop: StopInfoSchema.nullable(),
+  })
+  .strict();
+export type StairLive = z.infer<typeof StairLiveSchema>;
 
 export const StairReportSchema = z
   .object({
@@ -384,6 +426,8 @@ export const RunSchema = z.object({
   label: z.string().nullish(),
   // 계단 자동 정지 기록: 서버가 없으면 키 생략 → .optional().
   auto_stop: AutoStopRecordSchema.optional(),
+  // 실행 중 계단 run의 요약: 서버가 없으면 키 생략 → .optional().
+  auto_stop_live: StairLiveSchema.optional(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

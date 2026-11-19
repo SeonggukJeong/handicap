@@ -1554,6 +1554,33 @@ export const ko = {
     },
   },
   runDetail: {
+    stairLive: {
+      title: "계단 진행",
+      chipsLabel: "계단별 판정",
+      measuring: "측정 중",
+      pending: "예정",
+      frozen: "판정 중단",
+      unconfirmedPending: "실패(다음 계단 확인 중)",
+      head: (cur: number, n: number, target: number, phase: string) =>
+        `계단 ${cur}/${n} (${target} req/s) ${phase} 중`,
+      waitingFirst: "첫 데이터 대기 중",
+      group: (a: number, b: number, label: string) =>
+        a === b ? `${a} ${label}` : `${a}–${b} ${label}`,
+      forecast: (n: number) => `→ ${n}계단이 실패하면 자동 정지`,
+      frozenLine: "판정 중단 — 부하기 데이터 소진",
+      emergency: (
+        rate: string,
+        p99: string,
+        limRate: number,
+        limP99: number,
+        secs: number,
+        streak: number,
+      ) =>
+        `즉시 정지 감시: 오류율 ${rate} · p99 ${p99} ms (기준 ${limRate}% · ${limP99} ms 초과, ${secs}초 연속) 나쁜 초 ${streak}`,
+      emergencyHeld: (min: number, limRate: number, limP99: number, secs: number) =>
+        `즉시 정지 감시: 초당 완료 ${min}개 미만 — 판정 보류 (기준 ${limRate}% · ${limP99} ms 초과, ${secs}초 연속)`,
+      emergencyWaiting: "즉시 정지 감시: 첫 판정 대기",
+    },
     autoStopBadge: "자동 정지",
     abortReason: "중단 사유",
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)

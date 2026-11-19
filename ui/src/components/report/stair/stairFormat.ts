@@ -176,7 +176,7 @@ export function clockText(ms: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-type StopRecord = NonNullable<NonNullable<StairReport["auto_stop"]>["stop"]>;
+export type StopRecord = NonNullable<NonNullable<StairReport["auto_stop"]>["stop"]>;
 
 /** 정지 머리말 — 줄·배지가 같이 쓴다(단계 라벨·구간 이름 매핑은 여기 한 곳). */
 export function stopHeadText(stop: StopRecord, targets: ReadonlyArray<number | undefined>): string {
@@ -188,19 +188,12 @@ export function stopHeadText(stop: StopRecord, targets: ReadonlyArray<number | u
   return t.stopEmergencyHead(label, phase);
 }
 
-/** 자동 정지 줄 — Rust `export.rs::stair_stop_line`과 같은 글자. 정지 기록이 없으면 null. */
-export function stopLineText(stair: StairReport, timeText: string): string | null {
-  const stop = stair.auto_stop?.stop;
-  if (!stop) return null;
-  const label = (i: number) => {
-    const s = stair.steps[i];
-    return s ? t.stopLabel(i + 1, s.target) : t.stopLabel(i + 1);
-  };
+/** 정지 사유 조각 — 포화면 실패 계단 목록(+슬롯 꼬리), 즉시 정지면 기준 초과 조각 + 마지막 정상. */
+export function stopReasonParts(
+  stop: StopRecord,
+  lastOk: { label: string } | { target: number } | null,
+): string[] {
   const parts: string[] = [];
-  const head = stopHeadText(
-    stop,
-    stair.steps.map((s) => s.target),
-  );
   if (stop.kind === "saturation") {
     const list = stop.failed_steps.map((i) => String(i + 1)).join("·");
     let reason =
@@ -222,14 +215,32 @@ export function stopLineText(stair: StairReport, timeText: string): string | nul
         parts.push(`${p99} ${secs}`);
       }
     }
-    const lastOk = stair.headline.last_ok_target;
-    if (lastOk == null) {
-      parts.push(t.stopNoOk);
-    } else {
-      const i = stair.steps.findIndex((s) => s.target === lastOk);
-      parts.push(i >= 0 ? t.stopLastOk(label(i)) : t.stopLastOkTarget(lastOk));
-    }
+    if (lastOk == null) parts.push(t.stopNoOk);
+    else if ("label" in lastOk) parts.push(t.stopLastOk(lastOk.label));
+    else parts.push(t.stopLastOkTarget(lastOk.target));
   }
+  return parts;
+}
+
+/** 자동 정지 줄 — Rust `export.rs::stair_stop_line`과 같은 글자. 정지 기록이 없으면 null. */
+export function stopLineText(stair: StairReport, timeText: string): string | null {
+  const stop = stair.auto_stop?.stop;
+  if (!stop) return null;
+  const label = (i: number) => {
+    const s = stair.steps[i];
+    return s ? t.stopLabel(i + 1, s.target) : t.stopLabel(i + 1);
+  };
+  const head = stopHeadText(
+    stop,
+    stair.steps.map((s) => s.target),
+  );
+  const lastOkTarget = stair.headline.last_ok_target;
+  let lastOk: { label: string } | { target: number } | null = null;
+  if (lastOkTarget != null) {
+    const i = stair.steps.findIndex((s) => s.target === lastOkTarget);
+    lastOk = i >= 0 ? { label: label(i) } : { target: lastOkTarget };
+  }
+  const parts: string[] = stopReasonParts(stop, lastOk);
   stair.steps.forEach((s, i) => {
     if (s.partial) parts.push(t.stopPartialClause(i + 1, partialWhere(s.partial)));
   });
