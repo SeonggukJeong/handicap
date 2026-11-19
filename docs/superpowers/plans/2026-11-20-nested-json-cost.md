@@ -200,6 +200,11 @@ enum Nested {
 
 ## Task 뒤 (파이프라인 4–6단계 — task가 아니다)
 
+0. **변이 점검(사용자 결정 2026-11-20 — 합류 조건이 아닌 점검)** — Task 3 커밋 뒤, 최종 리뷰 전에 `/mutation-audit`를 이번에 고친 코드로 좁혀 한 번. 워크트리 root에서, 다른 `cargo`와 겹치지 않게:
+   - `cargo mutants -p handicap-engine -f src/json_unwrap.rs --timeout 120`
+   - `cargo mutants -p handicap-engine -f src/extract.rs --re 'body_path_first|BodyCache' --timeout 120` — 먼저 같은 인자에 `--list`를 붙여 변이 목록이 본문 캐시·`body_path_first`를 덮는지 확인한다(`--re`가 안 맞으면 목록을 보고 정규식을 고친다; `mod reference`의 변이는 뺀다).
+   - 살아남은(missed) 변이를 하나씩 분류한다: **값이 달라지는데 살아남음** → 그 변이를 죽이는 테스트를 더하고 커밋 / **결과는 같고 비용만 달라짐**(예: `has_unwrappable` 확인을 건너뜀, 미리 구하기를 더 많이 함) → 정상, 측정 단언이 지키는 쪽 / 그 밖의 동등 변이 → 근거 한 줄.
+   - 분류 표(변이 · 분류 · 조치)를 roadmap 새 §B에 적는다. 끝나면 `mutants.out*` 삭제 + `git status --porcelain`으로 잔류 0 확인.
 1. **최종 리뷰** `handicap-reviewer`(초점: 옛 동작의 부수효과에 기대던 소비자 — `executor.rs` 두 호출부, 모니터 칸이 도는 `trace_scenario` 경로). `finish-slice` §0 보안 grep을 직접 돌려 걸리면 `security-reviewer`.
 2. **라이브(spec §6)** — `/live-verify`. master와 이 브랜치의 release 컨트롤러·워커를 따로 빌드(`CARGO_TARGET_DIR`는 절대경로), 4 VU × 15초, 본문 ≈142 KB, 요청당 워커 CPU(`scripts/bench-throughput.sh` 방식 — 컨트롤러 자식 PID의 `ps -o time=` 차이 ÷ 요청 수), 교차 3회 이상, 먼저 master 대 master로 흔들림.
    - ⓐ 찾는 경로만: master 대비 ±3% · ⓑ 못 찾음 + 후보 없음: master 대비 ±3% — **둘 중 하나라도 벗어나면 합류하지 않는다**(사용자 우려: 일반 시나리오 영향).
