@@ -83,6 +83,52 @@ pub async fn open_loop_seconds(db: &Db, run_id: &str) -> sqlx::Result<Vec<OpenLo
         .collect())
 }
 
+/// 초별 합계(모든 워커 합). 간헐 멈춤(stall)과 슬롯 부족을 가르는 진단 입력.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenLoopTotal {
+    pub ts_second: i64,
+    pub launched: i64,
+    pub completed: i64,
+    pub dropped: i64,
+}
+
+/// 워커별 행을 초별로 더한다(`ts_second` 오름차순).
+pub fn sum_by_second(rows: &[OpenLoopSecondRow]) -> Vec<OpenLoopTotal> {
+    let mut acc: std::collections::BTreeMap<i64, OpenLoopTotal> = std::collections::BTreeMap::new();
+    for r in rows {
+        let e = acc.entry(r.ts_second).or_insert(OpenLoopTotal {
+            ts_second: r.ts_second,
+            launched: 0,
+            completed: 0,
+            dropped: 0,
+        });
+        e.launched += r.launched;
+        e.completed += r.completed;
+        e.dropped += r.dropped;
+    }
+    acc.into_values().collect()
+}
+
+pub async fn open_loop_totals(db: &Db, run_id: &str) -> sqlx::Result<Vec<OpenLoopTotal>> {
+    let rows = sqlx::query(
+        "SELECT ts_second, SUM(launched) AS launched, SUM(completed) AS completed, \
+         SUM(dropped) AS dropped FROM run_open_loop_seconds \
+         WHERE run_id = ? GROUP BY ts_second ORDER BY ts_second",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| OpenLoopTotal {
+            ts_second: r.get("ts_second"),
+            launched: r.get("launched"),
+            completed: r.get("completed"),
+            dropped: r.get("dropped"),
+        })
+        .collect())
+}
+
 pub async fn worker_starts(db: &Db, run_id: &str) -> sqlx::Result<Vec<WorkerStartRow>> {
     let rows = sqlx::query(
         "SELECT worker_id,started_at_ms FROM run_worker_starts WHERE run_id = ? ORDER BY worker_id",
