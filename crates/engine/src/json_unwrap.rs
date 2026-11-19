@@ -152,6 +152,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unwrap_nested_matches_old_impl_on_vectors() {
+        let fx: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/nested_json_vectors.json"
+        )))
+        .unwrap();
+        let mut parsed = 0;
+        for key in ["cases", "known_divergence"] {
+            for case in fx[key].as_array().unwrap() {
+                let body = case["body"].as_str().unwrap();
+                if let Ok(v) = serde_json::from_str::<Value>(body) {
+                    assert_eq!(unwrap_nested(&v), old_unwrap_nested(&v), "{body}");
+                    parsed += 1;
+                }
+            }
+        }
+        assert!(parsed >= 14, "parsed bodies: {parsed}");
+    }
+
     /// 2만 겹 배열 안에 감싼 `{"k":1}` — 반복문으로 만든다(`from_str`은 128겹에서 거절).
     fn deep_value() -> Value {
         let mut v = json!(["{\"k\":1}"]);
@@ -184,6 +204,7 @@ mod tests {
 
     #[test]
     fn unwrap_nested_deep_value() {
+        // 디버그 빌드에서 2만 겹 `Value` 복제·해제의 재귀가 16MiB 스택을 넘는다.
         std::thread::Builder::new()
             .stack_size(128 * 1024 * 1024)
             .spawn(|| {

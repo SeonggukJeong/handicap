@@ -1960,6 +1960,32 @@ steps:
     }
 
     #[test]
+    fn vectors_every_leaf_resolves_in_monitor() {
+        let fx: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/nested_json_vectors.json"
+        )))
+        .unwrap();
+        for case in fx["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let bj = BodyJson::parse(case["body"].as_str().unwrap()).unwrap();
+            for leaf in case["leaves"].as_array().unwrap() {
+                let path = leaf[0].as_str().unwrap();
+                assert_eq!(bj.path_first(path), Some(leaf[1].clone()), "{name} {path}");
+            }
+        }
+        for case in fx["known_divergence"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let bj = BodyJson::parse(case["body"].as_str().unwrap()).unwrap();
+            assert_eq!(
+                bj.path_first(case["path"].as_str().unwrap()),
+                None,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn string_body_not_unwrapped() {
         let c = cond(A, Src::Body, "$", Op::Eq, "hello");
         let r = judge_c(&one_step(), vec![c], &t_body(r#""hello""#));

@@ -10,6 +10,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 
 use crate::error::{EngineError, Result};
+use crate::json_unwrap::{unwrap_json_str, unwrap_nested};
 use crate::scenario::{Decode, Extract, HttpStep};
 
 /// Captured response artifacts for a single step.
@@ -30,33 +31,67 @@ pub fn evaluate(
     facts: &ResponseFacts<'_>,
 ) -> Result<BTreeMap<String, String>> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
-    let mut body_json: BodyCache = None;
+    let body_json = BodyCache::default();
     for e in extracts {
-        let v = strict_item(e, facts, &mut body_json)?;
+        let v = strict_item(e, facts, &body_json)?;
         out.insert(e.var().to_string(), v);
     }
     Ok(out)
 }
 
-/// Body JSON parse outcome, computed lazily at most once per evaluation and
-/// shared by every Body item. The error is the final `body not JSON: …` text.
-type BodyCache = Option<std::result::Result<serde_json::Value, String>>;
+/// 본문 JSON 읽기 결과(평가 한 번에 한 번만, Body 항목들이 공유). 찾기는 세 단계다 —
+/// 원래 본문 → 뿌리가 감싼 문자열이면 푼 값 → 안쪽 필드까지 푼 값. 앞 단계에서 찾으면(`null` 포함) 멈춘다.
+#[derive(Default)]
+struct BodyCache {
+    /// 오류는 최종 `body not JSON: …` 글자.
+    parsed: std::cell::OnceCell<std::result::Result<serde_json::Value, String>>,
+    /// 뿌리가 문자열이고 객체·배열로 풀릴 때만 Some (2단계).
+    root: std::cell::OnceCell<Option<serde_json::Value>>,
+    /// 안쪽 필드까지 푼 값 — 풀린 곳이 없으면 None (3단계).
+    nested: std::cell::OnceCell<Option<serde_json::Value>>,
+}
 
-fn parse_body<'c>(
-    cache: &'c mut BodyCache,
+/// `Err` = `body not JSON: …`, `Ok(None)` = 못 찾음.
+fn body_path_first(
+    cache: &BodyCache,
     facts: &ResponseFacts<'_>,
-) -> &'c std::result::Result<serde_json::Value, String> {
-    cache.get_or_insert_with(|| {
-        serde_json::from_slice(facts.body).map_err(|e| format!("body not JSON: {e}"))
-    })
+    path: &str,
+) -> std::result::Result<Option<serde_json::Value>, String> {
+    use serde_json_path::JsonPath;
+    let parsed = cache
+        .parsed
+        .get_or_init(|| {
+            serde_json::from_slice(facts.body).map_err(|e| format!("body not JSON: {e}"))
+        })
+        .as_ref()
+        .map_err(Clone::clone)?;
+    let Ok(p) = JsonPath::parse(path) else {
+        return Ok(None);
+    };
+    if let Some(v) = p.query(parsed).first() {
+        return Ok(Some((*v).clone()));
+    }
+    let base = if let serde_json::Value::String(s) = parsed {
+        // 뿌리 문자열이 안 풀리면 3단계도 없다(뿌리 문자열을 다시 파싱하지 않는다).
+        let Some(root) = cache.root.get_or_init(|| unwrap_json_str(s)) else {
+            return Ok(None);
+        };
+        if let Some(v) = p.query(root).first() {
+            return Ok(Some((*v).clone()));
+        }
+        root
+    } else {
+        parsed
+    };
+    Ok(cache
+        .nested
+        .get_or_init(|| unwrap_nested(base))
+        .as_ref()
+        .and_then(|n| p.query(n).first().map(|v| (*v).clone())))
 }
 
 /// One item under the strict rules (body JSON parsed once, lazily).
-fn strict_item(
-    e: &Extract,
-    facts: &ResponseFacts<'_>,
-    body_json: &mut BodyCache,
-) -> Result<String> {
+fn strict_item(e: &Extract, facts: &ResponseFacts<'_>, body_json: &BodyCache) -> Result<String> {
     match e {
         Extract::Body {
             var,
@@ -65,10 +100,8 @@ fn strict_item(
             claim,
             ..
         } => {
-            let json = parse_body(body_json, facts)
-                .as_ref()
-                .map_err(|m| EngineError::ExtractFailed(m.clone()))?;
-            let value = jsonpath_first(json, path)
+            let value = body_path_first(body_json, facts, path)
+                .map_err(EngineError::ExtractFailed)?
                 .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
             post_process(var, stringify(&value), *decode, claim.as_deref())
         }
@@ -116,9 +149,9 @@ pub fn evaluate_lenient(
 ) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     // Body JSON parse outcome, computed once and shared by every Body item.
-    let mut body_json: BodyCache = None;
+    let body_json = BodyCache::default();
     for e in extracts {
-        if let Some(v) = lenient_item(e, facts, &mut body_json) {
+        if let Some(v) = lenient_item(e, facts, &body_json) {
             out.insert(e.var().to_string(), v);
         }
     }
@@ -126,11 +159,7 @@ pub fn evaluate_lenient(
 }
 
 /// One item under the lenient rules; `None` = "could not extract".
-fn lenient_item(
-    e: &Extract,
-    facts: &ResponseFacts<'_>,
-    body_json: &mut BodyCache,
-) -> Option<String> {
+fn lenient_item(e: &Extract, facts: &ResponseFacts<'_>, body_json: &BodyCache) -> Option<String> {
     match e {
         Extract::Body {
             var,
@@ -139,10 +168,12 @@ fn lenient_item(
             claim,
             ..
         } => {
-            let json = parse_body(body_json, facts).as_ref().ok()?;
             // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
             // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
-            let value = jsonpath_first(json, path).filter(|v| !v.is_null())?;
+            let value = body_path_first(body_json, facts, path)
+                .ok()
+                .flatten()
+                .filter(|v| !v.is_null())?;
             post_process_lenient(var, stringify(&value), *decode, claim.as_deref())
         }
         Extract::Header {
@@ -192,16 +223,16 @@ pub fn evaluate_with_defaults(extracts: &[Extract], facts: &ResponseFacts<'_>) -
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut from_default_items: BTreeMap<String, String> = BTreeMap::new();
     let mut error: Option<EngineError> = None;
-    let mut body_json: BodyCache = None;
+    let body_json = BodyCache::default();
     for e in extracts {
         if e.default_value().is_some() {
-            if let Some(v) = lenient_item(e, facts, &mut body_json) {
+            if let Some(v) = lenient_item(e, facts, &body_json) {
                 from_default_items.insert(e.var().to_string(), v.clone());
                 out.insert(e.var().to_string(), v);
             }
             continue;
         }
-        match strict_item(e, facts, &mut body_json) {
+        match strict_item(e, facts, &body_json) {
             Ok(v) => {
                 out.insert(e.var().to_string(), v);
             }
@@ -956,6 +987,117 @@ mod tests {
             evaluate(&xs, &facts),
             Err(EngineError::ExtractFailed(_))
         ));
+    }
+
+    const NESTED_VECTORS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/nested_json_vectors.json"
+    ));
+
+    fn strict_one(body: &str, path: &str) -> Result<String> {
+        let facts = body_facts(body);
+        evaluate(&[body_extract("t", path)], &facts).map(|m| m["t"].clone())
+    }
+
+    fn lenient_one(body: &str, path: &str) -> Option<String> {
+        let facts = body_facts(body);
+        evaluate_lenient(&[body_extract("t", path)], &facts)
+            .get("t")
+            .cloned()
+    }
+
+    #[test]
+    fn vectors_every_leaf_resolves() {
+        let fx: serde_json::Value = serde_json::from_str(NESTED_VECTORS).unwrap();
+        let mut checked = 0;
+        for case in fx["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let body = case["body"].as_str().unwrap();
+            for leaf in case["leaves"].as_array().unwrap() {
+                let path = leaf[0].as_str().unwrap();
+                let want = &leaf[1];
+                assert_eq!(
+                    strict_one(body, path).unwrap(),
+                    stringify(want),
+                    "{name} {path} strict"
+                );
+                let lenient = lenient_one(body, path);
+                if want.is_null() {
+                    assert_eq!(lenient, None, "{name} {path} lenient");
+                } else {
+                    assert_eq!(lenient, Some(stringify(want)), "{name} {path} lenient");
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 20, "fixture leaves read: {checked}");
+    }
+
+    #[test]
+    fn vectors_known_divergence_is_missing() {
+        let fx: serde_json::Value = serde_json::from_str(NESTED_VECTORS).unwrap();
+        let list = fx["known_divergence"].as_array().unwrap();
+        assert_eq!(list.len(), 3);
+        for case in list {
+            let name = case["name"].as_str().unwrap();
+            let path = case["path"].as_str().unwrap();
+            match strict_one(case["body"].as_str().unwrap(), path) {
+                Err(EngineError::ExtractFailed(m)) => {
+                    assert_eq!(m, format!("no match: {path}"), "{name}")
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn order_root_dollar_keeps_original_string() {
+        assert_eq!(strict_one(r#""{\"id\":7}""#, "$").unwrap(), r#"{"id":7}"#);
+    }
+
+    #[test]
+    fn order_original_string_field_wins() {
+        let body = r#"{"data":"{ \"id\": 7 }"}"#;
+        assert_eq!(strict_one(body, "$.data").unwrap(), r#"{ "id": 7 }"#);
+        assert_eq!(strict_one(body, "$.data.id").unwrap(), "7");
+    }
+
+    #[test]
+    fn order_null_in_original_does_not_fall_through() {
+        let body = r#"{"w":"{\"id\":7}","x":{"id":null}}"#;
+        assert_eq!(strict_one(body, "$..id").unwrap(), "");
+        assert_eq!(lenient_one(body, "$..id"), None);
+    }
+
+    #[test]
+    fn order_null_in_unwrapped_follows_same_rule() {
+        let body = r#"{"w":"{\"id\":null}"}"#;
+        assert_eq!(strict_one(body, "$.w.id").unwrap(), "");
+        assert_eq!(lenient_one(body, "$.w.id"), None);
+    }
+
+    #[test]
+    fn order_descendant_prefers_original() {
+        let body = r#"{"w":"{\"id\":7}","x":{"id":1}}"#;
+        assert_eq!(strict_one(body, "$..id").unwrap(), "1");
+    }
+
+    #[test]
+    fn invalid_path_still_no_match() {
+        match strict_one(r#"{"a":1}"#, "$[") {
+            Err(EngineError::ExtractFailed(m)) => assert_eq!(m, "no match: $["),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn not_json_body_message_unchanged() {
+        match strict_one("<html>", "$.a") {
+            Err(EngineError::ExtractFailed(m)) => {
+                assert!(m.starts_with("body not JSON: "), "{m}")
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
