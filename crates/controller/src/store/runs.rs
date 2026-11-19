@@ -121,6 +121,10 @@ pub struct Profile {
     pub vus: u32,
     #[serde(default)]
     pub ramp_up_seconds: u32,
+    /// 곡선(`stages`·`vu_stages`)은 길이가 계단 합이라 이 값을 비워야 한다(0) — 생략도
+    /// 받도록 `#[serde(default)]`(§B57 (1): 예전엔 생략하면 422, 넣으면 400이라 `0`만 통과).
+    /// 고정 closed-loop·고정 `target_rps`는 `validate_run_config`가 `> 0`을 강제한다.
+    #[serde(default)]
     pub duration_seconds: u32,
     #[serde(default = "default_loop_cap")]
     pub loop_breakdown_cap: u32,

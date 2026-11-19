@@ -919,6 +919,77 @@ async fn create_stair_run_stores_stair_and_expanded_stages() {
     );
 }
 
+/// §B57 (1): 곡선 run은 "duration_seconds를 비워야 합니다"라고 안내하므로, 필드를
+/// 아예 빼도 받아야 한다(예전엔 422 `missing field duration_seconds`). 곡선이 아닌
+/// run에서 빼면 serde가 아니라 검증이 400으로 거절한다.
+#[tokio::test]
+async fn create_run_accepts_omitted_duration_for_curves() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let yaml = "version: 1\nname: curve\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+    let post_run = |profile: Value| {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/runs")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "scenario_id": scenario_id, "profile": profile, "env": {} }).to_string(),
+            ))
+            .unwrap()
+    };
+
+    // open-loop stages, duration_seconds 생략
+    let resp = app
+        .clone()
+        .oneshot(post_run(json!({
+            "max_in_flight": 10,
+            "stages": [{ "target": 5, "duration_seconds": 3 }]
+        })))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "stages without duration"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    let row = handicap_controller::store::runs::get(&db, v["id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.profile.duration_seconds, 0);
+
+    // closed-loop vu_stages, duration_seconds 생략
+    let resp = app
+        .clone()
+        .oneshot(post_run(json!({
+            "vu_stages": [{ "target": 2, "duration_seconds": 3 }]
+        })))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "vu_stages without duration"
+    );
+
+    // 고정 closed-loop에서 생략 → 검증 400(serde 422 아님)
+    let resp = app
+        .clone()
+        .oneshot(post_run(json!({ "vus": 2 })))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "closed-loop without duration"
+    );
+}
+
 #[tokio::test]
 async fn create_stair_run_roundtrips_auto_stop_and_rejects_bad_range() {
     let db = store::connect("sqlite::memory:").await.unwrap();
