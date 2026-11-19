@@ -467,3 +467,213 @@ async fn record_ignored_unless_completed() {
     assert_eq!(completed["steps"][1]["partial"]["seconds"], 2);
     assert_eq!(completed["headline"]["kind"], "ok_then_unmeasured");
 }
+
+/// spec §5 재현 모양(M=2500, 60초): (ts offset, launched, completed, dropped) 합계.
+fn stall_repro_rows() -> Vec<(i64, i64, i64, i64)> {
+    let drops = [
+        10, 12, 15, 17, 19, 22, 24, 27, 29, 32, 34, 37, 39, 42, 44, 47, 49, 52,
+    ];
+    (0..60i64)
+        .map(|s| {
+            let (l, c, d) = if s == 0 {
+                (7014, 7000, 0)
+            } else if drops.contains(&s) {
+                (6000, 3514, 1000)
+            } else if drops.contains(&(s - 1)) {
+                (7000, 9486, 0)
+            } else {
+                match s {
+                    55 => (7000, 6014, 0),
+                    56 | 57 => (7000, 6500, 0),
+                    58 => (7000, 6600, 0),
+                    59 => (7000, 9386, 0),
+                    _ => (7000, 7000, 0),
+                }
+            };
+            (s, l, c, d)
+        })
+        .collect()
+}
+
+/// 재현 모양을 워커 w0·w1에 반씩 나눠 넣는다(모든 값이 짝수).
+async fn insert_stall_repro_seconds(db: &handicap_controller::store::Db, run_id: &str) {
+    use handicap_controller::store::open_loop::insert_open_loop_seconds;
+    let half: Vec<(i64, i64, i64, i64)> = stall_repro_rows()
+        .iter()
+        .map(|&(s, l, c, d)| (1000 + s, l / 2, c / 2, d / 2))
+        .collect();
+    for w in ["w0", "w1"] {
+        insert_open_loop_seconds(db, run_id, w, &half)
+            .await
+            .unwrap();
+    }
+}
+
+async fn insert_stall_repro_windows(db: &handicap_controller::store::Db, run_id: &str) {
+    let rows: Vec<MetricRow> = stall_repro_rows()
+        .iter()
+        .map(|&(s, _, c, _)| MetricRow {
+            run_id: run_id.to_string(),
+            ts_second: 1000 + s,
+            step_id: "s".to_string(),
+            worker_id: "w0".to_string(),
+            count: c,
+            error_count: 0,
+            hdr_histogram: make_hdr_bytes(&[2_000]),
+            status_counts: format!(r#"{{"200":{c}}}"#),
+        })
+        .collect();
+    insert_batch(db, &rows).await.unwrap();
+}
+
+async fn get_report_json(db: handicap_controller::store::Db, run_id: &str) -> Value {
+    let resp = make_app(db)
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+/// 비계단 open-loop run(목표 7000, M=2500, 60초, 버림 18000)을 만든다.
+async fn seed_open_loop_stall_run(db: &handicap_controller::store::Db) -> String {
+    let yaml = "version: 1\nname: ol\nsteps: []\n";
+    let profile: Profile = serde_json::from_value(serde_json::json!({
+        "duration_seconds": 60,
+        "target_rps": 7000,
+        "max_in_flight": 2500
+    }))
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+         VALUES('S-ol','ol',?,1,1,1)",
+    )
+    .bind(yaml)
+    .execute(db)
+    .await
+    .unwrap();
+    let row = store::runs::insert(db, "S-ol", yaml, &profile, &serde_json::json!({}), None)
+        .await
+        .unwrap();
+    store::runs::set_status(db, &row.id, RunStatus::Completed, Some(1000), Some(1060))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE runs SET dropped = 18000 WHERE id = ?")
+        .bind(&row.id)
+        .execute(db)
+        .await
+        .unwrap();
+    insert_stall_repro_windows(db, &row.id).await;
+    row.id
+}
+
+#[tokio::test]
+async fn report_endpoint_marks_stall_for_intermittent_stall() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_open_loop_stall_run(&db).await;
+    insert_stall_repro_seconds(&db, &id).await;
+    let json = get_report_json(db, &id).await;
+    let ins = json["insights"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "load_gen_saturated")
+        .expect("load_gen_saturated");
+    assert_eq!(ins["cause"], "stall");
+    assert!(!ins.as_object().unwrap().contains_key("recommended"));
+    assert!(ins.as_object().unwrap().contains_key("typical_in_flight"));
+    let can = json["narrative"]["can_claim"].as_array().unwrap();
+    assert!(can.iter().any(|c| c == "delivery_interrupted_by_stall"));
+    let _typed: ReportJson = serde_json::from_value(json).unwrap();
+}
+
+#[tokio::test]
+async fn report_endpoint_keeps_slots_without_totals() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_open_loop_stall_run(&db).await;
+    let json = get_report_json(db, &id).await;
+    let ins = json["insights"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "load_gen_saturated")
+        .expect("load_gen_saturated");
+    assert_eq!(ins["cause"], "slots");
+    let obj = ins.as_object().unwrap();
+    assert!(obj.contains_key("recommended"));
+    for k in [
+        "typical_in_flight",
+        "max_in_flight",
+        "drop_seconds",
+        "measured_seconds",
+    ] {
+        assert!(!obj.contains_key(k), "{k} must be absent");
+    }
+    let can = json["narrative"]["can_claim"].as_array().unwrap();
+    assert!(can.iter().any(|c| c == "delivery_ceiling_observed"));
+    assert!(!can.iter().any(|c| c == "delivery_interrupted_by_stall"));
+}
+
+#[tokio::test]
+async fn report_endpoint_marks_stall_for_stair_run() {
+    use handicap_controller::store::open_loop::insert_worker_start;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let yaml = "version: 1\nname: stair\nsteps: []\n";
+    let mut profile: Profile = serde_json::from_value(serde_json::json!({
+        "duration_seconds": 0,
+        "max_in_flight": 2500,
+        "stair": {"targets": [100, 200], "hold_seconds": 20, "ramp_seconds": 1, "discard_seconds": 5}
+    }))
+    .unwrap();
+    handicap_controller::stair::normalize_stair(&mut profile).unwrap();
+    sqlx::query(
+        "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+         VALUES('S-stair2','stair',?,1,1,1)",
+    )
+    .bind(yaml)
+    .execute(&db)
+    .await
+    .unwrap();
+    let row = store::runs::insert(
+        &db,
+        "S-stair2",
+        yaml,
+        &profile,
+        &serde_json::json!({}),
+        None,
+    )
+    .await
+    .unwrap();
+    store::runs::set_status(&db, &row.id, RunStatus::Completed, Some(1000), Some(1060))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE runs SET dropped = 18000 WHERE id = ?")
+        .bind(&row.id)
+        .execute(&db)
+        .await
+        .unwrap();
+    insert_worker_start(&db, &row.id, "w0", 1_000_000)
+        .await
+        .unwrap();
+    insert_stall_repro_seconds(&db, &row.id).await;
+    insert_stall_repro_windows(&db, &row.id).await;
+    let json = get_report_json(db, &row.id).await;
+    let ins = json["insights"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "load_gen_saturated")
+        .expect("load_gen_saturated");
+    assert_eq!(ins["cause"], "stall");
+    assert_eq!(ins["typical_in_flight"], 14);
+    let _typed: ReportJson = serde_json::from_value(json).unwrap();
+}

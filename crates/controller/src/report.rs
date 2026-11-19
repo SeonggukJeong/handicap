@@ -519,6 +519,7 @@ pub fn build_report(
     error_kinds: &[crate::store::metrics::ErrorKindRow],
     loop_exits: &[crate::store::metrics::LoopExitRow],
     stair_inputs: &crate::stair::StairInputs,
+    open_loop_totals: &[crate::store::open_loop::OpenLoopTotal],
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -997,7 +998,7 @@ pub fn build_report(
         }
         _ => None,
     };
-    let insights = crate::insights::derive_insights(
+    let mut insights = crate::insights::derive_insights(
         &summary,
         &steps,
         &windows,
@@ -1018,6 +1019,11 @@ pub fn build_report(
             summary.duration_seconds as f64,
         ),
         &error_kinds_rolled,
+    );
+    crate::insights::refine_saturation_stall(
+        &mut insights,
+        open_loop_totals,
+        run.profile.max_in_flight,
     );
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
@@ -1303,6 +1309,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
 
         // One collapsed window per (ts_second, step_id), counts summed.
@@ -1364,6 +1371,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
@@ -1402,6 +1410,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
@@ -1458,6 +1467,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
@@ -1515,6 +1525,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
@@ -1778,6 +1789,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
@@ -1805,7 +1817,8 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                &crate::stair::StairInputs::default()
+                &crate::stair::StairInputs::default(),
+                &[],
             )
             .verdict
             .is_none()
@@ -1829,7 +1842,8 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                &crate::stair::StairInputs::default()
+                &crate::stair::StairInputs::default(),
+                &[],
             )
             .verdict
             .is_none()
@@ -1853,6 +1867,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(
             rep.dropped, 7,
@@ -1881,6 +1896,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
@@ -1916,7 +1932,8 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                &crate::stair::StairInputs::default()
+                &crate::stair::StairInputs::default(),
+                &[],
             )
             .latency
             .is_none()
@@ -2086,7 +2103,8 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                &crate::stair::StairInputs::default()
+                &crate::stair::StairInputs::default(),
+                &[],
             )
             .verdict
             .is_none()
@@ -2129,6 +2147,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
@@ -2202,6 +2221,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.active_vu_series.len(), 2);
         assert_eq!(
@@ -2225,6 +2245,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.summary.count, baseline.summary.count);
         assert_eq!(rep.summary.rps, baseline.summary.rps);
@@ -2274,6 +2295,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.active_vu_by_worker.len(), 2);
         assert_eq!(rep.active_vu_by_worker[0].worker_id, "w-0"); // sorted
@@ -2313,6 +2335,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(rep.active_vu_by_worker.is_empty());
         // No rows (non-curve caller passes &[]) -> empty (byte-identical default).
@@ -2329,6 +2352,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(none.active_vu_by_worker.is_empty());
     }
@@ -2349,6 +2373,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(rep.group_latency.is_empty());
     }
@@ -2403,6 +2428,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
 
         assert_eq!(
@@ -2469,6 +2495,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
@@ -2500,6 +2527,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(
             rep.steps.iter().all(|s| s.download.is_none()),
@@ -2542,6 +2570,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         )
     }
 
@@ -2729,6 +2758,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let sat = rep
             .insights
@@ -2756,6 +2786,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
     }
@@ -2784,6 +2815,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let ins = rep
             .insights
@@ -2830,6 +2862,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let ins = rep
             .insights
@@ -2891,6 +2924,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.summary.mean_ms, 25);
     }
@@ -2938,6 +2972,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         // wait attaches per-step
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
@@ -2962,6 +2997,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(rep2.connection.is_none());
     }
@@ -3004,6 +3040,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // sorted by worker_id ascending
@@ -3045,6 +3082,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(rep.worker_breakdown.is_empty());
         // skip_serializing_if -> field absent (byte-identical)
@@ -3079,6 +3117,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert!(rep.worker_breakdown.is_empty());
     }
@@ -3120,6 +3159,7 @@ mod tests {
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // w-0: count counted despite bad blob, latency falls back to 0 (fail-soft)
@@ -3180,6 +3220,7 @@ steps:
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.validity.level, "suspect");
         assert!(
@@ -3222,6 +3263,7 @@ steps:
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.validity.level, "limited");
         assert!(
@@ -3263,6 +3305,7 @@ steps:
             &[],
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         assert_eq!(rep.validity.level, "ok");
         assert!(
@@ -3296,6 +3339,7 @@ steps:
             rows,
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         )
     }
 
@@ -3366,6 +3410,7 @@ steps:
             &eks,
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
         let b = rep.steps.iter().find(|s| s.step_id == "b").unwrap();
@@ -3411,6 +3456,7 @@ steps:
             &eks,
             &[],
             &crate::stair::StairInputs::default(),
+            &[],
         );
         let c = rep.connection.as_ref().expect("connection present");
         assert_eq!(c.requests_total, 6);
@@ -3433,6 +3479,7 @@ steps:
             &[],
             rows,
             &crate::stair::StairInputs::default(),
+            &[],
         )
     }
 
@@ -3682,6 +3729,7 @@ steps:
                     &[],
                     &[],
                     &self.inp,
+                    &[],
                 )
             }
         }
@@ -4199,6 +4247,7 @@ steps:
                 &[],
                 &[],
                 &StairInputs::default(),
+                &[],
             );
             assert!(rep.stair.is_none());
             let v = serde_json::to_value(&rep).unwrap();

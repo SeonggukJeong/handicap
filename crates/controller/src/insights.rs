@@ -73,7 +73,7 @@ pub struct Insight {
     /// `cause == "stall"`일 때만: 버림이 있던 초 수.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drop_seconds: Option<u64>,
-    /// `cause == "stall"`일 때만: 요청을 시도한 초 수.
+    /// `cause == "stall"`일 때만: 도착(반복)을 시도한 초 수.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub measured_seconds: Option<u64>,
 }
@@ -134,6 +134,7 @@ fn in_flight_series(totals: &[OpenLoopTotal]) -> Vec<(u64, u64)> {
 }
 
 fn stall_stats(totals: &[OpenLoopTotal], m: u32) -> Option<StallStats> {
+    debug_assert!(totals.windows(2).all(|w| w[0].ts_second < w[1].ts_second));
     let series = in_flight_series(totals);
     let dropped_idx: Vec<usize> = totals
         .iter()
@@ -166,6 +167,7 @@ fn stall_stats(totals: &[OpenLoopTotal], m: u32) -> Option<StallStats> {
 
 /// `cause=slots`인 포화 인사이트가 실제론 대상 간헐 멈춤이면 `cause=stall`로 바꾼다
 /// (권장 슬롯 수 제거). 조건 불충족이면 아무것도 하지 않는다.
+/// `totals`는 `ts_second` 오름차순이어야 한다(`open_loop_totals`·`sum_by_second` 둘 다 보장).
 pub fn refine_saturation_stall(
     insights: &mut [Insight],
     totals: &[OpenLoopTotal],
@@ -2272,6 +2274,27 @@ steps:
             v.push(row);
         }
         v
+    }
+
+    #[test]
+    #[ignore]
+    fn stall_stats_cost_86400_seconds() {
+        let base = repro_totals();
+        let totals: Vec<OpenLoopTotal> = (0..86_400i64)
+            .map(|i| {
+                let mut t = base[(i % 60) as usize];
+                t.ts_second = i;
+                t
+            })
+            .collect();
+        let mut best = std::time::Duration::MAX;
+        for _ in 0..3 {
+            let t0 = std::time::Instant::now();
+            let r = stall_stats(std::hint::black_box(&totals), 2500);
+            best = best.min(t0.elapsed());
+            std::hint::black_box(r);
+        }
+        eprintln!("stall_stats 86400s min of 3: {best:?}");
     }
 
     fn assert_untouched(totals: &[OpenLoopTotal], m: Option<u32>) {

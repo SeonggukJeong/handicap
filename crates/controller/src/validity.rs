@@ -203,7 +203,17 @@ pub fn derive_narrative(
     }
     // 5 load_not_delivered
     if has_reason(validity, "load_not_delivered") {
-        push_unique(&mut can_claim, "delivery_ceiling_observed");
+        let stalled = insights
+            .iter()
+            .any(|i| i.kind == "load_gen_saturated" && i.cause.as_deref() == Some("stall"));
+        push_unique(
+            &mut can_claim,
+            if stalled {
+                "delivery_interrupted_by_stall"
+            } else {
+                "delivery_ceiling_observed"
+            },
+        );
         push_unique(&mut cannot_claim, "target_load_applied");
     }
     // 6–8 only when level == ok
@@ -526,6 +536,36 @@ steps:
         assert_eq!(r.count, Some(42));
         assert_eq!(r.severity, "warning");
         assert_eq!(v.level, "limited");
+    }
+
+    #[test]
+    fn stall_saturation_narrative_says_interrupted() {
+        let d = dist(&[("200", 100)]);
+        let mut ins = [insight_count("load_gen_saturated", 42)];
+        ins[0].cause = Some("stall".to_string());
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, false);
+        let n = derive_narrative(&v, &summary(100, 0), true, &ins);
+        assert!(
+            n.can_claim
+                .contains(&"delivery_interrupted_by_stall".to_string())
+        );
+        assert!(
+            !n.can_claim
+                .contains(&"delivery_ceiling_observed".to_string())
+        );
+        assert!(n.cannot_claim.contains(&"target_load_applied".to_string()));
+        ins[0].cause = Some("slots".to_string());
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins, false);
+        let n = derive_narrative(&v, &summary(100, 0), true, &ins);
+        assert!(
+            n.can_claim
+                .contains(&"delivery_ceiling_observed".to_string())
+        );
+        assert!(
+            !n.can_claim
+                .contains(&"delivery_interrupted_by_stall".to_string())
+        );
+        assert!(n.cannot_claim.contains(&"target_load_applied".to_string()));
     }
 
     #[test]

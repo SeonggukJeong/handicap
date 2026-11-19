@@ -1122,6 +1122,16 @@ pub async fn build_report_for_run(
     } else {
         crate::stair::StairInputs::default()
     };
+    // 초별 합계는 버림이 있는 open-loop run만(stall 진단 입력). 계단 run은 이미 읽은 행을 더한다.
+    let open_loop_totals = if needs_open_loop_totals(&row.profile, row.dropped) {
+        if row.profile.stair.is_some() {
+            crate::store::open_loop::sum_by_second(&stair_inputs.open_loop)
+        } else {
+            crate::store::open_loop::open_loop_totals(db, run_id).await?
+        }
+    } else {
+        Vec::new()
+    };
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(crate::report::build_report(
         &row,
@@ -1136,7 +1146,12 @@ pub async fn build_report_for_run(
         &error_kinds,
         &loop_exits,
         &stair_inputs,
+        &open_loop_totals,
     ))
+}
+
+fn needs_open_loop_totals(profile: &Profile, dropped: i64) -> bool {
+    profile.is_open_loop() && dropped > 0
 }
 
 pub async fn report(
@@ -2163,6 +2178,28 @@ steps:
             validate_run_config(&state, &p).await.is_ok(),
             "max == 600000 must be accepted"
         );
+    }
+
+    #[test]
+    fn needs_open_loop_totals_gate() {
+        let closed = Profile {
+            target_rps: None,
+            stages: None,
+            ..ol_profile()
+        };
+        assert!(!needs_open_loop_totals(&closed, 5));
+        let open = ol_profile();
+        assert!(!needs_open_loop_totals(&open, 0));
+        assert!(needs_open_loop_totals(&open, 1));
+        let stages_only = Profile {
+            target_rps: None,
+            stages: Some(vec![handicap_engine::Stage {
+                target: 100,
+                duration_seconds: 5,
+            }]),
+            ..ol_profile()
+        };
+        assert!(needs_open_loop_totals(&stages_only, 1));
     }
 
     #[test]
