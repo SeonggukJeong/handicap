@@ -14,7 +14,7 @@ disable-model-invocation: true
 **준비 상태 판정은 파일 실존으로** (메모리·roadmap 서술이 서로 어긋날 수 있다): `docs/superpowers/specs/`·`docs/superpowers/plans/`에 해당 작업의 문서가 실제로 있는지 `ls`로 확인하고, 있으면 그 작업을 "spec/plan ready" 1순위 후보로 표기. **기존 워크트리도 확인**: 이전 세션이 spec/plan만 쓰고 STOP했으면(§4) 문서가 워크트리 브랜치에만 있다 — `ls .claude/worktrees/*/docs/superpowers/specs/ .claude/worktrees/*/docs/superpowers/plans/`까지 봐야 ready 판정이 정확하다.
 
 ## 2) worktree 생성·진입
-- `.claude/settings.local.json`의 **top-level** `"worktree": {"baseRef": "head"}` 확인 — **없으면 추가** (remote 미설정이라 기본 `fresh`=`origin/<default>`가 실패).
+- `.claude/settings.local.json`의 **top-level** `"worktree": {"baseRef": "head"}` 확인 — **없으면 추가** (기본 `fresh`=`origin/<default>`는 push 안 한 로컬 master보다 뒤처진 origin에서 분기해 최신 작업이 빠진다 — 예전엔 remote가 없어 아예 실패했다).
 - 해당 작업의 워크트리가 **이미 있으면**(이전 세션이 spec/plan 작성 후 STOP) 새로 만들지 말고 `EnterWorktree(path: .claude/worktrees/<기존-slug>)`로 재진입.
 - 없으면 `EnterWorktree`로 `.claude/worktrees/<작업-slug>` 생성·진입 (master 최신 HEAD에서 분기).
 

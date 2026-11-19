@@ -7,7 +7,7 @@
 ## 코드베이스 프로필
 - **Rust 워크스페이스**(engine/controller/worker/worker-core/proto): axum 0.8 · tonic gRPC · SQLite · HDR Histogram · prost · rust_xlsxwriter · calamine
 - **UI**: React + TS (Vite · React Flow · Monaco · Zustand · Zod · React Query · vitest)
-- **배포**: K8s / Helm / kind. **git remote 없음**(로컬 ff-merge 워크플로).
+- **배포**: K8s / Helm / kind. git remote는 작성 당시 없었고 2026-07부터 `origin`=GitHub(PUBLIC) — 마무리는 여전히 로컬 ff-merge + 주기적 push.
 
 ---
 
@@ -72,7 +72,7 @@
 ---
 
 ## ❌ 추천하지 않음 (이유)
-- **GitHub MCP / PR 자동화**: remote 미설정(로컬 ff-merge) — 사내 K8s 도입 후 remote 붙이면 재검토.
+- **GitHub MCP / PR 자동화**: 재검토 조건이던 remote는 2026-07에 생겼다(GitHub, `gh` CLI로 CI·릴리즈 확인 중). 마무리가 PR이 아닌 로컬 ff-merge라 PR 자동화는 아직 도입하지 않았다.
 - **추가 TDD/format/lint 훅**: 기존 가드·`format.sh`·UI 게이트가 이미 커버.
 - **commit 스킬**: 커밋 규약(파이프 금지·`Co-Authored-By`·green fold·명시 경로 add)이 CLAUDE.md + pre-commit + git-guard에 이미 강제됨.
 - **frontend-design 플러그인**: UI는 신규 디자인보다 기존 이디엄(접이식 disclosure·`ScenarioSnapshot`) 일관성이 우선 — 케이스별로 충분.
