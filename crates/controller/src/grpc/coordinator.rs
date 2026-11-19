@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use futures::Stream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +23,7 @@ use crate::binding::Mapping;
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::shard::{self, shard_split};
 use crate::stair::BandKind;
+use crate::stair_live::LiveState;
 use crate::stair_monitor::{MonitorHandle, MonitorMsg, StairMonitor, run_monitor};
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
@@ -223,8 +224,10 @@ struct RunWorkers {
     /// `Aborted` then keeps the legacy path; without it, it is a worker self-abort
     /// (R8: fan out to siblings + record a reason).
     abort_requested: bool,
-    /// 계단 자동 정지 감시 송신자 — 계단 run이고 자동 정지 칸이 켜졌을 때만(`monitor_wanted`).
+    /// 계단 자동 정지 감시 송신자 — 계단 run이면 항상. 정지 뒤 `None`.
     monitor: Option<MonitorHandle>,
+    /// 감시가 갱신하는 실행 중 요약 — 계단 run이면 항상(정지 뒤에도 마지막 값 유지).
+    live: Option<watch::Receiver<LiveState>>,
     /// 자동 정지 기록 — `auto_stop()`만 채운다.
     auto_stop: Option<StopInfo>,
     /// 외부 정지(`abort()` — 사용자 중단·데스크톱 종료·모드 전환)가 왔다.
@@ -994,15 +997,14 @@ impl CoordinatorState {
         let token = CancellationToken::new();
         let first_load = CancellationToken::new();
         let done = CancellationToken::new();
-        let monitor = base
-            .stair
-            .as_ref()
-            .filter(|c| crate::stair::monitor_wanted(c))
-            .map(|c| {
-                let (handle, rx) = MonitorHandle::new();
-                (handle, rx, StairMonitor::new(c, expected))
-            });
-        let monitor_handle = monitor.as_ref().map(|(h, _, _)| h.clone());
+        let monitor = base.stair.as_ref().map(|c| {
+            let (handle, rx) = MonitorHandle::new();
+            let mon = StairMonitor::new(c, expected);
+            let (live_tx, live_rx) = watch::channel(mon.live());
+            (handle, rx, mon, live_tx, live_rx)
+        });
+        let monitor_handle = monitor.as_ref().map(|(h, ..)| h.clone());
+        let live = monitor.as_ref().map(|(.., l)| l.clone());
         {
             let mut g = self.runs.lock().await;
             g.insert(
@@ -1019,13 +1021,14 @@ impl CoordinatorState {
                     done: done.clone(),
                     abort_requested: false,
                     monitor: monitor_handle,
+                    live,
                     auto_stop: None,
                     external_abort: false,
                     suspended_seconds: 0,
                 },
             );
         }
-        if let Some((handle, rx, mon)) = monitor {
+        if let Some((handle, rx, mon, live_tx, _)) = monitor {
             tokio::spawn(run_monitor(
                 self.clone(),
                 run_id.clone(),
@@ -1033,6 +1036,7 @@ impl CoordinatorState {
                 rx,
                 done.clone(),
                 handle,
+                live_tx,
             ));
         }
         let coord = self.clone();
@@ -1588,28 +1592,34 @@ impl CoordinatorState {
     /// 계단 자동 정지 — 정지 실행의 유일한 경로(spec §4.5). 한 잠금 블록에서 표시·기록·송신자
     /// 복사를 끝낸 뒤 잠금 밖에서 Abort를 보낸다(송신 중 도착한 워커 `Aborted`가 R8로 빠지지
     /// 않게 — `abort_flag_set_before_sends`와 같은 불변식). 외부 중단이 먼저 왔거나, 이미
-    /// 정지했거나, run이 없으면 아무것도 하지 않고 false.
-    pub async fn auto_stop(&self, run_id: &str, mut stop: StopInfo) -> bool {
-        let (txs, reason) = {
+    /// 정지했거나, run이 없으면 아무것도 하지 않고 `None`. 정지했으면 `stopped_at_ms`를 채운 기록.
+    pub async fn auto_stop(&self, run_id: &str, mut stop: StopInfo) -> Option<StopInfo> {
+        let (txs, reason, filled) = {
             let mut g = self.runs.lock().await;
-            let Some(rw) = g.get_mut(run_id) else {
-                return false;
-            };
+            let rw = g.get_mut(run_id)?;
             if rw.external_abort || rw.auto_stop.is_some() {
-                return false;
+                return None;
             }
             stop.stopped_at_ms = crate::store::now_ms();
             let reason = auto_stop_reason(&stop);
             rw.abort_requested = true;
-            rw.auto_stop = Some(stop);
+            rw.auto_stop = Some(stop.clone());
             // 정지 뒤 ingest는 계단 아닌 run과 같은 비용 — 끝난 감시에 배치를 보내지 않는다.
             rw.monitor = None;
             let txs: Vec<WorkerTx> = rw.workers.values().filter_map(|e| e.tx.clone()).collect();
-            (txs, reason)
+            (txs, reason, stop)
         };
         info!(%run_id, %reason, "auto stop");
         fan_out_abort(run_id, &txs, &reason).await;
-        true
+        Some(filled)
+    }
+
+    /// 계단 run의 실행 중 요약(run 없음·계단 아님 → `None`). 잠금 안에서는 수신자만 복제하고
+    /// 요약 복사는 잠금 밖에서 한다.
+    pub async fn live_of(&self, run_id: &str) -> Option<LiveState> {
+        let rx = self.runs.lock().await.get(run_id)?.live.clone()?;
+        let live = rx.borrow().clone();
+        Some(live)
     }
 
     /// 감시가 새로 보류한 초를 run 누계에 더한다(finalize가 읽는다).
@@ -6292,18 +6302,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stair_run_without_auto_stop_has_no_monitor() {
+    async fn stair_run_always_has_monitor() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let (coord, run_id) = stair_run(&db, stair_cfg(None), 1).await;
-        assert!(coord.monitor_handle(&run_id).await.is_none());
+        assert!(coord.monitor_handle(&run_id).await.is_some());
         let both_off = Some(AutoStopConfig {
             saturation: None,
             emergency: None,
         });
         let (coord, run_id) = stair_run(&db, stair_cfg(both_off), 1).await;
-        assert!(coord.monitor_handle(&run_id).await.is_none());
+        assert!(coord.monitor_handle(&run_id).await.is_some());
         let (coord, run_id) = stair_run(&db, stair_cfg(two_fails()), 1).await;
         assert!(coord.monitor_handle(&run_id).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn live_of_stair_and_non_stair() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id) = stair_run(&db, stair_cfg(two_fails()), 1).await;
+        let live = coord.live_of(&run_id).await.expect("계단 run 요약");
+        assert_eq!(live.step_states.len(), 5);
+        assert!(
+            live.step_states
+                .iter()
+                .all(|s| *s == crate::stair_live::LiveStepState::Pending)
+        );
+        assert_eq!(live.stop, None);
+
+        let plain = seed_run(&db).await;
+        coord
+            .enqueue(plain.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        assert!(coord.live_of(&plain).await.is_none(), "계단 아닌 run");
+        assert!(coord.live_of("no-such-run").await.is_none(), "없는 run");
+    }
+
+    #[tokio::test]
+    async fn auto_stop_returns_filled_record() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let (coord, run_id, _r0, _r1) = two_worker_run(&db).await;
+        let s = coord
+            .auto_stop(&run_id, saturation_stop(3))
+            .await
+            .expect("첫 정지는 기록을 돌려준다");
+        assert!(s.stopped_at_ms > 0);
+        assert_eq!(Some(s), coord.auto_stop_of(&run_id).await);
+        assert!(coord.auto_stop(&run_id, saturation_stop(4)).await.is_none());
     }
 
     async fn run_metric_rows(db: &Db, run_id: &str, ts: i64) -> i64 {
@@ -6401,6 +6445,7 @@ mod tests {
                 .await
                 .expect("auto_stop() 종료")
                 .unwrap()
+                .is_some()
         );
     }
 
@@ -6409,7 +6454,7 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let (coord, run_id, mut r0, mut r1) = two_worker_run(&db).await;
         let before = crate::store::now_ms();
-        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await);
+        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_some());
         let reason = abort_reason(r0.try_recv().expect("w0에 Abort"));
         assert!(reason.starts_with("auto stop:"), "{reason}");
         assert_eq!(
@@ -6421,7 +6466,7 @@ mod tests {
         assert!(rec.stopped_at_ms >= before, "stopped_at_ms = 송신 시각");
         assert_eq!(rec.decided_at_ms, 1_000, "decided_at_ms는 감시 값 그대로");
         // 두 번째 정지는 없다.
-        assert!(!coord.auto_stop(&run_id, saturation_stop(4)).await);
+        assert!(coord.auto_stop(&run_id, saturation_stop(4)).await.is_none());
         assert!(r0.try_recv().is_err());
     }
 
@@ -6452,7 +6497,7 @@ mod tests {
         assert!(coord.abort(&run_id).await);
         assert!(is_abort(r0.try_recv().unwrap()));
         assert!(is_abort(r1.try_recv().unwrap()));
-        assert!(!coord.auto_stop(&run_id, saturation_stop(3)).await);
+        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_none());
         assert!(coord.auto_stop_of(&run_id).await.is_none());
         assert!(r0.try_recv().is_err(), "추가 Abort 없음");
         assert!(r1.try_recv().is_err(), "추가 Abort 없음");
@@ -6471,7 +6516,12 @@ mod tests {
     async fn auto_stop_on_removed_run_is_noop() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
-        assert!(!coord.auto_stop("no-such-run", saturation_stop(3)).await);
+        assert!(
+            coord
+                .auto_stop("no-such-run", saturation_stop(3))
+                .await
+                .is_none()
+        );
         coord.add_suspended("no-such-run", 3).await; // 패닉 없음
     }
 
@@ -6533,6 +6583,23 @@ mod tests {
         assert_eq!(rec.decided_step, 3);
         assert_eq!(rec.failed_steps, vec![2, 3]);
         assert!(rec.stopped_at_ms >= rec.decided_at_ms);
+        // 감시는 Abort를 보낸 `auto_stop()`이 돌아온 뒤에 기록을 요약에 싣는다 — 기다려 읽는다.
+        let live = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(l) = coord.live_of(&run_id).await
+                    && l.stop.is_some()
+                {
+                    return l;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("정지 기록이 실린 요약");
+        let stop = live.stop.unwrap();
+        assert!(stop.stopped_at_ms > 0);
+        assert_eq!(stop, rec);
+        assert!(!live.next_fail_stops);
     }
 
     /// 전 일정을 다 보낸 뒤 end-phase를 보고한 워커(자연 종료)는 포화 판정을 동결하지 않는다 —
@@ -6593,7 +6660,7 @@ mod tests {
         let (tx1, mut r1) = fake_tx();
         coord.register(run_id, "w0", tx0).await;
         coord.register(run_id, "w1", tx1).await;
-        assert!(coord.auto_stop(run_id, saturation_stop(3)).await);
+        assert!(coord.auto_stop(run_id, saturation_stop(3)).await.is_some());
         assert!(is_abort(r0.try_recv().expect("w0에 Abort")));
         assert!(is_abort(r1.try_recv().expect("w1에 Abort")));
         let stop = coord.auto_stop_of(run_id).await.expect("정지 기록");
@@ -6721,7 +6788,7 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let (coord, run_id, _r0, _r1) = two_worker_run(&db).await;
         assert!(coord.abort(&run_id).await);
-        assert!(!coord.auto_stop(&run_id, saturation_stop(3)).await);
+        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_none());
         // 미룸 없음 — 첫 Aborted에서 지금처럼 finalize.
         coord.record_phase(&run_id, "w0", ABORTED, "").await;
         assert_eq!(coord.done_cancelled(&run_id).await, None);
@@ -6831,7 +6898,7 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         assert!(coord.monitor_handle(&run_id).await.is_some());
-        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await);
+        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_some());
         assert!(
             coord.monitor_handle(&run_id).await.is_none(),
             "정지 뒤 ingest는 감시에 배치를 보내지 않는다"

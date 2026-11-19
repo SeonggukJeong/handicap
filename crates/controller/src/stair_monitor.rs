@@ -10,6 +10,7 @@ use handicap_engine::percentiles::{decode_hdr, merge_into};
 use handicap_proto::v1 as pb;
 use hdrhistogram::Histogram;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -89,6 +90,8 @@ impl MonitorHandle {
 
 /// run 하나의 감시 작업. `done`(run finalize) 취소나 정지 결정에서 끝난다.
 /// 정지는 `CoordinatorState::auto_stop`으로만 실행한다(spec §4.5).
+/// 실행 중 요약은 메시지마다 바뀌었을 때 `live_tx`로 보낸다 — 정지를 결정한 메시지에선 보내지
+/// 않고, coordinator가 채운 기록을 받은 뒤 한 번 보낸다.
 pub async fn run_monitor(
     coord: CoordinatorState,
     run_id: String,
@@ -96,6 +99,7 @@ pub async fn run_monitor(
     mut rx: UnboundedReceiver<MonitorMsg>,
     done: CancellationToken,
     handle: MonitorHandle,
+    live_tx: watch::Sender<LiveState>,
 ) {
     let mut batches: u64 = 0;
     loop {
@@ -118,10 +122,20 @@ pub async fn run_monitor(
         if out.newly_suspended > 0 {
             coord.add_suspended(&run_id, out.newly_suspended).await;
         }
-        if let Some(stop) = out.stop {
-            coord.auto_stop(&run_id, stop).await;
-            break;
+        let Some(stop) = out.stop else {
+            if let Some(l) = monitor.live_if_changed() {
+                live_tx.send_replace(l);
+            }
+            continue;
+        };
+        // `None` = 외부 중단이 먼저 왔다 — run은 곧 aborted로 끝난다.
+        if let Some(filled) = coord.auto_stop(&run_id, stop).await {
+            monitor.set_stop(filled);
+            if let Some(l) = monitor.live_if_changed() {
+                live_tx.send_replace(l);
+            }
         }
+        break;
     }
     info!(
         run_id = %run_id,
@@ -235,7 +249,7 @@ struct LiveKey {
 }
 
 impl StairMonitor {
-    /// `cfg`는 `monitor_wanted`를 통과한 설정.
+    /// 계단 run이면 자동 정지 칸과 무관하게 만든다(칸이 꺼져 있으면 정지 없이 판정·요약만).
     pub fn new(cfg: &StairConfig, expected: u32) -> Self {
         let step_ms = i64::from(cfg.ramp_seconds + cfg.hold_seconds) * 1000;
         Self {
@@ -2133,6 +2147,17 @@ mod tests {
     fn live_current_waits_for_registration() {
         let mut m = StairMonitor::new(&cfg5(None), 2);
         m.on_msg(span("w0", T0MS, T0, end(1) + 5, |_| OK), NOW2);
+        let l = m.live();
+        assert_eq!((l.current_step, l.phase), (None, None));
+    }
+
+    /// 등록은 다 찼고 metric window도 왔지만 open-loop 초가 아직 없다 → 「첫 데이터 대기 중」.
+    #[test]
+    fn live_current_waits_for_first_open_loop_second() {
+        let mut m = mon();
+        m.on_msg(batch("w", T0 * 1000, &[], &[(T0, 10, 0, 1000)]), NOW_MS);
+        assert_eq!(m.t0("w"), Some(T0 * 1000));
+        assert_eq!(m.level("w"), None);
         let l = m.live();
         assert_eq!((l.current_step, l.phase), (None, None));
     }

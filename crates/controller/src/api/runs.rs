@@ -56,6 +56,9 @@ pub struct RunResponse {
     /// 계단 자동 정지 기록 — status가 `completed`이고 값이 있을 때만(아니면 키 생략).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
+    /// 계단 run 실행 중 요약 — `GET /api/runs/{id}`가 running 계단 run에만 싣는다(아니면 키 생략).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_stop_live: Option<crate::stair_live::LiveState>,
 }
 
 pub(crate) fn loop_cap_ok(cap: u32, max: u32) -> bool {
@@ -1042,7 +1045,15 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> Result<Json<RunResponse>, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
-    Ok(Json(to_response(row, None)))
+    // 계단 아닌 run·끝난 run은 coordinator를 조회하지 않는다.
+    let live = if row.status == RunStatus::Running && row.profile.stair.is_some() {
+        state.coord.live_of(&id).await
+    } else {
+        None
+    };
+    let mut resp = to_response(row, None);
+    resp.auto_stop_live = live;
+    Ok(Json(resp))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1413,6 +1424,7 @@ fn to_response(r: runs::RunRow, last_metric_ts: Option<i64>) -> RunResponse {
         last_metric_ts,
         label: r.label,
         auto_stop,
+        auto_stop_live: None,
     }
 }
 
@@ -2868,6 +2880,126 @@ steps:
         let row = runs::get(&db, &id).await.unwrap().unwrap();
         assert_eq!(row.status, runs::RunStatus::Failed);
         assert_eq!(row.message.as_deref(), Some(super::POOL_ASSIGN_FAILED_MSG));
+    }
+
+    // ---- 계단 실행 중 요약 (`auto_stop_live`) ----
+
+    const LONG: std::time::Duration = std::time::Duration::from_secs(3600);
+
+    fn stair_profile() -> Profile {
+        let mut p = unique_profile("unused".into(), 0);
+        p.data_binding = None;
+        p.max_in_flight = Some(100);
+        p.stair = Some(crate::stair::StairConfig {
+            targets: vec![10, 20, 30],
+            hold_seconds: 20,
+            ramp_seconds: 1,
+            discard_seconds: 5,
+            p99_cap_ms: None,
+            auto_stop: None,
+        });
+        p
+    }
+
+    /// run 행을 만들고 status를 `status`로 둔다. `enqueue`면 coordinator에도 등록.
+    async fn seed_run_with(
+        state: &AppState,
+        profile: Profile,
+        status: RunStatus,
+        enqueue: bool,
+    ) -> String {
+        let yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(&state.db, &sc, yaml)
+            .await
+            .unwrap();
+        let id = runs::insert(
+            &state.db,
+            &scenario.id,
+            yaml,
+            &profile,
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+        if enqueue {
+            let assignment = crate::grpc::coordinator::PendingAssignment {
+                scenario_yaml: yaml.to_string(),
+                profile: crate::grpc::profile::to_proto_profile(&profile),
+                env: std::collections::HashMap::new(),
+                data_bindings: vec![],
+                stair: profile.stair.clone(),
+            };
+            state
+                .coord
+                .enqueue(id.clone(), assignment, 1, 1, None, LONG, LONG)
+                .await;
+        }
+        runs::set_status(&state.db, &id, RunStatus::Running, Some(1), None)
+            .await
+            .unwrap();
+        if status != RunStatus::Running {
+            runs::set_status(&state.db, &id, status, None, Some(2))
+                .await
+                .unwrap();
+        }
+        id
+    }
+
+    async fn get_json(state: &AppState, id: &str) -> serde_json::Value {
+        let Json(r) = super::get(State(state.clone()), Path(id.to_string()))
+            .await
+            .expect("200");
+        serde_json::to_value(&r).unwrap()
+    }
+
+    #[tokio::test]
+    async fn get_running_stair_run_includes_live() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let id = seed_run_with(&state, stair_profile(), RunStatus::Running, true).await;
+        let v = get_json(&state, &id).await;
+        let live = v.as_object().unwrap()["auto_stop_live"]
+            .as_object()
+            .expect("auto_stop_live 객체");
+        assert_eq!(live["step_states"].as_array().unwrap().len(), 3);
+        assert!(live.contains_key("current_step"));
+        assert!(live["current_step"].is_null());
+    }
+
+    #[tokio::test]
+    async fn get_non_stair_run_has_no_live_key() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let mut p = unique_profile("unused".into(), 1);
+        p.data_binding = None;
+        let id = seed_run_with(&state, p, RunStatus::Running, true).await;
+        let v = get_json(&state, &id).await;
+        assert!(!v.as_object().unwrap().contains_key("auto_stop_live"));
+    }
+
+    #[tokio::test]
+    async fn get_completed_stair_run_has_no_live_key() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let id = seed_run_with(&state, stair_profile(), RunStatus::Completed, true).await;
+        assert!(
+            state.coord.live_of(&id).await.is_some(),
+            "coordinator엔 아직 요약이 있다"
+        );
+        let v = get_json(&state, &id).await;
+        assert!(!v.as_object().unwrap().contains_key("auto_stop_live"));
+    }
+
+    #[tokio::test]
+    async fn get_running_run_missing_from_coordinator() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let id = seed_run_with(&state, stair_profile(), RunStatus::Running, false).await;
+        let v = get_json(&state, &id).await;
+        assert!(!v.as_object().unwrap().contains_key("auto_stop_live"));
     }
 }
 

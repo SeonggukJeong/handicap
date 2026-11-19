@@ -52,13 +52,6 @@ pub struct EmergencyStop {
     pub min_requests: u32,
 }
 
-/// 감시 객체인가 — auto_stop 칸이 하나라도 켜져 있을 때.
-pub fn monitor_wanted(c: &StairConfig) -> bool {
-    c.auto_stop
-        .as_ref()
-        .is_some_and(|a| a.saturation.is_some() || a.emergency.is_some())
-}
-
 /// 계단 i마다 `[상승 t_i, 유지 t_i]`. 엔진 stage는 앞 목표→이 목표 선형 보간이라
 /// 상승 stage가 경사, 유지 stage가 평평한 구간이 된다.
 pub fn expand_stair(c: &StairConfig) -> Vec<Stage> {
@@ -1485,28 +1478,6 @@ mod tests {
         let c: StairConfig = serde_json::from_str(s).unwrap();
         let a = c.auto_stop.unwrap();
         assert!(a.saturation.is_none() && a.emergency.is_none());
-    }
-
-    #[test]
-    fn monitor_wanted_table() {
-        assert!(!monitor_wanted(&cfg()));
-        let none = StairConfig {
-            auto_stop: Some(AutoStopConfig {
-                saturation: None,
-                emergency: None,
-            }),
-            ..cfg()
-        };
-        assert!(!monitor_wanted(&none));
-        let sat = StairConfig {
-            auto_stop: Some(AutoStopConfig {
-                saturation: Some(SaturationStopMode::TwoFails),
-                emergency: None,
-            }),
-            ..cfg()
-        };
-        assert!(monitor_wanted(&sat));
-        assert!(monitor_wanted(&with_em(em())));
     }
 
     #[test]
