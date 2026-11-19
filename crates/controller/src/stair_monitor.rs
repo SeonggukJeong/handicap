@@ -2083,6 +2083,7 @@ mod tests {
         assert_eq!(s.decided_step, 3);
         // 계단 4(0부터) 시작 = t0 + 4 * 21 s: 이른 워커(T0MS + 300)는 이미 지났고 늦은 워커(T0MS + 2700)는 아직이다.
         s.stopped_at_ms = T0MS + 300 + 4 * STEP * 1000 + 1_000;
+        s.decided_at_ms = s.stopped_at_ms - 20;
         g.m.set_stop(s.clone());
         let rep = report_of(
             &c,

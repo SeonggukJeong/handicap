@@ -13,10 +13,16 @@ Usage: python3 responder.py [port] [delay_ms] [close]
             per request, for connection-timing / reuse-ratio checks
             (connections_opened == requests_total, reuse_ratio = 0).
 
-A one-connection-per-request responder collapses at a few thousand req/s
-(connection setup, small backlog) and looks like SUT saturation, so measure
-throughput in keep-alive mode. Any method is answered 200 text/plain `ok`;
-request bodies (Content-Length) are read and discarded; nothing is logged.
+A one-connection-per-request responder collapses from about a thousand req/s
+(measured at 1440 req/s: 1.2% errors, p99 14.7 s) and looks like SUT
+saturation, so measure throughput in keep-alive mode. macOS clamps `backlog`
+to kern.ipc.somaxconn (128 by default), so close mode still hits a small accept
+queue at high rates.
+
+Any method is answered 200 text/plain `ok` (HEAD gets the headers only, with
+Content-Length: 2); request bodies (Content-Length) are read and discarded; a
+request with `Transfer-Encoding: chunked` is not parsed, so the connection is
+closed. Nothing is logged.
 """
 import asyncio
 import sys
@@ -26,22 +32,31 @@ DELAY_S = (int(sys.argv[2]) if len(sys.argv) > 2 else 50) / 1000.0
 CLOSE = len(sys.argv) > 3 and sys.argv[3] == "close"
 
 HEAD = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n"
-RESP = HEAD + (b"Connection: close\r\n" if CLOSE else b"") + b"\r\nok"
+RESP_HEAD = HEAD + (b"Connection: close\r\n" if CLOSE else b"") + b"\r\n"
+RESP = RESP_HEAD + b"ok"
 
 
 async def handle(reader, writer):
     try:
         while True:
             head = await reader.readuntil(b"\r\n\r\n")
+            lines = head.split(b"\r\n")
+            is_head = lines[0][:5] == b"HEAD "
             n = 0
-            for line in head.split(b"\r\n"):
-                if line[:15].lower() == b"content-length:":
+            chunked = False
+            for line in lines:
+                low = line.lower()
+                if low[:15] == b"content-length:":
                     n = int(line[15:].strip() or 0)
+                elif low[:18] == b"transfer-encoding:" and b"chunked" in low:
+                    chunked = True
+            if chunked:
+                break
             if n:
                 await reader.readexactly(n)
             if DELAY_S:
                 await asyncio.sleep(DELAY_S)
-            writer.write(RESP)
+            writer.write(RESP_HEAD if is_head else RESP)
             await writer.drain()
             if CLOSE or b"connection: close" in head.lower():
                 break
