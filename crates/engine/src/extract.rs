@@ -10,7 +10,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 
 use crate::error::{EngineError, Result};
-use crate::json_unwrap::{unwrap_json_str, unwrap_nested};
+use crate::json_unwrap::{has_unwrappable, unwrap_in_place, unwrap_json_str};
 use crate::scenario::{Decode, Extract, HttpStep};
 
 /// Captured response artifacts for a single step.
@@ -31,67 +31,171 @@ pub fn evaluate(
     facts: &ResponseFacts<'_>,
 ) -> Result<BTreeMap<String, String>> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
-    let body_json = BodyCache::default();
-    for e in extracts {
-        let v = strict_item(e, facts, &body_json)?;
+    let body_json = BodyCache::new(extracts);
+    for (idx, e) in extracts.iter().enumerate() {
+        let v = strict_item(e, facts, &body_json, idx)?;
         out.insert(e.var().to_string(), v);
     }
     Ok(out)
 }
 
-/// 본문 JSON 읽기 결과(평가 한 번에 한 번만, Body 항목들이 공유). 찾기는 세 단계다 —
-/// 원래 본문 → 뿌리가 감싼 문자열이면 푼 값 → 안쪽 필드까지 푼 값. 앞 단계에서 찾으면(`null` 포함) 멈춘다.
-#[derive(Default)]
-struct BodyCache {
-    /// 오류는 최종 `body not JSON: …` 글자.
-    parsed: std::cell::OnceCell<std::result::Result<serde_json::Value, String>>,
-    /// 뿌리가 문자열이고 객체·배열로 풀릴 때만 Some (2단계).
-    root: std::cell::OnceCell<Option<serde_json::Value>>,
-    /// 안쪽 필드까지 푼 값 — 풀린 곳이 없으면 None (3단계).
-    nested: std::cell::OnceCell<Option<serde_json::Value>>,
+/// 3단계로 넘어간 뒤의 상태.
+enum Nested {
+    /// 아직 3단계로 넘어간 항목이 없다.
+    NotTried,
+    /// 풀 것이 없다 — 원래 본문 그대로. 뒤 항목은 자기 차례에 1·2단계를 찾는다.
+    Nothing,
+    /// 바탕 값이 제자리에서 풀렸다. `early[i]` = 풀기 전에 구해 둔 항목 i의 1·2단계 결과
+    /// (`Some(v)` = 찾음 — `v`가 `null`이어도 찾음, `None` = 못 찾음 또는 본문 항목 아님).
+    Unwrapped {
+        early: Vec<Option<serde_json::Value>>,
+    },
 }
 
-/// `Err` = `body not JSON: …`, `Ok(None)` = 못 찾음.
+/// 본문 JSON 읽기 결과(평가 한 번에 한 번만, Body 항목들이 공유). 찾기는 세 단계다 —
+/// 원래 본문 → 뿌리가 감싼 문자열이면 푼 값 → 안쪽 필드까지 푼 값. 앞 단계에서 찾으면(`null` 포함) 멈춘다.
+/// 3단계로 넘어가면 든 본문 값이 풀린 값으로 바뀐다 — 그 전에 뒤 본문 항목의 1·2단계를 구해 둔다(`early`).
+struct BodyCache<'a> {
+    extracts: &'a [Extract],
+    /// 오류는 최종 `body not JSON: …` 글자.
+    parsed: std::cell::OnceCell<std::result::Result<std::cell::RefCell<serde_json::Value>, String>>,
+    /// 뿌리가 문자열이고 객체·배열로 풀릴 때만 Some (2단계).
+    root: std::cell::OnceCell<Option<std::cell::RefCell<serde_json::Value>>>,
+    nested: std::cell::RefCell<Nested>,
+}
+
+enum Stage {
+    Found(serde_json::Value),
+    /// 뿌리가 문자열인데 안 풀린다 — 3단계도 없다.
+    NoRoot,
+    Miss,
+}
+
+impl<'a> BodyCache<'a> {
+    fn new(extracts: &'a [Extract]) -> Self {
+        BodyCache {
+            extracts,
+            parsed: std::cell::OnceCell::new(),
+            root: std::cell::OnceCell::new(),
+            nested: std::cell::RefCell::new(Nested::NotTried),
+        }
+    }
+
+    /// 1단계(파싱된 본문) → 뿌리가 문자열이면 2단계(뿌리를 푼 값).
+    fn stage12(
+        &self,
+        parsed: &std::cell::RefCell<serde_json::Value>,
+        p: &serde_json_path::JsonPath,
+    ) -> Stage {
+        if let Some(v) = p.query(&parsed.borrow()).first() {
+            return Stage::Found((*v).clone());
+        }
+        if !matches!(&*parsed.borrow(), serde_json::Value::String(_)) {
+            return Stage::Miss;
+        }
+        let root = self.root.get_or_init(|| {
+            // 뿌리 문자열이 안 풀리면 3단계도 없다(뿌리 문자열을 다시 파싱하지 않는다).
+            match &*parsed.borrow() {
+                serde_json::Value::String(s) => unwrap_json_str(s).map(std::cell::RefCell::new),
+                _ => None,
+            }
+        });
+        let Some(root) = root else {
+            return Stage::NoRoot;
+        };
+        match p.query(&root.borrow()).first() {
+            Some(v) => Stage::Found((*v).clone()),
+            None => Stage::Miss,
+        }
+    }
+
+    /// 3단계의 바탕 값 — 뿌리가 문자열이면 2단계 값, 아니면 파싱된 본문.
+    fn base<'c>(
+        &'c self,
+        parsed: &'c std::cell::RefCell<serde_json::Value>,
+    ) -> Option<&'c std::cell::RefCell<serde_json::Value>> {
+        if matches!(&*parsed.borrow(), serde_json::Value::String(_)) {
+            self.root.get()?.as_ref()
+        } else {
+            Some(parsed)
+        }
+    }
+}
+
+/// `Err` = `body not JSON: …`, `Ok(None)` = 못 찾음. `idx` = `extracts` 안 이 항목의 자리.
 fn body_path_first(
-    cache: &BodyCache,
+    cache: &BodyCache<'_>,
     facts: &ResponseFacts<'_>,
+    idx: usize,
     path: &str,
 ) -> std::result::Result<Option<serde_json::Value>, String> {
     use serde_json_path::JsonPath;
     let parsed = cache
         .parsed
         .get_or_init(|| {
-            serde_json::from_slice(facts.body).map_err(|e| format!("body not JSON: {e}"))
+            serde_json::from_slice(facts.body)
+                .map(std::cell::RefCell::new)
+                .map_err(|e| format!("body not JSON: {e}"))
         })
         .as_ref()
         .map_err(Clone::clone)?;
+    if matches!(*cache.nested.borrow(), Nested::Unwrapped { .. }) {
+        let early = match &mut *cache.nested.borrow_mut() {
+            Nested::Unwrapped { early } => early.get_mut(idx).and_then(Option::take),
+            _ => None,
+        };
+        if let Some(v) = early {
+            return Ok(Some(v));
+        }
+        let Ok(p) = JsonPath::parse(path) else {
+            return Ok(None);
+        };
+        let Some(base) = cache.base(parsed) else {
+            return Ok(None);
+        };
+        let found = p.query(&base.borrow()).first().map(|v| (*v).clone());
+        return Ok(found);
+    }
     let Ok(p) = JsonPath::parse(path) else {
         return Ok(None);
     };
-    if let Some(v) = p.query(parsed).first() {
-        return Ok(Some((*v).clone()));
+    match cache.stage12(parsed, &p) {
+        Stage::Found(v) => return Ok(Some(v)),
+        Stage::NoRoot => return Ok(None),
+        Stage::Miss => {}
     }
-    let base = if let serde_json::Value::String(s) = parsed {
-        // 뿌리 문자열이 안 풀리면 3단계도 없다(뿌리 문자열을 다시 파싱하지 않는다).
-        let Some(root) = cache.root.get_or_init(|| unwrap_json_str(s)) else {
-            return Ok(None);
-        };
-        if let Some(v) = p.query(root).first() {
-            return Ok(Some((*v).clone()));
-        }
-        root
-    } else {
-        parsed
+    if matches!(*cache.nested.borrow(), Nested::Nothing) {
+        return Ok(None);
+    }
+    let Some(base) = cache.base(parsed) else {
+        return Ok(None);
     };
-    Ok(cache
-        .nested
-        .get_or_init(|| unwrap_nested(base))
-        .as_ref()
-        .and_then(|n| p.query(n).first().map(|v| (*v).clone())))
+    if !has_unwrappable(&base.borrow()) {
+        *cache.nested.borrow_mut() = Nested::Nothing;
+        return Ok(None);
+    }
+    // 풀기 전에 뒤 본문 항목의 1·2단계를 구해 둔다 — 풀면 원래 본문 값이 사라진다.
+    let mut early: Vec<Option<serde_json::Value>> = vec![None; cache.extracts.len()];
+    for (j, e) in cache.extracts.iter().enumerate().skip(idx + 1) {
+        if let Extract::Body { path, .. } = e
+            && let Ok(pj) = JsonPath::parse(path)
+            && let Stage::Found(v) = cache.stage12(parsed, &pj)
+        {
+            early[j] = Some(v);
+        }
+    }
+    unwrap_in_place(&mut base.borrow_mut());
+    *cache.nested.borrow_mut() = Nested::Unwrapped { early };
+    let found = p.query(&base.borrow()).first().map(|v| (*v).clone());
+    Ok(found)
 }
-
 /// One item under the strict rules (body JSON parsed once, lazily).
-fn strict_item(e: &Extract, facts: &ResponseFacts<'_>, body_json: &BodyCache) -> Result<String> {
+fn strict_item(
+    e: &Extract,
+    facts: &ResponseFacts<'_>,
+    body_json: &BodyCache<'_>,
+    idx: usize,
+) -> Result<String> {
     match e {
         Extract::Body {
             var,
@@ -100,7 +204,7 @@ fn strict_item(e: &Extract, facts: &ResponseFacts<'_>, body_json: &BodyCache) ->
             claim,
             ..
         } => {
-            let value = body_path_first(body_json, facts, path)
+            let value = body_path_first(body_json, facts, idx, path)
                 .map_err(EngineError::ExtractFailed)?
                 .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
             post_process(var, stringify(&value), *decode, claim.as_deref())
@@ -149,9 +253,9 @@ pub fn evaluate_lenient(
 ) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     // Body JSON parse outcome, computed once and shared by every Body item.
-    let body_json = BodyCache::default();
-    for e in extracts {
-        if let Some(v) = lenient_item(e, facts, &body_json) {
+    let body_json = BodyCache::new(extracts);
+    for (idx, e) in extracts.iter().enumerate() {
+        if let Some(v) = lenient_item(e, facts, &body_json, idx) {
             out.insert(e.var().to_string(), v);
         }
     }
@@ -159,7 +263,12 @@ pub fn evaluate_lenient(
 }
 
 /// One item under the lenient rules; `None` = "could not extract".
-fn lenient_item(e: &Extract, facts: &ResponseFacts<'_>, body_json: &BodyCache) -> Option<String> {
+fn lenient_item(
+    e: &Extract,
+    facts: &ResponseFacts<'_>,
+    body_json: &BodyCache<'_>,
+    idx: usize,
+) -> Option<String> {
     match e {
         Extract::Body {
             var,
@@ -170,7 +279,7 @@ fn lenient_item(e: &Extract, facts: &ResponseFacts<'_>, body_json: &BodyCache) -
         } => {
             // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
             // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
-            let value = body_path_first(body_json, facts, path)
+            let value = body_path_first(body_json, facts, idx, path)
                 .ok()
                 .flatten()
                 .filter(|v| !v.is_null())?;
@@ -223,16 +332,16 @@ pub fn evaluate_with_defaults(extracts: &[Extract], facts: &ResponseFacts<'_>) -
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut from_default_items: BTreeMap<String, String> = BTreeMap::new();
     let mut error: Option<EngineError> = None;
-    let body_json = BodyCache::default();
-    for e in extracts {
+    let body_json = BodyCache::new(extracts);
+    for (idx, e) in extracts.iter().enumerate() {
         if e.default_value().is_some() {
-            if let Some(v) = lenient_item(e, facts, &body_json) {
+            if let Some(v) = lenient_item(e, facts, &body_json, idx) {
                 from_default_items.insert(e.var().to_string(), v.clone());
                 out.insert(e.var().to_string(), v);
             }
             continue;
         }
-        match strict_item(e, facts, &body_json) {
+        match strict_item(e, facts, &body_json, idx) {
             Ok(v) => {
                 out.insert(e.var().to_string(), v);
             }
@@ -576,6 +685,174 @@ fn post_process_value(
     Ok(Processed::Claim(first))
 }
 
+/// 이 모듈은 본문 추출 3단계의 옛 구현(본문을 복제해 푸는 `unwrap_nested` 판) 그대로의 사본이다 —
+/// 새 구현과 세 평가 함수의 결과를 비교하는 기준.
+#[cfg(test)]
+mod reference {
+    use std::collections::BTreeMap;
+
+    use super::{
+        EngineError, Extract, ResponseFacts, Result, StrictOutcome, post_process,
+        post_process_lenient, stringify,
+    };
+    use crate::json_unwrap::{unwrap_json_str, unwrap_nested};
+
+    #[derive(Default)]
+    struct BodyCache {
+        parsed: std::cell::OnceCell<std::result::Result<serde_json::Value, String>>,
+        root: std::cell::OnceCell<Option<serde_json::Value>>,
+        nested: std::cell::OnceCell<Option<serde_json::Value>>,
+    }
+
+    fn body_path_first(
+        cache: &BodyCache,
+        facts: &ResponseFacts<'_>,
+        path: &str,
+    ) -> std::result::Result<Option<serde_json::Value>, String> {
+        use serde_json_path::JsonPath;
+        let parsed = cache
+            .parsed
+            .get_or_init(|| {
+                serde_json::from_slice(facts.body).map_err(|e| format!("body not JSON: {e}"))
+            })
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let Ok(p) = JsonPath::parse(path) else {
+            return Ok(None);
+        };
+        if let Some(v) = p.query(parsed).first() {
+            return Ok(Some((*v).clone()));
+        }
+        let base = if let serde_json::Value::String(s) = parsed {
+            let Some(root) = cache.root.get_or_init(|| unwrap_json_str(s)) else {
+                return Ok(None);
+            };
+            if let Some(v) = p.query(root).first() {
+                return Ok(Some((*v).clone()));
+            }
+            root
+        } else {
+            parsed
+        };
+        Ok(cache
+            .nested
+            .get_or_init(|| unwrap_nested(base))
+            .as_ref()
+            .and_then(|n| p.query(n).first().map(|v| (*v).clone())))
+    }
+
+    fn strict_item(
+        e: &Extract,
+        facts: &ResponseFacts<'_>,
+        cache: &BodyCache,
+        other: &super::BodyCache<'_>,
+    ) -> Result<String> {
+        if let Extract::Body {
+            var,
+            path,
+            decode,
+            claim,
+            ..
+        } = e
+        {
+            let value = body_path_first(cache, facts, path)
+                .map_err(EngineError::ExtractFailed)?
+                .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
+            return post_process(var, stringify(&value), *decode, claim.as_deref());
+        }
+        super::strict_item(e, facts, other, 0)
+    }
+
+    fn lenient_item(
+        e: &Extract,
+        facts: &ResponseFacts<'_>,
+        cache: &BodyCache,
+        other: &super::BodyCache<'_>,
+    ) -> Option<String> {
+        if let Extract::Body {
+            var,
+            path,
+            decode,
+            claim,
+            ..
+        } = e
+        {
+            let value = body_path_first(cache, facts, path)
+                .ok()
+                .flatten()
+                .filter(|v| !v.is_null())?;
+            return post_process_lenient(var, stringify(&value), *decode, claim.as_deref());
+        }
+        super::lenient_item(e, facts, other, 0)
+    }
+
+    pub fn evaluate(
+        extracts: &[Extract],
+        facts: &ResponseFacts<'_>,
+    ) -> Result<BTreeMap<String, String>> {
+        let mut out = BTreeMap::new();
+        let cache = BodyCache::default();
+        let other = super::BodyCache::new(&[]);
+        for e in extracts {
+            let v = strict_item(e, facts, &cache, &other)?;
+            out.insert(e.var().to_string(), v);
+        }
+        Ok(out)
+    }
+
+    pub fn evaluate_lenient(
+        extracts: &[Extract],
+        facts: &ResponseFacts<'_>,
+    ) -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        let cache = BodyCache::default();
+        let other = super::BodyCache::new(&[]);
+        for e in extracts {
+            if let Some(v) = lenient_item(e, facts, &cache, &other) {
+                out.insert(e.var().to_string(), v);
+            }
+        }
+        out
+    }
+
+    pub fn evaluate_with_defaults(
+        extracts: &[Extract],
+        facts: &ResponseFacts<'_>,
+    ) -> StrictOutcome {
+        let mut out = BTreeMap::new();
+        let mut from_default_items = BTreeMap::new();
+        let mut error: Option<EngineError> = None;
+        let cache = BodyCache::default();
+        let other = super::BodyCache::new(&[]);
+        for e in extracts {
+            if e.default_value().is_some() {
+                if let Some(v) = lenient_item(e, facts, &cache, &other) {
+                    from_default_items.insert(e.var().to_string(), v.clone());
+                    out.insert(e.var().to_string(), v);
+                }
+                continue;
+            }
+            match strict_item(e, facts, &cache, &other) {
+                Ok(v) => {
+                    out.insert(e.var().to_string(), v);
+                }
+                Err(err) => {
+                    if error.is_none() {
+                        error = Some(err);
+                    }
+                }
+            }
+        }
+        StrictOutcome {
+            extracted: if error.is_some() {
+                from_default_items
+            } else {
+                out
+            },
+            error,
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,16 +862,17 @@ mod tests {
     fn found_path_does_no_unwrap_work() {
         let body = br#"{"data":"{\"id\":7}","plain":1}"#;
         let facts = lenient_facts(body, &[]);
-        let cache = BodyCache::default();
-        let v = body_path_first(&cache, &facts, "$.plain").unwrap();
+        let xs = [body_extract("p", "$.plain")];
+        let cache = BodyCache::new(&xs);
+        let v = body_path_first(&cache, &facts, 0, "$.plain").unwrap();
         assert_eq!(v, Some(serde_json::json!(1)));
         assert!(
             cache.root.get().is_none(),
             "root unwrapped for a found path"
         );
         assert!(
-            cache.nested.get().is_none(),
-            "nested unwrapped for a found path"
+            matches!(*cache.nested.borrow(), Nested::NotTried),
+            "unwrap attempted for a found path"
         );
     }
 
@@ -602,19 +880,376 @@ mod tests {
     fn found_path_on_string_root_does_no_unwrap_work() {
         let body = br#""{\"id\":7}""#;
         let facts = lenient_facts(body, &[]);
-        let cache = BodyCache::default();
-        let v = body_path_first(&cache, &facts, "$").unwrap();
+        let xs = [body_extract("p", "$")];
+        let cache = BodyCache::new(&xs);
+        let v = body_path_first(&cache, &facts, 0, "$").unwrap();
         assert_eq!(v, Some(serde_json::json!("{\"id\":7}")));
         assert!(
             cache.root.get().is_none(),
             "root unwrapped for a found path"
         );
         assert!(
-            cache.nested.get().is_none(),
-            "nested unwrapped for a found path"
+            matches!(*cache.nested.borrow(), Nested::NotTried),
+            "unwrap attempted for a found path"
         );
     }
 
+    #[test]
+    fn plain_body_miss_settles_nothing() {
+        let body = br#"{"a":"[INFO] x","b":1}"#;
+        let facts = lenient_facts(body, &[]);
+        let xs = [body_extract("p", "$.nope")];
+        let cache = BodyCache::new(&xs);
+        let v = body_path_first(&cache, &facts, 0, "$.nope").unwrap();
+        assert_eq!(v, None);
+        assert!(matches!(*cache.nested.borrow(), Nested::Nothing));
+    }
+
+    fn assert_same(body: &[u8], headers: &[(String, String)], xs: &[Extract]) {
+        let facts = lenient_facts(body, headers);
+        let new = evaluate(xs, &facts).map_err(|e| e.to_string());
+        let old = reference::evaluate(xs, &facts).map_err(|e| e.to_string());
+        assert_eq!(
+            new,
+            old,
+            "strict: body={:?} xs={xs:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert_eq!(
+            evaluate_lenient(xs, &facts),
+            reference::evaluate_lenient(xs, &facts),
+            "lenient: body={:?} xs={xs:?}",
+            String::from_utf8_lossy(body)
+        );
+        let new = evaluate_with_defaults(xs, &facts);
+        let old = reference::evaluate_with_defaults(xs, &facts);
+        assert_eq!(
+            (new.extracted, new.error.map(|e| e.to_string())),
+            (old.extracted, old.error.map(|e| e.to_string())),
+            "defaults: body={:?} xs={xs:?}",
+            String::from_utf8_lossy(body)
+        );
+    }
+
+    fn body_list(paths: &[&str]) -> Vec<Extract> {
+        paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| body_extract(&format!("v{i}"), p))
+            .collect()
+    }
+
+    fn body_default(var: &str, path: &str) -> Extract {
+        Extract::Body {
+            var: var.into(),
+            path: path.into(),
+            decode: None,
+            claim: None,
+            default: Some("d".into()),
+        }
+    }
+
+    const B1: &str = r#"{"data":"{ \"id\": 7 }","name":"kim","n":null}"#;
+    const ROOT_STR: &str = r#""{\"id\":7,\"w\":\"{\\\"k\\\":1}\"}""#;
+
+    #[test]
+    fn equivalence_hand_cases() {
+        let b1 = B1.as_bytes();
+        for paths in [
+            vec!["$.data.id", "$.data", "$.name"],
+            vec!["$.name", "$.data.id", "$.name"],
+            vec!["$.data.id", "$.data.id"],
+            vec!["$.nope", "$.name"],
+            vec!["$.data.id", "$.n"],
+            vec!["$.data.id", "$[]"],
+        ] {
+            assert_same(b1, &[], &body_list(&paths));
+        }
+        let hdr = Extract::Header {
+            var: "h".into(),
+            name: "x-missing".into(),
+            decode: None,
+            claim: None,
+            default: None,
+        };
+        assert_same(
+            b1,
+            &[],
+            &[
+                body_extract("a", "$.data.id"),
+                hdr,
+                body_extract("c", "$.name"),
+            ],
+        );
+        assert_same(
+            b1,
+            &[],
+            &[
+                body_default("a", "$.data.id"),
+                body_default("b", "$.nope"),
+                body_extract("c", "$.name"),
+            ],
+        );
+        assert_same(br#"{"a":1}"#, &[], &body_list(&["$.missing", "$.a"]));
+        assert_same(b"oops", &[], &body_list(&["$.a", "$.b"]));
+        assert_same(
+            ROOT_STR.as_bytes(),
+            &[],
+            &body_list(&["$.w.k", "$", "$.id"]),
+        );
+        assert_same(br#""hello""#, &[], &body_list(&["$.a", "$"]));
+        let mut four = serde_json::json!({"id": 7}).to_string();
+        for _ in 0..4 {
+            four = serde_json::Value::String(four).to_string();
+        }
+        assert_same(four.as_bytes(), &[], &body_list(&["$.id", "$"]));
+        assert_same(br#"{"w":"{\"id\":null}"}"#, &[], &body_list(&["$.w.id"]));
+    }
+
+    #[test]
+    fn later_null_in_original_stays_found() {
+        let body = br#"{"w":"{\"id\":7}","x":{"id":null}}"#;
+        let facts = lenient_facts(body, &[]);
+        let xs = vec![body_extract("a", "$.w.id"), body_extract("b", "$..id")];
+        let s = evaluate(&xs, &facts).unwrap();
+        assert_eq!(s["a"], "7");
+        assert_eq!(s["b"], "");
+        let l = evaluate_lenient(&xs, &facts);
+        assert_eq!(l.get("a").map(String::as_str), Some("7"));
+        assert!(!l.contains_key("b"));
+    }
+
+    #[test]
+    fn later_string_field_keeps_original() {
+        let facts = lenient_facts(B1.as_bytes(), &[]);
+        let xs = vec![body_extract("a", "$.data.id"), body_extract("b", "$.data")];
+        let s = evaluate(&xs, &facts).unwrap();
+        assert_eq!(s["a"], "7");
+        assert_eq!(s["b"], "{ \"id\": 7 }");
+    }
+
+    #[test]
+    fn miss_then_found_on_plain_body() {
+        let facts = lenient_facts(br#"{"a":1}"#, &[]);
+        let xs = vec![body_extract("m", "$.missing"), body_extract("a", "$.a")];
+        let l = evaluate_lenient(&xs, &facts);
+        assert_eq!(l.get("a").map(String::as_str), Some("1"));
+        assert!(!l.contains_key("m"));
+    }
+
+    #[test]
+    fn later_root_dollar_keeps_original() {
+        let facts = lenient_facts(ROOT_STR.as_bytes(), &[]);
+        let xs = vec![body_extract("k", "$.w.k"), body_extract("r", "$")];
+        let s = evaluate(&xs, &facts).unwrap();
+        assert_eq!(s["k"], "1");
+        assert_eq!(s["r"], r#"{"id":7,"w":"{\"k\":1}"}"#);
+    }
+
+    fn vector_paths(body: &str, leaves: Vec<String>) -> Vec<String> {
+        let mut p = leaves;
+        if let Ok(serde_json::Value::Object(o)) = serde_json::from_str::<serde_json::Value>(body) {
+            for (k, v) in &o {
+                let simple = k
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                    && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                if v.is_string() && simple {
+                    p.push(format!("$.{k}"));
+                }
+            }
+        }
+        p.push("$".into());
+        p.push("$..*".into());
+        p
+    }
+
+    #[test]
+    fn equivalence_on_vectors() {
+        let fx: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/nested_json_vectors.json"
+        )))
+        .unwrap();
+        let mut calls = 0;
+        for key in ["cases", "known_divergence"] {
+            for case in fx[key].as_array().unwrap() {
+                let body = case["body"].as_str().unwrap();
+                let leaves: Vec<String> = match case.get("leaves") {
+                    Some(l) => l
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|x| x[0].as_str().unwrap().to_owned())
+                        .collect(),
+                    None => vec![case["path"].as_str().unwrap().to_owned()],
+                };
+                let p = vector_paths(body, leaves);
+                let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+                let missing_in_original = |path: &str| {
+                    parsed
+                        .as_ref()
+                        .is_none_or(|v| jsonpath_first(v, path).is_none())
+                };
+                fn refs(v: &[String]) -> Vec<&str> {
+                    v.iter().map(String::as_str).collect()
+                }
+                let mut sorted = p.clone();
+                sorted.sort_by_key(|x| !missing_in_original(x));
+                let mut lenient_a: Vec<String> = vec!["$.__none__".into()];
+                lenient_a.extend(p.iter().cloned());
+                let mut lenient_b = lenient_a.clone();
+                lenient_b.reverse();
+                let mut defaults_a: Vec<Extract> = vec![body_default("v0", "$.__none__")];
+                defaults_a.extend(
+                    p.iter()
+                        .enumerate()
+                        .map(|(i, x)| body_extract(&format!("v{}", i + 1), x)),
+                );
+                let lists: Vec<Vec<Extract>> = vec![
+                    body_list(&refs(&lenient_a)),
+                    body_list(&refs(&lenient_b)),
+                    body_list(&refs(&sorted)),
+                    body_list(&refs(&p)),
+                    defaults_a,
+                ];
+                for xs in &lists {
+                    assert_same(body.as_bytes(), &[], xs);
+                    calls += 1;
+                }
+            }
+        }
+        assert!(calls >= 60, "compared calls: {calls}");
+    }
+
+    fn wrap_text(v: &serde_json::Value, times: usize, spaced: bool) -> String {
+        let mut s = if spaced && (v.is_object() || v.is_array()) {
+            format!(" {} ", serde_json::to_string_pretty(v).unwrap())
+        } else {
+            v.to_string()
+        };
+        for _ in 0..times {
+            s = serde_json::Value::String(s).to_string();
+        }
+        s
+    }
+
+    fn arb_small() -> impl proptest::strategy::Strategy<Value = serde_json::Value> {
+        use proptest::prelude::*;
+        use serde_json::{Value, json};
+        let tiny = prop_oneof![
+            Just(Value::Null),
+            (0i64..1000).prop_map(|n| json!(n)),
+            "[a-z]{0,3}".prop_map(Value::String),
+            proptest::collection::btree_map("[a-z]{1,3}", (0i64..10).prop_map(|n| json!(n)), 0..3)
+                .prop_map(|m| Value::Object(m.into_iter().collect())),
+        ];
+        let wrapped_leaf = (tiny, 0usize..=2, any::<bool>())
+            .prop_map(|(v, n, sp)| Value::String(wrap_text(&v, n, sp)));
+        let leaf = prop_oneof![
+            1 => Just(Value::Null),
+            1 => any::<bool>().prop_map(Value::Bool),
+            1 => (0i64..1000).prop_map(|n| json!(n)),
+            1 => "[a-z ]{0,4}".prop_map(Value::String),
+            4 => wrapped_leaf,
+        ];
+        leaf.prop_recursive(2, 8, 3, |inner| {
+            prop_oneof![
+                proptest::collection::vec(inner.clone(), 0..3).prop_map(Value::Array),
+                proptest::collection::btree_map("[a-z]{1,3}", inner, 0..3)
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+            ]
+        })
+    }
+
+    fn arb_value() -> impl proptest::strategy::Strategy<Value = serde_json::Value> {
+        use proptest::prelude::*;
+        use serde_json::{Value, json};
+        let wrapped = (arb_small(), 0usize..=3, any::<bool>())
+            .prop_map(|(v, n, sp)| Value::String(wrap_text(&v, n, sp)));
+        let leaf = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            (0i64..1000).prop_map(|n| json!(n)),
+            "[a-z ]{0,6}".prop_map(Value::String),
+            prop_oneof![Just("[INFO] x"), Just("{name}"), Just("\"12\"")]
+                .prop_map(|s| Value::String(s.to_owned())),
+            wrapped,
+        ];
+        leaf.prop_recursive(4, 32, 4, |inner| {
+            prop_oneof![
+                proptest::collection::vec(inner.clone(), 0..4).prop_map(Value::Array),
+                proptest::collection::btree_map("[a-z]{1,3}", inner, 0..4)
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+            ]
+        })
+    }
+
+    fn leaf_paths(v: &serde_json::Value, at: String, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(o) => {
+                for (k, x) in o {
+                    leaf_paths(x, format!("{at}.{k}"), out);
+                }
+            }
+            serde_json::Value::Array(a) => {
+                for (i, x) in a.iter().enumerate() {
+                    leaf_paths(x, format!("{at}[{i}]"), out);
+                }
+            }
+            _ => out.push(at),
+        }
+    }
+
+    fn arb_case()
+    -> impl proptest::strategy::Strategy<Value = (serde_json::Value, Vec<String>, bool)> {
+        use proptest::prelude::*;
+        arb_value()
+            .prop_flat_map(|v| {
+                let mut full = v.clone();
+                while crate::json_unwrap::unwrap_in_place(&mut full) {}
+                let mut leaves = Vec::new();
+                leaf_paths(&full, "$".into(), &mut leaves);
+                let max = leaves.len().min(6);
+                (
+                    Just(v),
+                    proptest::sample::subsequence(leaves, 0..=max),
+                    any::<bool>(),
+                    any::<bool>(),
+                )
+            })
+            .prop_flat_map(|(v, mut ps, none, dflt)| {
+                ps.push("$".into());
+                if none {
+                    ps.push("$.__none__".into());
+                }
+                ps.push("$..*".into());
+                ps.push("$.*".into());
+                Just(ps)
+                    .prop_shuffle()
+                    .prop_map(move |ps| (v.clone(), ps, dflt))
+            })
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn equivalence_prop((v, paths, dflt) in arb_case()) {
+            let body = serde_json::to_string(&v).unwrap();
+            let xs: Vec<Extract> = paths
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if dflt && i % 2 == 0 {
+                        body_default(&format!("v{i}"), p)
+                    } else {
+                        body_extract(&format!("v{i}"), p)
+                    }
+                })
+                .collect();
+            assert_same(body.as_bytes(), &[], &xs);
+        }
+    }
     fn lenient_facts<'a>(body: &'a [u8], headers: &'a [(String, String)]) -> ResponseFacts<'a> {
         ResponseFacts {
             status: 200,
