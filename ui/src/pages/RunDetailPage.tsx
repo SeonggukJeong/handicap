@@ -163,8 +163,8 @@ export function RunDetailPage() {
           { label: runDisplayLabel(r.id, r.label) },
         ]}
       />
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-xl font-semibold flex items-center gap-3">
             {ko.runDetail.heading}{" "}
             <span className="font-mono text-base text-slate-600">{runShortLabel(r.id)}</span>

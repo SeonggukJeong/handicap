@@ -286,6 +286,19 @@ describe("RunDetailPage — retry (A1)", () => {
     });
   });
 
+  it("좁은 화면에서 머리 줄이 줄바꿈된다 — 표지·버튼 묶음이 화면 밖으로 밀리지 않게", async () => {
+    // jsdom은 레이아웃이 0이라 클래스만 본다. 실측(400px: 가로 넘침 0)은 라이브에서.
+    mockTerminalRun();
+    renderWithRouter("R1");
+    const btn = await screen.findByRole("button", { name: "동일 설정 즉시 재실행" });
+    const actions = btn.closest("div.flex") as HTMLElement;
+    const header = actions.parentElement as HTMLElement;
+    expect(header).toHaveClass("flex-wrap");
+    const titleGroup = header.firstElementChild as HTMLElement;
+    expect(titleGroup).not.toBe(actions);
+    expect(titleGroup).toHaveClass("flex-wrap");
+  });
+
   it("shows a '다시 실행' link to the run list with ?retry", async () => {
     mockTerminalRun();
     renderWithRouter("R1");
