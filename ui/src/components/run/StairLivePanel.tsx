@@ -5,7 +5,7 @@ import {
   liveEmergencyText,
   liveForecastText,
   liveHeadText,
-  liveStateLabel,
+  liveStepLabel,
   liveStopText,
   liveSummaryText,
   type LiveStepState,
@@ -64,7 +64,7 @@ function StairLivePanelImpl({ live, stair }: { live: StairLive; stair: StairConf
       stop: liveStopText(live, stair.targets),
       head: forecast ? `${head} ${forecast}` : head,
       emergency: liveEmergencyText(live, stair.auto_stop?.emergency),
-      labels: live.step_states.map((s) => liveStateLabel(s, live)),
+      labels: live.step_states.map((_, i) => liveStepLabel(live, i)),
     };
   }, [live, stair]);
 

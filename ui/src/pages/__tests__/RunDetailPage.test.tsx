@@ -124,6 +124,75 @@ describe("RunDetailPage — abort", () => {
   });
 });
 
+describe("RunDetailPage — 메트릭 표 가로 스크롤 상자", () => {
+  it("metric_tables_scroll_in_box", async () => {
+    const stepId = "01KSP60QVSAZHCVQV6FNFYHJ22";
+    const yaml = [
+      "version: 1",
+      "name: t",
+      "cookie_jar: auto",
+      "variables: {}",
+      "steps:",
+      `  - id: ${stepId}`,
+      "    name: login",
+      "    type: http",
+      "    request:",
+      "      method: GET",
+      "      url: ${BASE_URL}/login",
+      "    assert: []",
+      "    extract: []",
+      "",
+    ].join("\n");
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/RS1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "RS1",
+            scenario_id: "S1",
+            scenario_yaml: yaml,
+            status: "running",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 60 },
+            env: {},
+            started_at: Date.now(),
+            ended_at: null,
+            created_at: Date.now(),
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/RS1/metrics")) {
+        return Promise.resolve(
+          jsonResponse({
+            run_id: "RS1",
+            windows: [
+              {
+                ts_second: Math.floor(Date.now() / 1000),
+                step_id: stepId,
+                count: 5,
+                error_count: 0,
+                status_counts: { "200": 5 },
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1")) {
+        return Promise.resolve(
+          jsonResponse({ id: "S1", name: "t", yaml, version: 1, created_at: 1, updated_at: 1 }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("RS1");
+    const stepsRegion = await screen.findByRole("region", { name: /스텝/ });
+    await within(stepsRegion).findByText("login");
+    const tables = await screen.findAllByRole("table");
+    expect(tables).toHaveLength(2);
+    for (const table of tables) {
+      expect(table.parentElement).toHaveClass("overflow-x-auto");
+    }
+  });
+});
+
 describe("RunDetailPage — step metadata", () => {
   it("renders step name, method, URL, and per-step totals from scenario YAML", async () => {
     const stepId = "01KSP60QVSAZHCVQV6FNFYHJ11";

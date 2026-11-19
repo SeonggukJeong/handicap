@@ -406,39 +406,41 @@ export function RunDetailPage() {
 
           {stepOrder.length > 0 && (
             <PageSection ariaLabel={ko.runDetail.stepsLabel} title={ko.runDetail.stepsTitle}>
-              <table className="min-w-full text-sm">
-                <thead className="border-b border-slate-200 text-left text-slate-600">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">#</th>
-                    <th className="py-2 pr-4 font-medium">{ko.runDetail.colName}</th>
-                    <th className="py-2 pr-4 font-medium">{ko.report.colMethod}</th>
-                    <th className="py-2 pr-4 font-medium">URL</th>
-                    <th className="py-2 pr-4 font-medium">{ko.runDetail.colRequests}</th>
-                    <th className="py-2 pr-4 font-medium">{ko.runDetail.colErrors}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stepOrder.map((s, idx) => {
-                    const totals = stepTotals.get(s.id);
-                    const resolved = resolveForDisplay(s.url, envMap);
-                    return (
-                      <tr key={s.id} className="border-b border-slate-100">
-                        <td className="py-2 pr-4 text-slate-500">{idx + 1}</td>
-                        <td className="py-2 pr-4 font-medium">{s.name}</td>
-                        <td className="py-2 pr-4 font-mono text-xs">{s.method}</td>
-                        <td className="py-2 pr-4 font-mono text-xs break-all">
-                          <div>{resolved}</div>
-                          {resolved !== s.url && (
-                            <div className="text-slate-500 text-[10px]">template: {s.url}</div>
-                          )}
-                        </td>
-                        <td className="py-2 pr-4">{totals?.count ?? 0}</td>
-                        <td className="py-2 pr-4">{totals?.errors ?? 0}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="border-b border-slate-200 text-left text-slate-600">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">#</th>
+                      <th className="py-2 pr-4 font-medium">{ko.runDetail.colName}</th>
+                      <th className="py-2 pr-4 font-medium">{ko.report.colMethod}</th>
+                      <th className="py-2 pr-4 font-medium">URL</th>
+                      <th className="py-2 pr-4 font-medium">{ko.runDetail.colRequests}</th>
+                      <th className="py-2 pr-4 font-medium">{ko.runDetail.colErrors}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stepOrder.map((s, idx) => {
+                      const totals = stepTotals.get(s.id);
+                      const resolved = resolveForDisplay(s.url, envMap);
+                      return (
+                        <tr key={s.id} className="border-b border-slate-100">
+                          <td className="py-2 pr-4 text-slate-500">{idx + 1}</td>
+                          <td className="py-2 pr-4 font-medium">{s.name}</td>
+                          <td className="py-2 pr-4 font-mono text-xs">{s.method}</td>
+                          <td className="py-2 pr-4 font-mono text-xs break-all">
+                            <div>{resolved}</div>
+                            {resolved !== s.url && (
+                              <div className="text-slate-500 text-[10px]">template: {s.url}</div>
+                            )}
+                          </td>
+                          <td className="py-2 pr-4">{totals?.count ?? 0}</td>
+                          <td className="py-2 pr-4">{totals?.errors ?? 0}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </PageSection>
           )}
 
@@ -448,46 +450,48 @@ export function RunDetailPage() {
               {terminal ? ko.runDetail.noMetrics : ko.runDetail.waitingFirstBatch}
             </p>
           ) : (
-            <table className="min-w-full text-sm">
-              <thead className="border-b border-slate-200 text-left text-slate-600">
-                <tr>
-                  <th className="py-2 pr-4 font-medium">{ko.report.colSecond}</th>
-                  <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>
-                  <th className="py-2 pr-4 font-medium">{ko.report.colCount}</th>
-                  <th className="py-2 pr-4 font-medium">{ko.report.colErrors}</th>
-                  <th className="py-2 pr-4 font-medium">{ko.report.colStatusCodes}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {metrics.data.windows.map((w) => {
-                  const meta = stepMap.get(w.step_id);
-                  return (
-                    <tr key={`${w.ts_second}-${w.step_id}`} className="border-b border-slate-100">
-                      <td className="py-2 pr-4 font-mono">{w.ts_second}</td>
-                      <td className="py-2 pr-4">
-                        {meta ? (
-                          <span>
-                            <span className="font-medium">{meta.name}</span>{" "}
-                            <span className="font-mono text-xs text-slate-500">
-                              {meta.method} {resolveForDisplay(meta.url, envMap)}
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-slate-200 text-left text-slate-600">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colSecond}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colCount}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colErrors}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colStatusCodes}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.data.windows.map((w) => {
+                    const meta = stepMap.get(w.step_id);
+                    return (
+                      <tr key={`${w.ts_second}-${w.step_id}`} className="border-b border-slate-100">
+                        <td className="py-2 pr-4 font-mono">{w.ts_second}</td>
+                        <td className="py-2 pr-4">
+                          {meta ? (
+                            <span>
+                              <span className="font-medium">{meta.name}</span>{" "}
+                              <span className="font-mono text-xs text-slate-500">
+                                {meta.method} {resolveForDisplay(meta.url, envMap)}
+                              </span>
                             </span>
-                          </span>
-                        ) : (
-                          <span className="font-mono text-xs">{w.step_id}</span>
-                        )}
-                      </td>
-                      <td className="py-2 pr-4">{w.count}</td>
-                      <td className="py-2 pr-4">{w.error_count}</td>
-                      <td className="py-2 pr-4 font-mono text-xs">
-                        {Object.entries(w.status_counts)
-                          .map(([s, c]) => `${s}:${c}`)
-                          .join(" ")}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          ) : (
+                            <span className="font-mono text-xs">{w.step_id}</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">{w.count}</td>
+                        <td className="py-2 pr-4">{w.error_count}</td>
+                        <td className="py-2 pr-4 font-mono text-xs">
+                          {Object.entries(w.status_counts)
+                            .map(([s, c]) => `${s}:${c}`)
+                            .join(" ")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

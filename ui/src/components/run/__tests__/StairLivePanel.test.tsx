@@ -85,6 +85,74 @@ describe("StairLivePanel", () => {
     expect(items[4]).toHaveAttribute("aria-label", "5계단 실패(다음 계단 확인 중)");
   });
 
+  it("chip_labels_carry_reasons", () => {
+    const empty = { reasons: [], slot_limited: false, ref_fast: false };
+    const R = (kind: "errors" | "p99_relative", value: number) => ({
+      ...empty,
+      reasons: [{ kind, value }],
+    });
+    render(
+      <StairLivePanel
+        live={live({
+          current_step: 5,
+          phase: "measure",
+          step_states: ["ok", "spike", "ok", "saturated", "after", "measuring"],
+          step_reasons: [
+            empty,
+            R("errors", 0.046),
+            empty,
+            R("p99_relative", 3.94),
+            R("p99_relative", 3.14),
+            empty,
+          ],
+        })}
+        stair={stairOf(6, true)}
+      />,
+    );
+    const expected = [
+      "1계단 정상",
+      "2계단 튄 계단(오류 4.6%)",
+      "3계단 정상",
+      "4계단 포화(p99 3.9×)",
+      "5계단 포화 이후(p99 3.1×)",
+      "6계단 측정 중",
+    ];
+    for (const label of expected) {
+      expect(screen.getByRole("listitem", { name: label })).toHaveAttribute("title", label);
+    }
+  });
+
+  it("summary_line_wraps", () => {
+    const empty = { reasons: [], slot_limited: false, ref_fast: false };
+    render(
+      <StairLivePanel
+        live={live({
+          current_step: 1,
+          phase: "measure",
+          step_states: ["saturated", "measuring"],
+          step_reasons: [
+            {
+              ...empty,
+              reasons: [
+                { kind: "achieved", value: 0.5 },
+                { kind: "dropped", value: 1e9 },
+                { kind: "errors", value: 0.046 },
+                { kind: "p99_relative", value: 12345.6 },
+              ],
+            },
+            empty,
+          ],
+        })}
+        stair={stairOf(2, true)}
+      />,
+    );
+    const p = screen.getByText(
+      /1 포화\(달성 50\.0%, dropped 1,000,000,000, 오류 4\.6%, p99 12345\.6×\)/,
+    );
+    expect(p.tagName).toBe("P");
+    expect(p).toHaveClass("break-words");
+  });
+
   it("auto_stop_off_shows_chips_only", () => {
     const { container } = render(
       <StairLivePanel
