@@ -672,6 +672,14 @@ impl StairAccumulator {
             });
     }
 
+    /// `push_metric`이 이 행을 쌓는가 — 등록된 워커 ∧ 측정 초 ∧ 해제 안 된 계단.
+    pub fn accepts(&self, w: &str, ts: i64) -> bool {
+        self.workers
+            .get(w)
+            .and_then(|wa| wa.step_of(ts))
+            .is_some_and(|i| self.released[i].is_none())
+    }
+
     /// 등록 안 된 워커·해제된 계단의 행은 무시한다.
     pub fn push_open_loop(
         &mut self,

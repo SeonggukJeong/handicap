@@ -17,7 +17,10 @@ use crate::auto_stop::{
     EmergencyHit, EmergencyStats, EmergencyTracker, StopInfo, StopKind, saturation_stop,
 };
 use crate::grpc::coordinator::{CoordinatorState, plausible_second, plausible_start};
-use crate::stair::{BandKind, Bound, SaturationStopMode, StairAccumulator, StairConfig, judge};
+use crate::stair::{
+    BandKind, Bound, Judgement, SaturationStopMode, StairAccumulator, StairConfig, judge,
+};
+use crate::stair_live::{EmergencyNow, LiveInputs, LiveState, build_live};
 
 /// 시작 시각 전 보류 행 버퍼 상한 — 초 단위.
 pub const PENDING_MAX_SECONDS: usize = 30;
@@ -193,6 +196,42 @@ pub struct StairMonitor {
     secs: BTreeMap<i64, SecAcc>,
     /// 판정했거나 보류로 버린 마지막 초 — 이 초 이하의 행은 다시 쌓지 않는다.
     secs_done: Option<i64>,
+    /// `judged` 계단까지 넣은 마지막 `judge` 결과(자동 정지 칸과 무관하게 계산).
+    judgement: Option<Judgement>,
+    /// 즉시 정지 계수기에 넣은 마지막 초.
+    last_second: Option<LastSecond>,
+    /// 보류로 버린 초의 누적(`Outcome.newly_suspended` 합).
+    suspended_total: u32,
+    /// coordinator가 `stopped_at_ms`를 채운 정지 기록.
+    stop_record: Option<StopInfo>,
+    /// 직전에 만든 요약의 키.
+    last_key: Option<LiveKey>,
+    /// metric window HDR 해석 횟수.
+    #[cfg(test)]
+    decodes: usize,
+}
+
+#[derive(Clone, Copy)]
+struct LastSecond {
+    ts: i64,
+    count: u64,
+    errors: u64,
+    p99_us: u64,
+}
+
+/// 요약을 결정하는 값만 — 같으면 요약도 같다.
+#[derive(PartialEq, Clone, Copy)]
+struct LiveKey {
+    judged: usize,
+    current: Option<(u32, BandKind)>,
+    frozen: bool,
+    stopped: bool,
+    stop_set: bool,
+    stop_t0_ms: Option<i64>,
+    last_second_ts: Option<i64>,
+    streak: u32,
+    held: bool,
+    suspended_total: u32,
 }
 
 impl StairMonitor {
@@ -218,7 +257,104 @@ impl StairMonitor {
                 .map(EmergencyTracker::new),
             secs: BTreeMap::new(),
             secs_done: None,
+            judgement: None,
+            last_second: None,
+            suspended_total: 0,
+            stop_record: None,
+            last_key: None,
+            #[cfg(test)]
+            decodes: 0,
         }
+    }
+
+    /// coordinator가 `stopped_at_ms`를 채운 정지 기록을 보관한다(요약의 정지 줄·정지 뒤 칩).
+    pub fn set_stop(&mut self, stop: StopInfo) {
+        self.stop_record = Some(stop);
+    }
+
+    /// 실행 중 요약.
+    pub fn live(&self) -> LiveState {
+        build_live(&LiveInputs {
+            cfg: &self.cfg,
+            judged: self.judged,
+            judgement: self.judgement.as_ref(),
+            current: self.current(),
+            frozen: self.frozen,
+            stopped: self.stopped,
+            stop: self.stop_record.as_ref(),
+            stop_t0_ms: self.stop_t0_ms(),
+            emergency_now: self.emergency_now(),
+            suspended_seconds: self.suspended_total,
+        })
+    }
+
+    /// 직전 요약 뒤로 요약을 결정하는 값이 바뀌었을 때만 새 요약.
+    pub fn live_if_changed(&mut self) -> Option<LiveState> {
+        let key = self.live_key();
+        if self.last_key == Some(key) {
+            return None;
+        }
+        self.last_key = Some(key);
+        Some(self.live())
+    }
+
+    fn live_key(&self) -> LiveKey {
+        let shown = self.shown_second();
+        LiveKey {
+            judged: self.judged,
+            current: self.current(),
+            frozen: self.frozen,
+            stopped: self.stopped,
+            stop_set: self.stop_record.is_some(),
+            stop_t0_ms: self.stop_t0_ms(),
+            last_second_ts: shown.map(|s| s.ts),
+            streak: self.emergency.as_ref().map_or(0, EmergencyTracker::streak),
+            held: shown.is_some_and(|s| self.held(&s)),
+            suspended_total: self.suspended_total,
+        }
+    }
+
+    /// 지금 구간 — 등록이 다 차고 open-loop 초가 하나라도 왔을 때만(가장 높은 수위 기준).
+    fn current(&self) -> Option<(u32, BandKind)> {
+        self.registered_t0s()?;
+        let level = self.workers.values().filter_map(|s| s.level).max()?;
+        Some(self.band_of(level))
+    }
+
+    /// 시작 시각을 보낸 워커 중 가장 이른 t0 — 리포트 `stop_t0`(`starts` 최솟값)와 같은 규칙.
+    fn stop_t0_ms(&self) -> Option<i64> {
+        self.workers.values().filter_map(|s| s.t0_ms).min()
+    }
+
+    /// 즉시 정지 칸이 켜져 있을 때 계수기에 넣은 마지막 초.
+    fn shown_second(&self) -> Option<LastSecond> {
+        self.emergency.as_ref()?;
+        self.last_second
+    }
+
+    /// 표본이 적어 판정을 보류한 초인가 — `EmergencyTracker::observe`와 같은 조건.
+    fn held(&self, s: &LastSecond) -> bool {
+        let min = self
+            .cfg
+            .auto_stop
+            .as_ref()
+            .and_then(|a| a.emergency.as_ref())
+            .map_or(0, |e| u64::from(e.min_requests));
+        s.count == 0 || s.count < min
+    }
+
+    fn emergency_now(&self) -> Option<EmergencyNow> {
+        let s = self.shown_second()?;
+        Some(EmergencyNow {
+            error_rate: if s.count == 0 {
+                0.0
+            } else {
+                s.errors as f64 / s.count as f64
+            },
+            p99_us: s.p99_us,
+            bad_streak: self.emergency.as_ref().map_or(0, EmergencyTracker::streak),
+            held: self.held(&s),
+        })
     }
 
     pub fn on_msg(&mut self, msg: MonitorMsg, now_ms: i64) -> Outcome {
@@ -256,6 +392,7 @@ impl StairMonitor {
         } else {
             self.cap_seconds()
         };
+        self.suspended_total = self.suspended_total.saturating_add(newly_suspended);
         Outcome {
             stop,
             newly_suspended,
@@ -319,12 +456,14 @@ impl StairMonitor {
         while self.released < n && self.step_complete(self.released) {
             let i = self.released;
             let judging = !self.frozen && !self.stopped;
-            let stop = mode.filter(|_| judging).and_then(|mode| {
+            let mut stop = None;
+            if judging {
                 let done: Vec<bool> = (0..n).map(|k| k <= i).collect();
                 let nums = self.acc.numbers(&done, false);
                 let j = judge(&nums, &self.cfg);
-                saturation_stop(&j, &done, mode).map(|s| (mode, s))
-            });
+                stop = mode.and_then(|mode| saturation_stop(&j, &done, mode).map(|s| (mode, s)));
+                self.judgement = Some(j);
+            }
             self.acc.release_step(i, false);
             self.released = i + 1;
             if judging {
@@ -388,6 +527,12 @@ impl StairMonitor {
                 continue;
             }
             let p99 = acc.hist.as_ref().map_or(0, |h| h.value_at_quantile(0.99));
+            self.last_second = Some(LastSecond {
+                ts: t,
+                count: acc.count,
+                errors: acc.errors,
+                p99_us: p99,
+            });
             let hit = self
                 .emergency
                 .as_mut()
@@ -516,12 +661,21 @@ impl StairMonitor {
                 continue;
             }
             batch_max = batch_max.max(Some(win.ts_second));
-            let hist = decode_hdr(&win.hdr_histogram).ok().flatten();
             // 즉시 정지 초 버퍼 — 판정했거나 버린 초는 다시 쌓지 않는다.
-            if self.emergency.is_some()
+            let to_secs = self.emergency.is_some()
                 && !self.stopped
-                && self.secs_done.is_none_or(|d| win.ts_second > d)
+                && self.secs_done.is_none_or(|d| win.ts_second > d);
+            // 보류 버퍼(나중에 재생)·초 버퍼·누적기 어디에도 안 쓰이는 줄은 HDR을 해석하지 않는다 —
+            // `route`해도 `push_metric`이 버리는 줄이다.
+            if st.t0_ms.is_some() && !to_secs && !self.acc.accepts(w, win.ts_second) {
+                continue;
+            }
+            #[cfg(test)]
             {
+                self.decodes += 1;
+            }
+            let hist = decode_hdr(&win.hdr_histogram).ok().flatten();
+            if to_secs {
                 let sec = self.secs.entry(win.ts_second).or_default();
                 sec.count = sec.count.saturating_add(win.count);
                 sec.errors = sec.errors.saturating_add(win.error_count);
@@ -1209,15 +1363,22 @@ mod tests {
         assert_eq!(m.judged_through(), 1);
     }
 
-    #[test]
-    fn monitor_matches_report_for_completed_steps() {
-        let c = cfg5(None);
-        let measure_len = c.hold_seconds - c.discard_seconds;
-        // 시작 시각이 어긋난 두 워커, 스텝 2개, 초마다 다른 값.
+    struct GenRun {
+        m: StairMonitor,
+        rows: Vec<WindowWithHdr>,
+        ol: Vec<OpenLoopSecondRow>,
+        starts: Vec<WorkerStartRow>,
+        first_stop: Option<StopInfo>,
+    }
+
+    /// 시작 시각이 어긋난 두 워커, 스텝 2개, 초마다 다른 값을 감시에 밀어 넣고 같은 행을 DB 행으로도 모은다.
+    /// `fail_from` = dropped가 생기기 시작하는 절대 초.
+    fn gen_run(c: &StairConfig, fail_from: i64) -> GenRun {
         let t0s = [("w0", T0MS + 300), ("w1", T0MS + 2700)];
         let mut rows: Vec<WindowWithHdr> = Vec::new();
         let mut ol: Vec<OpenLoopSecondRow> = Vec::new();
-        let mut m = StairMonitor::new(&c, 2);
+        let mut m = StairMonitor::new(c, 2);
+        let mut first_stop = None;
         let last = T0 + 108;
         for chunk in (T0..=last).step_by(5) {
             for (wi, &(w, t0)) in t0s.iter().enumerate() {
@@ -1230,7 +1391,7 @@ mod tests {
                 for ts in chunk..=(chunk + 4).min(last) {
                     let k = ts + wi as i64 * 7;
                     // dropped는 계단 3부터만 — 앞 계단은 정상, 뒤 계단은 실패로 상태가 섞인다.
-                    let d = if ts >= T0 + 70 { k % 17 / 16 } else { 0 };
+                    let d = if ts >= fail_from { k % 17 / 16 } else { 0 };
                     let (l, cpl) = (40 + (k * 7 % 13), 40 + (k * 7 % 13) - k % 3);
                     b.open_loop_seconds.push(pb::OpenLoopSecond {
                         ts_second: ts,
@@ -1268,9 +1429,56 @@ mod tests {
                         });
                     }
                 }
-                m.on_msg(MonitorMsg::Batch(b), NOW2);
+                let o = m.on_msg(MonitorMsg::Batch(b), NOW2);
+                if first_stop.is_none() {
+                    first_stop = o.stop;
+                }
             }
         }
+        let starts = t0s
+            .iter()
+            .map(|&(w, ms)| WorkerStartRow {
+                worker_id: w.into(),
+                started_at_ms: ms,
+            })
+            .collect();
+        GenRun {
+            m,
+            rows,
+            ol,
+            starts,
+            first_stop,
+        }
+    }
+
+    fn report_of(
+        c: &StairConfig,
+        g: &GenRun,
+        auto_stop: Option<AutoStopRecord>,
+    ) -> crate::stair::StairReport {
+        let mut profile: crate::store::runs::Profile =
+            serde_json::from_value(serde_json::json!({"duration_seconds": 0, "max_in_flight": 50}))
+                .unwrap();
+        profile.stair = Some(c.clone());
+        let inp = StairInputs {
+            open_loop: g.ol.clone(),
+            starts: g.starts.clone(),
+            auto_stop,
+        };
+        build_stair_report(&profile, 0, &g.rows, &inp).unwrap()
+    }
+
+    #[test]
+    fn monitor_matches_report_for_completed_steps() {
+        let c = cfg5(None);
+        let measure_len = c.hold_seconds - c.discard_seconds;
+        let GenRun {
+            m,
+            rows,
+            ol,
+            starts,
+            ..
+        } = gen_run(&c, T0 + 70);
         assert_eq!(m.judged_through(), 4);
         let mut profile: crate::store::runs::Profile =
             serde_json::from_value(serde_json::json!({"duration_seconds": 0, "max_in_flight": 50}))
@@ -1278,13 +1486,7 @@ mod tests {
         profile.stair = Some(c.clone());
         let inp = StairInputs {
             open_loop: ol,
-            starts: t0s
-                .iter()
-                .map(|&(w, ms)| WorkerStartRow {
-                    worker_id: w.into(),
-                    started_at_ms: ms,
-                })
-                .collect(),
+            starts,
             auto_stop: None,
         };
         let rep = build_stair_report(&profile, 0, &rows, &inp).unwrap();
@@ -1750,6 +1952,213 @@ mod tests {
         // T0+42: 계단 2 첫 초 → 상승.
         assert_eq!(stop.decided_step, 2);
         assert_eq!(stop.phase, Some(BandKind::Ramp));
+    }
+
+    // ── 실행 중 요약(c) ──────────────────────────────────────────────────
+
+    use crate::auto_stop::AutoStopRecord;
+    use crate::stair_live::{LiveStepState, live_step_state};
+
+    #[test]
+    fn decode_skipped_outside_use() {
+        // 계단 0 전체 초(상승 1 + 버림 5 + 측정 15)의 window 하나씩, t0 = 초 경계.
+        let feed = |c: &StairConfig| {
+            let mut m = StairMonitor::new(c, 1);
+            m.on_msg(span("w", T0MS, T0, end(0), |_| OK), NOW2);
+            m.decodes
+        };
+        assert_eq!(feed(&cfg5(None)), 15, "즉시 정지 끔: 측정 초만");
+        assert_eq!(
+            feed(&cfg_em(None)),
+            21,
+            "즉시 정지 켬: 초 버퍼로 가는 줄 전부"
+        );
+        // 시작 시각을 아직 안 보낸 워커의 줄은 보류 버퍼로 간다(나중에 재생) — 해석한다.
+        let mut m = StairMonitor::new(&cfg5(None), 1);
+        m.on_msg(span("w", 0, T0, T0 + 2, |_| OK), NOW2);
+        assert_eq!(m.decodes, 3);
+        // 해제된 계단의 늦은 줄: open-loop 초만으로 계단 0을 완결·해제한 뒤 window 하나.
+        let mut m = StairMonitor::new(&cfg5(None), 1);
+        let ol: Vec<_> = (T0..=end(0)).map(|ts| (ts, 60, 60, 0)).collect();
+        m.on_msg(batch("w", T0MS, &ol, &[]), NOW2);
+        assert_eq!(m.judged_through(), 0);
+        assert_eq!(m.decodes, 0);
+        m.on_msg(batch("w", T0MS, &[], &[(T0 + 10, 60, 0, 2000)]), NOW2);
+        assert_eq!(m.decodes, 0, "해제된 계단의 늦은 줄은 해석하지 않는다");
+    }
+
+    fn stop_fixture() -> StopInfo {
+        StopInfo {
+            kind: StopKind::Saturation,
+            mode: Some(TwoFails),
+            failed_steps: vec![0],
+            decided_step: 0,
+            judged_through: 0,
+            phase: None,
+            decided_at_ms: NOW2,
+            stopped_at_ms: NOW2 + 20,
+            emergency: None,
+            slot_limited: false,
+        }
+    }
+
+    #[test]
+    fn live_if_changed_only_on_change() {
+        let mut m = StairMonitor::new(&cfg5(None), 1);
+        m.on_msg(span("w", T0MS, T0, T0 + 5, |_| OK), NOW2);
+        let l = m.live_if_changed().expect("첫 요약");
+        assert_eq!(
+            (l.current_step, l.phase),
+            (Some(0), Some(BandKind::Discard))
+        );
+        // 계단 0 안의 구간 변화(버림 → 측정) — 판정 계단 수는 그대로.
+        m.on_msg(span("w", T0MS, T0 + 6, T0 + 7, |_| OK), NOW2);
+        let l = m.live_if_changed().expect("구간 변화");
+        assert_eq!(
+            (l.current_step, l.phase),
+            (Some(0), Some(BandKind::Measure))
+        );
+        assert_eq!(m.judged_through(), -1);
+        m.on_msg(span("w", T0MS, T0 + 8, T0 + 8, |_| OK), NOW2);
+        let _ = m.live_if_changed();
+        m.on_msg(span("w", T0MS, T0 + 9, T0 + 9, |_| OK), NOW2);
+        assert!(m.live_if_changed().is_none(), "바뀐 것 없음");
+        let s = stop_fixture();
+        m.set_stop(s.clone());
+        let l = m.live_if_changed().expect("정지 기록");
+        assert_eq!(l.stop, Some(s));
+
+        // 즉시 정지 현재값: 같은 구간에서 정상 초(streak 0·held false 그대로)가 하나씩 늘 때마다.
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        m.on_msg(span("w", T0MS, T0, T0 + 9, |_| OK), NOW2);
+        let _ = m.live_if_changed();
+        m.on_msg(span("w", T0MS, T0 + 10, T0 + 10, |_| OK), NOW2);
+        let e = m
+            .live_if_changed()
+            .expect("새 판정 초")
+            .emergency_now
+            .unwrap();
+        assert_eq!((e.bad_streak, e.held), (0, false));
+        m.on_msg(span("w", T0MS, T0 + 11, T0 + 11, |_| OK), NOW2);
+        let e = m
+            .live_if_changed()
+            .expect("또 새 판정 초")
+            .emergency_now
+            .unwrap();
+        assert_eq!((e.bad_streak, e.held), (0, false));
+    }
+
+    #[test]
+    fn live_matches_report_for_completed_steps() {
+        let c = cfg5(None);
+        let g = gen_run(&c, T0 + 70);
+        let rep = report_of(&c, &g, None);
+        let live = g.m.live();
+        assert_eq!(live.step_states.len(), 5);
+        for i in 0..5 {
+            assert_eq!(
+                live.step_states[i],
+                live_step_state(rep.steps[i].state),
+                "step {i}"
+            );
+        }
+        assert!(live.step_states.contains(&LiveStepState::Ok));
+        assert!(live.step_states.iter().any(|s| *s != LiveStepState::Ok));
+    }
+
+    #[test]
+    fn live_matches_report_after_stop() {
+        let c = cfg5(Some(TwoFails));
+        let mut g = gen_run(&c, T0 + 49);
+        let mut s = g.first_stop.clone().expect("정지");
+        assert_eq!(s.decided_step, 3);
+        s.stopped_at_ms = s.decided_at_ms + 20;
+        g.m.set_stop(s.clone());
+        let rep = report_of(
+            &c,
+            &g,
+            Some(AutoStopRecord {
+                stop: Some(s),
+                suspended_seconds: 0,
+            }),
+        );
+        let live = g.m.live();
+        for i in 0..5 {
+            assert_eq!(
+                live.step_states[i],
+                live_step_state(rep.steps[i].state),
+                "step {i}"
+            );
+        }
+        assert_eq!(live.step_states[4], LiveStepState::Partial);
+        assert!(live.step_states[2..4].contains(&LiveStepState::Saturated));
+    }
+
+    #[test]
+    fn no_auto_stop_never_stops_but_judges() {
+        let c = StairConfig {
+            auto_stop: None,
+            ..cfg5(None)
+        };
+        let g = gen_run(&c, T0 + 49);
+        assert_eq!(g.first_stop, None);
+        let live = g.m.live();
+        assert!(live.step_states.contains(&LiveStepState::Saturated));
+        assert!(!live.next_fail_stops);
+        assert_eq!(live.emergency_now, None);
+    }
+
+    #[test]
+    fn live_current_step_and_emergency_now() {
+        const LOW: Sec = Sec { count: 5, ..OK };
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        // 계단 1 측정 [T0+27, T0+42) 안까지.
+        m.on_msg(span("w", T0MS, T0, T0 + 30, |_| OK), NOW2);
+        let l = m.live();
+        assert_eq!(l.current_step, Some(1));
+        assert_eq!(l.phase, Some(BandKind::Measure));
+        let e = l.emergency_now.expect("판정한 초");
+        assert_eq!((e.bad_streak, e.held, e.error_rate), (0, false, 0.0));
+        assert!(e.p99_us > 0);
+        m.on_msg(span("w", T0MS, T0 + 31, T0 + 32, |_| ERR), NOW2);
+        let e = m.live().emergency_now.unwrap();
+        assert_eq!((e.bad_streak, e.held, e.error_rate), (2, false, 0.5));
+        // 완료 < min_requests 초 — 보류: 연속을 끊지도 늘리지도 않는다.
+        m.on_msg(span("w", T0MS, T0 + 33, T0 + 33, |_| LOW), NOW2);
+        let e = m.live().emergency_now.unwrap();
+        assert_eq!((e.bad_streak, e.held), (2, true));
+    }
+
+    #[test]
+    fn live_current_waits_for_registration() {
+        let mut m = StairMonitor::new(&cfg5(None), 2);
+        m.on_msg(span("w0", T0MS, T0, end(1) + 5, |_| OK), NOW2);
+        let l = m.live();
+        assert_eq!((l.current_step, l.phase), (None, None));
+    }
+
+    #[test]
+    fn live_frozen_after_early_end() {
+        let mut m = StairMonitor::new(&cfg5(Some(TwoFails)), 2);
+        m.on_msg(span("w0", T0MS, T0, end(0), |_| OK), NOW2);
+        m.on_msg(span("w1", T0MS, T0, end(0), |_| OK), NOW2);
+        m.on_msg(span("w1", T0MS, end(0) + 1, T0 + 37, |_| OK), NOW2);
+        m.on_msg(span("w1", T0MS, T0 + 38, T0 + 40, |_| TAIL), NOW2);
+        m.on_msg(ended("w1"), NOW2);
+        m.on_msg(
+            span(
+                "w0",
+                T0MS,
+                end(0) + 1,
+                end(3),
+                steps(&[OK, ERR, ERR, ERR, OK]),
+            ),
+            NOW2,
+        );
+        let l = m.live();
+        assert!(l.frozen);
+        assert_eq!(l.step_states[0], LiveStepState::Ok);
+        assert_eq!(&l.step_states[1..], &[LiveStepState::Frozen; 4]);
     }
 }
 
