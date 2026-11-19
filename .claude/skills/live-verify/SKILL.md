@@ -13,6 +13,8 @@ RTL/`tsc -b`는 서버가 실제 보내는 `null`·응답 경로를 못 잡는�
 ## 함정 요약 (이 스킬이 자동으로 피하는 것)
 - **워크트리 자체 바이너리로** — 메인 체크아웃의 `…/handicap/target/debug/controller`는 다른 브랜치 stale일 수 있다. 워크트리 root에서 빌드 후 **상대경로** `./target/debug/controller`로(spawn되는 `target/debug/worker`도 cwd-상대).
 - **응답 지연 ≥ ~50 ms responder** — localhost sub-ms면 `p50_ms==0`이라 사이징/phase/측정 경로가 0-가드에 걸려 폴백(Slice-5 함정). 50 ms sleep이 `p50>0` 보장.
+- **응답기 모드** — 기본 keep-alive(`responder.py <port> <delay>`) = 일반·고RPS·성능 측정, 3번째 인자 `close`(`responder.py <port> <delay> close`) = 매 요청 새 연결(connection-timing·`reuse_ratio` 점검).
+- **HTTP/1.0(매 요청 새 연결) 응답기는 초당 수천 건에서 연결 수립 병목으로 거짓 포화(오류·p99 폭증)를 만든다 — 성능 측정은 keep-alive로.**
 - **격리 DB** `/tmp/<slug>.db` — 메인/다른 워크트리 DB에 안 붙게.
 - **생성 응답을 파싱하지 말 것** — `POST /api/scenarios`·`/api/runs` 응답엔 멀티라인 `scenario_yaml`이 박혀 셸/`jq`/`python json`이 raw 개행으로 깨진다. **id는 `GET /api/scenarios/{id}/runs` 목록에서 재조회**하거나 curl→python 직결.
 - **정리** — `.playwright-mcp/`와 repo 루트 png는 gitignore 안 됨 → 머지 전 삭제.
@@ -61,4 +63,4 @@ rm -rf "$WT/.playwright-mcp"; rm -f "$WT"/*.png 2>/dev/null
 git -C "$WT" status --porcelain   # 잔류 untracked 0 확인
 ```
 
-`responder.py`는 이 스킬 디렉토리에 번들됨(`python3 .claude/skills/live-verify/responder.py <port> <delay_ms>`).
+`responder.py`는 이 스킬 디렉토리에 번들됨(`python3 .claude/skills/live-verify/responder.py <port> <delay_ms> [close]`).

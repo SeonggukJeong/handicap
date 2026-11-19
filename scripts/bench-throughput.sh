@@ -23,7 +23,7 @@ WORKERS="${WORKERS:-1}"                    # open-loop worker_count
 AUTO_STOP="${AUTO_STOP:-absent}"           # off | on | absent (absent = no auto_stop key, master)
 BIN_DIR="${BIN_DIR:-}"                     # set = skip cargo build, use $BIN_DIR/{controller,worker}
 RSS_EVERY="${RSS_EVERY:-0}"                # seconds; 0 = once at the end
-RESPONDER_URL="${RESPONDER_URL:-}"         # set = no docker; target this URL (caller runs the responder)
+RESPONDER_URL="${RESPONDER_URL:-}"         # set = no docker; target this URL (caller runs the responder: python3 .claude/skills/live-verify/responder.py <port> 5, keep-alive)
 if [[ -n "$RESPONDER_URL" ]]; then RESPONDER_PATH="${RESPONDER_PATH:-/}"; else RESPONDER_PATH="${RESPONDER_PATH:-/big}"; fi
 OUT_DIR="${OUT_DIR:-/tmp/handicap-bench}"
 
