@@ -32,7 +32,7 @@ REVIEW-GATE: APPROVED
 2. **`max_in_flight`가 `None`인 open-loop 프로필**(옛 행·테스트 픽스처): 아무것도 바꾸지 않는다(panic·0 나누기 금지). Task 2 `refine_without_max_in_flight_is_noop`이 잠근다.
 3. **계단 run:** 이미 읽은 워커별 행을 Rust에서 더하는 경로를 탄다. 비계단 run(SQL 합계)과 같은 진단이 나와야 한다(Task 3 `report_endpoint_marks_stall_for_stair_run`).
 4. **멀티 워커에서 한 워커 행만 있는 초:** 합계가 그 워커 값만 갖고, 다른 run 행은 섞이지 않는다(Task 1 `totals_sum_workers_and_isolate_runs`).
-5. **곡선 run의 `measured_seconds`:** 0-레이트 구간 초(A=0)는 세지 않는다. 그래서 화면의 「도착을 시도한 N초」가 run 길이보다 작을 수 있다(Task 2 `measured_seconds_counts_only_attempt_seconds`).
+5. **곡선 run의 `measured_seconds`:** 0-레이트 구간 초(A=0)는 세지 않는다. 그래서 화면의 「실행한 N초」가 run 길이보다 작을 수 있다(Task 2 `measured_seconds_counts_only_attempt_seconds`).
 
 ---
 
@@ -239,17 +239,17 @@ Some { typical_in_flight: f̃.round() as u64, drop_seconds: |S_d|, measured_seco
 - Consumes: Task 2·3 와이어 필드(서버가 `skip_serializing_if` → absent이므로 `.optional()`), Task 3 해석 키.
 - Produces: `ko.saturation.stallHead(count, measured, drop)`, `ko.saturation.stall(typical, m, chart)`, `ko.narrative.can.delivery_interrupted_by_stall`.
 
-**문구(byte-exact):**
+**문구(byte-exact — 사용자 확정 2026-11-20: 「대상 멈춤」 같은 번역투 명사구를 풀어 씀):**
 ```ts
 // saturation
 stallHead: (count: string, measured: string, drop: string) =>
-  `응답이 가끔 멈춰 반복(시나리오 실행) ${count}회를 못 보냈어요 — 도착을 시도한 ${measured}초 중 ${drop}초에만 몰렸어요`,
+  `서버 응답이 가끔 멈춰서 반복(시나리오 실행) ${count}회를 보내지 못했어요. 실행한 ${measured}초 중 ${drop}초에 몰려 있어요.`,
 stall: (typical: string, m: string, chart: string) =>
-  `평소엔 동시 실행이 ${typical}개만 쓰였어요(설정 ${m}개). 버림이 몰린 초에는 응답이 멈춰 슬롯이 잠시 다 찼던 거예요 — ` +
-  `슬롯 수를 바꾸기보다 그 시각 대상 서버의 상태를 먼저 확인하세요(드물게 부하기 쪽 멈춤일 수도 있어요). ` +
-  `멈춘 시각은 아래 「${chart}」 그래프에서 튄 곳이에요.`,
+  `평소에는 동시 실행이 ${typical}개만 쓰였어요(설정 ${m}개). 못 보낸 순간에는 응답이 멈춰서 슬롯이 잠깐 다 찼던 거예요. ` +
+  `슬롯 수를 바꾸기 전에 그 시각에 서버에서 무슨 일이 있었는지 먼저 확인해 보세요(드물게 부하기 쪽이 멈춘 경우도 있어요). ` +
+  `멈춘 시각은 아래 「${chart}」 그래프에서 위로 튄 곳이에요.`,
 // narrative.can
-delivery_interrupted_by_stall: "응답이 가끔 멈춘 동안 부하를 다 보내지 못했습니다(이 구성의 전달 한계는 아닙니다)",
+delivery_interrupted_by_stall: "서버 응답이 가끔 멈춘 동안 부하를 다 보내지 못했습니다(슬롯 설정이 부족해서는 아닙니다)",
 ```
 `InsightPanel`은 `chart`에 `ko.report.timeSeriesP95`(「p95 응답 시간 (ms)」 — `ReportView`의 초별 `TimeSeriesChart` 제목)를 넘긴다. 차트 이름을 문구에 하드코딩하지 않는다. 「지연」 섹션은 분포 차트라 시간축이 없어서 쓰지 않는다.
 
@@ -289,7 +289,7 @@ delivery_interrupted_by_stall: "응답이 가끔 멈춘 동안 부하를 다 보
 **문구(byte-exact):**
 ```ts
 fromStallRun:
-  "직전 run은 응답이 가끔 멈춘 run이에요. 응답 시간으로 계산한 권장값은 멈춤 동안을 감당하지 못하니 슬롯을 줄이지 말고 대상 멈춤부터 확인하세요.",
+  "직전 run에서는 서버 응답이 가끔 잠깐씩 멈췄어요. 응답 시간으로 계산한 값으로는 그런 순간을 버티지 못하니, 슬롯 수는 그대로 두고 서버가 왜 멈췄는지부터 확인해 보세요.",
 ```
 
 **동작:**
