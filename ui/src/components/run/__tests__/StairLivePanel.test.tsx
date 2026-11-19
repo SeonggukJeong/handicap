@@ -178,3 +178,41 @@ describe("StairLivePanel", () => {
     expect(screen.getByText(/4초 보류됐습니다/)).toBeInTheDocument();
   });
 });
+
+function channel(v: number): number {
+  const c = v / 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function contrastOnWhite(rgb: string): number {
+  const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(rgb);
+  if (!m) throw new Error(`not an rgb colour: ${rgb}`);
+  const lum = 0.2126 * channel(+m[1]) + 0.7152 * channel(+m[2]) + 0.0722 * channel(+m[3]);
+  return 1.05 / (lum + 0.05);
+}
+
+describe("StairLivePanel chip colours", () => {
+  const coloured: StairLive["step_states"] = [
+    "ok",
+    "spike",
+    "saturated",
+    "unconfirmed",
+    "after",
+    "not_measured",
+    "partial",
+    "skipped",
+    "emergency_stopped",
+    "frozen",
+  ];
+
+  it.each(coloured.map((s, i) => [s, i] as const))(
+    "%s chip border and symbol reach 3:1 on white",
+    (_state, i) => {
+      render(<StairLivePanel live={live({ step_states: coloured })} stair={stairOf(coloured.length, false)} />);
+      const chip = screen.getAllByRole("listitem")[i];
+      expect(contrastOnWhite(chip.style.borderColor)).toBeGreaterThanOrEqual(3);
+      const symbol = chip.querySelector<HTMLElement>("span[aria-hidden]");
+      if (symbol) expect(contrastOnWhite(symbol.style.color)).toBeGreaterThanOrEqual(3);
+    },
+  );
+});

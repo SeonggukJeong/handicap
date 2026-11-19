@@ -1,7 +1,6 @@
 import { memo, useMemo } from "react";
 import type { StairConfig, StairLive } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { STAIR_STATE_COLOR } from "../report/stair/stairColors";
 import {
   liveEmergencyText,
   liveForecastText,
@@ -14,6 +13,16 @@ import {
 
 const t = ko.runDetail.stairLive;
 
+/** 실행 중 칩 색 — 흰 바탕 대비 3:1 이상(리포트 막대 색 `STAIR_STATE_COLOR`와 별개). */
+const LIVE_CHIP_COLOR = {
+  ok: "#047857",
+  spike: "#b45309",
+  unconfirmed: "#b45309",
+  saturated: "#dc2626",
+  muted: "#64748b",
+  emergency_stopped: "#b91c1c",
+} as const;
+
 interface ChipLook {
   symbol: string;
   color?: string;
@@ -23,25 +32,25 @@ interface ChipLook {
 function chipLook(s: LiveStepState): ChipLook {
   switch (s) {
     case "ok":
-      return { symbol: "✓", color: STAIR_STATE_COLOR.ok };
+      return { symbol: "✓", color: LIVE_CHIP_COLOR.ok };
     case "saturated":
     case "unconfirmed":
-      return { symbol: "✗", color: STAIR_STATE_COLOR[s] };
+      return { symbol: "✗", color: LIVE_CHIP_COLOR[s] };
     case "spike":
-      return { symbol: "!", color: STAIR_STATE_COLOR.spike };
+      return { symbol: "!", color: LIVE_CHIP_COLOR.spike };
     case "after":
     case "not_measured":
     case "partial":
     case "skipped":
-      return { symbol: "", color: STAIR_STATE_COLOR[s] };
+      return { symbol: "", color: LIVE_CHIP_COLOR.muted };
     case "emergency_stopped":
-      return { symbol: "■", color: STAIR_STATE_COLOR.emergency_stopped };
+      return { symbol: "■", color: LIVE_CHIP_COLOR.emergency_stopped };
     case "measuring":
       return { symbol: "…", className: "border-accent-500 text-accent-700" };
     case "pending":
       return { symbol: "", className: "border-slate-200" };
     case "frozen":
-      return { symbol: "–", color: STAIR_STATE_COLOR.not_measured };
+      return { symbol: "–", color: LIVE_CHIP_COLOR.muted };
   }
 }
 
