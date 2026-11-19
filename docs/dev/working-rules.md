@@ -33,7 +33,8 @@
 
 ## 5. 작업 크기·UI 선호
 
-- **소형 수정은 브랜치만으로 해도 된다**(사용자 허용 2026-11-01). 파일 3~4개, UI 한정, 엔진·와이어·마이그레이션 무접촉이 조건이다. 먼저 변경 범위(파일·줄 수·안 건드리는 층)를 제시하고 동의를 받는다. 최소 절차는 지킨다: 테스트 먼저(일부러 망가뜨려 RED 확인) → 커밋 게이트 → 라이브(극단값 포함) → build-log에 "사용자 요청 소형 수정 — spec/plan 없음" 한 단락 → ff-merge.
+- **소형 수정은 spec/plan 없이 해도 된다**(사용자 허용 2026-11-01). 파일 3~4개, UI 한정, 엔진·와이어·마이그레이션 무접촉이 조건이다. 먼저 변경 범위(파일·줄 수·안 건드리는 층)를 제시하고 동의를 받는다. 최소 절차는 지킨다: 테스트 먼저(일부러 망가뜨려 RED 확인) → 커밋 게이트 → 라이브(극단값 포함) → build-log에 "사용자 요청 소형 수정 — spec/plan 없음" 한 단락 → ff-merge.
+  - **작업은 `EnterWorktree`로 만든 워크트리에서 — 메인 체크아웃에서 `git switch -c`로 브랜치를 만들지 않는다**(사용자 결정 2026-11-20). 다른 세션들은 메인 체크아웃이 늘 master라고 보고 `git -C <메인> merge --ff-only`로 합류한다. 2026-11-20 메인을 소형 수정 브랜치에 둔 사이 `stage-live-reasons` 세션이 그 절차를 못 쓰고 `git fetch . worktree-…:master`로 우회했고, `git switch`마다 git-guard 확인창이 떴다. 합류 = `git -C /Users/sgj/develop/handicap merge-base --is-ancestor master worktree-<X>` 확인 → `git -C … merge --ff-only worktree-<X>` → `ExitWorktree(remove, discard_changes:true)`. UI를 건드리면 워크트리에서 `pnpm install` 한 번. UI만 바꾼 수정의 라이브 검증은 백엔드가 master와 같으니, 메인에서 컨트롤러·워커를 증분 빌드해 메인 바이너리에 `--ui-dir <워크트리 절대경로>/ui/dist`를 붙여도 된다(워크트리 cargo 빌드 수 분·수 GB 회피). 워크트리가 `crates/`를 건드렸으면 루트 CLAUDE.md대로 워크트리 자체 바이너리로.
 - **코드 파일 편집은 python 대신 Edit 도구를, 여러 곳이면 한 응답에 묶어서**(사용자 결정 2026-11-20). python으로 고치면 Write/Edit 훅(tdd-guard·spec-review-guard·자동 포맷)을 거치지 않는다. 한 응답에 Edit 여러 개를 보내면 왕복 한 번이고 토큰도 python과 비슷하다(같은 문자열 여러 곳은 `replace_all`). python은 포맷 훅을 일부러 피해야 하는 글자 보존 편집(ui/CLAUDE.md §빌드·타입 게이트)과 build-log 이어 붙이기·상태줄 스플라이스처럼 문서가 정한 경우에만.
 - **선택적 폼 섹션은 기본 접힘 disclosure로, 대량 데이터 표·미리보기는 자동 노출 금지(명시 버튼 뒤 opt-in)**(사용자 선호). seed 값이 있으면 자동으로 펼치고, 접힌 채 값이 있으면 "N개 설정됨"을 표시하며, 인접 섹션과 간격을 둔다. 히트 영역은 크게, 시각 간격은 조밀하게. 이 사용자는 간격·일관성·a11y에 민감하므로, 리뷰가 Minor로 잡은 신규 UI 일관성 항목도 바로 반영한다.
 
