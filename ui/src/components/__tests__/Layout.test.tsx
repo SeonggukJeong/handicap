@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../i18n/ko";
@@ -224,5 +225,77 @@ describe("Layout 풀 칩·모드 전환", () => {
       "href",
       "tauri://localhost/role.html",
     );
+  });
+});
+
+describe("Layout 좁은 화면 메뉴 접기 (run-detail-narrow)", () => {
+  beforeEach(() => {
+    mockVersion(undefined);
+  });
+
+  function menuButton() {
+    return screen.getByRole("button", { name: ko.nav.menu });
+  }
+
+  it("「메뉴」 버튼은 lg 미만에서만 보이고 처음엔 접혀 있다", () => {
+    renderLayout();
+    const nav = screen.getByRole("navigation");
+    expect(menuButton()).toHaveClass("lg:hidden");
+    expect(menuButton()).toHaveAttribute("aria-expanded", "false");
+    expect(menuButton()).toHaveAttribute("aria-controls", nav.id);
+    expect(nav.id).not.toBe("");
+    // 접힘 = 좁은 화면에서 숨김, lg부터는 항상 한 줄
+    expect(nav).toHaveClass("hidden", "lg:flex");
+  });
+
+  it("누르면 펼쳐지고 다시 누르면 접힌다", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    const nav = screen.getByRole("navigation");
+    await user.click(menuButton());
+    expect(menuButton()).toHaveAttribute("aria-expanded", "true");
+    expect(nav).not.toHaveClass("hidden");
+    expect(nav).toHaveClass("flex");
+    await user.click(menuButton());
+    expect(menuButton()).toHaveAttribute("aria-expanded", "false");
+    expect(nav).toHaveClass("hidden");
+  });
+
+  it("메뉴를 골라 이동하면 접힌다", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(menuButton());
+    await user.click(screen.getByRole("link", { name: ko.nav.datasets }));
+    expect(menuButton()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("navigation")).toHaveClass("hidden");
+  });
+
+  it("Escape로 접히고 초점이 버튼으로 돌아온다", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+    await user.click(menuButton());
+    screen.getByRole("link", { name: ko.nav.datasets }).focus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(menuButton()).toHaveAttribute("aria-expanded", "false");
+    expect(menuButton()).toHaveFocus();
+  });
+
+  it("메뉴 글자는 항목 안에서 줄바꿈하지 않는다", () => {
+    renderLayout();
+    for (const a of within(screen.getByRole("navigation")).getAllByRole("link")) {
+      expect(a).toHaveClass("whitespace-nowrap");
+    }
+  });
+
+  it("묶음 이름은 좁은 화면에서만 글자로 보이고 접근명과 겹쳐 읽히지 않는다", () => {
+    renderLayout();
+    const groups = within(screen.getByRole("navigation")).getAllByRole("group");
+    for (const g of groups) {
+      const label = g.querySelector("[data-nav-group-label]");
+      expect(label).not.toBeNull();
+      expect(label).toHaveTextContent(g.getAttribute("aria-label")!);
+      expect(label).toHaveAttribute("aria-hidden", "true");
+      expect(label).toHaveClass("lg:hidden");
+    }
   });
 });

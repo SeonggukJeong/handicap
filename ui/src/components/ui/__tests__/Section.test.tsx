@@ -126,4 +126,13 @@ describe("Section — card variant (R2·R3) + 접힘 hint accname 픽스 (R4)", 
     const btn = screen.getByRole("button", { name: "판정·고급" }); // 픽스 전 accname="판정·고급 3개 설정됨"이라 FAIL
     expect(btn.contains(screen.getByText("3개 설정됨"))).toBe(false);
   });
+
+  it("기본 variant fieldset은 min-w-0 — 좁은 화면에서 안쪽 입력 폭이 페이지를 밀어내지 않는다", () => {
+    render(
+      <Section title="환경" aria-label="환경 구역">
+        <input aria-label="k" />
+      </Section>,
+    );
+    expect(screen.getByRole("group", { name: "환경 구역" })).toHaveClass("min-w-0");
+  });
 });

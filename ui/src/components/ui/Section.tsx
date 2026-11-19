@@ -82,7 +82,7 @@ export function Section({
   return (
     <fieldset
       aria-label={ariaLabel}
-      className={`mb-4 ${divider ? "border-t border-slate-200 pt-3" : ""}`}
+      className={`mb-4 min-w-0 ${divider ? "border-t border-slate-200 pt-3" : ""}`}
     >
       <legend className="text-sm font-medium">
         {collapsible ? (

@@ -1752,3 +1752,123 @@ describe("RunDetailPage — 실행 중 계단 패널", () => {
     expect(screen.queryByRole("region", { name: "계단 진행" })).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 좁은 화면 정리 (run-detail-narrow) — 계단 run 프로필 줄 + 카드 격자
+// ---------------------------------------------------------------------------
+function makeStairRunningRun() {
+  return {
+    id: "ST1",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "running",
+    profile: {
+      vus: 0,
+      ramp_up_seconds: 0,
+      duration_seconds: 0,
+      target_rps: null,
+      max_in_flight: 50,
+      stages: [
+        { target: 10, duration_seconds: 2 },
+        { target: 10, duration_seconds: 20 },
+        { target: 20, duration_seconds: 2 },
+        { target: 20, duration_seconds: 20 },
+        { target: 30, duration_seconds: 2 },
+        { target: 30, duration_seconds: 20 },
+      ],
+      stair: { targets: [10, 20, 30], hold_seconds: 20, ramp_seconds: 2, discard_seconds: 1 },
+    },
+    env: {},
+    started_at: Date.now(),
+    ended_at: null,
+    created_at: Date.now(),
+  };
+}
+
+function mockOneRun(id: string, run: unknown) {
+  fetchMock.mockImplementation((url: string) => {
+    if (url.endsWith(`/api/runs/${id}`)) return Promise.resolve(jsonResponse(run));
+    if (url.endsWith(`/api/runs/${id}/metrics`))
+      return Promise.resolve(jsonResponse({ run_id: id, windows: [] }));
+    return Promise.resolve(jsonResponse({}, 404));
+  });
+}
+
+describe("RunDetailPage — 프로필 줄은 부하 모드에 맞는 값만 (run-detail-narrow)", () => {
+  it("계단 run: vus = 0 · duration = 0s 대신 계단 요약과 실제 길이", async () => {
+    mockOneRun("ST1", makeStairRunningRun());
+    renderWithRouter("ST1");
+    const profile = await screen.findByRole("region", { name: "프로필" });
+    const lines = within(profile)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(lines).toEqual([
+      "stair = 계단 3개 · 최대 30/s · 유지 20s · 상승 2s",
+      "duration = 66s",
+      "max_in_flight = 50",
+    ]);
+  });
+
+  it("닫힌 곡선 run: vus = 0 없음, duration은 단계 합", async () => {
+    mockOneRun("CR1", makeCurveRunningRun());
+    renderWithRouter("CR1");
+    const profile = await screen.findByRole("region", { name: "프로필" });
+    const lines = within(profile)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(lines).toEqual(["vu_stages = 최대 50 · 3단계", "duration = 35s"]);
+  });
+
+  it("열린 고정 run: target_rps · duration · max_in_flight", async () => {
+    const run = makeStairRunningRun();
+    mockOneRun("OF1", {
+      ...run,
+      id: "OF1",
+      profile: {
+        vus: 0,
+        ramp_up_seconds: 0,
+        duration_seconds: 40,
+        target_rps: 25,
+        max_in_flight: 80,
+      },
+    });
+    renderWithRouter("OF1");
+    const profile = await screen.findByRole("region", { name: "프로필" });
+    const lines = within(profile)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(lines).toEqual(["target_rps = 25/s", "duration = 40s", "max_in_flight = 80"]);
+  });
+
+  it("닫힌 고정 run: 기존 세 줄 그대로", async () => {
+    mockRunningApi(Date.now() - 1_000, 1);
+    renderWithRouter("SR1");
+    const profile = await screen.findByRole("region", { name: "프로필" });
+    const lines = within(profile)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(lines).toEqual(["vus = 1", "duration = 30s", "ramp_up = 0s"]);
+  });
+});
+
+describe("RunDetailPage — 요약 카드 격자 (run-detail-narrow)", () => {
+  it("좁은 화면에선 두 칸, sm부터 네 칸", async () => {
+    mockOneRun("ST1", makeStairRunningRun());
+    renderWithRouter("ST1");
+    const value = await screen.findByText("66s");
+    const grid = value.parentElement!.parentElement!;
+    expect(grid).toHaveClass("grid-cols-2", "sm:grid-cols-4");
+    expect(grid).not.toHaveClass("grid-cols-4");
+  });
+});
+
+describe("RunDetailPage — 환경 변수 줄 (run-detail-narrow)", () => {
+  it("긴 이름·값은 줄 안에서 끊긴다 (페이지를 밀어내지 않는다)", async () => {
+    const run = makeStairRunningRun();
+    mockOneRun("ST1", { ...run, env: { LONG_NAME: "long-value" } });
+    renderWithRouter("ST1");
+    const env = await screen.findByRole("region", { name: "환경 변수" });
+    expect(within(env).getByRole("listitem")).toHaveClass("break-all");
+    expect(within(env).getByRole("listitem")).toHaveTextContent("LONG_NAME = long-value");
+  });
+});

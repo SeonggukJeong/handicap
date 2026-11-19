@@ -370,6 +370,8 @@ export const ko = {
     groupBuild: "만들기",
     groupRun: "실행",
     groupOps: "부하기·설정",
+    // 좁은 화면(lg 미만)에서 메뉴를 접는 버튼
+    menu: "메뉴",
   },
   capacityGuard: {
     // bespoke createRun error (shown as a banner in non-RunDialog callers)
@@ -1609,6 +1611,9 @@ export const ko = {
     profileLabel: "프로필",
     profileTitle: "프로필",
     profileVuStages: (peak: number, count: number) => `최대 ${peak} · ${count}단계`,
+    profileRateStages: (peak: number, count: number) => `최대 ${peak}/s · ${count}단계`,
+    profileStair: (steps: number, peak: number, hold: number, ramp: number) =>
+      `계단 ${steps}개 · 최대 ${peak}/s · 유지 ${hold}s · 상승 ${ramp}s`,
     stepsLabel: "스텝",
     stepsTitle: "스텝",
     envLabel: "환경 변수",

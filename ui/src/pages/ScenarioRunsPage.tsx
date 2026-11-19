@@ -319,195 +319,197 @@ export function ScenarioRunsPage() {
                   )}
                 </div>
               )}
-              <table className="min-w-full text-sm">
-                <thead className="border-b border-slate-200 text-left text-slate-600">
-                  <tr>
-                    <th className="py-2 pr-2 font-medium">비교</th>
-                    <th className="py-2 pr-4 font-medium">{ko.runFilter.labelCol}</th>
-                    <SortableTh
-                      field="status"
-                      label={ko.runFilter.statusLabel}
-                      sort={sortKeys}
-                      onSort={onHeaderSort}
-                    />
-                    <SortableTh
-                      field="verdict"
-                      label={ko.runFilter.verdictLabel}
-                      sort={sortKeys}
-                      onSort={onHeaderSort}
-                    />
-                    <SortableTh
-                      field="vu"
-                      label={ko.report.colVus}
-                      sort={sortKeys}
-                      onSort={onHeaderSort}
-                    />
-                    <SortableTh
-                      field="duration"
-                      label={ko.report.colDuration}
-                      sort={sortKeys}
-                      onSort={onHeaderSort}
-                    />
-                    <SortableTh
-                      field="created"
-                      label={ko.report.colCreated}
-                      sort={sortKeys}
-                      onSort={onHeaderSort}
-                    />
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((r) => {
-                    const normalised = normalizeProfile(r.profile);
-                    const env = envValueToRecord(r.env);
-                    const stall = classifyRunStall(
-                      r.status,
-                      r.started_at ?? r.created_at,
-                      r.last_metric_ts ?? null,
-                      now,
-                    );
-                    return (
-                      <tr key={r.id} className="border-b border-slate-100">
-                        <td className="py-3 pr-2">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(r.id)}
-                            disabled={!isTerminal(r.status)}
-                            onChange={() => toggleSelect(r.id)}
-                            aria-label={ko.report.selectRunAria(r.id)}
-                          />
-                        </td>
-                        <td className="py-3 pr-4">
-                          {editingLabelId === r.id ? (
-                            <Input
-                              value={labelDraft}
-                              onChange={(e) => setLabelDraft(e.target.value)}
-                              maxLength={RUN_LABEL_MAX_CHARS}
-                              aria-label={ko.runFilter.labelEditAria(
-                                runDisplayLabel(r.id, r.label),
-                              )}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") commitLabel(r);
-                                if (e.key === "Escape") {
-                                  labelEscapedRef.current = true;
-                                  setEditingLabelId(null);
-                                }
-                              }}
-                              onBlur={() => commitLabel(r)}
-                              autoFocus
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="border-b border-slate-200 text-left text-slate-600">
+                    <tr>
+                      <th className="py-2 pr-2 font-medium">비교</th>
+                      <th className="py-2 pr-4 font-medium">{ko.runFilter.labelCol}</th>
+                      <SortableTh
+                        field="status"
+                        label={ko.runFilter.statusLabel}
+                        sort={sortKeys}
+                        onSort={onHeaderSort}
+                      />
+                      <SortableTh
+                        field="verdict"
+                        label={ko.runFilter.verdictLabel}
+                        sort={sortKeys}
+                        onSort={onHeaderSort}
+                      />
+                      <SortableTh
+                        field="vu"
+                        label={ko.report.colVus}
+                        sort={sortKeys}
+                        onSort={onHeaderSort}
+                      />
+                      <SortableTh
+                        field="duration"
+                        label={ko.report.colDuration}
+                        sort={sortKeys}
+                        onSort={onHeaderSort}
+                      />
+                      <SortableTh
+                        field="created"
+                        label={ko.report.colCreated}
+                        sort={sortKeys}
+                        onSort={onHeaderSort}
+                      />
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((r) => {
+                      const normalised = normalizeProfile(r.profile);
+                      const env = envValueToRecord(r.env);
+                      const stall = classifyRunStall(
+                        r.status,
+                        r.started_at ?? r.created_at,
+                        r.last_metric_ts ?? null,
+                        now,
+                      );
+                      return (
+                        <tr key={r.id} className="border-b border-slate-100">
+                          <td className="py-3 pr-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(r.id)}
+                              disabled={!isTerminal(r.status)}
+                              onChange={() => toggleSelect(r.id)}
+                              aria-label={ko.report.selectRunAria(r.id)}
                             />
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                // 재리뷰 gap fix: RunDetailPage.tsx startLabelEdit()의
-                                // labelEscapedRef 리셋을 미러 — 없으면 ESC 후 blur가
-                                // 발화하지 않는 브라우저에서 플래그가 true로 남아 *다음*
-                                // 정상 편집의 commitLabel이 escape 분기를 타 조용히 버려진다.
-                                labelEscapedRef.current = false;
-                                setEditingLabelId(r.id);
-                                setLabelDraft(r.label ?? "");
-                              }}
-                              className="max-w-[16rem] truncate block text-left hover:underline"
-                              title={r.label ?? undefined}
-                              aria-label={ko.runFilter.labelEditAria(
-                                runDisplayLabel(r.id, r.label),
-                              )}
-                            >
-                              {r.label ? (
-                                r.label
-                              ) : (
-                                <span className="font-mono text-slate-400">
-                                  {runShortLabel(r.id)}
-                                </span>
-                              )}
-                            </button>
-                          )}
-                        </td>
-                        <td className="py-3 pr-4">
-                          <StatusBadge status={r.status} />
-                          <AutoStopBadge run={r} />
-                          {stall.kind !== "none" && (
-                            <span
-                              className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
-                              title={
-                                stall.kind === "midrun"
-                                  ? ko.runStall.badgeTitleMidrun(
-                                      formatDurationKo(stall.silentSeconds),
-                                    )
-                                  : ko.runStall.badgeTitleStartup
-                              }
-                            >
-                              ⚠ {ko.runStall.badge}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 pr-4">
-                          <VerdictBadge verdict={r.verdict} />
-                        </td>
-                        <td className="py-3 pr-4">
-                          <RunVuCell profile={r.profile} />
-                        </td>
-                        <td className="py-3 pr-4">
-                          {profileDurationSeconds(r.profile)}s
-                          {r.status === "running" && (
-                            <span className="ml-1 text-xs text-slate-500">
-                              ·{" "}
-                              {ko.runDetail.elapsed(
-                                formatDurationKo((now - (r.started_at ?? r.created_at)) / 1000),
-                              )}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 pr-4 text-slate-600">
-                          {new Date(r.created_at).toLocaleString()}
-                        </td>
-                        <td className="py-3 pr-4 text-right">
-                          <div className="flex justify-end gap-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                createRun.reset();
-                                setPrefillState({
-                                  runId: r.id,
-                                  runScenarioYaml: r.scenario_yaml,
-                                  prefill: { profile: normalised, env, label: r.label },
-                                });
-                                setShowDialog(true);
-                              }}
-                              className="text-slate-700 hover:underline"
-                            >
-                              다시 실행
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                createRun.mutate(
-                                  {
-                                    scenarioId: r.scenario_id,
-                                    profile: normalised,
-                                    env,
-                                    ...(r.label ? { label: r.label } : {}),
-                                  },
-                                  { onSuccess: (created) => navigate(`/runs/${created.id}`) },
-                                );
-                              }}
-                              disabled={createRun.isPending}
-                              className="text-slate-700 hover:underline disabled:opacity-50"
-                            >
-                              즉시 재실행
-                            </button>
-                            <Link to={`/runs/${r.id}`} className="text-slate-700 hover:underline">
-                              view →
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                          <td className="py-3 pr-4">
+                            {editingLabelId === r.id ? (
+                              <Input
+                                value={labelDraft}
+                                onChange={(e) => setLabelDraft(e.target.value)}
+                                maxLength={RUN_LABEL_MAX_CHARS}
+                                aria-label={ko.runFilter.labelEditAria(
+                                  runDisplayLabel(r.id, r.label),
+                                )}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") commitLabel(r);
+                                  if (e.key === "Escape") {
+                                    labelEscapedRef.current = true;
+                                    setEditingLabelId(null);
+                                  }
+                                }}
+                                onBlur={() => commitLabel(r)}
+                                autoFocus
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // 재리뷰 gap fix: RunDetailPage.tsx startLabelEdit()의
+                                  // labelEscapedRef 리셋을 미러 — 없으면 ESC 후 blur가
+                                  // 발화하지 않는 브라우저에서 플래그가 true로 남아 *다음*
+                                  // 정상 편집의 commitLabel이 escape 분기를 타 조용히 버려진다.
+                                  labelEscapedRef.current = false;
+                                  setEditingLabelId(r.id);
+                                  setLabelDraft(r.label ?? "");
+                                }}
+                                className="max-w-[16rem] truncate block text-left hover:underline"
+                                title={r.label ?? undefined}
+                                aria-label={ko.runFilter.labelEditAria(
+                                  runDisplayLabel(r.id, r.label),
+                                )}
+                              >
+                                {r.label ? (
+                                  r.label
+                                ) : (
+                                  <span className="font-mono text-slate-400">
+                                    {runShortLabel(r.id)}
+                                  </span>
+                                )}
+                              </button>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <StatusBadge status={r.status} />
+                            <AutoStopBadge run={r} />
+                            {stall.kind !== "none" && (
+                              <span
+                                className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
+                                title={
+                                  stall.kind === "midrun"
+                                    ? ko.runStall.badgeTitleMidrun(
+                                        formatDurationKo(stall.silentSeconds),
+                                      )
+                                    : ko.runStall.badgeTitleStartup
+                                }
+                              >
+                                ⚠ {ko.runStall.badge}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <VerdictBadge verdict={r.verdict} />
+                          </td>
+                          <td className="py-3 pr-4">
+                            <RunVuCell profile={r.profile} />
+                          </td>
+                          <td className="py-3 pr-4">
+                            {profileDurationSeconds(r.profile)}s
+                            {r.status === "running" && (
+                              <span className="ml-1 text-xs text-slate-500">
+                                ·{" "}
+                                {ko.runDetail.elapsed(
+                                  formatDurationKo((now - (r.started_at ?? r.created_at)) / 1000),
+                                )}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4 text-slate-600">
+                            {new Date(r.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-3 pr-4 text-right">
+                            <div className="flex justify-end gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  createRun.reset();
+                                  setPrefillState({
+                                    runId: r.id,
+                                    runScenarioYaml: r.scenario_yaml,
+                                    prefill: { profile: normalised, env, label: r.label },
+                                  });
+                                  setShowDialog(true);
+                                }}
+                                className="text-slate-700 hover:underline"
+                              >
+                                다시 실행
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  createRun.mutate(
+                                    {
+                                      scenarioId: r.scenario_id,
+                                      profile: normalised,
+                                      env,
+                                      ...(r.label ? { label: r.label } : {}),
+                                    },
+                                    { onSuccess: (created) => navigate(`/runs/${created.id}`) },
+                                  );
+                                }}
+                                disabled={createRun.isPending}
+                                className="text-slate-700 hover:underline disabled:opacity-50"
+                              >
+                                즉시 재실행
+                              </button>
+                              <Link to={`/runs/${r.id}`} className="text-slate-700 hover:underline">
+                                view →
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
               {visible.length === 0 && (
                 <p className="mt-3 text-sm text-slate-500">{ko.runFilter.emptyFiltered}</p>
               )}

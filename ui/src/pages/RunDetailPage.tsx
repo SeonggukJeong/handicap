@@ -26,13 +26,14 @@ import { AutoStopBadge } from "../components/AutoStopBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { ValidityBadge } from "../components/ValidityBadge";
 import { ReportView } from "../components/report/ReportView";
-import type { RunStatus } from "../api/schemas";
+import type { Profile, RunStatus } from "../api/schemas";
 import { ko } from "../i18n/ko";
 import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/run/RunVuCell";
+import { deriveLoadMode } from "../components/run/loadModel";
 import { StairLivePanel } from "../components/run/StairLivePanel";
 import { Callout } from "../components/ui/Callout";
 import { PageSection } from "../components/ui/PageSection";
@@ -301,7 +302,7 @@ export function RunDetailPage() {
         </Callout>
       )}
 
-      <div className="grid grid-cols-4 gap-4 mb-6 text-sm">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 text-sm">
         <Card label={ko.runDetail.cardVus}>
           <RunVuCell profile={r.profile} />
         </Card>
@@ -378,9 +379,7 @@ export function RunDetailPage() {
             className="mb-6 text-sm"
           >
             <ul className="font-mono text-slate-700">
-              <li>vus = {r.profile.vus}</li>
-              <li>duration = {r.profile.duration_seconds}s</li>
-              <li>ramp_up = {r.profile.ramp_up_seconds ?? 0}s</li>
+              <ProfileLoadLines profile={r.profile} durationSeconds={durationSeconds} />
               {(() => {
                 const knobs = appliedTimeoutKnobs(r.profile);
                 return (
@@ -392,15 +391,6 @@ export function RunDetailPage() {
                   </>
                 );
               })()}
-              {r.profile.vu_stages && r.profile.vu_stages.length > 0 && (
-                <li>
-                  vu_stages ={" "}
-                  {ko.runDetail.profileVuStages(
-                    Math.max(...r.profile.vu_stages.map((s) => s.target)),
-                    r.profile.vu_stages.length,
-                  )}
-                </li>
-              )}
             </ul>
           </PageSection>
 
@@ -499,6 +489,69 @@ export function RunDetailPage() {
   );
 }
 
+/** 프로필 구역의 부하 줄 — 그 run의 부하 모드가 실제로 쓰는 값만 적는다.
+ *  곡선·열린·계단 run은 서버가 `vus: 0`·`duration_seconds: 0`으로 저장하므로 그 두 값을
+ *  그대로 찍지 않는다(길이는 `profileDurationSeconds`). 모드 판정은 `deriveLoadMode` 단일 소스. */
+function ProfileLoadLines({
+  profile,
+  durationSeconds,
+}: {
+  profile: Parameters<typeof profileSummary>[0] &
+    Partial<Pick<Profile, "ramp_up_seconds" | "max_in_flight">>;
+  durationSeconds: number;
+}) {
+  const { loadModel, rateMode } = deriveLoadMode(profile);
+  const duration = <li>duration = {durationSeconds}s</li>;
+  if (loadModel === "open") {
+    return (
+      <>
+        {rateMode === "stair" && profile.stair ? (
+          <li>
+            stair ={" "}
+            {ko.runDetail.profileStair(
+              profile.stair.targets.length,
+              Math.max(...profile.stair.targets),
+              profile.stair.hold_seconds,
+              profile.stair.ramp_seconds,
+            )}
+          </li>
+        ) : rateMode !== "fixed" ? (
+          <li>
+            stages ={" "}
+            {ko.runDetail.profileRateStages(
+              Math.max(...(profile.stages ?? []).map((s) => s.target)),
+              (profile.stages ?? []).length,
+            )}
+          </li>
+        ) : (
+          <li>target_rps = {profile.target_rps ?? 0}/s</li>
+        )}
+        {duration}
+        {profile.max_in_flight != null && <li>max_in_flight = {profile.max_in_flight}</li>}
+      </>
+    );
+  }
+  if (rateMode === "curve") {
+    const stages = profile.vu_stages ?? [];
+    return (
+      <>
+        <li>
+          vu_stages ={" "}
+          {ko.runDetail.profileVuStages(Math.max(...stages.map((s) => s.target)), stages.length)}
+        </li>
+        {duration}
+      </>
+    );
+  }
+  return (
+    <>
+      <li>vus = {profile.vus}</li>
+      {duration}
+      <li>ramp_up = {profile.ramp_up_seconds ?? 0}s</li>
+    </>
+  );
+}
+
 function Card({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="border border-slate-200 rounded-md p-3 bg-white">
@@ -520,7 +573,7 @@ function EnvBlock({ env }: { env: unknown }) {
       ) : (
         <ul className="text-sm font-mono">
           {entries.map(([k, v]) => (
-            <li key={k} className="py-0.5">
+            <li key={k} className="py-0.5 break-all">
               <span className="text-slate-600">{k}</span>
               <span className="text-slate-400"> = </span>
               <span>{typeof v === "string" ? v : JSON.stringify(v)}</span>

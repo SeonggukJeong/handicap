@@ -968,3 +968,12 @@ describe("ScenarioRunsPage — 자동 정지 표지", () => {
     }
   });
 });
+
+describe("ScenarioRunsPage — 좁은 화면 (run-detail-narrow)", () => {
+  it("run 목록 표는 가로 스크롤 상자 안에 있다 (페이지를 밀어내지 않는다)", async () => {
+    mockApi();
+    renderPage();
+    const table = await screen.findByRole("table");
+    expect(table.parentElement).toHaveClass("overflow-x-auto");
+  });
+});
