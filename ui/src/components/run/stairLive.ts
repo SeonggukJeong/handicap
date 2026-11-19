@@ -67,7 +67,7 @@ export function liveEmergencyText(
   live: StairLive,
   em: EmergencyStopConfig | null | undefined,
 ): string | null {
-  if (!em) return null;
+  if (!em || live.stop != null) return null;
   const now = live.emergency_now;
   if (now == null) return t.emergencyWaiting;
   if (now.held)

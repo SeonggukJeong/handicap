@@ -124,6 +124,7 @@ describe("StairLivePanel", () => {
     expect(stopEl).toHaveTextContent("4계단(400 req/s) 판정 뒤 자동 정지");
     expect(stopEl).toHaveTextContent("3·4계단 연속 실패");
     expect(screen.queryByText(/측정 중/)).toBeNull();
+    expect(screen.queryByText(/즉시 정지 감시/)).toBeNull();
   });
 
   it("frozen_line", () => {

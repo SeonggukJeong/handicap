@@ -74,7 +74,7 @@ function StairLivePanelImpl({ live, stair }: { live: StairLive; stair: StairConf
       <ol aria-label={t.chipsLabel} className="flex flex-wrap gap-1">
         {live.step_states.map((s, i) => {
           const look = chipLook(s);
-          const label = `${i + 1}계단 ${texts.labels[i]}`;
+          const label = t.chipLabel(i + 1, texts.labels[i]);
           return (
             <li
               key={i}

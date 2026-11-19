@@ -110,6 +110,11 @@ impl EmergencyTracker {
         self.p99_hit = false;
     }
 
+    /// 표본이 적어(0건 포함) 이 초를 판정하지 않고 보류하는가.
+    pub fn is_held(&self, count: u64) -> bool {
+        count == 0 || count < self.min_requests
+    }
+
     /// 한 절대 초의 합산값을 넣는다. 연속 N초가 채워지면 `Some`.
     pub fn observe(
         &mut self,
@@ -118,7 +123,7 @@ impl EmergencyTracker {
         errors: u64,
         p99_us: u64,
     ) -> Option<EmergencyHit> {
-        if count == 0 || count < self.min_requests {
+        if self.is_held(count) {
             return None;
         }
         // 엄격한 초과 — 같으면 정상.
@@ -325,6 +330,16 @@ mod tests {
         assert!(obs(&mut t, 4, BAD_ERR).is_none());
         assert!(obs(&mut t, 5, BAD_ERR).is_none());
         assert!(obs(&mut t, 6, BAD_ERR).is_some());
+    }
+
+    #[test]
+    fn is_held_boundary() {
+        let t = emergency(1, 20);
+        assert!(t.is_held(0));
+        assert!(t.is_held(19));
+        assert!(!t.is_held(20));
+        assert!(emergency(1, 0).is_held(0));
+        assert!(!emergency(1, 0).is_held(1));
     }
 
     #[test]

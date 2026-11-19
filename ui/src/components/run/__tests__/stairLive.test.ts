@@ -159,6 +159,19 @@ describe("liveEmergencyText", () => {
       ),
     ).toBe("즉시 정지 감시: 오류율 0.2% · p99 340 ms (기준 5% · 2000 ms 초과, 3초 연속) 나쁜 초 0");
   });
+
+  it("emergencyLine_hidden_after_stop", () => {
+    expect(liveEmergencyText(live({ stop: stopBase }), em)).toBeNull();
+    expect(
+      liveEmergencyText(
+        live({
+          stop: stopBase,
+          emergency_now: { error_rate: 0, p99_us: 0, bad_streak: 0, held: false },
+        }),
+        em,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("liveStopText", () => {

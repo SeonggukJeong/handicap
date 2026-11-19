@@ -1557,6 +1557,7 @@ export const ko = {
     stairLive: {
       title: "계단 진행",
       chipsLabel: "계단별 판정",
+      chipLabel: (n: number, state: string) => `${n}계단 ${state}`,
       measuring: "측정 중",
       pending: "예정",
       frozen: "판정 중단",

@@ -128,7 +128,8 @@ pub async fn run_monitor(
             }
             continue;
         };
-        // `None` = 외부 중단이나 finalize가 먼저 — run이 곧 끝난다.
+        // `None` = 외부 중단(곧 aborted) 또는 finalize가 먼저(run이 이미 제거됨) — 어느 쪽이든 이 요약은 더 읽히지 않는다
+        // (`live_of`는 제거된 run에 None, REST 중단은 행을 aborted로 바꿔 run 상세 응답이 요약 키를 뺀다).
         if let Some(filled) = coord.auto_stop(&run_id, stop).await {
             monitor.set_stop(filled);
             if let Some(l) = monitor.live_if_changed() {
@@ -346,15 +347,9 @@ impl StairMonitor {
         self.last_second
     }
 
-    /// 표본이 적어 판정을 보류한 초인가 — `EmergencyTracker::observe`와 같은 조건.
+    /// 표본이 적어 판정을 보류한 초인가. 즉시 정지 칸이 꺼져 있으면 보류할 판정이 없다.
     fn held(&self, s: &LastSecond) -> bool {
-        let min = self
-            .cfg
-            .auto_stop
-            .as_ref()
-            .and_then(|a| a.emergency.as_ref())
-            .map_or(0, |e| u64::from(e.min_requests));
-        s.count == 0 || s.count < min
+        self.emergency.as_ref().is_some_and(|t| t.is_held(s.count))
     }
 
     fn emergency_now(&self) -> Option<EmergencyNow> {
@@ -2086,7 +2081,8 @@ mod tests {
         let mut g = gen_run(&c, T0 + 49);
         let mut s = g.first_stop.clone().expect("정지");
         assert_eq!(s.decided_step, 3);
-        s.stopped_at_ms = s.decided_at_ms + 20;
+        // 계단 4(0부터) 시작 = t0 + 4 * 21 s: 이른 워커(T0MS + 300)는 이미 지났고 늦은 워커(T0MS + 2700)는 아직이다.
+        s.stopped_at_ms = T0MS + 300 + 4 * STEP * 1000 + 1_000;
         g.m.set_stop(s.clone());
         let rep = report_of(
             &c,
