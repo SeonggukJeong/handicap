@@ -33,6 +33,7 @@ REVIEW-GATE: APPROVED
 
 ## Global Constraints
 
+- **사용자 지시(2026-11-19, working-rules §10): 동작 정확성 최우선, 그 안에서 성능을 극한까지.** 아래 성능 항목(P1–P3)은 결과를 바꾸지 않아야 한다 — b의 동등성·정지 테스트가 **무수정 통과**하는 것이 증거이고, 각 항목은 자기 테스트와 되돌려 확인을 가진다.
 - 엔진·워커·worker-core·proto diff 0 (`git diff --stat master -- crates/engine crates/worker crates/worker-core crates/proto` 출력 0줄).
 - 계단 아닌 run: `GET /api/runs/{id}` JSON에 `auto_stop_live` 키 없음(바이트 동일), 리포트·CSV·XLSX·인쇄 무변경.
 - 실행 중 요약은 기존 1초 폴링(`useRun`)으로만 — WebSocket/SSE/push 금지(ADR-0009 비목표 유지).
@@ -144,7 +145,8 @@ pub fn build_live(inp: &LiveInputs) -> LiveState;
 ### Task 2: 감시가 실행 중 요약을 계산한다 (`StairMonitor` 안쪽)
 
 **Files:**
-- Modify: `crates/controller/src/stair_monitor.rs` (`StairMonitor` 필드·`judge_steps`·`judge_seconds`·`on_msg`·`live()`·`set_stop()`)
+- Modify: `crates/controller/src/stair_monitor.rs` (`StairMonitor` 필드·`on_batch`·`judge_steps`·`judge_seconds`·`on_msg`·`live()`·`live_if_changed()`·`set_stop()`)
+- Modify: `crates/controller/src/stair.rs` (`StairAccumulator::accepts`)
 - Test: `stair_monitor.rs` `#[cfg(test)] mod tests`
 
 **Interfaces:**
@@ -152,6 +154,8 @@ pub fn build_live(inp: &LiveInputs) -> LiveState;
 - Produces (Task 3이 쓴다):
   - `StairMonitor::live(&self) -> LiveState`
   - `StairMonitor::set_stop(&mut self, stop: StopInfo)` (coordinator가 `stopped_at_ms`를 채운 기록 보관)
+  - `StairMonitor::live_if_changed(&mut self) -> Option<LiveState>` (P2)
+  - `StairAccumulator::accepts(&self, w: &str, ts: i64) -> bool` (P1, `stair.rs`)
 
 변경:
 - `judge_steps`: `judging`이면 **mode와 무관하게** `numbers(&done)`·`judge`를 계산해 `self.judgement = Some(j)`로 보관하고, mode가 있을 때만 그 `j`로 `saturation_stop`. 정지 결정·`judged`·`released` 갱신은 b와 동일(b의 정지 테스트 무수정 통과가 증거).
@@ -163,8 +167,12 @@ pub fn build_live(inp: &LiveInputs) -> LiveState;
   - `emergency_now` = 즉시 정지 칸이 켜져 있고 `last_second`가 있을 때 `EmergencyNow { error_rate: errors/count (count 0이면 0.0), p99_us, bad_streak: tracker.streak(), held: count == 0 || count < min_requests }`.
   - `stopped` = `self.stopped`, `stop` = `self.stop_record.as_ref()`.
 - `details()`를 감시·요약 경로에서 부르지 않는다(§B69 (2)).
+- **P1 — 쓰이지 않을 행은 HDR을 해석하지 않는다**(감시의 실제 비용 대부분이 `on_batch`의 `decode_hdr`). metric window 한 줄을 `decode_hdr` 하기 **전에** 쓰임을 판정한다: ① 그 워커의 t0가 아직 없음(보류 버퍼로 감 — 나중에 재생) ② 즉시 정지 초 버퍼에 들어감(지금의 조건 `emergency.is_some() && !stopped && secs_done.is_none_or(|d| ts > d)` 그대로) ③ 누적기가 받음 = 새 메서드 `StairAccumulator::accepts(&self, w: &str, ts: i64) -> bool`(등록된 워커 ∧ `step_of(ts)`가 `Some(i)` ∧ `released[i].is_none()`) 중 하나라도 참이면 지금처럼 해석, 모두 거짓이면 그 줄은 **해석도 `route`도 하지 않는다**(`push_metric`이 어차피 버리는 줄 — 결과 동일). 즉시 정지를 끈 run에선 상승·버림 구간과 이미 판정한 계단의 늦은 줄이 통째로 빠진다. 중복 제거용 `batch_max` 갱신은 건너뛰는 줄에도 그대로 한다.
+- **P2 — 요약은 바뀌었을 때만 만든다**: `StairMonitor::live_if_changed(&mut self) -> Option<LiveState>` — 요약을 결정하는 값만 모은 작은 키 `LiveKey { judged, current, frozen, stopped, stop_set: bool, last_second_ts: Option<i64>, streak, held, suspended_total }`(정수·불리언만, `#[derive(PartialEq, Clone, Copy)]`; `last_second`에 그 초의 `ts`도 보관)를 직전 키와 비교해 같으면 `None`(할당 0), 다르면 `build_live` 결과를 `Some`. `set_stop`은 키를 바꾼다(`stop_set`). 즉시 정지를 끈 run에선 대략 계단 구간이 바뀔 때만 만든다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
+  - `decode_skipped_outside_use` (P1): `StairMonitor`에 `#[cfg(test)] decodes: usize`(해석 횟수) 카운터. `cfg5(None)`(즉시 정지 끔)·워커 1개·t0 = 초 경계(`T0 * 1000` — 측정 초 수가 정확히 `hold − discard`가 되게), 계단 0 전체 초(상승 1초 + 버림 5초 + 측정 15초)의 window 1개씩 → `decodes == 15`(측정 초만); 같은 입력을 `cfg_em(None)`(즉시 정지 켬)으로 → `decodes == 21`; t0를 보내지 않은 워커의 줄 → 해석됨(보류 버퍼). 해제된 계단의 늦은 줄: 즉시 정지 끔·**새 감시**에 open-loop 초 T0..T0+20**만** 담은 배치(metric window 없음 — `prev_metric`이 None으로 남아 중복 제거에 걸리지 않게)로 계단 0을 완결·해제한 뒤, window 1개(ts T0+10)만 담은 배치 → 해석 횟수 불변.
+  - `live_if_changed_only_on_change` (P2): 즉시 정지 끔·워커 1개, 수위는 누적 최댓값이라 **이 순서로**: 수위 T0+5까지 배치(버림) → `Some`; 수위 T0+7 배치(**계단 0 안의 구간 변화** 버림→측정, 계단 경계를 넘지 않아 `judged` 그대로) → `Some`; 수위 T0+8 배치 → `Some` 또는 `None` 무관, 이어서 수위 T0+9 배치(판정·구간 변화 없음) → `None`; `set_stop` 뒤 → `Some`이고 그 값의 `stop`이 채워짐. 즉시 정지 값: `cfg_em(None)`으로 같은 구간 안에서 정상 초(완료 ≥ min_requests, 오류 0)를 하나씩 더하는 배치 두 개(streak 0·held false 그대로) → 두 번 다 `Some`.
   - 기존 `monitor_matches_report_for_completed_steps`의 배치·행 생성부를 헬퍼 `fn gen_run(c: &StairConfig, fail_from: i64) -> GenRun`로 꺼낸다 — `struct GenRun { m: StairMonitor, rows: Vec<WindowWithHdr>, ol: Vec<OpenLoopSecondRow>, starts: Vec<WorkerStartRow>, first_stop: Option<StopInfo> }`; `fail_from` = dropped가 생기기 시작하는 절대 초(기존 값 `T0 + 70`), 각 `on_msg`의 첫 `Outcome.stop`을 `first_stop`에 담는다. 기존 테스트는 `gen_run(&cfg5(None), T0 + 70)`를 쓰도록 바꾸되 **단언 줄 무수정**.
   - `live_matches_report_for_completed_steps`: `gen_run(&cfg5(None), T0 + 70)` → 리포트(`build_stair_report`, `auto_stop: None`)와 `m.live().step_states[i] == live_step_state(rep.steps[i].state)` (i < 5 전부), 상태 집합에 `Ok`와 비-`Ok`가 둘 다.
   - `live_matches_report_after_stop`: `gen_run(&cfg5(Some(TwoFails)), T0 + 49)` → `let s = first_stop.expect("정지")`, `assert_eq!(s.decided_step, 3)`; `s.stopped_at_ms = s.decided_at_ms + 20`; `m.set_stop(s.clone())`; 리포트는 `StairInputs.auto_stop = Some(AutoStopRecord { stop: Some(s), suspended_seconds: 0 })` → 모든 i에서 `m.live().step_states[i] == live_step_state(rep.steps[i].state)`, 그리고 `step_states[4] == Partial`(정지 시각이 계단 4 시작 뒤 — `NOW2`가 모든 계단 시작보다 뒤), `step_states[2..4]`에 `Saturated`. (gen_run이 정지 뒤에도 배치를 밀어 넣지만 감시는 `stopped` 뒤 판정하지 않으므로 무해 — 단언은 그대로.)
@@ -176,7 +184,7 @@ pub fn build_live(inp: &LiveInputs) -> LiveState;
 - [ ] **Step 3: 구현** (위 「변경」 그대로).
 - [ ] **Step 4: 통과 확인** — `cargo nextest run -p handicap-controller` 전부 PASS. b 테스트 단언 무수정 확인: `git diff -U0 HEAD -- crates/controller/src/stair_monitor.rs | grep '^-.*assert'` 출력 0줄. clippy 0.
 - [ ] **Step 5: grep 게이트** — `grep -n 'details()' crates/controller/src/stair_monitor.rs crates/controller/src/stair_live.rs` 0건.
-- [ ] **Step 6: 되돌려 확인** — `judge_steps`에서 judgement 보관을 `mode` 클로저 안으로 옮기면 `no_auto_stop_never_stops_but_judges` RED · `live()`의 `current`에서 등록 완료 조건을 빼면 `live_current_waits_for_registration` RED → 원복 GREEN.
+- [ ] **Step 6: 되돌려 확인** — `judge_steps`에서 judgement 보관을 `mode` 클로저 안으로 옮기면 `no_auto_stop_never_stops_but_judges` RED · `live()`의 `current`에서 등록 완료 조건을 빼면 `live_current_waits_for_registration` RED · P1의 쓰임 판정을 `true`로 바꾸면 `decode_skipped_outside_use`의 15/21 단언 RED · `accepts`에서 `released[i].is_none()`을 빼면 늦은 줄 단언 RED · P2 키에서 `current`를 빼면 구간 변화 단언 RED · `last_second_ts`를 빼면 즉시 정지 값 단언 RED → 각각 원복 GREEN.
 - [ ] **Step 7: 커밋** — `feat(controller): 계단 감시가 실행 중 요약을 계산한다` (background).
 
 ---
@@ -196,13 +204,13 @@ pub fn build_live(inp: &LiveInputs) -> LiveState;
 - Consumes: Task 2 `StairMonitor::{live, set_stop}`.
 - Produces:
   - `CoordinatorState::auto_stop(&self, run_id: &str, stop: StopInfo) -> Option<StopInfo>` (**반환형 변경** — 기존 `true` = `Some(채운 기록)`, `false` = `None`)
-  - `CoordinatorState::live_of(&self, run_id: &str) -> Option<LiveState>` (run 없음·감시 없음 → None)
+  - `CoordinatorState::live_of(&self, run_id: &str) -> Option<LiveState>` (run 없음·감시 없음 → None). **P3**: `runs` 잠금 안에서는 `watch::Receiver`만 복제(참조 계수 증가)하고 잠금을 푼 뒤 `borrow().clone()` — 메트릭 수신이 같이 쓰는 잠금을 요약 복사 동안 잡지 않는다.
   - `run_monitor(coord, run_id, monitor, rx, done, handle, live_tx: tokio::sync::watch::Sender<LiveState>)`
   - 와이어 `RunResponse.auto_stop_live?: LiveState` (`#[serde(skip_serializing_if = "Option::is_none")]`)
 
 변경:
 - `enqueue`: `.filter(|c| monitor_wanted(c))` 삭제 → `base.stair`가 있으면 항상 감시. `watch::channel(monitor.live())` — Receiver는 `RunWorkers.live: Option<watch::Receiver<LiveState>>`, Sender는 `run_monitor`로. `:226` 주석 「자동 정지 칸이 켜졌을 때만(`monitor_wanted`)」 → 「계단 run이면 항상」.
-- `run_monitor`: `on_msg` 뒤 `out.stop`이 **없으면** `live_tx.send_replace(monitor.live())`. 있으면 보내지 않고 `if let Some(filled) = coord.auto_stop(&run_id, stop).await { monitor.set_stop(filled); live_tx.send_replace(monitor.live()); }` 뒤 break(정지 뒤엔 배치가 오지 않으므로 마지막 값 유지; `None`이면 외부 중단이 이겨 곧 aborted).
+- `run_monitor`: `on_msg` 뒤 `out.stop`이 **없으면** `if let Some(l) = monitor.live_if_changed() { live_tx.send_replace(l); }`. 있으면 보내지 않고 `if let Some(filled) = coord.auto_stop(&run_id, stop).await { monitor.set_stop(filled); if let Some(l) = monitor.live_if_changed() { live_tx.send_replace(l); } }` 뒤 break(정지 뒤엔 배치가 오지 않으므로 마지막 값 유지; `None`이면 외부 중단이 이겨 곧 aborted).
 - `get`: `row.status == RunStatus::Running && row.profile.stair.is_some()`일 때만 `state.coord.live_of(&id).await`, 그 밖 None. `to_response(r, last_metric_ts)`는 `auto_stop_live: None`을 넣고 `get`이 덮어쓴다(다른 호출부 3곳 `:1037·:1065·:1341` 무변경).
 
 - [ ] **Step 1: 실패하는 테스트 작성**
@@ -317,6 +325,8 @@ export function liveStopText(live: StairLive, targets: readonly number[]): strin
 
 자동 정지를 끈 run(`stair.auto_stop` 없음 또는 두 칸 null): 서버가 `next_fail_stops=false`·`emergency_now=null`을 주고 `liveEmergencyText`가 em 없음으로 null → 머리 줄 + 칩만(별도 분기 불필요, 테스트로 고정).
 
+`StairLivePanel`은 `React.memo`로 감싸고 문구는 `useMemo`(입력 `live`·`stair`) — React Query 구조 공유로 요약이 안 바뀐 폴링에선 같은 참조가 와 다시 그리지 않는다.
+
 `RunDetailPage`: `r.status === "running" && r.auto_stop_live && r.profile.stair`일 때 `<PageSection ariaLabel={title} title={title} className="mb-6"><StairLivePanel live={r.auto_stop_live} stair={r.profile.stair} /></PageSection>`를 라이브 궤적보다 위에(첫 배치 전에도 보이게 `liveSeconds` 조건 밖).
 
 - [ ] **Step 1: 실패하는 테스트 작성**
@@ -339,14 +349,14 @@ export function liveStopText(live: StairLive, targets: readonly number[]): strin
 ### Task 6: 성능 재측정 (spec §7 1–3, 「켬」 + 이제 감시가 생기는 「끔」)
 
 **Files:**
-- Modify: `crates/controller/src/stair_monitor.rs` `mod perf` (배치마다 `live()` + `send_replace` 포함해 잰다)
+- Modify: `crates/controller/src/stair_monitor.rs` `mod perf` (배치마다 `live_if_changed()` + `send_replace` 포함해 잰다, `run(skew, emergency: bool)`)
 - Modify: `scripts/bench-throughput.sh:188` (`queue_max` 로그 재시도를 `AUTO_STOP=off`에도 — 이제 끔도 감시가 생겨 「auto-stop monitor finished」 줄이 늦게 온다)
 - 결과: `.superpowers/sdd/stage-live-panel-perf.md` (마무리 때 build-log로 옮김)
 
-**Interfaces:** Task 2 `StairMonitor::live`.
+**Interfaces:** Task 2 `StairMonitor::live_if_changed`, 해석 횟수 카운터(`#[cfg(test)] decodes`).
 
-- [ ] **Step 1: 마이크로벤치 확장** — `perf::run`의 배치 루프에서 `on_msg` 뒤 `tx.send_replace(m.live())`(테스트 안 `watch::channel`)를 같은 `Instant` 구간에 넣는다. Run: `cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture`. 통과: p99 < 5 ms, 판정 배치 max < 5 ms(b 값 p99 1.07–1.11 ms와 나란히 기록).
-- [ ] **Step 2: 종단 A/B** — 측정 전 다른 빌드 없음 확인(`ps -Ao pcpu,comm | grep -E 'syspolicyd|XprotectService|rustc|cargo'`). master 바이너리는 메인 체크아웃(`/Users/sgj/develop/handicap`, master)에서 `CARGO_TARGET_DIR=<절대경로 /tmp/handicap-master-target> cargo build -p handicap-controller -p handicap-worker` (메인 체크아웃 파일을 바꾸지 말 것). `scripts/bench-throughput.sh`로 b와 같은 조건(부하기 2대, 응답기 지연 5 ms, 1440→7200 req/s 5계단) **① master `AUTO_STOP=on` ② c `AUTO_STOP=on` ③ c `AUTO_STOP=off`** 각 5회 교차. 통과(①의 회차 폭 대비): 계단별 달성 평균 차 ≤ 폭 · 부하기 CPU 차 ≤ 폭 · 컨트롤러 CPU 증가 ≤ 폭 ∧ ≤ 2%p · 감시 큐 최대 ≤ 워커×2 (②·③ 둘 다 ① 대비).
+- [ ] **Step 1: 마이크로벤치 확장** — `perf::run`의 배치 루프에서 `on_msg` 뒤 `if let Some(l) = m.live_if_changed() { tx.send_replace(l); }`(테스트 안 `watch::channel`)를 같은 `Instant` 구간에 넣고, **즉시 정지 끔 설정 갈래**(`monitor_batch_cost_off`)를 추가한다 — `run`에 `emergency: bool` 인자를 두고 `secs_done` 단언(`:1900`)은 켬 갈래에서만(끔이면 `secs_done`이 None이라 패닉). 두 갈래 모두 해석 횟수를 출력한다. Run: `cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture`. 통과(강제): p99 < 5 ms, 판정 배치 max < 5 ms, **끔 갈래 해석 횟수 단언 `off * 65 <= on * 50 && off > 0`**(ramp 5·discard 10·hold 60 — 모든 워커 t0가 초 경계이고 해제 뒤 늦은 줄이 없어 정확히 50/65가 기대값). 기록(관찰): 갈래별 3회 p99 중앙값, b 값 p99 1.07–1.11 ms와 나란히.
+- [ ] **Step 2: 종단 A/B** — 측정 전 다른 빌드 없음 확인(`ps -Ao pcpu,comm | grep -E 'syspolicyd|XprotectService|rustc|cargo'`). master 바이너리는 메인 체크아웃(`/Users/sgj/develop/handicap`, master)에서 `CARGO_TARGET_DIR=<절대경로 /tmp/handicap-master-target> cargo build -p handicap-controller -p handicap-worker` (메인 체크아웃 파일을 바꾸지 말 것). `scripts/bench-throughput.sh`로 b와 같은 조건(부하기 2대, 응답기 지연 5 ms, 1440→7200 req/s 5계단) **① master `AUTO_STOP=off`(감시 없음) ② c `AUTO_STOP=off`(새로 감시가 생김) ③ master `AUTO_STOP=on` ④ c `AUTO_STOP=on`** 각 5회 교차. 비교 쌍 = ②↔①(새 비용이 실제로 생기는 갈래를 그 비용이 없던 기준선과)·④↔③. 통과(각 쌍의 기준선 회차 폭 대비): 계단별 달성 평균 차 ≤ 폭 · 부하기 CPU 차 ≤ 폭 · 컨트롤러 CPU 증가 ≤ 폭 ∧ ≤ 2%p · 감시 큐 최대 ≤ 워커×2. 컨트롤러 CPU 평균은 네 갈래 모두 표에 적는다.
 - [ ] **Step 3: 최악 메모리** — 50계단 × 부하기 4 × 144→7200 × 유지 60초, c `AUTO_STOP=off`(새로 감시가 생기는 갈래), `RSS_EVERY=60`. 통과: finalize 전 RSS가 계단 진행과 무관하게 평평(b 17.7–20.7 MB 대비).
 - [ ] **Step 4: 커밋** — 마이크로벤치·스크립트 변경만 `perf(controller): 감시 마이크로벤치에 실행 중 요약 갱신 포함, 끔 갈래 queue_max 재시도` (background). 결과 파일은 커밋하지 않는다.
 
