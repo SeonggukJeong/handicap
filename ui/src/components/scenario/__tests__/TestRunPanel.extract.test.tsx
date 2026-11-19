@@ -128,3 +128,32 @@ describe("TestRunPanel extract affordances", () => {
     expect(screen.queryByRole("button", { name: "상태 추출" })).toBeNull();
   });
 });
+
+// 추출 확인 줄은 누른 헤더·쿠키 줄 바로 아래에 떠야 한다(표 전체 뒤가 아니라).
+describe("TestRunPanel 추출 확인 줄 위치", () => {
+  const confirm = () => screen.getByRole("button", { name: "추가" });
+
+  it("헤더 추출 → 그 헤더 줄 바로 다음 줄", async () => {
+    const user = userEvent.setup();
+    const step = httpStep({
+      response: { ...httpStep().response!, headers: { a: "1", "x-request-id": "9f2c", z: "3" } },
+    });
+    render(<TestRunPanel trace={trace(step)} onAddExtract={vi.fn()} />);
+    await expand(user);
+    const btn = screen.getByRole("button", { name: "x-request-id 추출" });
+    await user.click(btn);
+    expect(btn.closest("tr")!.nextElementSibling).toContainElement(confirm());
+  });
+
+  it("Set-Cookie 추출 → 그 쿠키 줄 바로 다음 줄", async () => {
+    const user = userEvent.setup();
+    const step = httpStep({
+      response: { ...httpStep().response!, set_cookies: ["a=1", "session=abc", "z=3"] },
+    });
+    render(<TestRunPanel trace={trace(step)} onAddExtract={vi.fn()} />);
+    await expand(user);
+    const btn = screen.getByRole("button", { name: "session 추출" });
+    await user.click(btn);
+    expect(btn.closest("tr")!.nextElementSibling).toContainElement(confirm());
+  });
+});

@@ -177,6 +177,12 @@ function StepRow({
     interactive && resp.body !== "" && !resp.body_truncated ? parseBodyJson(resp.body) : null;
   const treeBody = parsedBody !== null;
   const defaulted = defaultedText(s);
+  // The choice box opens right under the `+ 추가` that was pressed (status row, header row
+  // or the whole-body button) — below the whole header table it could land off-screen.
+  const choiceAt = (kind: ConditionClick["kind"]) =>
+    click !== null && click.kind === kind ? (
+      <div key={JSON.stringify(click)}>{choice(click, () => setClick(null))}</div>
+    ) : null;
 
   return (
     <li className="rounded border border-slate-200 bg-white p-2">
@@ -197,6 +203,7 @@ function StepRow({
             </button>
           )}
         </dd>
+        {click?.kind === "status" && <dd className="col-span-2">{choiceAt("status")}</dd>}
         <dt className="text-slate-500">{k.previewLatency}</dt>
         <dd className="tabular-nums">{resp ? formatMs(resp.latency_ms) : k.noValue}</dd>
         {s.error != null && (
@@ -217,10 +224,12 @@ function StepRow({
               ariaLabelFor: (key) => k.condAddAria(k.condTargetHeader(key)),
               onClick: (key) => setClick({ kind: "header", name: key, value: resp.headers[key] }),
             }}
+            expanded={
+              click?.kind === "header"
+                ? { rowKey: click.name, content: choiceAt("header") }
+                : undefined
+            }
           />
-          {click !== null && (
-            <div key={JSON.stringify(click)}>{choice(click, () => setClick(null))}</div>
-          )}
         </div>
       )}
       {resp && resp.body !== "" && (
@@ -249,6 +258,7 @@ function StepRow({
                   >
                     {k.condAddBodyText}
                   </button>
+                  {choiceAt("body_text")}
                 </div>
               )
             }

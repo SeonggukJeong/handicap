@@ -392,3 +392,35 @@ describe("PreviewResult 기본값 사용", () => {
     expect(screen.queryByText(/기본값 사용/)).not.toBeInTheDocument();
   });
 });
+
+// 누른 `+ 추가` 바로 아래에 선택 상자가 떠야 한다 — 헤더 표 전체 뒤에 뜨면 헤더가 많을 때
+// 화면 밖으로 밀려나 "아무 반응이 없다"처럼 보인다(사용자 보고 2026-11-20).
+describe("PreviewResult 선택 상자 위치", () => {
+  const follows = (a: Node, b: Node) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  const HEADERS = { a: "1", "x-trace": "2", z: "3" };
+
+  it("헤더 줄의 + 추가 → 그 줄 바로 다음 줄에 선택 상자", async () => {
+    const { user } = setup(preview("", HEADERS));
+    const btn = add(ko.monitor.condTargetHeader("x-trace"));
+    await user.click(btn);
+    const row = btn.closest("tr")!;
+    expect(row.nextElementSibling).toContainElement(chooseCond());
+    expect(follows(chooseCond(), add(ko.monitor.condTargetHeader("z")))).toBe(true);
+  });
+
+  it("상태 코드 + 추가 → 응답 헤더 표보다 앞, 버튼보다 뒤", async () => {
+    const { user } = setup(preview("", HEADERS));
+    const btn = add(ko.monitor.condTargetStatus);
+    await user.click(btn);
+    expect(follows(btn, chooseCond())).toBe(true);
+    expect(follows(chooseCond(), screen.getByText(ko.monitor.previewHeaders))).toBe(true);
+  });
+
+  it("본문 전체 조건 버튼 → 조건 줄이 버튼 뒤", async () => {
+    const { user } = setup(preview("plain text", HEADERS));
+    const btn = screen.getByRole("button", { name: ko.monitor.condAddBodyText });
+    await user.click(btn);
+    expect(follows(btn, confirmBtn())).toBe(true);
+  });
+});

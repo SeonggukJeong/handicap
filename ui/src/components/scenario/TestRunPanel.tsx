@@ -30,7 +30,9 @@ function chip(text: string, cls: string, tag?: string) {
       {tag !== undefined && (
         <>
           {" "}
-          <span className="rounded bg-white/70 px-1 text-[10px] leading-none font-medium">{tag}</span>
+          <span className="rounded bg-white/70 px-1 text-[10px] leading-none font-medium">
+            {tag}
+          </span>
         </>
       )}
     </span>
@@ -50,8 +52,13 @@ function HttpRow({
     steps ? findStepById(steps, id)?.name : undefined,
   );
   const [open, setOpen] = useState(false);
-  // Pending extract shown in an ExtractConfirmRow (header, cookie, or status).
-  const [pendingExtract, setPendingExtract] = useState<Extract | null>(null);
+  // Pending extract shown in an ExtractConfirmRow right under the button that opened it:
+  // the header / cookie row (`rowKey`) or the status button.
+  const [pending, setPending] = useState<{
+    extract: Extract;
+    at: "header" | "cookie" | "status";
+    rowKey: string;
+  } | null>(null);
   const req = step.request;
   const resp = step.response;
   const extracted = Object.entries(step.extracted);
@@ -59,6 +66,24 @@ function HttpRow({
   const onCreate = onAddExtract
     ? (extract: Extract) => onAddExtract(step.step_id, extract)
     : undefined;
+  const confirmAt = (at: "header" | "cookie" | "status") =>
+    pending !== null && pending.at === at && onCreate && resp
+      ? {
+          rowKey: pending.rowKey,
+          content: (
+            <ExtractConfirmRow
+              key={`${pending.at}:${pending.rowKey}`}
+              proposed={pending.extract}
+              preview={pending.at === "status" ? String(resp.status) : undefined}
+              onConfirm={(ex) => {
+                onCreate(ex);
+                setPending(null);
+              }}
+              onCancel={() => setPending(null)}
+            />
+          ),
+        }
+      : undefined;
   return (
     <li className="border-b border-slate-100 py-2">
       <button
@@ -113,10 +138,15 @@ function HttpRow({
                         label: "추출",
                         ariaLabelFor: (k) => `${k} 추출`,
                         onClick: (name) =>
-                          setPendingExtract({ var: suggestVarName(name), from: "header", name }),
+                          setPending({
+                            extract: { var: suggestVarName(name), from: "header", name },
+                            at: "header",
+                            rowKey: name,
+                          }),
                       }
                     : undefined
                 }
+                expanded={confirmAt("header")}
               />
               {resp.set_cookies.length > 0 && (
                 <HeaderTable
@@ -134,35 +164,36 @@ function HttpRow({
                           onClick: (rowKey) => {
                             const cookie = resp.set_cookies[Number(rowKey)];
                             const name = cookie.split("=")[0].trim();
-                            setPendingExtract({ var: suggestVarName(name), from: "cookie", name });
+                            setPending({
+                              extract: { var: suggestVarName(name), from: "cookie", name },
+                              at: "cookie",
+                              rowKey,
+                            });
                           },
                         }
                       : undefined
                   }
+                  expanded={confirmAt("cookie")}
                 />
               )}
               {onCreate && (
                 <div className="mb-2">
                   <button
                     type="button"
-                    onClick={() => setPendingExtract({ var: "status", from: "status" })}
+                    onClick={() =>
+                      setPending({
+                        extract: { var: "status", from: "status" },
+                        at: "status",
+                        rowKey: "",
+                      })
+                    }
                     className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
                   >
                     상태 추출
                   </button>
                 </div>
               )}
-              {pendingExtract && onCreate && (
-                <ExtractConfirmRow
-                  proposed={pendingExtract}
-                  preview={pendingExtract.from === "status" ? String(resp.status) : undefined}
-                  onConfirm={(ex) => {
-                    onCreate(ex);
-                    setPendingExtract(null);
-                  }}
-                  onCancel={() => setPendingExtract(null)}
-                />
-              )}
+              {confirmAt("status")?.content}
               <BodyBlock
                 body={resp.body}
                 truncated={resp.body_truncated}
