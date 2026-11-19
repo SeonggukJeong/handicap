@@ -9,6 +9,7 @@
 - **cloud는 자동메모리를 쓸 수 없다** → 사용자 결정과 작업 방식 피드백("앞으로 이렇게 해라")은 반드시 **repo에** 남긴다. 결정은 그 슬라이스 roadmap §B 블록의 `사용자 결정(날짜, 다시 묻지 않는다)` 줄에, 작업 방식은 **이 파일에** 적는다. 대화에만 있던 피드백은 다음 세션에 사라진다.
 - **cloud는 지정 브랜치(`ccr-*`)에만 push한다(master 불가)**. 슬라이스를 끝냈으면 roadmap §B 블록 머리에 **로컬 머지 절차**를 남긴다(선례 §B52 (0): 지금 상태 → 로컬 master 확인 → 단계별 ff-merge + 단계마다 맥 전체 게이트 → 맥에서 확인할 것 → push와 기록). 로컬 세션은 그 블록을 그대로 따르고, 끝나면 완료 표시를 한다.
 - **cloud에서 못 한 검증은 "못 했다"고 남긴다**(nextest 미설치 → `cargo test --workspace` 폴백, `pnpm build` 메모리 부족, macOS 전용 동작). Linux에서만 실측한 테스트는 맥에서 깨질 수 있다. 실제로 엔진 connect 정체 픽스처가 macOS에서 RST로 끊긴 일이 있다(`crates/engine/CLAUDE.md`).
+- **로컬 세션끼리 작업을 넘길 때는 넘기는 쪽이 먼저 워크트리에서 나간다**(사용자 지시 2026-11-20). `EnterWorktree`로 들어간 워크트리는 그 세션이 잠그고 있어서 다른 세션의 `EnterWorktree(path)`가 "belongs to another running Claude Code session"으로 거부된다. 그래서 다른 세션에 작업을 보내기(`SendMessage`) **전에** `ExitWorktree(action: "keep")`을 부른다(디렉토리·브랜치는 남는다). 사례: stage-live-reasons spec·plan 뒤 구현을 handicap-50 세션에 넘겼는데 잠금으로 재진입이 거부됐다.
 - **로컬 맥 세션은 cloud 작업을 시작하기 전에 master를 push한다**. cloud는 `origin/master`에서 갈라지므로, 로컬에 push 안 된 커밋이 있으면 ff가 안 되고 §B 번호도 겹친다(2026-11-11 merge `78abf72`에서 §B49 재번호).
 
 ## 2. roadmap §B 블록
