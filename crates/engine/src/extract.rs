@@ -581,6 +581,16 @@ mod tests {
     use super::*;
     use crate::scenario::Decode;
 
+    #[test]
+    fn found_path_does_no_unwrap_work() {
+        let body = br#"{"data":"{\"id\":7}","plain":1}"#;
+        let facts = lenient_facts(body, &[]);
+        let cache = BodyCache::default();
+        let v = body_path_first(&cache, &facts, "$.plain").unwrap();
+        assert_eq!(v, Some(serde_json::json!(1)));
+        assert!(cache.root.get().is_none() && cache.nested.get().is_none());
+    }
+
     fn lenient_facts<'a>(body: &'a [u8], headers: &'a [(String, String)]) -> ResponseFacts<'a> {
         ResponseFacts {
             status: 200,
