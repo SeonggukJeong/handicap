@@ -1,7 +1,7 @@
 # 계단 진행 패널 — 실패 이유 표시 (설계)
 
 - 날짜: 2026-11-20 · 유형: user-path · roadmap §A16 후속, §B70 (0) 첫 줄 사용자 결정 + §B70 (2) 첫 줄(판정 직후 경계 초) + §B70 (3)(400px 표 넘침)
-- **상태: 구현·최종 리뷰·라이브 검증 완료(2026-11-20, 코드 `4f4171e3`..`02752e87`) — 판단·연기 roadmap §B71** · plan `docs/superpowers/plans/2026-11-20-stage-live-reasons.md`
+- **상태: 구현·최종 리뷰·라이브 검증 완료(2026-11-20, 코드 `42cdaf91`..`0c66ccaf`) — 판단·연기 roadmap §B71** · plan `docs/superpowers/plans/2026-11-20-stage-live-reasons.md`
 - 슬러그: `stage-live-reasons` · 선행: stage-live-panel(`3668110b`..`eb225566`, ADR-0059, spec `2026-11-18-stage-auto-stop-design.md` §8)
 - 범위 결정(사용자 2026-11-20): 실패 이유 + 같은 화면의 작은 문제 두 개(경계 초·400px 넘침)를 이번에 함께. 와이어 모양 = 접근 A(서버는 숫자, 문구는 화면).
 
