@@ -22,7 +22,7 @@ use crate::panel_settings::condition_target;
 use crate::text;
 use crate::view::text_width;
 
-/// 서버 `check.rs` `MAX_JSON_UNWRAP`과 같다.
+/// 엔진 `json_unwrap`의 `MAX_JSON_UNWRAP`과 같다.
 const MAX_JSON_UNWRAP: usize = 3;
 
 /// 고른 줄의 받은 값.
@@ -323,7 +323,7 @@ impl<'de> Deserialize<'de> for Node {
     }
 }
 
-/// 서버 `unwrap_json_str`과 같은 규칙 — 객체·배열이 되면 그 값.
+/// 엔진 `json_unwrap::unwrap_json_str`과 같은 규칙 — 객체·배열이 되면 그 값.
 fn unwrap_str(s: &str) -> Option<Node> {
     let head = s.trim_start_matches([' ', '\t', '\n', '\r']);
     if !head.starts_with(['{', '[', '"']) {

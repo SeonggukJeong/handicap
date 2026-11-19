@@ -299,7 +299,7 @@ fn paths_match_gui_shape() {
     }
 }
 
-/// 서버(`check.rs` `parse_body_json`·`unwrap_json_str`·`BodyJson::path_first`) 규칙을 다시 적은 것.
+/// 서버(엔진 `json_unwrap`의 `parse_body_json`·`unwrap_json_str`, `check.rs` `BodyJson::path_first`) 규칙을 다시 적은 것.
 fn server_unwrap_str(s: &str) -> Option<serde_json::Value> {
     use serde_json::Value;
     let head = s.trim_start_matches([' ', '\t', '\n', '\r']);

@@ -9,6 +9,7 @@ pub mod error_kind;
 pub mod executor;
 pub mod extract;
 mod genvars;
+pub mod json_unwrap;
 mod open_loop_counters;
 pub mod pacing;
 pub mod percentiles;

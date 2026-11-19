@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use handicap_engine::extract::{jsonpath_first, stringify};
+use handicap_engine::json_unwrap::{parse_body_json, unwrap_json_str, unwrap_nested};
 use handicap_engine::{
     Assertion, HttpStep, Scenario, ScenarioTrace, Step, StepKind, StepTrace, TraceOptions,
     TracedResponse, trace_scenario,
@@ -282,61 +283,6 @@ fn condition_step_missing(
         REASON_COND_STEP_MISSING,
         &condition_detail(c, None),
     ))
-}
-
-/// 본문 JSON 읽기 — 문자열로 감싼 JSON은 최대 `MAX_JSON_UNWRAP`번 풀어 객체/배열을 낸다.
-pub(crate) const MAX_JSON_UNWRAP: usize = 3;
-
-/// 문자열 하나를 최대 `MAX_JSON_UNWRAP`겹 풀어 객체/배열이 되면 그 값. 아니면 `None`.
-fn unwrap_json_str(s: &str) -> Option<serde_json::Value> {
-    // 객체·배열·감싼 문자열만 후보 — 평범한 문자열은 파싱 시도도 안 한다(JSON 공백 4종만 건너뜀).
-    let head = s.trim_start_matches([' ', '\t', '\n', '\r']);
-    if !head.starts_with(['{', '[', '"']) {
-        return None;
-    }
-    let mut cur = s.to_owned();
-    for _ in 0..MAX_JSON_UNWRAP {
-        match serde_json::from_str::<serde_json::Value>(&cur) {
-            Ok(v) if v.is_object() || v.is_array() => return Some(v),
-            Ok(serde_json::Value::String(next)) => cur = next,
-            _ => return None,
-        }
-    }
-    None
-}
-
-pub(crate) fn parse_body_json(body: &str) -> Option<serde_json::Value> {
-    let first: serde_json::Value = serde_json::from_str(body).ok()?;
-    // 평범한 객체/배열(대부분)은 복제 없이 그대로 — 문자열일 때만 풀기 시도.
-    if let serde_json::Value::String(s0) = &first
-        && let Some(v) = unwrap_json_str(s0)
-    {
-        return Some(v);
-    }
-    Some(first)
-}
-
-/// 안쪽 필드의 감싼 JSON까지 푼 사본. 바뀐 곳이 없으면 `None`(경로 재조회 불필요).
-/// 깊은 본문에서도 스택이 넘치지 않게 직접 쌓아 가며 훑는다.
-fn unwrap_nested(root: &serde_json::Value) -> Option<serde_json::Value> {
-    use serde_json::Value;
-    let mut out = root.clone();
-    let mut changed = false;
-    let mut stack: Vec<&mut Value> = vec![&mut out];
-    while let Some(node) = stack.pop() {
-        if let Value::String(s) = node
-            && let Some(inner) = unwrap_json_str(s)
-        {
-            *node = inner;
-            changed = true;
-        }
-        match node {
-            Value::Array(a) => stack.extend(a.iter_mut()),
-            Value::Object(o) => stack.extend(o.values_mut()),
-            _ => {}
-        }
-    }
-    changed.then_some(out)
 }
 
 /// 조건·표시 값이 읽는 본문 JSON. 경로는 원래 본문(바깥만 푼 것)에서 먼저 찾고,
