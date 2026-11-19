@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { segmentsToPath, type Segment } from "../../scenario/jsonPath";
+import { PICK_ROW_ATTR, pickClick, usePickCopy } from "./usePickCopy";
 
 export type JsonLeaf = {
   segments: ReadonlyArray<Segment>;
@@ -22,6 +23,10 @@ function lastKey(segments: ReadonlyArray<Segment>): string {
   return "value";
 }
 
+function hasAction(p: TreeProps): boolean {
+  return p.actionLabel !== undefined && p.renderConfirm !== undefined;
+}
+
 interface TreeProps {
   /** Leaf buttons render only when both `actionLabel` and `renderConfirm` are given. */
   actionLabel?: string;
@@ -32,8 +37,14 @@ interface TreeProps {
 /** Renders parsed JSON as a tree; scalar leaves expose an action button that opens
  *  `renderConfirm` inline below the leaf. Containers are shown but have no action. */
 export function JsonValueTree({ value, ...props }: TreeProps & { value: unknown }) {
+  // With an action, a value row is the click target and dragging over it copies.
+  const { onMouseUp, feedback } = usePickCopy(hasAction(props));
   return (
-    <div className="overflow-auto rounded bg-slate-900 p-2 font-mono text-xs text-slate-100">
+    <div
+      className="overflow-auto rounded bg-slate-900 p-2 font-mono text-xs text-slate-100"
+      onMouseUp={onMouseUp}
+    >
+      {feedback}
       <TreeNode value={value} segments={[]} {...props} />
     </div>
   );
@@ -53,6 +64,7 @@ function TreeNode({
 }) {
   const [confirming, setConfirming] = useState(false);
   const prefix = label !== undefined ? `${label}: ` : "";
+  const actionable = hasAction({ actionLabel, renderConfirm });
 
   if (isScalar(value)) {
     const leaf: JsonLeaf = {
@@ -63,12 +75,19 @@ function TreeNode({
     };
     return (
       <div className="pl-3">
-        <div className="flex items-center justify-between gap-2">
+        <div
+          className={`flex items-center justify-between gap-2 ${
+            actionable ? "-mx-1 cursor-pointer rounded px-1 hover:bg-white/10" : ""
+          }`}
+          {...(actionable
+            ? { [PICK_ROW_ATTR]: "", onClick: (e) => pickClick(e, () => setConfirming(true)) }
+            : {})}
+        >
           <span className="min-w-0 truncate">
             {prefix}
             {typeof value === "string" ? `"${value}"` : String(value)}
           </span>
-          {actionLabel !== undefined && renderConfirm && (
+          {actionable && (
             <button
               type="button"
               aria-label={actionAriaLabel ? actionAriaLabel(leaf) : undefined}

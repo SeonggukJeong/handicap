@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Callout } from "../ui/Callout";
 import { Modal } from "../Modal";
+import { copyText } from "./copyText";
 
 // Future: expose via an options menu (docs/roadmap.md §B2''). JS string units (UTF-16
 // code points), distinct from the engine's byte cap.
@@ -45,16 +46,11 @@ export function BodyViewer({
     return () => clearTimeout(t);
   }, [copied]);
   // Only confirm on an actual successful write — a rejected/unavailable
-  // clipboard must NOT show false success.
+  // clipboard must NOT show false success (the label then stays "복사").
   function copy() {
-    void (async () => {
-      try {
-        await navigator.clipboard?.writeText(text);
-        setCopied(true);
-      } catch {
-        // clipboard unavailable or denied — leave the label as "복사"
-      }
-    })();
+    void copyText(text).then((ok) => {
+      if (ok) setCopied(true);
+    });
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">

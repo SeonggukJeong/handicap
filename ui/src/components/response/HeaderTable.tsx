@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { PICK_ROW_ATTR, pickClick, usePickCopy } from "./usePickCopy";
 
 export function HeaderTable({
   title,
@@ -17,16 +18,28 @@ export function HeaderTable({
    *  confirm box for that row's action, so it appears next to the button that opened it. */
   expanded?: { rowKey: string; content: ReactNode };
 }) {
+  // With an action, the whole row is the click target (the button can sit far to the
+  // right) and dragging over row text copies it.
+  const { onMouseUp, feedback } = usePickCopy(action !== undefined);
   if (rows.length === 0) return null;
   const cols = action ? 3 : 2;
   return (
-    <div className="mb-2">
+    <div className="mb-2" onMouseUp={action ? onMouseUp : undefined}>
+      {feedback}
       <div className="text-xs font-medium text-slate-500">{title}</div>
       <table className="min-w-full text-xs">
         <tbody>
           {rows.map(([k, v]) => (
             <Fragment key={k}>
-              <tr>
+              <tr
+                {...(action
+                  ? {
+                      [PICK_ROW_ATTR]: "",
+                      onClick: (e) => pickClick(e, () => action.onClick(k)),
+                      className: "cursor-pointer hover:bg-accent-50",
+                    }
+                  : {})}
+              >
                 <td className="py-0.5 pr-3 font-mono text-slate-600 align-top">{k}</td>
                 <td className="py-0.5 font-mono break-all">{v}</td>
                 {action && (

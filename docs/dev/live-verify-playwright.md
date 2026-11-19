@@ -128,6 +128,8 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 - **`ui/dist`를 다시 빌드한 뒤 같은 탭에서 `browser_navigate`만 하면 캐시된 옛 `index.html`(옛 해시 번들)이 뜬다** — `document.querySelector('script[src*=assets]').src` 해시를 `ui/dist/index.html`과 대조, 다르면 `location.reload()` 후 측정 (monitor-step-panels).
 - **자동 정지 run은 정지 결정 뒤 약 1초 안에 끝나 1초 간격 `browser_evaluate` 폴링으로는 정지 순간 화면(정지 줄·바뀐 칩)을 놓친다 — 페이지 안 `MutationObserver` 기록기(`window.__hist`에 패널 글자가 바뀔 때마다 [시각, 글자])를 심고 끝난 뒤 읽는다** (stage-live-panel). 첫 순간(「첫 데이터 대기 중」)도 같은 방법으로 — run을 페이지 안 `fetch`로 만들고 `history.pushState`+`popstate`로 이동하면 기록기가 살아남는다(이때 콘솔의 react-router 「blocker on a POP navigation」 경고는 시험 조작 탓).
 
+- **Playwright-MCP 브라우저는 사용자 맥의 시스템 클립보드와 다른 세션의 탭을 함께 쓴다** (row-click-copy 2026-11-20): `navigator.clipboard.readText()`가 사용자가 다른 세션에 붙여 넣으려던 명령을 돌려줬다 — 복사 기능을 검증하면 사용자 클립보드를 덮어쓴다. 시작에서 읽어 두고 `try { … } finally { writeText(원래 값) }`로 되돌릴 것(스크린샷 경로 오류로 스크립트가 중간에 멈춰 복원이 한 번 빠졌다). 탭 목록에 다른 세션의 탭(다른 포트)이 보이면 그 탭은 건드리지 않는다 — 내 옛 탭에 미저장 편집이 남아 있으면 이동 시 `beforeunload` 창이 뜬다. 또 사용자가 같은 창을 직접 만지면 측정이 섞인다(드래그 중 열린 선택 상자). `page.screenshot` 상대 경로는 MCP 작업 폴더 기준이라 ENOENT — 절대 경로 `/Users/sgj/develop/handicap/.playwright-mcp/…`.
+
 ## 헤드리스 Chrome PDF 쪽 수 검증 — 스크립트 파일로 감쌀 것 (a4-print-report 2026-11-06)
 
 워크트리-격리 세션은 따옴표로 감싼 실행 파일 경로(`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless …`)와 `$VAR` 인자를 쓴 `python3` 호출을 "검증 불가"로 거부한다 → scratchpad에 Python 스크립트(`subprocess.run([CHROME, "--headless", f"--print-to-pdf={pdf}", "--no-pdf-header-footer", "--virtual-time-budget=10000", url])` + `pdfinfo`)를 Write하고 리터럴 경로로 단독 호출. 회색조 판독은 `pdftoppm -gray -png`로 이미지화해 Read.

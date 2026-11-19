@@ -18,6 +18,8 @@ export const ko = {
     saving: "저장 중…",
     cancel: "취소",
     close: "닫기",
+    copied: "복사됨",
+    copyFailed: "복사 안 됨 — Ctrl+C로 복사하세요",
     versionTitle: "컨트롤러 버전",
     delete: "삭제",
     edit: "편집",
