@@ -1,5 +1,7 @@
 # 인쇄 보고서 보강 (응답 속도 구간 + 기준·측정값 자릿수) Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 인쇄 보고서에서 판정에 쓰이는 측정값·기준값이 서로 구분되는 글자로 찍히고, 표준판에 「3. 단계별 응답 속도 구간」 절이 시안 그대로 나온다.
@@ -248,7 +250,7 @@ it("느림 줄: 단계 p95·기준이 ms로", () => {
 #[test] fn build_none_when_overall_empty_and_skips_empty_steps()
 #[test] fn verdict_agrees_with_over_share()                          // 불변식 — 아래
 ```
-불변식 테스트(spec §6.3): 고정 시드(예: 단순 LCG)로 히스토그램 300개(표본 1–5,000개, 값 1µs–10s 로그 분포 + 기준 ±1ms 근처 값 섞기)와 기준값을 만들고, q ∈ {0.95, 0.99, 0.5} 각각에 대해
+불변식 테스트(spec §6.3): 고정 시드(예: 단순 LCG)로 히스토그램 300개(표본 1–5,000개, 값 1µs–10s 로그 분포 + 기준 ±1ms 근처 값 섞기)와 기준값을 만들고, (q, basis) 짝 (0.95, "p95")·(0.99, "p99")·(0.5, "p50") 각각에 대해
 `(h.value_at_quantile(q) / 1_000 <= slow_ms) == !exceeds_allowance(basis, over, total)`를 단언한다. 정수식인 이유: 통과 ⇔ `N − over >= ceil(q·N)` ⇔ p95에서 `20·over <= N`(부동소수 `1.0 − 0.95`는 `0.05`와 글자 그대로 같지 않다). **이 단언이 어떤 입력에서 깨지면 구현을 멈추고 그 입력을 보고한다**(안내 줄 문구가 이 관계에 기댄다 — 테스트를 느슨하게 고치지 말 것). `exceeds_allowance` 자체도 표로 단언한다: `("p95", 5, 100) → false`, `("p95", 6, 100) → true`, `("p99", 1, 100) → false`, `("p99", 2, 100) → true`, `("p50", 50, 100) → false`, `("p50", 51, 100) → true`, `("default", 100, 100) → false`.
 
 `report.rs` 인라인:
@@ -299,7 +301,7 @@ it("느림 줄: 단계 p95·기준이 ms로", () => {
   export type SpeedModel = {
     twoBand: boolean;
     head: { fast: string | null; within: string; over: string; overSub: string | null };
-    legend: string[];                // 세 구간 3개, 두 구간 2개 (색 견본 순서 = fast·within·over)
+    legend: Array<{ band: "fast" | "within" | "over"; text: string }>;  // 견본 색은 band로. 세 구간 = fast·within·over, 두 구간 = fast(이내)·over(초과) — 시안 경우 4의 .s1·.s3
     rows: SpeedRow[];                // table.rows 순서 + 마지막 total
     rule: { segs: Seg[]; fail: boolean } | null;         // run 수준 안내 줄
     stepRules: Seg[][];              // 최대 5, 미달 먼저 → 시나리오 순서
@@ -338,7 +340,7 @@ it("경우 1: 고른 표·p95 3000·미달", () => {
   // head = {fast:"1초 미만", within:"1초–3초", over:"3초 초과", overSub:"기준 넘음"}
   // ④ over 셀 = {text:"32.0%", mark:"warn", glyph:"▲"}; ⑤ fail 셀 glyph "✕", rowBad true
   // total over 셀 mark "bad", glyph ""
-  // rule.fail === true, rule.text에 "7.00%"·"이 기준은 미달" 포함, "넘어 미달" 없음
+  // rule.fail === true·ruleBoxFail === true, rule.segs를 이어 붙인 글에 "7.00%"·"이 기준은 미달" 포함, "넘어 미달" 없음
   // notes에 noteBars와 "✕ ⑤ 신청 제출" 이름 문장
 });
 it("경우 2: 섞인 표 — 자기 기준 단계", () => {
@@ -350,7 +352,7 @@ it("경우 3: 기준 없음", () => {
   // rule === null, 모든 over 셀 mark "none", overSub null, notes[0] === ko.print.speed.noteDefault
 });
 it("경우 4: 두 구간", () => {
-  // twoBand true, head.fast null, head.within "800ms 이내", over "800ms 초과", legend 2개
+  // twoBand true, head.fast null, head.within "800ms 이내", over "800ms 초과", legend = [{band:"fast", text:"800ms 이내"}, {band:"over", text:"800ms 초과 (기준 넘음)"}]
 });
 it("경우 6: 아슬아슬한 값과 기준 없는 실패", () => {
   // over 4.96% → {text:"4.96%", mark:"none"}; 5.04% → {text:"5.04%", mark:"warn", glyph:"▲"}
@@ -374,7 +376,7 @@ it("단계 줄 순서: 미달 먼저", () => {
   // 시나리오 순서 ① 통과 · ② 미달 → stepRules[0]이 ②
 });
 it("두 구간 섞인 표 (run 800ms + 단계 500ms)", () => {
-  // twoBand true, head.within "기준 이내", over "기준 초과", overSub "800ms (따로 적힌 단계 제외)", legend ["기준 이내","기준 초과"]
+  // twoBand true, head.within "기준 이내", over "기준 초과", overSub "800ms (따로 적힌 단계 제외)", legend = [{band:"fast", text:"기준 이내"}, {band:"over", text:"기준 초과"}]
   // 모든 행 bar의 첫 조각 band "fast"
 });
 it("자기 기준이 run 값과 같으면 고른 표", () => {
@@ -389,13 +391,13 @@ it("표본 없는 단계·분모 0에서 NaN이 없다", () => {
 });
 it("경계 0·소수 기준 글자", () => { /* slow_ms 0 → head.over "0ms 초과" */ });
 ```
-`buildPrintDoc.test.ts`: `speed_bands` 있는 리포트 → `doc.speed !== null`·`doc.sectionNo.chart === "4. 시간에 따른 변화"`; 없는 리포트 → `doc.speed === null`·`sectionNo.chart === "3. 시간에 따른 변화"`. 스키마: `ReportSchema.parse`가 `fast: null` 행을 통과시키고, `speed_bands` 없는 기존 픽스처도 통과.
+`buildPrintDoc.test.ts`: `speed_bands` 있는 리포트 → `doc.speed !== null`·`doc.sectionNo.chart === "4. 시간에 따른 변화"`; 없는 리포트 → `doc.speed === null`·`sectionNo.chart === "3. 시간에 따른 변화"`.
 
 - [ ] **Step 2: 실패 확인** — `pnpm test speedBands` FAIL.
 - [ ] **Step 3: 구현** (`buildPrintDoc`의 `anyNotSent` = `table.rows.some(r => r.notSent > 0)`)
 - [ ] **Step 4: 통과 확인** — `pnpm test speedBands`·`pnpm test buildPrintDoc` PASS.
 - [ ] **Step 5: 되돌려 확인** — (a) 초과 칸을 `fmtPct`로 바꿔 경우 6이 RED, (b) total 행 `bad` 판정을 건수 기반으로 바꿔 "서버 판정 없는 run" 케이스가 RED인지 보고 각각 원복.
-- [ ] **Step 6: 게이트·커밋** — `pnpm lint && pnpm test && pnpm build`. 커밋 `feat(ui/print): 응답 속도 구간 모델·문구·스키마`.
+- [ ] **Step 6: 게이트·커밋** — `pnpm lint && pnpm test && pnpm build`. 커밋 `feat(ui/print): 응답 속도 구간 모델·문구`.
 
 ---
 
