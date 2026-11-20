@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>응답 속도 구간 시안 v1</title>
+<style>
+  :root{
+    --ink:#1a1d24; --sub:#5b6170; --line:#c9ccd3; --faint:#eef0f3;
+    --ok:#1f7a4d; --warn:#a15c00; --warnbg:#fff3df; --bad:#b42318; --badbg:#fdecea;
+    --accent:#3b4bc8;
+    --b1:#d6e2f5; --b2:#7f9fd6; --b3:#27407f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#8a8f99;font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;color:var(--ink);}
+  .guide{max-width:210mm;margin:16px auto 8px;background:#fff;border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.6}
+  .guide b{color:var(--accent)}
+  .case{max-width:210mm;margin:22px auto 6px;color:#fff;font-size:14px;font-weight:700}
+  .case small{display:block;font-weight:400;font-size:12.5px;line-height:1.55;margin-top:2px;color:#f1f2f4}
+  .page{width:210mm;margin:0 auto 12px;background:#fff;padding:8mm 15mm 8mm;box-shadow:0 2px 12px rgba(0,0,0,.25);font-size:9.5pt;line-height:1.45}
+  h2{font-size:11pt;margin:0 0 2mm;padding-bottom:1mm;border-bottom:1.5px solid var(--ink)}
+  h2 .no{color:var(--accent);margin-right:2mm}
+  table{width:100%;border-collapse:collapse;font-size:8.5pt}
+  th,td{border:1px solid var(--line);padding:1.4mm 2mm;text-align:right}
+  th{background:var(--faint);font-weight:700;text-align:center}
+  th small{display:block;font-weight:400;color:var(--sub);font-size:7.3pt}
+  td.l,th.l{text-align:left}
+  td.barc{padding:1.4mm 2mm}
+  tr.total td{border-top:1.5px solid var(--ink);font-weight:700}
+  tr.rowbad td.l,tr.rowbad td.f{background:var(--badbg)}
+  .bad{color:var(--bad);font-weight:700}
+  .warn{color:var(--warn);font-weight:700}
+  .muted{color:#aab0bb}
+  .bar{display:flex;height:4.4mm;border:1px solid var(--sub);overflow:hidden}
+  .bar i{display:block;height:100%}
+  .s1{background:var(--b1)}
+  .s2{background:var(--b2)}
+  .s3{background:var(--b3);background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.55) 0 1px,transparent 1px 4px)}
+  .sf{background:var(--bad)}
+  .sw{display:inline-block;width:6mm;height:2.8mm;border:1px solid var(--sub);vertical-align:-0.4mm;margin-right:1mm}
+  .legend{display:flex;flex-wrap:wrap;gap:1mm 5mm;font-size:7.6pt;color:var(--sub);margin-top:1.8mm}
+  .rule{font-size:8.3pt;margin-top:2mm;padding:1.6mm 2.5mm;border:1px solid var(--line);border-left:3px solid var(--ink)}
+  .rule.fail{border-left-color:var(--bad)}
+  .note{font-size:7.6pt;color:var(--sub);margin-top:1.5mm}
+  .own{font-size:7.3pt;color:var(--sub);display:block}
+  .alt{border-top:1px dashed var(--line);margin-top:5mm;padding-top:3mm}
+  .alt .t{font-size:8.3pt;font-weight:700;color:var(--accent);margin-bottom:1.5mm}
+</style>
+</head>
+<body>
+
+<div class="guide">
+  <b>응답 속도 구간 시안 v1</b> — 측정결과 보고서에 새로 들어갈 절 하나만 떼어 낸 것입니다(A4 폭, 예시 데이터).<br>
+  막대 색은 <b>빠름 → 느림</b>(옅은 파랑 → 짙은 빗금)이고 좋음/나쁨 색(초록/빨강)을 쓰지 않습니다. 흑백으로 뽑아도 읽히도록 구간 비율을 <b>숫자 칸</b>으로도 적습니다. 실패는 막대 밖 맨 오른쪽 칸입니다.
+</div>
+
+<!-- ───────── 경우 1 ───────── -->
+<div class="case">경우 1 — 빠른 실패가 많은 단계 (기준: 95% 응답 3,000ms 이하 · 판정 미달)
+  <small>⑤ 신청 제출은 503이 0.1초 만에 돌아와 막대는 거의 「1초 미만」입니다. 오른쪽 「실패」 칸과 ✕가 이를 알립니다. 아래 점선 밑은 같은 데이터를 예전 시안 방식(실패를 막대 안에 따로)으로 그린 것 — 지금 엔진 기록으로는 만들 수 없는 그림입니다.</small>
+</div>
+<div class="page">
+  <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
+  <table>
+    <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>1초 미만</th><th>1초–3초</th><th>3초 초과<small>기준 넘음</small></th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
+    <tr><td class="l">① 로그인</td><td class="barc"><div class="bar"><i class="s1" style="width:96%"></i><i class="s2" style="width:4%"></i></div></td><td>96.0%</td><td>4.0%</td><td class="muted">0.0%</td><td class="f muted">0.0%</td></tr>
+    <tr><td class="l">② 민원 목록</td><td class="barc"><div class="bar"><i class="s1" style="width:82%"></i><i class="s2" style="width:18%"></i></div></td><td>82.0%</td><td>18.0%</td><td class="muted">0.0%</td><td class="f muted">0.0%</td></tr>
+    <tr><td class="l">③ 민원 상세</td><td class="barc"><div class="bar"><i class="s1" style="width:74%"></i><i class="s2" style="width:25.8%"></i><i class="s3" style="width:.2%"></i></div></td><td>74.0%</td><td>25.8%</td><td>0.2%</td><td class="f">0.3%</td></tr>
+    <tr><td class="l">④ 첨부 업로드</td><td class="barc"><div class="bar"><i class="s1" style="width:22%"></i><i class="s2" style="width:46%"></i><i class="s3" style="width:32%"></i></div></td><td>22.0%</td><td>46.0%</td><td class="warn">▲ 32.0%</td><td class="f muted">0.0%</td></tr>
+    <tr class="rowbad"><td class="l"><span class="bad">✕</span> ⑤ 신청 제출</td><td class="barc"><div class="bar"><i class="s1" style="width:88%"></i><i class="s2" style="width:9%"></i><i class="s3" style="width:3%"></i></div></td><td>88.0%</td><td>9.0%</td><td>3.0%</td><td class="f bad">✕ 26.6%</td></tr>
+    <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:72.4%"></i><i class="s2" style="width:20.6%"></i><i class="s3" style="width:7%"></i></div></td><td>72.4%</td><td>20.6%</td><td class="bad">7.0%</td><td class="f bad">5.4%</td></tr>
+  </table>
+  <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–3초</span><span><i class="sw s3"></i>3초 초과 (기준 넘음)</span></div>
+  <div class="rule fail">기준 「95% 응답 시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>7.0%</b>가 3초를 넘어 <b class="bad">미달</b>입니다.</div>
+  <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다. <b>✕ ⑤ 신청 제출</b>은 요청의 26.6%가 실패했고, 실패한 응답은 금방 돌아오는 경우가 많아 막대가 빠르게 보일 수 있습니다. 어떤 응답 코드였는지는 2절 표를 보십시오.</div>
+
+  <div class="alt">
+    <div class="t">(비교용 · 보고서에 안 들어감) 예전 시안 방식 — 실패를 막대 안에 따로</div>
+    <table>
+      <tr><th class="l" style="width:36mm">단계</th><th>요청 결과 비율</th></tr>
+      <tr><td class="l">④ 첨부 업로드</td><td class="barc"><div class="bar"><i class="s1" style="width:22%"></i><i class="s2" style="width:46%"></i><i class="s3" style="width:32%"></i></div></td></tr>
+      <tr><td class="l">⑤ 신청 제출</td><td class="barc"><div class="bar"><i class="s1" style="width:62%"></i><i class="s2" style="width:8.6%"></i><i class="s3" style="width:2.8%"></i><i class="sf" style="width:26.6%"></i></div></td></tr>
+    </table>
+    <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–3초</span><span><i class="sw s3"></i>3초 초과</span><span><i class="sw sf"></i>실패</span></div>
+  </div>
+</div>
+
+<!-- ───────── 경우 2 ───────── -->
+<div class="case">경우 2 — 전체는 통과인데 한 단계만 느림 + 단계별 기준이 따로 있는 단계
+  <small>전체 「3초 초과」 3.1% → 통과. ④ 첨부 업로드는 그 단계만의 기준(5,000ms)이 있어 경계가 다릅니다 — 행에 그 값을 적습니다.</small>
+</div>
+<div class="page">
+  <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
+  <table>
+    <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>1초 미만</th><th>1초–기준</th><th>기준 초과<small>3초 (따로 적힌 단계 제외)</small></th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
+    <tr><td class="l">① 로그인</td><td class="barc"><div class="bar"><i class="s1" style="width:97%"></i><i class="s2" style="width:3%"></i></div></td><td>97.0%</td><td>3.0%</td><td class="muted">0.0%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">② 민원 목록</td><td class="barc"><div class="bar"><i class="s1" style="width:85%"></i><i class="s2" style="width:14.6%"></i><i class="s3" style="width:.4%"></i></div></td><td>85.0%</td><td>14.6%</td><td>0.4%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">③ 민원 상세</td><td class="barc"><div class="bar"><i class="s1" style="width:78%"></i><i class="s2" style="width:21.1%"></i><i class="s3" style="width:.9%"></i></div></td><td>78.0%</td><td>21.1%</td><td>0.9%</td><td>0.1%</td></tr>
+    <tr><td class="l">④ 첨부 업로드<span class="own">이 단계 기준 5초</span></td><td class="barc"><div class="bar"><i class="s1" style="width:20%"></i><i class="s2" style="width:66%"></i><i class="s3" style="width:14%"></i></div></td><td>20.0%</td><td>66.0%</td><td class="warn">▲ 14.0%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">⑤ 신청 제출</td><td class="barc"><div class="bar"><i class="s1" style="width:70%"></i><i class="s2" style="width:28.5%"></i><i class="s3" style="width:1.5%"></i></div></td><td>70.0%</td><td>28.5%</td><td>1.5%</td><td>0.2%</td></tr>
+    <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:74%"></i><i class="s2" style="width:22.9%"></i><i class="s3" style="width:3.1%"></i></div></td><td>74.0%</td><td>22.9%</td><td>3.1%</td><td>0.1%</td></tr>
+  </table>
+  <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–기준</span><span><i class="sw s3"></i>기준 초과</span></div>
+  <div class="rule">기준 「95% 응답 시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>3.1%</b>가 3초를 넘어 <b>통과</b>입니다.<br>단계 기준 「④ 첨부 업로드 95% 응답 시간 5,000ms 이하」: 5초 초과 <b>14.0%</b> — <b class="bad">미달</b>.</div>
+  <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다.</div>
+</div>
+
+<!-- ───────── 경우 3 ───────── -->
+<div class="case">경우 3 — 응답 시간 기준이 없는 run
+  <small>판정 줄이 없고, 경계는 3초로 그리되 「기준 아님」을 밝힙니다. ▲·미달 표시도 없습니다.</small>
+</div>
+<div class="page">
+  <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
+  <table>
+    <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>1초 미만</th><th>1초–3초</th><th>3초 초과</th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
+    <tr><td class="l">① 로그인</td><td class="barc"><div class="bar"><i class="s1" style="width:96%"></i><i class="s2" style="width:4%"></i></div></td><td>96.0%</td><td>4.0%</td><td class="muted">0.0%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">② 첨부 업로드</td><td class="barc"><div class="bar"><i class="s1" style="width:22%"></i><i class="s2" style="width:46%"></i><i class="s3" style="width:32%"></i></div></td><td>22.0%</td><td>46.0%</td><td>32.0%</td><td class="muted">0.0%</td></tr>
+    <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:59%"></i><i class="s2" style="width:25%"></i><i class="s3" style="width:16%"></i></div></td><td>59.0%</td><td>25.0%</td><td>16.0%</td><td class="muted">0.0%</td></tr>
+  </table>
+  <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–3초</span><span><i class="sw s3"></i>3초 초과</span></div>
+  <div class="note">※ 이 측정에는 응답 시간 기준이 없어 1초·3초로 나눠 보였습니다(판정과 무관). ※ 막대에는 실패한 응답의 시간도 들어 있습니다.</div>
+</div>
+
+<!-- ───────── 경우 4 ───────── -->
+<div class="case">경우 4 — 기준이 1초 이하인 run (기준: 95% 응답 800ms 이하)
+  <small>「1초 미만」 구간이 기준보다 느슨해 의미가 없으므로 두 구간으로 줄입니다.</small>
+</div>
+<div class="page">
+  <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
+  <table>
+    <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>800ms 이내</th><th>800ms 초과<small>기준 넘음</small></th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
+    <tr><td class="l">① 조회</td><td class="barc"><div class="bar"><i class="s1" style="width:98.8%"></i><i class="s3" style="width:1.2%"></i></div></td><td>98.8%</td><td>1.2%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">② 저장</td><td class="barc"><div class="bar"><i class="s1" style="width:91%"></i><i class="s3" style="width:9%"></i></div></td><td>91.0%</td><td class="warn">▲ 9.0%</td><td>0.4%</td></tr>
+    <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:95.6%"></i><i class="s3" style="width:4.4%"></i></div></td><td>95.6%</td><td>4.4%</td><td>0.2%</td></tr>
+  </table>
+  <div class="legend"><span><i class="sw s1"></i>800ms 이내</span><span><i class="sw s3"></i>800ms 초과 (기준 넘음)</span></div>
+  <div class="rule">기준 「95% 응답 시간 800ms 이하」는 <b>800ms 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>4.4%</b>가 800ms를 넘어 <b>통과</b>입니다.</div>
+  <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다.</div>
+</div>
+
+</body>
+</html>
