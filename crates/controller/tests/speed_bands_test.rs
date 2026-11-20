@@ -228,6 +228,42 @@ fn exceeds_allowance_table() {
     assert!(!exceeds_allowance("default", 100, 100));
 }
 
+/// 안내 문장이 뒤집히는 경계를 고정값으로 박는다: 느린 쪽 개수가 허용 몫 바로 아래/위일 때
+/// 서버의 `value_at_quantile` 통과 여부와 `exceeds_allowance`가 같은 답을 낸다.
+#[test]
+fn allowance_boundary_flips_where_percentile_flips() {
+    // (기준 basis, 분위수, 전체 N, 느린 쪽 개수, 허용 몫 초과 여부)
+    let cases = [
+        ("p95", 0.95, 100u64, 5u64, false),
+        ("p95", 0.95, 100, 6, true),
+        ("p99", 0.99, 200, 2, false),
+        ("p99", 0.99, 200, 3, true),
+        ("p50", 0.5, 2, 1, false),
+        ("p50", 0.5, 4, 2, false),
+        ("p50", 0.5, 4, 3, true),
+    ];
+    let slow_ms = 3000;
+    for (basis, q, n, over, exceeded) in cases {
+        let mut h = hist();
+        rec_ms(&mut h, 500, n - over);
+        rec_ms(&mut h, 4000, over);
+        let row = count_bands(&h, slow_ms, basis, false);
+        let total = row.fast.unwrap_or(0) + row.within + row.over;
+        assert_eq!((total, row.over), (n, over), "{basis} n={n} over={over}");
+        let passes = h.value_at_quantile(q) / 1_000 <= slow_ms;
+        assert_eq!(
+            exceeds_allowance(basis, row.over, total),
+            exceeded,
+            "{basis} n={n} over={over}: 허용 몫 초과 여부"
+        );
+        assert_eq!(
+            passes,
+            !exceeds_allowance(basis, row.over, total),
+            "{basis} n={n} over={over}: 분위수 통과 여부와 일치"
+        );
+    }
+}
+
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self) -> u64 {
@@ -254,7 +290,6 @@ fn verdict_agrees_with_over_share() {
             _ => 1 + rng.next() % 9000,
         };
         let mut h = hist();
-        let mut values = Vec::with_capacity(n as usize);
         for _ in 0..n {
             let us = if rng.next() % 4 == 0 {
                 // 기준 ±1ms 근처
@@ -266,7 +301,6 @@ fn verdict_agrees_with_over_share() {
                 let e = rng.unit() * (10_000_000f64).ln();
                 (e.exp() as u64).clamp(1, 10_000_000)
             };
-            values.push(us);
             h.record(us).unwrap();
         }
         let row = count_bands(&h, slow_ms, "p95", false);
