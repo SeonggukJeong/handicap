@@ -564,9 +564,15 @@ async fn seed_open_loop_stall_run(db: &handicap_controller::store::Db) -> String
     let row = store::runs::insert(db, "S-ol", yaml, &profile, &serde_json::json!({}), None)
         .await
         .unwrap();
-    store::runs::set_status(db, &row.id, RunStatus::Completed, Some(1000), Some(1060))
-        .await
-        .unwrap();
+    store::runs::set_status(
+        db,
+        &row.id,
+        RunStatus::Completed,
+        Some(1_000_000),
+        Some(1_060_000),
+    )
+    .await
+    .unwrap();
     sqlx::query("UPDATE runs SET dropped = 18000 WHERE id = ?")
         .bind(&row.id)
         .execute(db)
@@ -590,7 +596,7 @@ async fn report_endpoint_marks_stall_for_intermittent_stall() {
         .expect("load_gen_saturated");
     assert_eq!(ins["cause"], "stall");
     assert!(!ins.as_object().unwrap().contains_key("recommended"));
-    assert!(ins.as_object().unwrap().contains_key("typical_in_flight"));
+    assert_eq!(ins["typical_in_flight"], 14);
     let can = json["narrative"]["can_claim"].as_array().unwrap();
     assert!(can.iter().any(|c| c == "delivery_interrupted_by_stall"));
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
@@ -653,9 +659,15 @@ async fn report_endpoint_marks_stall_for_stair_run() {
     )
     .await
     .unwrap();
-    store::runs::set_status(&db, &row.id, RunStatus::Completed, Some(1000), Some(1060))
-        .await
-        .unwrap();
+    store::runs::set_status(
+        &db,
+        &row.id,
+        RunStatus::Completed,
+        Some(1_000_000),
+        Some(1_060_000),
+    )
+    .await
+    .unwrap();
     sqlx::query("UPDATE runs SET dropped = 18000 WHERE id = ?")
         .bind(&row.id)
         .execute(&db)

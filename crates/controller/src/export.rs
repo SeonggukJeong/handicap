@@ -85,8 +85,8 @@ const SUMMARY_METRICS: [&str; 5] = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_
 
 /// 모든 CSV/XLSX 인사이트 표면이 공유하는 정규 컬럼 순서(단일 소스).
 /// `Insight` 구조체(insights.rs) 필드 순서와 일치. 비교 표면은 `run_id` 열을
-/// 앞에 붙이고, 이 17열은 모든 표면에서 동일하다.
-const INSIGHT_COLUMNS: [&str; 17] = [
+/// 앞에 붙이고, 이 21열은 모든 표면에서 동일하다.
+const INSIGHT_COLUMNS: [&str; 21] = [
     "kind",
     "severity",
     "step_id",
@@ -104,9 +104,13 @@ const INSIGHT_COLUMNS: [&str; 17] = [
     "target_per_sec",
     "runner_up_ms",
     "error_kind",
+    "typical_in_flight",
+    "max_in_flight",
+    "drop_seconds",
+    "measured_seconds",
 ];
 
-/// 인사이트 하나를 17개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
+/// 인사이트 하나를 21개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
 fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
     let f = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
     let i = |v: Option<i64>| v.map(|x| x.to_string()).unwrap_or_default();
@@ -128,10 +132,18 @@ fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
         f(ins.target_per_sec),
         f(ins.runner_up_ms),
         ins.error_kind.clone().unwrap_or_default(),
+        ins.typical_in_flight
+            .map(|x| x.to_string())
+            .unwrap_or_default(),
+        ins.max_in_flight.map(|x| x.to_string()).unwrap_or_default(),
+        ins.drop_seconds.map(|x| x.to_string()).unwrap_or_default(),
+        ins.measured_seconds
+            .map(|x| x.to_string())
+            .unwrap_or_default(),
     ]
 }
 
-/// 인사이트 하나의 17개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
+/// 인사이트 하나의 21개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
 /// 숫자 필드는 number로, `None`은 빈 셀(미기록). col_offset = 0(단일) | 1(비교 run_id 뒤).
 fn write_insight_xlsx_row(
     ws: &mut Worksheet,
@@ -186,6 +198,18 @@ fn write_insight_xlsx_row(
     }
     if let Some(v) = &ins.error_kind {
         ws.write_string(row, c(16), v).expect("w");
+    }
+    if let Some(v) = ins.typical_in_flight {
+        ws.write_number(row, c(17), v as f64).expect("w");
+    }
+    if let Some(v) = ins.max_in_flight {
+        ws.write_number(row, c(18), f64::from(v)).expect("w");
+    }
+    if let Some(v) = ins.drop_seconds {
+        ws.write_number(row, c(19), v as f64).expect("w");
+    }
+    if let Some(v) = ins.measured_seconds {
+        ws.write_number(row, c(20), v as f64).expect("w");
     }
 }
 
@@ -1666,7 +1690,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms,error_kind"
+            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms,error_kind,typical_in_flight,max_in_flight,drop_seconds,measured_seconds"
         );
         assert_eq!(lines.len(), 2); // header + 1 insight
         assert!(lines[1].starts_with("slowest_step,info,a,p95_ms,50,,,,,,,,"));
@@ -1700,21 +1724,103 @@ mod tests {
         // INSIGHT_COLUMNS는 Insight 필드 선언 순서와 1:1이므로 마지막 열이다.
         assert_eq!(
             INSIGHT_COLUMNS.len(),
-            17,
-            "E2가 error_kind 열을 더해 16→17이어야 한다"
+            21,
+            "stall이 숫자 4열을 더해 17→21이어야 한다"
         );
-        assert_eq!(*INSIGHT_COLUMNS.last().expect("non-empty"), "error_kind");
+        assert_eq!(INSIGHT_COLUMNS[16], "error_kind");
+        assert_eq!(
+            *INSIGHT_COLUMNS.last().expect("non-empty"),
+            "measured_seconds"
+        );
 
         let mut ins = insight("midrun_error_onset", "critical");
         ins.error_kind = Some("connection_reset".to_string());
         let cells = insight_csv_cells(&ins);
-        assert_eq!(cells.len(), 17);
+        assert_eq!(cells.len(), 21);
         assert_eq!(cells[16], "connection_reset");
 
         let bare = insight("slo_pass", "info");
         let bare_cells = insight_csv_cells(&bare);
-        assert_eq!(bare_cells.len(), 17);
+        assert_eq!(bare_cells.len(), 21);
         assert_eq!(bare_cells[16], "", "None → 빈 문자열");
+    }
+
+    fn stall_insight() -> crate::insights::Insight {
+        crate::insights::Insight {
+            cause: Some("stall".into()),
+            typical_in_flight: Some(14),
+            max_in_flight: Some(2500),
+            drop_seconds: Some(18),
+            measured_seconds: Some(60),
+            ..insight("load_gen_saturated", "warning")
+        }
+    }
+
+    #[test]
+    fn insight_stall_columns_round_trip() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let stall = stall_insight();
+        let slots = insight("load_gen_saturated", "warning");
+        let cells = insight_csv_cells(&stall);
+        assert_eq!(cells.len(), 21);
+        assert_eq!(&cells[17..=20], ["14", "2500", "18", "60"]);
+        let bare = insight_csv_cells(&slots);
+        assert_eq!(&bare[17..=20], ["", "", "", ""]);
+
+        let names = [
+            "typical_in_flight",
+            "max_in_flight",
+            "drop_seconds",
+            "measured_seconds",
+        ];
+        let vals = [14.0, 2500.0, 18.0, 60.0];
+
+        // 단일 XLSX
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.insights = vec![stall.clone(), slots.clone()];
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r))).unwrap();
+        let ws = wb.worksheet_range("Insights").expect("Insights sheet");
+        for i in 0..4u32 {
+            let c = 17 + i;
+            assert_eq!(
+                ws.get_value((0, c)),
+                Some(&Data::String(names[i as usize].into()))
+            );
+            assert_eq!(ws.get_value((1, c)), Some(&Data::Float(vals[i as usize])));
+            assert!(matches!(ws.get_value((2, c)), None | Some(Data::Empty)));
+        }
+
+        // 비교 XLSX (run_id 열 뒤로 한 칸)
+        let mut a = report_with_steps(vec![step("s", 1, 100)]);
+        a.run.id = "A".into();
+        a.insights = vec![stall.clone(), slots.clone()];
+        let mut b = report_with_steps(vec![step("s", 1, 50)]);
+        b.run.id = "B".into();
+        let pair = [a, b];
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(comparison_to_xlsx(&pair, 0))).unwrap();
+        let ws = wb.worksheet_range("Insights").expect("Insights sheet");
+        for i in 0..4u32 {
+            let c = 18 + i;
+            assert_eq!(
+                ws.get_value((0, c)),
+                Some(&Data::String(names[i as usize].into()))
+            );
+            assert_eq!(ws.get_value((1, c)), Some(&Data::Float(vals[i as usize])));
+            assert!(matches!(ws.get_value((2, c)), None | Some(Data::Empty)));
+        }
+
+        // 비교 CSV
+        let csv = String::from_utf8(comparison_to_insights_csv(&pair)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert!(lines[1].ends_with(",14,2500,18,60"), "{}", lines[1]);
+        assert!(
+            lines[2].ends_with("warning,,,,,,,,,,,,,,,,,,,"),
+            "{}",
+            lines[2]
+        );
     }
 
     #[test]
@@ -1742,7 +1848,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms,error_kind"
+            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms,error_kind,typical_in_flight,max_in_flight,drop_seconds,measured_seconds"
         );
         assert_eq!(lines.len(), 3); // header + 2 rows (both from A)
         assert!(lines[1].starts_with("A,slowest_step,info,s,"));
