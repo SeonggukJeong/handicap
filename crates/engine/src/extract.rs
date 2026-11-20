@@ -45,11 +45,33 @@ enum Nested {
     NotTried,
     /// 풀 것이 없다 — 원래 본문 그대로. 뒤 항목은 자기 차례에 1·2단계를 찾는다.
     Nothing,
-    /// 바탕 값이 제자리에서 풀렸다. `early[i]` = 풀기 전에 구해 둔 항목 i의 1·2단계 결과
-    /// (`Some(v)` = 찾음 — `v`가 `null`이어도 찾음, `None` = 못 찾음 또는 본문 항목 아님).
-    Unwrapped {
-        early: Vec<Option<serde_json::Value>>,
-    },
+    /// 바탕 값이 제자리에서 풀렸다. `early[i]` = 항목 i의 풀기 전 1·2단계 결과 칸:
+    /// 트리거 항목 이전·본문 항목이 아님·경로 파싱 실패·1·2단계에서 못 찾음 = `Miss`,
+    /// 찾음(`null`이어도) = `Found`, 이미 쓴 칸 = `Taken`.
+    Unwrapped { early: Vec<Early> },
+}
+
+/// `Nested::Unwrapped`의 항목별 칸. 항목은 평가 한 번에 한 번만 조회된다.
+enum Early {
+    Miss,
+    Found(BodyHit),
+    Taken,
+}
+
+/// 본문 경로가 찾은 값 — 소비자는 `null` 여부와 글자만 쓴다.
+struct BodyHit {
+    is_null: bool,
+    /// `stringify(&값)`
+    text: String,
+}
+
+impl BodyHit {
+    fn of(v: &serde_json::Value) -> Self {
+        BodyHit {
+            is_null: v.is_null(),
+            text: stringify(v),
+        }
+    }
 }
 
 /// 본문 JSON 읽기 결과(평가 한 번에 한 번만, Body 항목들이 공유). 찾기는 세 단계다 —
@@ -66,7 +88,7 @@ struct BodyCache<'a> {
 
 enum Stage {
     /// 1단계나 2단계에서 찾았다(값이 `null`이어도 찾음).
-    Found(serde_json::Value),
+    Found(BodyHit),
     /// 뿌리가 문자열인데 안 풀린다 — 3단계도 없다.
     NoRoot,
     /// 1·2단계에서 못 찾았다.
@@ -90,7 +112,7 @@ impl<'a> BodyCache<'a> {
         p: &serde_json_path::JsonPath,
     ) -> Stage {
         if let Some(v) = p.query(&parsed.borrow()).first() {
-            return Stage::Found((*v).clone());
+            return Stage::Found(BodyHit::of(v));
         }
         if !matches!(&*parsed.borrow(), serde_json::Value::String(_)) {
             return Stage::Miss;
@@ -107,7 +129,7 @@ impl<'a> BodyCache<'a> {
             return Stage::NoRoot;
         };
         match p.query(&root.borrow()).first() {
-            Some(v) => Stage::Found((*v).clone()),
+            Some(v) => Stage::Found(BodyHit::of(v)),
             None => Stage::Miss,
         }
     }
@@ -131,7 +153,7 @@ fn body_path_first(
     facts: &ResponseFacts<'_>,
     idx: usize,
     path: &str,
-) -> std::result::Result<Option<serde_json::Value>, String> {
+) -> std::result::Result<Option<BodyHit>, String> {
     use serde_json_path::JsonPath;
     let parsed = cache
         .parsed
@@ -143,12 +165,16 @@ fn body_path_first(
         .as_ref()
         .map_err(Clone::clone)?;
     if matches!(*cache.nested.borrow(), Nested::Unwrapped { .. }) {
-        let early = match &mut *cache.nested.borrow_mut() {
-            Nested::Unwrapped { early } => early.get_mut(idx).and_then(Option::take),
+        let slot = match &mut *cache.nested.borrow_mut() {
+            Nested::Unwrapped { early } => early
+                .get_mut(idx)
+                .map(|s| std::mem::replace(s, Early::Taken)),
             _ => None,
         };
-        if let Some(v) = early {
-            return Ok(Some(v));
+        match slot {
+            Some(Early::Found(hit)) => return Ok(Some(hit)),
+            Some(Early::Taken) => debug_assert!(false, "early slot consumed twice: idx={idx}"),
+            Some(Early::Miss) | None => {}
         }
         let Ok(p) = JsonPath::parse(path) else {
             return Ok(None);
@@ -156,7 +182,7 @@ fn body_path_first(
         let Some(base) = cache.base(parsed) else {
             return Ok(None);
         };
-        let found = p.query(&base.borrow()).first().map(|v| (*v).clone());
+        let found = p.query(&base.borrow()).first().map(BodyHit::of);
         return Ok(found);
     }
     let Ok(p) = JsonPath::parse(path) else {
@@ -178,18 +204,18 @@ fn body_path_first(
         return Ok(None);
     }
     // 풀기 전에 뒤 본문 항목의 1·2단계를 구해 둔다 — 풀면 원래 본문 값이 사라진다.
-    let mut early: Vec<Option<serde_json::Value>> = vec![None; cache.extracts.len()];
+    let mut early: Vec<Early> = cache.extracts.iter().map(|_| Early::Miss).collect();
     for (j, e) in cache.extracts.iter().enumerate().skip(idx + 1) {
         if let Extract::Body { path, .. } = e
             && let Ok(pj) = JsonPath::parse(path)
-            && let Stage::Found(v) = cache.stage12(parsed, &pj)
+            && let Stage::Found(hit) = cache.stage12(parsed, &pj)
         {
-            early[j] = Some(v);
+            early[j] = Early::Found(hit);
         }
     }
     unwrap_in_place(&mut base.borrow_mut());
     *cache.nested.borrow_mut() = Nested::Unwrapped { early };
-    let found = p.query(&base.borrow()).first().map(|v| (*v).clone());
+    let found = p.query(&base.borrow()).first().map(BodyHit::of);
     Ok(found)
 }
 
@@ -208,10 +234,10 @@ fn strict_item(
             claim,
             ..
         } => {
-            let value = body_path_first(body_json, facts, idx, path)
+            let hit = body_path_first(body_json, facts, idx, path)
                 .map_err(EngineError::ExtractFailed)?
                 .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
-            post_process(var, stringify(&value), *decode, claim.as_deref())
+            post_process(var, hit.text, *decode, claim.as_deref())
         }
         Extract::Header {
             var,
@@ -283,11 +309,11 @@ fn lenient_item(
         } => {
             // JSON `null`은 "응답에 없는 값"으로 본다 — 빠뜨려서 비움 표에 오르게 한다
             // (blank-var-url-guard F1; 엄격 모드는 여전히 `""`로 뽑는다).
-            let value = body_path_first(body_json, facts, idx, path)
+            let hit = body_path_first(body_json, facts, idx, path)
                 .ok()
                 .flatten()
-                .filter(|v| !v.is_null())?;
-            post_process_lenient(var, stringify(&value), *decode, claim.as_deref())
+                .filter(|h| !h.is_null)?;
+            post_process_lenient(var, hit.text, *decode, claim.as_deref())
         }
         Extract::Header {
             var,
@@ -870,7 +896,7 @@ mod tests {
         let xs = [body_extract("p", "$.plain")];
         let cache = BodyCache::new(&xs);
         let v = body_path_first(&cache, &facts, 0, "$.plain").unwrap();
-        assert_eq!(v, Some(serde_json::json!(1)));
+        assert_eq!(v.map(|h| h.text).as_deref(), Some("1"));
         assert!(
             cache.root.get().is_none(),
             "root unwrapped for a found path"
@@ -888,7 +914,7 @@ mod tests {
         let xs = [body_extract("p", "$")];
         let cache = BodyCache::new(&xs);
         let v = body_path_first(&cache, &facts, 0, "$").unwrap();
-        assert_eq!(v, Some(serde_json::json!("{\"id\":7}")));
+        assert_eq!(v.map(|h| h.text).as_deref(), Some("{\"id\":7}"));
         assert!(
             cache.root.get().is_none(),
             "root unwrapped for a found path"
@@ -906,8 +932,24 @@ mod tests {
         let xs = [body_extract("p", "$.nope")];
         let cache = BodyCache::new(&xs);
         let v = body_path_first(&cache, &facts, 0, "$.nope").unwrap();
-        assert_eq!(v, None);
+        assert!(v.is_none());
         assert!(matches!(*cache.nested.borrow(), Nested::Nothing));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "consumed twice")]
+    fn early_slot_is_consumed_once() {
+        let body = br#"{"data":"{\"id\":7}"}"#;
+        let facts = lenient_facts(body, &[]);
+        let xs = [body_extract("a", "$.data.id"), body_extract("b", "$.data")];
+        let cache = BodyCache::new(&xs);
+        let first = body_path_first(&cache, &facts, 0, "$.data.id").unwrap();
+        assert!(first.is_some());
+        assert!(matches!(*cache.nested.borrow(), Nested::Unwrapped { .. }));
+        let b = body_path_first(&cache, &facts, 1, "$.data").unwrap();
+        assert_eq!(b.map(|h| h.text).as_deref(), Some("{\"id\":7}"));
+        let _ = body_path_first(&cache, &facts, 1, "$.data");
     }
 
     fn assert_same(body: &[u8], headers: &[(String, String)], xs: &[Extract]) {
