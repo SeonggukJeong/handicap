@@ -9,7 +9,13 @@ import type { Heights } from "../buildPrintDoc";
 import { metricRows, type MetricRow } from "./change";
 import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } from "./errorCells";
 import { buildFairness, type Fairness } from "./fairness";
-import { buildHeadline, summaryLines, verdictWord, type Headline } from "./headline";
+import {
+  buildHeadline,
+  summaryLines,
+  verdictWord,
+  type Headline,
+  type SummaryLine,
+} from "./headline";
 import type { RunModel } from "./runModel";
 
 const D = ko.print.cmp.doc;
@@ -29,7 +35,7 @@ export type CompareDoc = {
   before: SideHead;
   after: SideHead;
   headline: Headline;
-  lines: Array<{ id: 1 | 2 | 3 | 4; text: string }>;
+  lines: SummaryLine[];
   fairness: Fairness;
   rows: MetricRow[];
   starNote: string | null;
@@ -46,7 +52,7 @@ function sideHead(role: string, run: RunModel): SideHead {
   const { meta } = run;
   return {
     role,
-    label: meta.label?.trim() ? meta.label : null,
+    label: meta.label?.trim() || null,
     shortId: runShortLabel(meta.id),
     window: measuredWindow(meta.started_at, meta.ended_at, meta.status),
     verdictText: verdictWord(run.box),

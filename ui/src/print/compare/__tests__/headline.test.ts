@@ -148,6 +148,41 @@ describe("buildHeadline (spec §6.3 표)", () => {
     expect(h.word).toBe("개선");
   });
 
+  it("지표가 모두 비슷해도 판정 ● → ✕(기준 같음)면 악화, 끝에 판정 변화가 붙는다", () => {
+    const h = head(BEFORE, BEFORE, { beforeBox: pass, afterBox: fail });
+    expect(h.answer).toBe("worsened");
+    expect(h.glyph).toBe("▲");
+    expect(h.verdictSignal).toBe("bad");
+    expect(h.countsLine).toContain("0개 나빠짐");
+    expect(h.countsLine.endsWith("판정 ● → ✕")).toBe(true);
+  });
+
+  it("이전이 기준 미설정이고 이후가 ✕여도 신호가 없고 지표만으로 답한다", () => {
+    const h = head(BEFORE, AFTER_GOOD, { beforeBox: noCrit, afterBox: fail });
+    expect(h.verdictSignal).toBeNull();
+    expect(h.answer).toBe("improved");
+    expect(h.countsLine).not.toContain("판정");
+  });
+
+  it("✕ → ✕, ● → ●는 신호가 없다", () => {
+    for (const box of [fail, pass]) {
+      const h = head(BEFORE, BEFORE, { beforeBox: box, afterBox: box });
+      expect(h.verdictSignal).toBeNull();
+      expect(h.answer).toBe("similar");
+    }
+  });
+
+  it("판정 불가였던 이전이 이후 ●가 돼도 신호가 없다", () => {
+    for (const before of [
+      { kind: "notJudged", reason: "failed" } as BoxState,
+      { kind: "notEvaluable" } as BoxState,
+    ]) {
+      const h = head(BEFORE, BEFORE, { beforeBox: before, afterBox: pass });
+      expect(h.verdictSignal).toBeNull();
+      expect(h.answer).toBe("similar");
+    }
+  });
+
   it("비교 불가", () => {
     const h = head(BEFORE, { ...BEFORE, count: 0, errors: 0 }, { incomparable: true });
     expect(h.answer).toBe("incomparable");
@@ -225,8 +260,8 @@ describe("summaryLines 1번 줄 (판정)", () => {
       { summary: AFTER_GOOD, verdict: passV },
     );
     const t = s.byId(1) ?? "";
-    expect(t).toContain("이전: 기준 미설정");
-    expect(t).toContain("이후: ● 적합");
+    expect(t.startsWith("판정은 이전 기준 미설정, 이후 ● 적합입니다.")).toBe(true);
+    expect(t).toContain("기준 3개를 모두 지켰습니다.");
   });
 });
 
@@ -323,7 +358,7 @@ describe("summaryLines 2·3번 줄", () => {
   it("엇갈림이면 3번 줄에 나빠진 지표 하나", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, errors: 3, p95_ms: 2800 } });
     expect(s.headline.answer).toBe("mixed");
-    expect(s.byId(3)).toBe("반면 95% 응답시간은 2.4초 → 2.8초로 늘었습니다.");
+    expect(s.byId(3)).toBe("반면 95% 응답시간은 2.4초 → 2.8초(으)로 늘었습니다.");
   });
 
   it("오류율이 나빠진 엇갈림: 2번은 좋아진 지표, 3번은 오류율", () => {
@@ -347,6 +382,103 @@ describe("summaryLines 2·3번 줄", () => {
   });
 });
 
+describe("summaryLines 악화·조사·줄었음", () => {
+  it("악화: 2번 줄에 가장 나빠진 지표의 값과 변화율", () => {
+    const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, p95_ms: 4000 } });
+    expect(s.headline.answer).toBe("worsened");
+    const t = s.byId(2) ?? "";
+    expect(t).toContain("95% 응답시간");
+    expect(t).toContain("2.4초 → 4.0초");
+    expect(t).toContain("67%");
+    expect(s.byId(3)).toBeUndefined();
+  });
+
+  it("악화: 변화율이 가장 큰 나쁜 지표가 고른다", () => {
+    const s = scene(
+      { summary: BEFORE },
+      { summary: { ...BEFORE, p95_ms: 3000, p99_ms: 6000, mean_ms: 1000 } },
+    );
+    expect(s.headline.answer).toBe("worsened");
+    expect(s.byId(2)).toContain("99% 응답시간");
+  });
+
+  it("악화에서 오류율이 맨 위고 코드가 늘었으면 건수 문장이 이어진다", () => {
+    const s = scene(
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9900, "502": 100 }, errors: 100 }],
+        summary: { ...BEFORE, count: 10000, errors: 100 },
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9700, "502": 300 }, errors: 300 }],
+        summary: { ...BEFORE, count: 10000, errors: 300 },
+      },
+    );
+    expect(s.headline.answer).toBe("worsened");
+    const t = s.byId(2) ?? "";
+    expect(t).toContain("오류율");
+    expect(t).toContain("100건이 300건으로 늘었습니다");
+    expect(t).toContain("502");
+  });
+
+  it("악화에서 이전 0건이던 코드가 생겼으면 새로 생겼습니다", () => {
+    const s = scene(
+      {
+        steps: CODE_STEPS,
+        summary: { ...BEFORE, count: 10000, errors: 0 },
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9800, "502": 200 }, errors: 200 }],
+        summary: { ...BEFORE, count: 10000, errors: 200 },
+      },
+    );
+    expect(s.headline.answer).toBe("worsened");
+    const t = s.byId(2) ?? "";
+    expect(t).toContain("오류율");
+    expect(t).toContain("200건이 새로 생겼습니다");
+  });
+
+  it("악화가 판정 변화뿐이면 2번 줄이 없다", () => {
+    const s = scene({ summary: BEFORE, verdict: passV }, { summary: BEFORE, verdict: failV });
+    expect(s.headline.answer).toBe("worsened");
+    expect(s.byId(2)).toBeUndefined();
+    expect(s.byId(3)).toBeUndefined();
+  });
+
+  it("3번 줄: 값이 받침으로 끝나도 (으)로 병기형이다", () => {
+    const s = scene(
+      { summary: { ...BEFORE, count: 10000, errors: 0 } },
+      { summary: { ...BEFORE, count: 10000, errors: 6, p95_ms: 1000 } },
+    );
+    expect(s.headline.answer).toBe("mixed");
+    const t = s.byId(3) ?? "";
+    expect(t).toBe("반면 오류율은 0.0% → 0.1% 미만(으)로 늘었습니다.");
+    expect(t).not.toContain("미만로");
+  });
+
+  it("3번 줄: 나빠진 지표가 줄어든 쪽이면 줄었습니다", () => {
+    const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, rps: 100, p95_ms: 1000 } });
+    expect(s.headline.answer).toBe("mixed");
+    expect(s.byId(3)).toBe("반면 처리량은 240건/초 → 100건/초(으)로 줄었습니다.");
+  });
+});
+
+describe("주요 지표 이름의 받침", () => {
+  it("주요 지표 이름은 모두 받침으로 끝난다(3번 줄의 '은')", () => {
+    const names = scene({ summary: BEFORE }, { summary: AFTER_GOOD })
+      .rows.filter((r) => r.major)
+      .map((r) => r.name);
+    expect(names.length).toBeGreaterThan(0);
+    for (const n of names) {
+      const c = n.charCodeAt(n.length - 1);
+      const isHangul = c >= 0xac00 && c <= 0xd7a3;
+      expect(isHangul && (c - 0xac00) % 28 !== 0, n).toBe(true);
+    }
+  });
+});
+
 describe("summaryLines 4번 줄·비교 불가", () => {
   it("조건이 다르면 항목 앞 2개 + 외 N개", () => {
     const s = scene(
@@ -367,19 +499,51 @@ describe("summaryLines 4번 줄·비교 불가", () => {
     expect(scene({ summary: BEFORE }, { summary: AFTER_GOOD }).byId(4)).toBeUndefined();
   });
 
-  it("비교 불가: 1번 줄 자리에 사유와 함께", () => {
+  it("비교 불가: 1번 줄은 고정 문장이고 사유는 따로 실린다", () => {
     const s = scene(
       { summary: BEFORE },
       {
         summary: { ...BEFORE, count: 0, errors: 0 },
         rep: [],
-        meta: { status: "failed", message: "연결할 수 없습니다" },
+        meta: { status: "failed", message: "  연결할 수 없습니다 \n 포트 닫힘\r\n\t확인  " },
       },
     );
-    const t = s.byId(1) ?? "";
-    expect(t).toContain("요청이 실행되지 않은 측정이 있어 비교하지 않았습니다");
-    expect(t).toContain("연결할 수 없습니다");
+    const l1 = s.lines.find((l) => l.id === 1);
+    expect(l1?.text).toBe("요청이 실행되지 않은 측정이 있어 비교하지 않았습니다.");
+    expect(l1?.reasons).toEqual([{ side: "이후", text: "연결할 수 없습니다 포트 닫힘 확인" }]);
     expect(s.headline.answer).toBe("incomparable");
     expect(s.byId(2)).toBeUndefined();
+  });
+
+  it("양쪽 모두 0건이면 이전·이후 사유가 차례로", () => {
+    const zero = { ...BEFORE, count: 0, errors: 0 };
+    const s = scene(
+      { summary: zero, rep: [], meta: { status: "failed", message: "가" } },
+      { summary: zero, rep: [], meta: { status: "failed", message: "나" } },
+    );
+    expect(s.lines[0].reasons).toEqual([
+      { side: "이전", text: "가" },
+      { side: "이후", text: "나" },
+    ]);
+  });
+
+  it("공백뿐인 사유는 항목이 없고 사유가 없으면 reasons도 비어 있다", () => {
+    const zero = { ...BEFORE, count: 0, errors: 0 };
+    const blank = scene(
+      { summary: BEFORE },
+      { summary: zero, rep: [], meta: { status: "failed", message: " \n\t " } },
+    );
+    expect(blank.lines[0].reasons ?? []).toEqual([]);
+    const none = scene({ summary: BEFORE }, { summary: zero, rep: [], meta: { status: "failed" } });
+    expect(none.lines[0].reasons ?? []).toEqual([]);
+  });
+
+  it("0건이 아닌 쪽의 message는 사유로 싣지 않는다", () => {
+    const zero = { ...BEFORE, count: 0, errors: 0 };
+    const s = scene(
+      { summary: BEFORE, meta: { message: "무관" } },
+      { summary: zero, rep: [], meta: { status: "failed", message: "사유" } },
+    );
+    expect(s.lines[0].reasons).toEqual([{ side: "이후", text: "사유" }]);
   });
 });

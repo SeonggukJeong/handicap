@@ -2649,11 +2649,11 @@ export const ko = {
       lines: {
         title: "요약 (자동 작성)",
         incomparable: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다.",
-        incomparableReason: (side: string, message: string) => ` ${side} 측정 사유: ${message}`,
         verdictChanged: (before: string, after: string) =>
           `판정이 ${before} → ${after}(으)로 바뀌었습니다.`,
         verdictSame: (word: string) => `판정은 두 측정 모두 ${word}입니다.`,
-        verdictWords: (before: string, after: string) => `이전: ${before}, 이후: ${after}`,
+        verdictWords: (before: string, after: string) =>
+          `판정은 이전 ${before}, 이후 ${after}입니다.`,
         allMet: (n: number) => `기준 ${n}개를 모두 지켰습니다.`,
         biggest: (name: string, before: string, after: string, change: string) =>
           `${name} ${before} → ${after} (${change}).`,
@@ -2666,7 +2666,7 @@ export const ko = {
         codeAppeared: (label: string, code: string, m: string) =>
           `'${label}'의 ${code} ${m}건이 새로 생겼습니다.`,
         opposite: (name: string, before: string, after: string, rose: boolean) =>
-          `반면 ${name}은 ${before} → ${after}로 ${rose ? "늘었습니다" : "줄었습니다"}.`,
+          `반면 ${name}은 ${before} → ${after}(으)로 ${rose ? "늘었습니다" : "줄었습니다"}.`,
         reference: (names: string, rest: number) =>
           `두 측정의 ${names}${rest > 0 ? ` 외 ${rest}개` : ""}(이)가 달라 이 비교는 참고용입니다.`,
         nameJoin: "·",

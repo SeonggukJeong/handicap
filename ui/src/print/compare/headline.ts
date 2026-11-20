@@ -105,17 +105,17 @@ function verdictLine(before: RunModel, after: RunModel): string {
   return L.verdictWords(bw, aw);
 }
 
-function incomparableLine(before: RunModel, after: RunModel): string {
-  let text = L.incomparable;
+function incomparableReasons(before: RunModel, after: RunModel): SummaryReason[] {
+  const out: SummaryReason[] = [];
   for (const [side, run] of [
     [ko.print.cmp.doc.roleBefore, before],
     [ko.print.cmp.doc.roleAfter, after],
   ] as const) {
-    if (run.report.summary.count === 0 && run.meta.message) {
-      text += L.incomparableReason(side, run.meta.message);
-    }
+    if (run.report.summary.count !== 0) continue;
+    const text = (run.meta.message ?? "").replace(/\s+/g, " ").trim();
+    if (text !== "") out.push({ side, text });
   }
-  return text;
+  return out;
 }
 
 /** "새로 생김"이 맨 위, 그다음 변화율 큰 순, 동률은 지표 표 순서. */
@@ -138,6 +138,9 @@ function codeSentence(c: NonNullable<ReturnType<typeof biggestCodeChange>>): str
     : L.codeIncreased(c.label, code, n, m);
 }
 
+export type SummaryReason = { side: string; text: string };
+export type SummaryLine = { id: 1 | 2 | 3 | 4; text: string; reasons?: SummaryReason[] };
+
 export function summaryLines(a: {
   headline: Headline;
   rows: MetricRow[];
@@ -145,20 +148,30 @@ export function summaryLines(a: {
   after: RunModel;
   fairness: Fairness;
   codeChange: ReturnType<typeof biggestCodeChange>;
-}): Array<{ id: 1 | 2 | 3 | 4; text: string }> {
-  const out: Array<{ id: 1 | 2 | 3 | 4; text: string }> = [];
+}): SummaryLine[] {
+  const out: SummaryLine[] = [];
   const { answer } = a.headline;
   if (answer === "incomparable") {
-    out.push({ id: 1, text: incomparableLine(a.before, a.after) });
+    const reasons = incomparableReasons(a.before, a.after);
+    out.push(
+      reasons.length > 0
+        ? { id: 1, text: L.incomparable, reasons }
+        : { id: 1, text: L.incomparable },
+    );
   } else {
     let text = verdictLine(a.before, a.after);
     if (a.after.box.kind === "pass") text += ` ${L.allMet(a.after.box.evaluated)}`;
     out.push({ id: 1, text });
 
-    const up = answer === "improved" || answer === "mixed" ? topRow(a.rows, "better") : null;
-    if (up) {
-      let text2 = L.biggest(up.name, up.beforeText, up.afterText, up.changeText);
-      if (up.key === "error_rate" && a.codeChange) text2 += ` ${codeSentence(a.codeChange)}`;
+    const lead =
+      answer === "improved" || answer === "mixed"
+        ? topRow(a.rows, "better")
+        : answer === "worsened"
+          ? topRow(a.rows, "worse")
+          : null;
+    if (lead) {
+      let text2 = L.biggest(lead.name, lead.beforeText, lead.afterText, lead.changeText);
+      if (lead.key === "error_rate" && a.codeChange) text2 += ` ${codeSentence(a.codeChange)}`;
       out.push({ id: 2, text: text2 });
     }
     const down = answer === "mixed" ? topRow(a.rows, "worse") : null;

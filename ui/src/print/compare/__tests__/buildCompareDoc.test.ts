@@ -58,10 +58,10 @@ describe("buildCompareDoc", () => {
     expect(d.headline.answer).toBe("improved");
   });
 
-  it("run 라벨은 공백이면 null, 있으면 그대로", () => {
-    const d = doc({ meta: { label: "  " } }, { meta: { label: "릴리즈 후" } });
+  it("run 라벨은 공백이면 null, 있으면 앞뒤 공백을 뗀 값", () => {
+    const d = doc({ meta: { label: "  " } }, { meta: { label: "  고친 뒤  " } });
     expect(d.before.label).toBeNull();
-    expect(d.after.label).toBe("릴리즈 후");
+    expect(d.after.label).toBe("고친 뒤");
   });
 
   it("제목 이름 폴백: 이후 → 이전 → fallback → 문구", () => {
@@ -164,32 +164,67 @@ describe("블록", () => {
     expect(t.rowsMm[3]).toBe(0);
   });
 
-  it("요약판 칸 0..5는 서로 다르고 누적되며 생략 금지 항목이 남는다", () => {
+  it("요약판 칸 0..5의 블록 id가 정확히 이 순서·구성이다", () => {
     const d = doc();
     const lv = [0, 1, 2, 3, 4, 5].map((l) =>
       compareSummaryBlocks(d, new Map(), l).map((b) => b.id),
     );
-    expect(lv[0]).toEqual([
-      "cmp:header",
-      "cmp:headline",
-      "cmp:lines:full",
-      "cmp:cards",
-      "cmp:kpi:bars",
-      "cmp:kpi:note",
-      "cmp:issues:5",
+    expect(lv).toEqual([
+      [
+        "cmp:header",
+        "cmp:headline",
+        "cmp:lines:full",
+        "cmp:cards",
+        "cmp:kpi:bars",
+        "cmp:kpi:note",
+        "cmp:issues:5",
+      ],
+      [
+        "cmp:header",
+        "cmp:headline",
+        "cmp:lines:full",
+        "cmp:cards",
+        "cmp:kpi:plain",
+        "cmp:kpi:note",
+        "cmp:issues:5",
+      ],
+      [
+        "cmp:header",
+        "cmp:headline",
+        "cmp:lines:full",
+        "cmp:cards",
+        "cmp:kpi:plain",
+        "cmp:kpi:note",
+        "cmp:issues:3",
+      ],
+      [
+        "cmp:header",
+        "cmp:headline",
+        "cmp:lines:short",
+        "cmp:cards",
+        "cmp:kpi:plain",
+        "cmp:kpi:note",
+        "cmp:issues:3",
+      ],
+      [
+        "cmp:header",
+        "cmp:headline",
+        "cmp:lines:short",
+        "cmp:cards:line",
+        "cmp:kpi:plain",
+        "cmp:kpi:note",
+        "cmp:issues:3",
+      ],
+      [
+        "cmp:header",
+        "cmp:headline",
+        "cmp:lines:short",
+        "cmp:cards:line",
+        "cmp:kpi:plain",
+        "cmp:kpi:note",
+        "cmp:issues:1",
+      ],
     ]);
-    expect(lv[1]).toContain("cmp:kpi:plain");
-    expect(lv[1]).not.toContain("cmp:kpi:bars");
-    expect(lv[2]).toContain("cmp:issues:3");
-    expect(lv[3]).toContain("cmp:lines:short");
-    expect(lv[3]).not.toContain("cmp:lines:full");
-    expect(lv[4]).toContain("cmp:cards:line");
-    expect(lv[4]).not.toContain("cmp:cards");
-    expect(lv[5]).toContain("cmp:issues:1");
-    for (let i = 1; i < lv.length; i++) expect(lv[i]).not.toEqual(lv[i - 1]);
-    for (const must of ["cmp:headline", "cmp:kpi:plain", "cmp:cards:line", "cmp:issues:1"]) {
-      expect(lv[CMP_LAST_LEVEL]).toContain(must);
-    }
     expect(CMP_LAST_LEVEL).toBe(5);
   });
 
