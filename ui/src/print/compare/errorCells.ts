@@ -1,5 +1,5 @@
 import { ko } from "../../i18n/ko";
-import { fmtPct } from "../format";
+import { fmtCount, fmtPct } from "../format";
 import type { ScenarioFacts, StepFacts } from "../scenarioFacts";
 import { rankRows, type RankedRow } from "../stepStatus";
 import { classifyCell, type CellClass, type StepRow } from "../stepTable";
@@ -29,6 +29,8 @@ export type StepPair = {
     starAfter: boolean;
     countsBefore: Counts | null;
     countsAfter: Counts | null;
+    classBefore: CellClass | null;
+    classAfter: CellClass | null;
   }>;
 };
 
@@ -56,8 +58,10 @@ function pairOf(before: RunModel, after: RunModel, stepId: string): StepPair {
 
   const codes: StepPair["codes"] = [];
   for (const code of ordered) {
-    const cb = toCounts(classOn(before, bRow, code));
-    const ca = toCounts(classOn(after, aRow, code));
+    const clsB = classOn(before, bRow, code);
+    const clsA = classOn(after, aRow, code);
+    const cb = toCounts(clsB);
+    const ca = toCounts(clsA);
     const nb = countOf(bRow, code);
     const na = countOf(aRow, code);
     const differs = presence === "both" && code !== 0 && cb !== ca;
@@ -69,6 +73,8 @@ function pairOf(before: RunModel, after: RunModel, stepId: string): StepPair {
       starAfter: differs && na > 0,
       countsBefore: cb,
       countsAfter: ca,
+      classBefore: clsB,
+      classAfter: clsA,
     });
   }
   const fixed = (key: "notSent" | "residual") => {
@@ -83,6 +89,8 @@ function pairOf(before: RunModel, after: RunModel, stepId: string): StepPair {
       starAfter: false,
       countsBefore: bRow ? "yes" : null,
       countsAfter: aRow ? "yes" : null,
+      classBefore: null,
+      classAfter: null,
     });
   };
   fixed("notSent");
@@ -116,43 +124,39 @@ const codeText = (code: CodeKey): string => {
 
 type StarSide = { side: "before" | "after"; n: number; counts: Counts | null };
 
-function starSentence(
-  label: string,
-  code: CodeKey,
-  sides: StarSide[],
-): { n: number; text: string } {
+type StarPlace = { n: number; text: string };
+
+function starPlace(label: string, x: StepPair["codes"][number], code: number): StarPlace {
+  const sides: StarSide[] = [];
+  if (x.starBefore) sides.push({ side: "before", n: x.before, counts: x.countsBefore });
+  if (x.starAfter) sides.push({ side: "after", n: x.after, counts: x.countsAfter });
   const pick =
     sides.find((s) => s.counts === "no") ?? sides.find((s) => s.counts === "maybe") ?? sides[0];
+  const other = pick.side === "before" ? x.countsAfter : x.countsBefore;
   const side = c.star[pick.side];
-  const n = pick.n.toLocaleString("en-US");
+  const n = fmtCount(pick.n);
   const text =
     pick.counts === "no"
       ? c.star.notCounted(label, String(code), n, side)
-      : pick.counts === "maybe"
+      : pick.counts === "maybe" || other === "maybe"
         ? c.star.unknown(label, String(code), n, side)
         : c.star.countedOnly(label, String(code), n, side);
   return { n: pick.n, text };
 }
 
 export function starFootnote(pairs: StepPair[]): string | null {
-  const found: Array<{ n: number; text: string }> = [];
+  const places: StarPlace[] = [];
   for (const p of pairs) {
-    let best: { n: number; text: string } | null = null;
     for (const x of p.codes) {
       if ((!x.starBefore && !x.starAfter) || typeof x.code !== "number") continue;
-      const sides: StarSide[] = [];
-      if (x.starBefore) sides.push({ side: "before", n: x.before, counts: x.countsBefore });
-      if (x.starAfter) sides.push({ side: "after", n: x.after, counts: x.countsAfter });
-      const s = starSentence(p.label, x.code, sides);
-      if (best === null || s.n > best.n) best = s;
+      places.push(starPlace(p.label, x, x.code));
     }
-    if (best) found.push(best);
   }
-  if (found.length === 0) return null;
-  found.sort((x, y) => y.n - x.n);
-  const shown = found.slice(0, 2).map((f) => f.text);
-  if (found.length > 2) shown.push(c.star.more(found.length - 2));
-  return shown.join(" ");
+  if (places.length === 0) return null;
+  places.sort((x, y) => y.n - x.n);
+  const shown = places.slice(0, 2).map((f) => f.text);
+  if (places.length > 2) shown.push(c.star.more(places.length - 2));
+  return shown.join(c.star.join);
 }
 
 const isTargetClass = (cls: CellClass | null): boolean =>
@@ -160,17 +164,16 @@ const isTargetClass = (cls: CellClass | null): boolean =>
 
 const notReduced = (before: number, after: number): boolean => after * 100 >= before * 95;
 
-export function remainingIssues(before: RunModel, after: RunModel, pairs: StepPair[]): string[] {
+export function remainingIssues(_before: RunModel, after: RunModel, pairs: StepPair[]): string[] {
   const heads = new Map<string, string>();
   const order: string[] = [];
-  const labelOf = new Map(pairs.map((p) => [p.stepId, p.label]));
 
   const bad: RankedRow[] = rankRows(after.ranked.filter((r) => r.status.grade >= 2));
   for (const r of bad) {
     const words = r.status.tags
       .filter((t): t is keyof typeof ko.print.status.short => t !== "ok" && t !== "notRun")
       .map((t) => ko.print.status.short[t])
-      .join(" · ");
+      .join(c.issues.wordJoin);
     const rate = r.status.errorRate > 0 ? ` ${c.issues.rate(fmtPct(r.status.errorRate))}` : "";
     heads.set(r.stepId, c.issues.stepStatus(`${r.no} ${r.name}`, `${words}${rate}`));
     order.push(r.stepId);
@@ -178,38 +181,29 @@ export function remainingIssues(before: RunModel, after: RunModel, pairs: StepPa
 
   const extras: Array<{ stepId: string; n: number; text: string; fresh: boolean }> = [];
   for (const p of pairs) {
-    const bRow = before.table.rows.find((r) => r.stepId === p.stepId);
-    const aRow = after.table.rows.find((r) => r.stepId === p.stepId);
-    const label = labelOf.get(p.stepId) ?? p.stepId;
     for (const x of p.codes) {
-      if (x.code === "residual") continue;
-      const target =
-        typeof x.code !== "number" ||
-        x.code === 0 ||
-        isTargetClass(classOn(before, bRow, x.code)) ||
-        isTargetClass(classOn(after, aRow, x.code));
-      if (!target || x.after <= 0) continue;
+      if (x.code === "residual" || x.after <= 0) continue;
+      if (typeof x.code === "number" && !isTargetClass(x.classAfter)) continue;
       const code = codeText(x.code);
-      const n = (v: number) => v.toLocaleString("en-US");
       if (x.before === 0) {
         extras.push({
           stepId: p.stepId,
           n: x.after,
-          text: c.issues.appeared(label, code, n(x.after)),
+          text: c.issues.appeared(p.label, code, fmtCount(x.after)),
           fresh: true,
         });
       } else if (x.after > x.before) {
         extras.push({
           stepId: p.stepId,
           n: x.after,
-          text: c.issues.increased(label, code, n(x.before), n(x.after)),
+          text: c.issues.increased(p.label, code, fmtCount(x.before), fmtCount(x.after)),
           fresh: false,
         });
       } else if (notReduced(x.before, x.after)) {
         extras.push({
           stepId: p.stepId,
           n: x.after,
-          text: c.issues.unchanged(label, code, n(x.after)),
+          text: c.issues.unchanged(p.label, code, fmtCount(x.after)),
           fresh: false,
         });
       }
@@ -218,24 +212,29 @@ export function remainingIssues(before: RunModel, after: RunModel, pairs: StepPa
   extras.sort((x, y) => Number(x.fresh) - Number(y.fresh) || y.n - x.n);
 
   const out: string[] = [];
-  const merged = new Set<string>();
   for (const id of order) {
     const head = heads.get(id) ?? id;
     const own = extras.filter((e) => e.stepId === id).map((e) => e.text);
-    if (own.length > 0) merged.add(id);
-    out.push(own.length > 0 ? c.issues.merge(head, own.join(" ")) : head);
+    out.push(own.length > 0 ? c.issues.merge(head, own.join(c.issues.sentenceJoin)) : head);
   }
-  for (const e of extras) if (!merged.has(e.stepId) && !heads.has(e.stepId)) out.push(e.text);
+  for (const e of extras) if (!heads.has(e.stepId)) out.push(e.text);
   return out;
 }
+
+const isErrorCell = (x: StepPair["codes"][number]): boolean =>
+  x.code === "notSent" ||
+  (typeof x.code === "number" &&
+    ((x.before > 0 && isTargetClass(x.classBefore)) ||
+      (x.after > 0 && isTargetClass(x.classAfter))));
 
 export function biggestCodeChange(
   pairs: StepPair[],
 ): { label: string; code: CodeKey; before: number; after: number } | null {
   let best: { label: string; code: CodeKey; before: number; after: number } | null = null;
-  let bestDiff = -1;
+  let bestDiff = 0;
   for (const p of pairs) {
     for (const x of p.codes) {
+      if (!isErrorCell(x)) continue;
       const diff = Math.abs(x.after - x.before);
       if (diff > bestDiff) {
         bestDiff = diff;

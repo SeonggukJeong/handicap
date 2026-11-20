@@ -10,10 +10,17 @@ import {
   stepPairs,
   type StepPair,
 } from "../errorCells";
-import { mkMeta, mkReport, scenarioYaml, type ReportStepSpec, type StepSpec } from "./fixtures";
+import {
+  baseProfile,
+  mkMeta,
+  mkReport,
+  scenarioYaml,
+  type ReportStepSpec,
+  type StepSpec,
+} from "./fixtures";
 
 function model(id: string, steps: StepSpec[], rep: ReportStepSpec[], yaml?: string): RunModel {
-  const report = mkReport({ steps: rep, yaml: yaml ?? scenarioYaml(steps) });
+  const report = mkReport({ id, steps: rep, yaml: yaml ?? scenarioYaml(steps) });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(id), report);
 }
@@ -59,6 +66,8 @@ describe("stepPairs 별(*)", () => {
     expect(c.after).toBe(0);
     expect(c.starBefore).toBe(true);
     expect(c.starAfter).toBe(false);
+    expect(c.countsBefore).toBe("no");
+    expect(c.countsAfter).toBe("yes");
     expect(hasStar(pairs)).toBe(true);
     const note = starFootnote(pairs) ?? "";
     expect(note).toContain("첨부 업로드");
@@ -102,6 +111,43 @@ describe("stepPairs 별(*)", () => {
     expect(c.starBefore).toBe(true);
     expect(c.starAfter).toBe(true);
     expect(starFootnote(pairs)).toContain("확정할 수 없습니다");
+  });
+
+  it("센다 ↔ 알 수 없음인데 센 쪽만 건수가 있으면 '확정할 수 없습니다' 문장", () => {
+    const before = model("b", [S("s1", "조회", { assert: [200] })], [R("s1", { "503": 10 }, 10)]);
+    const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "200": 10 })]);
+    const pairs = stepPairs(before, after);
+    const c = codeOf(pairs, "s1", 503);
+    expect([c.countsBefore, c.countsAfter]).toEqual(["yes", "maybe"]);
+    expect([c.starBefore, c.starAfter]).toEqual([true, false]);
+    const note = starFootnote(pairs) ?? "";
+    expect(note).toContain("확정할 수 없습니다");
+    expect(note).not.toContain("에서만 오류로 세었습니다");
+  });
+
+  it("센다 ↔ 안 센다인데 센 쪽만 건수가 있으면 '에서만 오류로 세었습니다' 문장", () => {
+    const before = model("b", [S("s1", "조회", { assert: [200] })], [R("s1", { "503": 10 }, 10)]);
+    const after = model("a", [S("s1", "조회")], [R("s1", { "200": 10 })]);
+    const note = starFootnote(stepPairs(before, after)) ?? "";
+    expect(note).toContain("이전 측정에서만 오류로 세었습니다");
+  });
+
+  it("각주는 단계가 아니라 별 (단계, 코드) 자리 기준: 큰 순 2개 + 외 N곳", () => {
+    const before = model(
+      "b",
+      [S("s1", "A"), S("s2", "B")],
+      [R("s1", { "502": 600, "503": 100 }), R("s2", { "504": 300 })],
+    );
+    const after = model(
+      "a",
+      [S("s1", "A", { assert: [200] }), S("s2", "B", { assert: [200] })],
+      [R("s1", { "200": 10 }), R("s2", { "200": 10 })],
+    );
+    const note = starFootnote(stepPairs(before, after)) ?? "";
+    expect(note).toContain("'① A'의 502 600건");
+    expect(note).toContain("'② B'의 504 300건");
+    expect(note).not.toContain("503");
+    expect(note).toContain("외 1곳");
   });
 
   it("한쪽에만 있는 단계는 presence로 표시하고 별이 없다", () => {
@@ -216,6 +262,56 @@ describe("remainingIssues", () => {
     expect(list[0]).toContain("오류 제외");
   });
 
+  it("201 검사를 지운 뒤 200은 성공 응답이라 새로 생겼다고 하지 않는다", () => {
+    const before = model(
+      "b",
+      [S("s1", "접수", { assert: [201] })],
+      [R("s1", { "201": 9000 }, 9000)],
+    );
+    const after = model("a", [S("s1", "접수")], [R("s1", { "200": 9000 })]);
+    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+  });
+
+  it("201 검사 제거: 양쪽 200은 이후에 plain이라 항목 없음", () => {
+    const before = model("b", [S("s1", "접수", { assert: [201] })], [R("s1", { "200": 500 }, 500)]);
+    const after = model("a", [S("s1", "접수")], [R("s1", { "200": 500 })]);
+    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+  });
+
+  it("이후에 검사가 생겨 expected가 된 429는 항목 없음", () => {
+    const before = model("b", [S("s1", "목록")], [R("s1", { "429": 360 })]);
+    const after = model("a", [S("s1", "목록", { assert: [429] })], [R("s1", { "429": 360 })]);
+    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+  });
+
+  it("순서: 문제 단계(✕ → ▲) → 그대로·늘었습니다(큰 순) → 새로 생겼습니다", () => {
+    const profile = { ...baseProfile, criteria: { max_error_rate: 0.01 } };
+    const st = [S("s1", "가"), S("s2", "나"), S("s3", "다", { assert: [200] }), S("s4", "라", { assert: [200] })];
+    const mk = (id: string, rep: ReportStepSpec[]) =>
+      buildRunModel(mkMeta(id), mkReport({ id, steps: rep, yaml: scenarioYaml(st), profile }));
+    const before = mk("b", [
+      R("s1", { "429": 100 }),
+      R("s2", { "429": 360 }),
+      R("s3", { "200": 100 }),
+      R("s4", { "200": 10000 }),
+    ]);
+    const after = mk("a", [
+      R("s1", { "429": 100 }),
+      R("s2", { "429": 400 }),
+      { id: "s3", counts: { "200": 50, "500": 50 }, errors: 50 },
+      { id: "s4", counts: { "200": 9990, "500": 10 }, errors: 10 },
+    ]);
+    const list = remainingIssues(before, after, stepPairs(before, after));
+    expect(list).toHaveLength(4);
+    expect(list[0]).toContain("③ 다");
+    expect(list[0]).toContain("오류");
+    expect(list[1]).toContain("② 나");
+    expect(list[1]).toContain("360건 → 400건으로 늘었습니다");
+    expect(list[2]).toContain("① 가");
+    expect(list[2]).toContain("100건은 그대로입니다");
+    expect(list[3]).toBe("④ 라의 500 서버 오류 10건이 새로 생겼습니다.");
+  });
+
   it("아무것도 없으면 빈 배열", () => {
     expect(issues({ "200": 10 }, { "200": 10 })).toEqual([]);
   });
@@ -231,6 +327,32 @@ describe("biggestCodeChange", () => {
     const after = model("a", steps, [R("s1", { "200": 5 }), R("s2", { "504": 24 }, 24)]);
     const big = biggestCodeChange(stepPairs(before, after));
     expect(big).toEqual({ label: "① A", code: 503, before: 2880, after: 0 });
+  });
+
+  it("성공 응답(200)의 큰 변화는 무시하고 오류 코드를 고른다", () => {
+    const steps = [S("s1", "A")];
+    const before = model("b", steps, [R("s1", { "200": 1_000_000, "503": 2880 }, 2880)]);
+    const after = model("a", steps, [R("s1", { "200": 1_200_000 })]);
+    expect(biggestCodeChange(stepPairs(before, after))).toEqual({
+      label: "① A",
+      code: 503,
+      before: 2880,
+      after: 0,
+    });
+  });
+
+  it("후보가 모두 그대로면 null", () => {
+    const steps = [S("s1", "A")];
+    const before = model("b", steps, [R("s1", { "503": 5 }, 5)]);
+    const after = model("a", steps, [R("s1", { "503": 5 }, 5)]);
+    expect(biggestCodeChange(stepPairs(before, after))).toBeNull();
+  });
+
+  it("plain·expected 코드만 바뀌면 null", () => {
+    const steps = [S("s1", "A", { assert: [404] }), S("s2", "B")];
+    const before = model("b", steps, [R("s1", { "404": 30 }), R("s2", { "200": 10 })]);
+    const after = model("a", steps, [R("s1", { "404": 40 }), R("s2", { "200": 20 })]);
+    expect(biggestCodeChange(stepPairs(before, after))).toBeNull();
   });
 
   it("코드가 없으면 null", () => {

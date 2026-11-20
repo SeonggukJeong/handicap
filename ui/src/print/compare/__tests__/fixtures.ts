@@ -36,6 +36,7 @@ export type ReportStepSpec = {
 };
 
 export type MkReportArgs = {
+  id: string;
   steps: ReportStepSpec[];
   yaml: string;
   summary?: Partial<Report["summary"]>;
@@ -63,7 +64,7 @@ export function mkReport(a: MkReportArgs): Report {
   const env = a.env ?? null;
   return {
     run: {
-      id: "01HZZZZZZZZZZZZZZZZZa91f3c",
+      id: a.id,
       scenario_id: "sc1",
       status,
       profile,

@@ -2527,10 +2527,13 @@ export const ko = {
         countedOnly: (step: string, code: string, n: string, side: string) =>
           `'${step}'의 ${code} ${n}건은 ${side} 측정에서만 오류로 세었습니다. 이 단계의 오류율 비교는 참고용입니다.`,
         more: (n: number) => `외 ${n}곳`,
+        join: " ",
       },
       issues: {
         noResponse: "응답 없음",
         merge: (head: string, rest: string) => `${head}. ${rest}`,
+        wordJoin: " · ",
+        sentenceJoin: " ",
         codeLine: (code: string, name: string) => `${code} ${name}`,
         notSent: "보내지 않음",
         stepStatus: (label: string, words: string) => `${label}: ${words}`,

@@ -47,6 +47,15 @@ export function loadConditionLine(profile: Profile): string {
 }
 
 /** envCount만 받는다 — env 값은 구조적으로 이 함수에 도달할 수 없다. */
+/** 워커 2개 이상이면 그 수, 아니면 0(표시 안 함). 워커별 내역 길이가 우선, 없으면 open-loop의 worker_count. */
+export function workerCount(profile: Profile | null, breakdownLen: number): number {
+  if (breakdownLen >= 2) return breakdownLen;
+  if (profile && deriveLoadMode(profile).loadModel === "open" && (profile.worker_count ?? 1) > 1) {
+    return profile.worker_count ?? 1;
+  }
+  return 0;
+}
+
 export function conditionsBox(a: {
   profileRaw: unknown;
   workerBreakdownLen: number;
@@ -87,12 +96,7 @@ export function conditionsBox(a: {
   if (p.ramp_up_seconds > 0) add(L.ramp, c.ramp(formatDurationKo(p.ramp_up_seconds)));
   if (p.think_time) add(L.think, c.think(fmtMs(p.think_time.min_ms), fmtMs(p.think_time.max_ms)));
   add(L.timeout, formatDurationKo(p.http_timeout_seconds));
-  const workers =
-    a.workerBreakdownLen >= 2
-      ? a.workerBreakdownLen
-      : loadModel === "open" && (p.worker_count ?? 1) > 1
-        ? (p.worker_count ?? 1)
-        : 0;
+  const workers = workerCount(p, a.workerBreakdownLen);
   if (workers > 0) add(L.workers, c.workers(workers));
   const bindings = p.data_bindings?.length || (p.data_binding ? 1 : 0);
   if (bindings > 0) add(L.data, c.data(bindings));
