@@ -52,6 +52,9 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
       return ko.report.slowestStep(name(i.step_id), n(v), n(Math.round(gap)), ratio);
     }
     case "load_gen_saturated": {
+      if (i.cause === "stall" && i.drop_seconds != null && i.measured_seconds != null) {
+        return ko.saturation.stallHead(n(i.count), n(i.measured_seconds), n(i.drop_seconds));
+      }
       const head =
         `목표한 부하를 다 걸지 못했어요 — 초당 최대 ${n(i.value)}건까지만 보냈어요` +
         `(= 이 구성의 지속 가능한 최대 RPS). 보내려다 못 보낸 요청이 ${n(i.count)}건 있어요`;
@@ -97,6 +100,19 @@ function actionFor(i: Insight): Action | undefined {
         };
       }
       return { text: ko.insightActions.load_gen_saturated, computed: false }; // 방어(신규 필드 부재 — 구식 리포트)
+    }
+    if (i.cause === "stall") {
+      if (i.typical_in_flight != null && i.max_in_flight != null) {
+        return {
+          text: ko.saturation.stall(
+            n(i.typical_in_flight),
+            n(i.max_in_flight),
+            ko.report.timeSeriesP95,
+          ),
+          computed: true,
+        };
+      }
+      return { text: ko.insightActions.load_gen_saturated, computed: false };
     }
     if (i.cause === "sut") return { text: ko.saturation.sut, computed: true };
     return { text: ko.insightActions.load_gen_saturated, computed: false }; // 폴백(cause None)

@@ -677,6 +677,11 @@ export const InsightSchema = z.object({
   // E2: onset 인사이트의 지배 transport kind. 서버가 skip_serializing_if(absent,
   // null 아님)라 레포 규약대로 .optional()(.nullish() 아님).
   error_kind: z.string().optional(),
+  // stall 진단(서버 skip_serializing_if → absent): 평소 점유·슬롯 상한·버림이 몰린 초·측정한 초.
+  typical_in_flight: z.number().int().nonnegative().optional(),
+  max_in_flight: z.number().int().nonnegative().optional(),
+  drop_seconds: z.number().int().nonnegative().optional(),
+  measured_seconds: z.number().int().nonnegative().optional(),
 });
 export type Insight = z.infer<typeof InsightSchema>;
 

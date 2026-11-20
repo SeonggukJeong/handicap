@@ -121,6 +121,17 @@ describe("ValidityBanner", () => {
     expect(region.textContent).not.toMatch(/말할 수/);
   });
 
+  it("delivery_interrupted_by_stall 해석 문장이 상세에 보인다", () => {
+    render(
+      <ValidityBanner
+        validity={{ level: "suspect", reasons: [{ kind: "zero_requests", severity: "critical" }] }}
+        narrative={{ can_claim: ["delivery_interrupted_by_stall"], cannot_claim: [] }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: ko.validity.bannerAria });
+    expect(region.textContent).toContain("서버 응답이 가끔 멈춘 동안 부하를 다 보내지 못했습니다");
+  });
+
   it("limited면 상세가 접혀 있다", () => {
     render(
       <ValidityBanner

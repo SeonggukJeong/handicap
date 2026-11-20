@@ -391,4 +391,60 @@ describe("InsightPanel", () => {
       }).error_kind,
     ).toBe("connection_reset");
   });
+  const stallInsight: Insight = {
+    kind: "load_gen_saturated",
+    severity: "warning",
+    value: 7000,
+    count: 1203,
+    onset_second: 12,
+    cause: "stall",
+    typical_in_flight: 14,
+    max_in_flight: 2500,
+    drop_seconds: 18,
+    measured_seconds: 86400,
+    target_per_sec: 7000,
+    achieved_per_sec: 6980,
+  };
+
+  it("stall insight shows stall head and action with numbers", () => {
+    render(<InsightPanel insights={[stallInsight]} meta={meta} />);
+    const row = screen.getByTestId("insight");
+    expect(row.textContent).toContain("1,203");
+    expect(row.textContent).toContain("86,400초");
+    expect(row.textContent).toContain("18초");
+    expect(row.textContent).not.toContain("지점부터 포화");
+    // 조치문 토글 꺼짐(기본)에서도 안내가 보인다
+    expect(row.textContent).toContain("14개");
+    expect(row.textContent).toContain("2,500개");
+    expect(row.textContent).toContain("p95 응답 시간 (ms)");
+    expect(document.body.textContent).not.toContain("올려 다시 실행");
+  });
+
+  it("stall insight without new fields falls back", () => {
+    render(
+      <InsightPanel
+        insights={[
+          {
+            kind: "load_gen_saturated",
+            severity: "warning",
+            value: 7000,
+            count: 5,
+            cause: "stall",
+          },
+        ]}
+        meta={meta}
+      />,
+    );
+    const row = screen.getByTestId("insight");
+    expect(row.textContent).toMatch(/^.*목표한 부하를 다 걸지 못했어요/);
+    expect(row.textContent).not.toContain("가끔 멈춰");
+    expect(row.textContent).not.toContain("평소에는");
+  });
+
+  it("InsightSchema는 stall 4필드를 보존한다", () => {
+    const r = InsightSchema.parse(stallInsight);
+    expect([r.typical_in_flight, r.max_in_flight, r.drop_seconds, r.measured_seconds]).toEqual([
+      14, 2500, 18, 86400,
+    ]);
+  });
 });

@@ -1545,6 +1545,8 @@ export const ko = {
       client_reachability_issue: "클라이언트 도달·연결 문제(대상 서버 한계가 아님)가 있습니다",
       http_error_statuses_seen: "HTTP 오류 상태코드가 관측되었습니다",
       throughput_measured: "처리량(요청 수·RPS)은 측정되었습니다",
+      delivery_interrupted_by_stall:
+        "서버 응답이 가끔 멈춘 동안 부하를 다 보내지 못했습니다(슬롯 설정이 부족해서는 아닙니다)",
       delivery_ceiling_observed: "부하 전달 상한(이 구성으로 보낼 수 있는 한계)이 관측되었습니다",
       slo_held: "설정한 SLO 기준을 통과했습니다",
       sut_errors_observed: "대상 서버(SUT) 오류가 관측되었습니다",
@@ -1756,6 +1758,12 @@ export const ko = {
     slotsAtCap:
       `권장값이 단일 run 슬롯 상한(10,000)에 도달했어요 — 달성률이 매우 낮아 정확한 추정이 어려워요. ` +
       `반복 1회 시간(생각 시간·스텝 수)을 줄이거나 목표를 낮춰 다시 측정하세요.`,
+    stallHead: (count: string, measured: string, drop: string) =>
+      `서버 응답이 가끔 멈춰서 반복(시나리오 실행) ${count}회를 보내지 못했어요. 실행한 ${measured}초 중 ${drop}초에 몰려 있어요.`,
+    stall: (typical: string, m: string, chart: string) =>
+      `평소에는 동시 실행이 ${typical}개만 쓰였어요(설정 ${m}개). 못 보낸 순간에는 응답이 멈춰서 슬롯이 잠깐 다 찼던 거예요. ` +
+      `슬롯 수를 바꾸기 전에 그 시각에 서버에서 무슨 일이 있었는지 먼저 확인해 보세요(드물게 부하기 쪽이 멈춘 경우도 있어요). ` +
+      `멈춘 시각은 아래 「${chart}」 그래프에서 위로 튄 곳이에요.`,
     sut:
       `대상 서버(SUT)가 응답 열화 신호를 보여요(에러·지연 상승) — 지금 슬롯·부하를 늘리면 서버만 더 힘들어져요. ` +
       `서버 용량·설정부터 점검한 뒤 다시 실행하세요.`,
