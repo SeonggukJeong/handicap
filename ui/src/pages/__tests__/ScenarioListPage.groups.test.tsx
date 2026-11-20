@@ -181,4 +181,40 @@ describe("ScenarioListPage 그룹 묶음·접기 (US1)", () => {
     expect(tpl(header)).toBeTruthy();
     for (const r of rows) expect(tpl(r)).toBe(tpl(header));
   });
+
+  it("모든 시나리오가 그룹에 있으면 scenario-ungrouped를 그리지 않는다", async () => {
+    serve([sc("A", "하나", "쇼핑"), sc("B", "둘", "결제")]);
+    renderPage();
+    await screen.findAllByTestId("scenario-group");
+    expect(screen.queryByTestId("scenario-ungrouped")).not.toBeInTheDocument();
+  });
+
+  it("localStorage.getItem이 throw해도 정상으로 그려지고 전부 펼쳐진다", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    serve(MIXED);
+    renderPage();
+    const boxes = await screen.findAllByTestId("scenario-group");
+    for (const b of boxes) {
+      expect(within(b).getByRole("button", { expanded: true })).toBeInTheDocument();
+    }
+    expect(screen.getAllByTestId("scenario-row")).toHaveLength(5);
+    vi.restoreAllMocks();
+  });
+
+  it("묶음의 마지막 행에는 아래 구분선이 없고, 머리 행은 표 칸 수만큼 가로로 걸친다", async () => {
+    serve(MIXED);
+    renderPage();
+    const boxes = await screen.findAllByTestId("scenario-group");
+    const rows = within(boxes[0]).getAllByTestId("scenario-row");
+    expect(rows[rows.length - 1]).not.toHaveClass("border-b");
+    const boxRows = within(boxes[1]).getAllByTestId("scenario-row");
+    expect(boxRows[0]).toHaveClass("border-b");
+    const headerCell = within(boxes[0]).getByTestId("scenario-group-header").firstElementChild;
+    expect(headerCell).toHaveAttribute("aria-colspan", "4");
+    const heads = within(screen.getByTestId("scenario-columns")).getAllByRole("columnheader");
+    expect(heads).toHaveLength(4);
+    expect(heads[3]).not.toHaveAttribute("aria-hidden");
+  });
 });

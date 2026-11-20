@@ -11,9 +11,10 @@ import { groupScenarios } from "../scenario/grouping";
 import { loadCollapsedGroups, saveCollapsedGroups } from "../scenario/groupPrefs";
 
 /** 열 머리·묶음 안·묶음 밖 모든 행이 쓰는 한 벌의 열 템플릿. */
-const GRID = "grid grid-cols-[minmax(0,1fr)_4rem_11rem_13rem] items-center gap-x-4";
-/** 묶음 상자 테두리(1px)와 같은 폭의 투명 테두리 + 같은 좌우 여백으로 열 x 좌표를 맞춘다. */
-const FRAME = "border border-transparent px-3";
+const GRID = "grid grid-cols-[minmax(0,1fr)_4rem_13rem_13rem] items-center gap-x-4";
+const COLUMN_COUNT = 4;
+/** 묶음 상자 테두리(1px)만큼 안쪽으로 들여, 묶음 밖 행·열 머리의 구분선과 열 x 좌표를 묶음 안과 맞춘다. */
+const OUTSIDE_INSET = "mx-px";
 
 export function ScenarioListPage() {
   const { data, isLoading, error } = useScenarios();
@@ -55,12 +56,12 @@ export function ScenarioListPage() {
     }
   };
 
-  const renderRow = (s: Scenario, inBox: boolean) => (
+  const renderRow = (s: Scenario, inBox: boolean, isLast: boolean) => (
     <div
       key={s.id}
       role="row"
       data-testid="scenario-row"
-      className={`${GRID} border-b border-slate-100 py-3 ${inBox ? "px-3" : ""}`}
+      className={`${GRID} px-3 py-3 ${inBox && isLast ? "" : "border-b border-slate-100"}`}
     >
       <div role="cell" className={`min-w-0 font-medium ${inBox ? "pl-5" : ""}`}>
         <Link to={`/scenarios/${s.id}`} title={s.name} className="block truncate hover:underline">
@@ -70,7 +71,7 @@ export function ScenarioListPage() {
       <div role="cell" className="text-slate-600">
         v{s.version}
       </div>
-      <div role="cell" className="text-slate-600">
+      <div role="cell" className="whitespace-nowrap text-slate-600">
         {new Date(s.updated_at).toLocaleString()}
       </div>
       <div role="cell" className="flex justify-end gap-3">
@@ -146,7 +147,7 @@ export function ScenarioListPage() {
           <div
             role="row"
             data-testid="scenario-columns"
-            className={`${GRID} ${FRAME} border-b border-slate-200 py-2 text-left text-slate-600`}
+            className={`${GRID} ${OUTSIDE_INSET} border-b border-slate-200 px-3 py-2 text-left text-slate-600`}
           >
             <div role="columnheader" className="font-medium">
               {ko.pages.nameCol}
@@ -154,13 +155,13 @@ export function ScenarioListPage() {
             <div role="columnheader" className="font-medium">
               {ko.pages.versionCol}
             </div>
-            <div role="columnheader" className="font-medium">
+            <div role="columnheader" className="whitespace-nowrap font-medium">
               {ko.pages.updatedCol}
             </div>
-            <div role="columnheader" aria-hidden="true" />
+            <div role="columnheader" />
           </div>
           {grouped.groups.map((g) => {
-            const collapsed = collapsedSet.has(g.name);
+            const isCollapsed = collapsedSet.has(g.name);
             return (
               <div
                 key={g.name}
@@ -174,15 +175,19 @@ export function ScenarioListPage() {
                   data-testid="scenario-group-header"
                   className="flex items-center gap-2 bg-slate-50 px-3 py-2"
                 >
-                  <div role="cell" className="flex min-w-0 flex-1 items-center">
+                  <div
+                    role="cell"
+                    aria-colspan={COLUMN_COUNT}
+                    className="flex min-w-0 flex-1 items-center"
+                  >
                     <button
                       type="button"
-                      aria-expanded={!collapsed}
+                      aria-expanded={!isCollapsed}
                       title={g.name}
                       onClick={() => toggleGroup(g.name)}
                       className="flex min-w-0 items-center gap-2 font-medium text-slate-800 hover:underline"
                     >
-                      <span aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+                      <span aria-hidden="true">{isCollapsed ? "▸" : "▾"}</span>
                       <span className="truncate">{g.name}</span>
                       <span className="shrink-0 text-slate-500">
                         {ko.scenarioGroups.groupCount(g.items.length)}
@@ -190,17 +195,20 @@ export function ScenarioListPage() {
                     </button>
                   </div>
                 </div>
-                {!collapsed && g.items.map((s) => renderRow(s, true))}
+                {!isCollapsed &&
+                  g.items.map((s, i) => renderRow(s, true, i === g.items.length - 1))}
               </div>
             );
           })}
-          <div
-            role="rowgroup"
-            data-testid="scenario-ungrouped"
-            className={`${FRAME} ${grouped.groups.length > 0 ? "mt-6" : ""}`}
-          >
-            {grouped.ungrouped.map((s) => renderRow(s, false))}
-          </div>
+          {grouped.ungrouped.length > 0 && (
+            <div
+              role="rowgroup"
+              data-testid="scenario-ungrouped"
+              className={`${OUTSIDE_INSET} ${grouped.groups.length > 0 ? "mt-6" : ""}`}
+            >
+              {grouped.ungrouped.map((s) => renderRow(s, false, false))}
+            </div>
+          )}
         </div>
       )}
     </div>
