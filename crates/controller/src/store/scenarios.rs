@@ -364,9 +364,15 @@ mod group_tests {
         let a = add(&db, "a", Some("A")).await;
         let b = add(&db, "b", Some("A")).await;
         let c = add(&db, "c", Some("B")).await;
+        sqlx::query("UPDATE scenarios SET updated_at = 1, version = 7")
+            .execute(&db)
+            .await
+            .unwrap();
         assert_eq!(rename_group(&db, "A", "B").await.unwrap(), 2);
         for id in [&a, &b, &c] {
             assert_eq!(group_of(&db, id).await.as_deref(), Some("B"));
+            let row = get(&db, id).await.unwrap().expect("row");
+            assert_eq!((row.updated_at, row.version), (1, 7));
         }
         assert_eq!(rename_group(&db, "없는그룹", "X").await.unwrap(), 0);
     }

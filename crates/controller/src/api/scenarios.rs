@@ -111,6 +111,8 @@ fn validate_steps_think(steps: &[Step]) -> Result<(), String> {
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
     pub yaml: String,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -121,6 +123,21 @@ pub struct ScenarioResponse {
     pub version: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    pub group: Option<String>,
+}
+
+impl From<scenarios::ScenarioRow> for ScenarioResponse {
+    fn from(row: scenarios::ScenarioRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            yaml: row.yaml,
+            version: row.version,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            group: row.group,
+        }
+    }
 }
 
 pub async fn create(
@@ -131,18 +148,10 @@ pub async fn create(
     validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
     validate_scenario_think_times(&parsed.steps, &parsed.default_think_time)
         .map_err(ApiError::BadRequest)?;
-    let row = scenarios::insert(&state.db, &parsed, &body.yaml).await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(ScenarioResponse {
-            id: row.id,
-            name: row.name,
-            yaml: row.yaml,
-            version: row.version,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }),
-    ))
+    let group = crate::api::scenario_groups::normalize_group(body.group.as_deref())
+        .map_err(ApiError::BadRequest)?;
+    let row = scenarios::insert_grouped(&state.db, &parsed, &body.yaml, group.as_deref()).await?;
+    Ok((StatusCode::CREATED, Json(row.into())))
 }
 
 pub async fn get(
@@ -152,14 +161,7 @@ pub async fn get(
     let row = scenarios::get(&state.db, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
-    Ok(Json(ScenarioResponse {
-        id: row.id,
-        name: row.name,
-        yaml: row.yaml,
-        version: row.version,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    }))
+    Ok(Json(row.into()))
 }
 
 #[derive(Debug, Serialize)]
@@ -176,17 +178,7 @@ pub struct UpdateRequest {
 pub async fn list(State(state): State<AppState>) -> Result<Json<ScenarioListResponse>, ApiError> {
     let rows = scenarios::list(&state.db).await?;
     Ok(Json(ScenarioListResponse {
-        scenarios: rows
-            .into_iter()
-            .map(|r| ScenarioResponse {
-                id: r.id,
-                name: r.name,
-                yaml: r.yaml,
-                version: r.version,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-            })
-            .collect(),
+        scenarios: rows.into_iter().map(ScenarioResponse::from).collect(),
     }))
 }
 
@@ -201,14 +193,7 @@ pub async fn update(
         .map_err(ApiError::BadRequest)?;
     let outcome = scenarios::update(&state.db, &id, &parsed.name, &body.yaml, body.version).await?;
     match outcome {
-        scenarios::UpdateOutcome::Updated(row) => Ok(Json(ScenarioResponse {
-            id: row.id,
-            name: row.name,
-            yaml: row.yaml,
-            version: row.version,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })),
+        scenarios::UpdateOutcome::Updated(row) => Ok(Json(row.into())),
         scenarios::UpdateOutcome::NotFound => Err(ApiError::NotFound),
         scenarios::UpdateOutcome::VersionMismatch { current } => Err(ApiError::Conflict(format!(
             "stale version: client sent {}, current is {}",

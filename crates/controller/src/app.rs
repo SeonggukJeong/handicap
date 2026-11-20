@@ -8,9 +8,9 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::api::{
     datasets as datasets_api, environments as environments_api,
     monitor_boards as monitor_boards_api, monitor_transfer as monitor_transfer_api,
-    pool as pool_api, presets as presets_api, runs as runs_api, scenarios as scenarios_api,
-    schedules as schedules_api, settings as settings_api, step_templates as step_templates_api,
-    test_runs as test_runs_api,
+    pool as pool_api, presets as presets_api, runs as runs_api,
+    scenario_groups as scenario_groups_api, scenarios as scenarios_api, schedules as schedules_api,
+    settings as settings_api, step_templates as step_templates_api, test_runs as test_runs_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -45,6 +45,8 @@ pub fn router(state: AppState) -> Router {
             "/scenarios",
             post(scenarios_api::create).get(scenarios_api::list),
         )
+        .route("/scenario-groups/assign", post(scenario_groups_api::assign))
+        .route("/scenario-groups/rename", post(scenario_groups_api::rename))
         .route(
             "/scenarios/{id}",
             get(scenarios_api::get)

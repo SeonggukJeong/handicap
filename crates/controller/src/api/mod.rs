@@ -5,6 +5,7 @@ pub mod monitor_transfer;
 pub mod pool;
 pub mod presets;
 pub mod runs;
+pub mod scenario_groups;
 pub mod scenarios;
 pub mod schedules;
 pub mod settings;

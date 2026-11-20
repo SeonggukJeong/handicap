@@ -106,6 +106,7 @@ pub struct ScenarioResponse {
     pub version: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    pub group: Option<String>,
 }
 
 impl std::fmt::Debug for ScenarioResponse {
@@ -114,6 +115,7 @@ impl std::fmt::Debug for ScenarioResponse {
             .field("id", &self.id)
             .field("yaml", &format_args!("<{} bytes>", self.yaml.len()))
             .field("version", &self.version)
+            .field("group", &self.group)
             .finish_non_exhaustive()
     }
 }
