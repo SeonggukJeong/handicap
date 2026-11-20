@@ -2517,6 +2517,74 @@ export const ko = {
         reference: "참고용",
         none: "–",
       },
+      fair: {
+        titles: {
+          load: "부하 조건",
+          env: "환경 변수",
+          scenario: "시나리오 내용",
+          criteria: "판정 기준",
+        },
+        statusName: "측정 상태",
+        unreadable: "설정을 읽을 수 없음",
+        scenarioUnreadable: "시나리오를 읽지 못해 확인하지 못함",
+        sizeClosed: "동시 사용자",
+        sizeOpen: "초당 목표",
+        sizeMixed: "크기",
+        connect: "연결 제한 시간",
+        maxInFlight: "동시 요청 상한",
+        data: "데이터 연결",
+        stair: "계단 시험 설정",
+        other: "그 밖의 설정",
+        loadDiff: (names: string, rest: number) =>
+          `${names}${rest > 0 ? ` 외 ${rest}개` : ""} 다름`,
+        envSame: (n: number) => (n === 0 ? "사용 안 함" : `${n}개 모두 같음`),
+        envDiff: (n: number, names: string, rest: number) =>
+          `${n}개 다름: ${names}${rest > 0 ? ` 외 ${rest}개` : ""}`,
+        scenarioSame: (n: number) => `단계 ${n}개 · 내용 같음`,
+        scenarioDiff: (n: number, first: string, rest: number) =>
+          `${n}곳 다름: ${first}${rest > 0 ? ` 외 ${rest}곳` : ""}`,
+        scenarioOther: "그 밖의 설정 다름(쉬는 시간·반복·조건·헤더·본문 등)",
+        stepAdded: (no: string) => `${no} 단계 추가됨`,
+        stepRemoved: (no: string) => `${no} 단계 삭제됨`,
+        stepReordered: "단계 순서 바뀜",
+        stepRequest: (no: string) => `${no} 요청(방식·주소) 바뀜`,
+        assertAdded: (no: string) => `${no}에 응답 코드 검사 추가됨`,
+        assertRemoved: (no: string) => `${no}에서 응답 코드 검사 제거됨`,
+        assertChanged: (no: string) => `${no}의 응답 코드 검사 바뀜`,
+        extractAdded: (no: string) => `${no}에 값 꺼내기 추가됨`,
+        extractRemoved: (no: string) => `${no}에서 값 꺼내기 제거됨`,
+        criteriaSame: (n: number) => (n === 0 ? "기준 없음" : `기준 ${n}개 같음`),
+        criteriaDiff: (n: number) => `기준 ${n}개 다름`,
+        criteriaOneSided: "한쪽만 기준 있음",
+        aborted: (side: string, dur: string | null) =>
+          `▲ ${side} 측정은 도중에 중단되었습니다${dur === null ? "" : `(${dur}까지 측정)`}`,
+        failed: (side: string) => `▲ ${side} 측정은 실패로 끝났습니다`,
+        oneLine: (same: string[], diff: string[]) =>
+          [
+            same.length > 0 ? `${same.join("·")} 같음` : "",
+            diff.length > 0 ? `${diff.join("·")} 다름` : "",
+          ]
+            .filter((s) => s !== "")
+            .join(" / "),
+      },
+      cond: {
+        none: "–",
+        differs: "다름",
+        unreadable: "읽을 수 없음",
+        envCount: "환경 변수 개수",
+        criteriaCount: "판정 기준 개수",
+        scenarioKinds: {
+          steps: "시나리오 단계 구성",
+          request: "시나리오 요청",
+          assert: "시나리오 응답 코드 검사",
+          extract: "시나리오 값 꺼내기",
+          other: "시나리오 그 밖의 설정",
+        },
+        count: (n: number) => `${n}개`,
+        inFlight: (n: number) => `${n}건`,
+        dataLine: (n: number, policies: string) => `${n}개 연결(${policies})`,
+        stairLine: (steps: number, hold: string) => `${steps}계단 · 계단마다 ${hold} 유지`,
+      },
       star: {
         before: "이전",
         after: "이후",
@@ -2535,13 +2603,7 @@ export const ko = {
           `'${step}'의 ${code} ${n}건이 ${side} 측정에서 오류로 세었는지 확정할 수 없습니다.`,
         countedOnly: (step: string, code: string, n: string, side: string) =>
           `'${step}'의 ${code} ${n}건은 ${side} 측정에서만 오류로 세었습니다.`,
-        countedOtherUnknown: (
-          step: string,
-          code: string,
-          n: string,
-          side: string,
-          other: string,
-        ) =>
+        countedOtherUnknown: (step: string, code: string, n: string, side: string, other: string) =>
           `'${step}'의 ${code} ${n}건은 ${side} 측정에서 오류로 세었지만, ${other} 측정에서는 같은 응답을 오류로 세는지 확정할 수 없습니다.`,
         more: (n: number) => `외 ${n}곳`,
         join: " ",
