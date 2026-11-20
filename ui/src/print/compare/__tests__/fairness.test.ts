@@ -34,7 +34,17 @@ function model(id: string, o: Opts = {}): RunModel {
   return buildRunModel(mkMeta(id, { status: o.status ?? "completed", ...o.meta }), report);
 }
 
-const fair = (a: Opts = {}, b: Opts = {}): Fairness => buildFairness(model("b", a), model("a", b));
+function expectDiffersWhenTextDiffers(f: Fairness): void {
+  for (const r of f.condRows) {
+    if (r.before !== r.after) expect(r.differs, `${r.label}: ${r.before} / ${r.after}`).toBe(true);
+  }
+}
+
+const fair = (a: Opts = {}, b: Opts = {}): Fairness => {
+  const f = buildFairness(model("b", a), model("a", b));
+  expectDiffersWhenTextDiffers(f);
+  return f;
+};
 const card = (f: Fairness, key: string) => {
   const c = f.cards.find((x) => x.key === key);
   if (!c) throw new Error(`no card ${key}`);
@@ -73,6 +83,7 @@ describe("deepEqualLoose / stripScenarioNames", () => {
           elif: [{ then: [{ name: "t2" }] }],
           else: [{ name: "e1" }],
         },
+        { type: "loop", name: "l", do: [{ name: "inner", notes: "m", request: {} }] },
       ],
     });
     expect(out).toEqual({
@@ -81,6 +92,7 @@ describe("deepEqualLoose / stripScenarioNames", () => {
         { request: { body: { name: "keep" } }, extract: [{ name: "tok" }] },
         { type: "parallel", branches: [{ name: "br", steps: [{ request: {} }] }] },
         { type: "if", then: [{}], elif: [{ then: [{}] }], else: [{}] },
+        { type: "loop", do: [{ request: {} }] },
       ],
     });
   });
@@ -163,7 +175,12 @@ describe("부하 조건", () => {
     const c = card(f, "load");
     expect(c.same).toBe(false);
     expect(c.line).toBe("그 밖의 설정 다름");
-    expect(f.condRows.find((r) => r.label === "그 밖의 설정")).toMatchObject({ differs: true });
+    expect(f.condRows.find((r) => r.label === "그 밖의 설정")).toEqual({
+      label: "그 밖의 설정",
+      before: "다름",
+      after: "다름",
+      differs: true,
+    });
   });
 
   it("옛 data_binding 하나와 data_bindings 한 원소(내용 같음)는 같다", () => {
@@ -186,7 +203,35 @@ describe("부하 조건", () => {
       stair: { targets: t, hold_seconds: 60, ramp_seconds: 10, discard_seconds: 5 },
     });
     const f = fair({ profile: prof(st([10, 20])) }, { profile: prof(st([10, 30])) });
+    expect(card(f, "load").line).toBe("초당 목표 · 계단 시험 설정 다름");
+    const size = f.condRows.find((r) => r.label === "초당 목표");
+    expect(size?.differs).toBe(true);
+    expect(size?.before).not.toBe(size?.after);
+  });
+
+  it("계단 설정만 다르고 크기 칸 글자가 같으면 계단 시험 설정만 다르다", () => {
+    const st = (hold: number) => ({
+      target_rps: 10,
+      stair: { targets: [10, 20], hold_seconds: hold, ramp_seconds: 10, discard_seconds: 5 },
+    });
+    const f = fair({ profile: prof(st(60)) }, { profile: prof(st(90)) });
     expect(card(f, "load").line).toBe("계단 시험 설정 다름");
+  });
+
+  it("데이터 연결 정책은 한글 이름으로 쓰고 영문 식별자는 노출하지 않는다", () => {
+    const b = (policy: string) => ({ dataset_id: "ds1", policy, mappings: [] });
+    const f = fair(
+      { profile: prof({ data_bindings: [b("per_vu")] }) },
+      { profile: prof({ data_bindings: [b("iter_random")] }) },
+    );
+    const row = f.condRows.find((r) => r.label === "데이터 연결");
+    expect(row).toEqual({
+      label: "데이터 연결",
+      before: "1개 연결(사용자마다 고정)",
+      after: "1개 연결(반복마다 무작위)",
+      differs: true,
+    });
+    expect(JSON.stringify(f)).not.toMatch(/per_vu|iter_random|iter_sequential|unique/);
   });
 
   it("크기 이름은 두 부하 모델에 따라 달라진다", () => {
@@ -210,17 +255,18 @@ describe("부하 조건", () => {
 
 describe("환경 변수 — 값은 어디에도 찍지 않는다", () => {
   const A = { BASE_URL: "https://a", TOKEN: "s3cret-A" };
-  const B = { BASE_URL: "https://b", TOKEN: "s3cret-A", EXTRA: "x" };
+  const B = { BASE_URL: "https://b", TOKEN: "s3cret-A", EXTRA: "zz-extra-val" };
 
   it("다른 키 이름만 줄에 오르고 값 글자는 출력 어디에도 없다", () => {
     const f = fair({ env: A }, { env: B });
     const c = card(f, "env");
     expect(c.same).toBe(false);
     expect(c.line).toBe("2개 다름: BASE_URL, EXTRA");
-    const dump = JSON.stringify(f);
-    for (const v of ['"https://a"', '"https://b"', '"s3cret-A"', '"x"', "https://", "s3cret"]) {
-      expect(dump).not.toContain(v);
-    }
+  });
+
+  it("값 글자는 출력 어디에도 없다", () => {
+    const dump = JSON.stringify(fair({ env: A }, { env: B }));
+    for (const v of ["https://", "s3cret", "zz-extra-val"]) expect(dump).not.toContain(v);
   });
 
   it("값만 다른 키도 다름으로 세고, 같은 env는 같다", () => {
@@ -257,7 +303,10 @@ describe("시나리오 내용", () => {
     const c = card(f, "scenario");
     expect(c.same).toBe(false);
     expect(c.line).toBe("1곳 다름: ②에 응답 코드 검사 추가됨");
-    expect(f.condRows.some((r) => r.differs && r.label.includes("응답 코드 검사"))).toBe(true);
+    expect(f.condRows.find((r) => r.differs && r.label.includes("응답 코드 검사"))).toMatchObject({
+      before: "다름",
+      after: "다름",
+    });
   });
 
   it("단계 이름만, 시나리오 이름만 바뀌면 같다", () => {

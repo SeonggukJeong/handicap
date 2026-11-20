@@ -2582,6 +2582,12 @@ export const ko = {
         },
         count: (n: number) => `${n}개`,
         inFlight: (n: number) => `${n}건`,
+        policyNames: {
+          per_vu: "사용자마다 고정",
+          iter_sequential: "반복마다 순서대로",
+          iter_random: "반복마다 무작위",
+          unique: "한 번씩만 사용",
+        } as Record<string, string>,
         dataLine: (n: number, policies: string) => `${n}개 연결(${policies})`,
         stairLine: (steps: number, hold: string) => `${steps}계단 · 계단마다 ${hold} 유지`,
       },

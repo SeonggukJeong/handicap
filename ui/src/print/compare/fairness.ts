@@ -128,7 +128,7 @@ const NAMED_PROFILE_KEYS = [
 
 function sizeValue(p: Profile): unknown {
   const { loadModel, rateMode } = deriveLoadMode(p);
-  if (rateMode === "stair") return null;
+  if (rateMode === "stair") return p.stair?.targets;
   if (loadModel === "closed") return rateMode === "curve" ? p.vu_stages : p.vus;
   return rateMode === "curve" ? p.stages : p.target_rps;
 }
@@ -191,12 +191,17 @@ function itemLabel(key: ItemKey, size: string): string {
   }
 }
 
-function itemText(m: RunModel, p: Profile, key: ItemKey): string | null {
-  const box = conditionsBox({
+type ConditionsBox = ReturnType<typeof conditionsBox>;
+
+function boxOf(m: RunModel): ConditionsBox {
+  return conditionsBox({
     profileRaw: m.report.run.profile,
     workerBreakdownLen: m.report.worker_breakdown?.length ?? 0,
     envCount: Object.keys(m.env).length,
   });
+}
+
+function itemText(box: ConditionsBox, p: Profile, key: ItemKey): string | null {
   const boxRow = (label: string): string | null =>
     box.ok ? (box.rows.find((r) => r.label === label)?.value ?? null) : null;
   switch (key) {
@@ -220,7 +225,9 @@ function itemText(m: RunModel, p: Profile, key: ItemKey): string | null {
       return p.max_in_flight != null ? C.inFlight(p.max_in_flight) : null;
     case "data": {
       const b = seedBindingsFrom(p);
-      return b.length > 0 ? C.dataLine(b.length, b.map((x) => x.policy).join("·")) : null;
+      return b.length > 0
+        ? C.dataLine(b.length, b.map((x) => C.policyNames[x.policy] ?? x.policy).join("·"))
+        : null;
     }
     case "stair":
       return p.stair
@@ -316,6 +323,9 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
   const pb = after.profile;
   const profileReadable = pa !== null && pb !== null;
 
+  const boxA = boxOf(before);
+  const boxB = boxOf(after);
+
   const load = ((): { card: FairCard; differs: Set<ItemKey>; other: boolean; size: string } => {
     if (!profileReadable) {
       return {
@@ -337,7 +347,7 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     const same = names.length === 0;
     const { head, rest } = joinNames(names);
     const line = same
-      ? [itemText(after, pb, "model"), itemText(after, pb, "size")]
+      ? [itemText(boxB, pb, "model"), itemText(boxB, pb, "size")]
           .filter((s): s is string => s !== null)
           .join(" · ")
       : F.loadDiff(head, rest);
@@ -352,39 +362,32 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     same: envSame,
     line: envSame
       ? F.envSame(Object.keys(after.env).length)
-      : F.envDiff(envKeys.length, envKeys.slice(0, 2).join(", "), Math.max(0, envKeys.length - 2)),
+      : F.envDiff(
+          envKeys.length,
+          envKeys.slice(0, 2).join(", "),
+          Math.max(0, envKeys.length - 2),
+        ),
   };
 
   const sc = compareScenario(before, after);
+  const scenarioOf = (same: boolean, line: string): FairCard => ({
+    key: "scenario",
+    title: F.titles.scenario,
+    same,
+    line,
+  });
   let scenarioCard: FairCard;
   if (!sc.readable) {
-    scenarioCard = {
-      key: "scenario",
-      title: F.titles.scenario,
-      same: false,
-      line: F.scenarioUnreadable,
-    };
+    scenarioCard = scenarioOf(false, F.scenarioUnreadable);
   } else if (sc.diffs.length > 0) {
-    scenarioCard = {
-      key: "scenario",
-      title: F.titles.scenario,
-      same: false,
-      line: F.scenarioDiff(sc.diffs.length, sc.diffs[0]?.text ?? "", sc.diffs.length - 1),
-    };
+    scenarioCard = scenarioOf(
+      false,
+      F.scenarioDiff(sc.diffs.length, sc.diffs[0]?.text ?? "", sc.diffs.length - 1),
+    );
   } else if (sc.other) {
-    scenarioCard = {
-      key: "scenario",
-      title: F.titles.scenario,
-      same: false,
-      line: F.scenarioOther,
-    };
+    scenarioCard = scenarioOf(false, F.scenarioOther);
   } else {
-    scenarioCard = {
-      key: "scenario",
-      title: F.titles.scenario,
-      same: true,
-      line: F.scenarioSame(after.facts.ok ? after.facts.steps.length : 0),
-    };
+    scenarioCard = scenarioOf(true, F.scenarioSame(after.facts.ok ? after.facts.steps.length : 0));
   }
 
   const ca = criteriaMap(before);
@@ -442,13 +445,13 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     for (const k of ITEM_ORDER) {
       addRow(
         itemLabel(k, load.size),
-        itemText(before, pa, k),
-        itemText(after, pb, k),
+        itemText(boxA, pa, k),
+        itemText(boxB, pb, k),
         load.differs.has(k),
         optional.has(k),
       );
     }
-    if (load.other) addRow(F.other, null, C.differs, true, false);
+    if (load.other) addRow(F.other, C.differs, C.differs, true, false);
   } else {
     addRow(
       ko.print.conditions.title,
@@ -477,9 +480,9 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     ];
     for (const [kind, label] of kinds) {
       const n = sc.diffs.filter((d) => d.kind === kind).length;
-      if (n > 0) addRow(label, null, C.differs, true, false);
+      if (n > 0) addRow(label, C.differs, C.differs, true, false);
     }
-    if (sc.other) addRow(C.scenarioKinds.other, null, C.differs, true, false);
+    if (sc.other) addRow(C.scenarioKinds.other, C.differs, C.differs, true, false);
   }
 
   const same = cards.filter((c) => c.same).map((c) => c.title);
