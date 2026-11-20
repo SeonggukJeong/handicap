@@ -46,7 +46,6 @@ export function loadConditionLine(profile: Profile): string {
     : c.lineOpenFixed(profile.target_rps ?? 0, d);
 }
 
-/** envCount만 받는다 — env 값은 구조적으로 이 함수에 도달할 수 없다. */
 /** 워커 2개 이상이면 그 수, 아니면 0(표시 안 함). 워커별 내역 길이가 우선, 없으면 open-loop의 worker_count. */
 export function workerCount(profile: Profile | null, breakdownLen: number): number {
   if (breakdownLen >= 2) return breakdownLen;
@@ -56,6 +55,7 @@ export function workerCount(profile: Profile | null, breakdownLen: number): numb
   return 0;
 }
 
+/** envCount만 받는다 — env 값은 구조적으로 이 함수에 도달할 수 없다. */
 export function conditionsBox(a: {
   profileRaw: unknown;
   workerBreakdownLen: number;

@@ -126,22 +126,42 @@ type StarSide = { side: "before" | "after"; n: number; counts: Counts | null };
 
 type StarPlace = { n: number; text: string };
 
+type StarArgs = { label: string; code: string; n: string; side: string; other: string };
+
+const starSentence: Record<Counts, Record<Counts, (a: StarArgs) => string>> = {
+  no: {
+    yes: (a) => c.star.notCountedOtherCounts(a.label, a.code, a.n, a.side),
+    maybe: (a) => c.star.notCountedOtherUnknown(a.label, a.code, a.n, a.side, a.other),
+    no: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+  },
+  maybe: {
+    yes: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+    no: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+    maybe: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+  },
+  yes: {
+    no: (a) => c.star.countedOnly(a.label, a.code, a.n, a.side),
+    maybe: (a) => c.star.countedOtherUnknown(a.label, a.code, a.n, a.side, a.other),
+    yes: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+  },
+};
+
 function starPlace(label: string, x: StepPair["codes"][number], code: number): StarPlace {
   const sides: StarSide[] = [];
   if (x.starBefore) sides.push({ side: "before", n: x.before, counts: x.countsBefore });
   if (x.starAfter) sides.push({ side: "after", n: x.after, counts: x.countsAfter });
   const pick =
     sides.find((s) => s.counts === "no") ?? sides.find((s) => s.counts === "maybe") ?? sides[0];
-  const other = pick.side === "before" ? x.countsAfter : x.countsBefore;
-  const side = c.star[pick.side];
-  const n = fmtCount(pick.n);
-  const text =
-    pick.counts === "no"
-      ? c.star.notCounted(label, String(code), n, side)
-      : pick.counts === "maybe" || other === "maybe"
-        ? c.star.unknown(label, String(code), n, side)
-        : c.star.countedOnly(label, String(code), n, side);
-  return { n: pick.n, text };
+  const otherSide = pick.side === "before" ? "after" : "before";
+  const otherCounts = (pick.side === "before" ? x.countsAfter : x.countsBefore) ?? "maybe";
+  const text = starSentence[pick.counts ?? "maybe"][otherCounts]({
+    label,
+    code: String(code),
+    n: fmtCount(pick.n),
+    side: c.star[pick.side],
+    other: c.star[otherSide],
+  });
+  return { n: pick.n, text: `${text}${c.star.tail}` };
 }
 
 export function starFootnote(pairs: StepPair[]): string | null {
@@ -164,7 +184,7 @@ const isTargetClass = (cls: CellClass | null): boolean =>
 
 const notReduced = (before: number, after: number): boolean => after * 100 >= before * 95;
 
-export function remainingIssues(_before: RunModel, after: RunModel, pairs: StepPair[]): string[] {
+export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
   const heads = new Map<string, string>();
   const order: string[] = [];
 
@@ -174,8 +194,8 @@ export function remainingIssues(_before: RunModel, after: RunModel, pairs: StepP
       .filter((t): t is keyof typeof ko.print.status.short => t !== "ok" && t !== "notRun")
       .map((t) => ko.print.status.short[t])
       .join(c.issues.wordJoin);
-    const rate = r.status.errorRate > 0 ? ` ${c.issues.rate(fmtPct(r.status.errorRate))}` : "";
-    heads.set(r.stepId, c.issues.stepStatus(`${r.no} ${r.name}`, `${words}${rate}`));
+    const rate = r.status.errorRate > 0 ? fmtPct(r.status.errorRate) : null;
+    heads.set(r.stepId, c.issues.stepStatus(`${r.no} ${r.name}`, words, rate));
     order.push(r.stepId);
   }
 

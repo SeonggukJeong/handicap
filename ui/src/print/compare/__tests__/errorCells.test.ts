@@ -113,7 +113,7 @@ describe("stepPairs 별(*)", () => {
     expect(starFootnote(pairs)).toContain("확정할 수 없습니다");
   });
 
-  it("센다 ↔ 알 수 없음인데 센 쪽만 건수가 있으면 '확정할 수 없습니다' 문장", () => {
+  it("센다 ↔ 알 수 없음, 센 쪽만 건수가 있으면 '세었지만 … 확정할 수 없습니다' 문장", () => {
     const before = model("b", [S("s1", "조회", { assert: [200] })], [R("s1", { "503": 10 }, 10)]);
     const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "200": 10 })]);
     const pairs = stepPairs(before, after);
@@ -121,8 +121,42 @@ describe("stepPairs 별(*)", () => {
     expect([c.countsBefore, c.countsAfter]).toEqual(["yes", "maybe"]);
     expect([c.starBefore, c.starAfter]).toEqual([true, false]);
     const note = starFootnote(pairs) ?? "";
-    expect(note).toContain("확정할 수 없습니다");
-    expect(note).not.toContain("에서만 오류로 세었습니다");
+    expect(note).toContain("이전 측정에서 오류로 세었지만");
+    expect(note).toContain("이후 측정에서는 같은 응답을 오류로 세는지 확정할 수 없습니다");
+    expect(note).not.toContain("이전 측정에서 오류로 세었는지 확정할 수 없습니다");
+  });
+
+  it("안 센다 ↔ 알 수 없음, 안 센 쪽만 건수가 있으면 상대는 확정할 수 없다고 적는다", () => {
+    const before = model("b", [S("s1", "조회")], [R("s1", { "502": 600 })]);
+    const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "200": 10 })]);
+    const pairs = stepPairs(before, after);
+    const c = codeOf(pairs, "s1", 502);
+    expect([c.countsBefore, c.countsAfter]).toEqual(["no", "maybe"]);
+    expect([c.starBefore, c.starAfter]).toEqual([true, false]);
+    const note = starFootnote(pairs) ?? "";
+    expect(note).toContain("이전 측정에서 오류율에 포함되지 않았습니다");
+    expect(note).toContain("이후 측정에서는 같은 응답을 오류로 세는지 확정할 수 없습니다");
+    expect(note).not.toContain("다른 측정에서는 오류로 셉니다");
+  });
+
+  it("센다 ↔ 알 수 없음, 양쪽 별이면 알 수 없음 쪽을 짚는다", () => {
+    const before = model("b", [S("s1", "조회", { assert: [200] })], [R("s1", { "503": 10 }, 10)]);
+    const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "503": 7 })]);
+    const note = starFootnote(stepPairs(before, after)) ?? "";
+    expect(note).toContain("503 7건이 이후 측정에서 오류로 세었는지 확정할 수 없습니다");
+    expect(note).not.toContain("세었지만");
+  });
+
+  it("안 센다 ↔ 알 수 없음, 양쪽 별이면 안 센다 쪽을 짚는다", () => {
+    const before = model("b", [S("s1", "조회")], [R("s1", { "502": 600 })]);
+    const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "502": 5 })]);
+    const pairs = stepPairs(before, after);
+    const c = codeOf(pairs, "s1", 502);
+    expect([c.countsBefore, c.countsAfter]).toEqual(["no", "maybe"]);
+    expect([c.starBefore, c.starAfter]).toEqual([true, true]);
+    const note = starFootnote(pairs) ?? "";
+    expect(note).toContain("502 600건은 이전 측정에서 오류율에 포함되지 않았습니다");
+    expect(note).toContain("이후 측정에서는 같은 응답을 오류로 세는지 확정할 수 없습니다");
   });
 
   it("센다 ↔ 안 센다인데 센 쪽만 건수가 있으면 '에서만 오류로 세었습니다' 문장", () => {
@@ -179,7 +213,7 @@ describe("stepPairs 별(*)", () => {
     const c = codeOf(pairs, "s1", 502);
     expect(c.countsBefore).toBe("maybe");
     expect(c.countsAfter).toBe("yes");
-    expect(() => remainingIssues(before, after, pairs)).not.toThrow();
+    expect(() => remainingIssues(after, pairs)).not.toThrow();
   });
 
   it("보내지 않음·잔차·코드 0은 별이 없다", () => {
@@ -203,13 +237,13 @@ describe("remainingIssues", () => {
   const issues = (b: Record<string, number>, a: Record<string, number>) => {
     const before = model("b", steps, [R("s1", b)]);
     const after = model("a", steps, [R("s1", a)]);
-    return remainingIssues(before, after, stepPairs(before, after));
+    return remainingIssues(after, stepPairs(before, after));
   };
 
   it("이후에 ✕/▲ 단계가 있으면 첫 항목으로 상태 낱말과 함께", () => {
     const before = model("b", steps, [R("s1", { "200": 100 })]);
     const after = model("a", steps, [{ id: "s1", counts: { "200": 99, "500": 1 }, errors: 1 }]);
-    const list = remainingIssues(before, after, stepPairs(before, after));
+    const list = remainingIssues(after, stepPairs(before, after));
     expect(list).toHaveLength(1);
     expect(list[0]).toContain("목록");
     expect(list[0]).toContain("오류 있음");
@@ -246,7 +280,7 @@ describe("remainingIssues", () => {
     const st = [S("s1", "목록", { assert: [200] })];
     const before = model("b", st, [R("s1", { "200": 9000 })]);
     const after = model("a", st, [R("s1", { "200": 9000 })]);
-    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+    expect(remainingIssues(after, stepPairs(before, after))).toEqual([]);
   });
 
   it("새로 생긴 오류: 0 → 48", () => {
@@ -269,19 +303,19 @@ describe("remainingIssues", () => {
       [R("s1", { "201": 9000 }, 9000)],
     );
     const after = model("a", [S("s1", "접수")], [R("s1", { "200": 9000 })]);
-    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+    expect(remainingIssues(after, stepPairs(before, after))).toEqual([]);
   });
 
   it("201 검사 제거: 양쪽 200은 이후에 plain이라 항목 없음", () => {
     const before = model("b", [S("s1", "접수", { assert: [201] })], [R("s1", { "200": 500 }, 500)]);
     const after = model("a", [S("s1", "접수")], [R("s1", { "200": 500 })]);
-    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+    expect(remainingIssues(after, stepPairs(before, after))).toEqual([]);
   });
 
   it("이후에 검사가 생겨 expected가 된 429는 항목 없음", () => {
     const before = model("b", [S("s1", "목록")], [R("s1", { "429": 360 })]);
     const after = model("a", [S("s1", "목록", { assert: [429] })], [R("s1", { "429": 360 })]);
-    expect(remainingIssues(before, after, stepPairs(before, after))).toEqual([]);
+    expect(remainingIssues(after, stepPairs(before, after))).toEqual([]);
   });
 
   it("순서: 문제 단계(✕ → ▲) → 그대로·늘었습니다(큰 순) → 새로 생겼습니다", () => {
@@ -301,7 +335,7 @@ describe("remainingIssues", () => {
       { id: "s3", counts: { "200": 50, "500": 50 }, errors: 50 },
       { id: "s4", counts: { "200": 9990, "500": 10 }, errors: 10 },
     ]);
-    const list = remainingIssues(before, after, stepPairs(before, after));
+    const list = remainingIssues(after, stepPairs(before, after));
     expect(list).toHaveLength(4);
     expect(list[0]).toContain("③ 다");
     expect(list[0]).toContain("오류");
@@ -310,6 +344,37 @@ describe("remainingIssues", () => {
     expect(list[2]).toContain("① 가");
     expect(list[2]).toContain("100건은 그대로입니다");
     expect(list[3]).toBe("④ 라의 500 서버 오류 10건이 새로 생겼습니다.");
+  });
+
+  it("문제 단계가 아닌 항목: 그대로·늘었습니다가 새로 생겼습니다보다 앞, 같은 종류는 큰 건수 먼저", () => {
+    const profile = { ...baseProfile, criteria: { max_error_rate: 0.01 } };
+    const names = ["가", "나", "다", "라", "마"];
+    const st = names.map((n, i) => S(`s${i + 1}`, n, { assert: [200] }));
+    const row = (i: number, e: number): ReportStepSpec => ({
+      id: `s${i}`,
+      counts: e > 0 ? { "200": 10000, "500": e } : { "200": 10000 },
+      errors: e,
+    });
+    const mk = (id: string, errs: number[]) =>
+      buildRunModel(
+        mkMeta(id),
+        mkReport({
+          id,
+          steps: errs.map((e, i) => row(i + 1, e)),
+          yaml: scenarioYaml(st),
+          profile,
+        }),
+      );
+    const before = mk("b", [10, 36, 20, 0, 0]);
+    const after = mk("a", [10, 40, 25, 7, 48]);
+    const list = remainingIssues(after, stepPairs(before, after));
+    expect(list).toEqual([
+      "② 나의 500 서버 오류 36건 → 40건으로 늘었습니다.",
+      "③ 다의 500 서버 오류 20건 → 25건으로 늘었습니다.",
+      "① 가의 500 서버 오류 10건은 그대로입니다.",
+      "⑤ 마의 500 서버 오류 48건이 새로 생겼습니다.",
+      "④ 라의 500 서버 오류 7건이 새로 생겼습니다.",
+    ]);
   });
 
   it("아무것도 없으면 빈 배열", () => {
