@@ -36,10 +36,15 @@ export function ScenarioListPage() {
     saveCollapsedGroups(cleaned);
   }
 
-  function onClone(scenario: { yaml: string; name: string }) {
+  function onClone(scenario: { yaml: string; name: string; group: string | null }) {
     const existingNames = data?.scenarios.map((s) => s.name) ?? [];
     clone.reset();
-    clone.mutate({ sourceYaml: scenario.yaml, sourceName: scenario.name, existingNames });
+    clone.mutate({
+      sourceYaml: scenario.yaml,
+      sourceName: scenario.name,
+      existingNames,
+      sourceGroup: scenario.group,
+    });
   }
 
   const onDelete = async (s: { id: string; name: string }) => {

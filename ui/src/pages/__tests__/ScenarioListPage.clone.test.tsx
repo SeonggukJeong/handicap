@@ -117,4 +117,46 @@ describe("ScenarioListPage clone", () => {
 
     unmount();
   });
+
+  it("원본이 그룹에 있으면 복제 POST 본문 group이 그 값, 없으면 키가 없다", async () => {
+    const user = userEvent.setup();
+    const bodies: Record<string, unknown>[] = [];
+    fetchMock.mockImplementation((url: string | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (String(url).endsWith("/api/scenarios") && method === "POST") {
+        bodies.push(JSON.parse(init!.body as string));
+        return Promise.resolve(jsonResponse(CREATED, 201));
+      }
+      if (String(url).endsWith("/api/scenarios") && method === "GET")
+        return Promise.resolve(
+          jsonResponse({
+            scenarios: [
+              { ...DEMO, group: "서비스A" },
+              { ...DEMO, id: "S3", name: "solo", group: null },
+            ],
+          }),
+        );
+      return Promise.resolve(jsonResponse({ error: "unexpected" }, 500));
+    });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <ScenarioListPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("link", { name: "solo" });
+    const buttons = screen.getAllByRole("button", { name: "복제" });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[0]);
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    await user.click(buttons[1]);
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    const byName = (n: string) => bodies.find((b) => String(b.yaml).includes(`name: ${n} (copy)`))!;
+    expect(byName("demo").group).toBe("서비스A");
+    expect("group" in byName("solo")).toBe(false);
+  });
 });

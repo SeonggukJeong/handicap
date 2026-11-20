@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useCreateScenario } from "../api/hooks";
+import { useCreateScenario, useScenarios } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
+import { GroupButton } from "../components/scenario-groups/GroupButton";
 import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
@@ -11,6 +12,7 @@ import { UnsavedChangesDialog } from "../components/UnsavedChangesDialog";
 import { Callout } from "../components/ui/Callout";
 import { useUnsavedGuard } from "../hooks/useUnsavedGuard";
 import { ko } from "../i18n/ko";
+import { groupNames } from "../scenario/grouping";
 import { useScenarioEditor } from "../scenario/store";
 import { BLANK_TEMPLATE_YAML, SCENARIO_TEMPLATES } from "../scenario/templates";
 import { adoptDraftBucket } from "../scenario/trustPrefs";
@@ -21,6 +23,11 @@ export const STARTER_YAML = BLANK_TEMPLATE_YAML;
 export function ScenarioNewPage() {
   const navigate = useNavigate();
   const mutation = useCreateScenario();
+  const { data: scenarioList } = useScenarios();
+  const [group, setGroup] = useState<string | null>(null);
+  const existingGroups = Array.isArray(scenarioList?.scenarios)
+    ? groupNames(scenarioList.scenarios)
+    : [];
   // null = 템플릿 선택 단계(EditorShell mount 이전 — initialYaml은 mount 1회 고정이라
   // 선택을 mount 앞에 둔다, spec §4). 선택 후엔 그 YAML이 에디터 시드.
   const [seedYaml, setSeedYaml] = useState<string | null>(null);
@@ -101,7 +108,22 @@ export function ScenarioNewPage() {
     <div className="flex flex-col gap-4">
       <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: ko.pages.newScenario }]} />
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">{ko.pages.newScenario}</h2>
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="text-xl font-semibold">{ko.pages.newScenario}</h2>
+          <div
+            title={group ?? undefined}
+            className="max-w-[16rem] shrink-0 [&>button]:max-w-full [&>button]:truncate"
+          >
+            <GroupButton
+              group={group}
+              names={existingGroups}
+              onPick={(g) => {
+                setGroup(g);
+                return true;
+              }}
+            />
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="secondary"
@@ -122,7 +144,7 @@ export function ScenarioNewPage() {
           <Button
             onClick={() =>
               mutation.mutate(
-                { yaml: yamlText },
+                { yaml: yamlText, group },
                 {
                   onSuccess: (created) => {
                     adoptDraftBucket(created.id); // ← navigate 이전

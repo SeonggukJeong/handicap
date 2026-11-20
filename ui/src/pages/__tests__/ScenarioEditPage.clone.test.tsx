@@ -60,19 +60,20 @@ const COPY = {
 
 let putShould409 = false;
 let cloneShouldFail = false;
+let sourceGroup: string | null = null;
 function routeFetch(url: string, init?: RequestInit): Response {
   const method = init?.method ?? "GET";
   if (url.endsWith("/api/scenarios/S1") && method === "PUT") {
     return putShould409
       ? jsonResponse({ error: "stale version" }, 409)
-      : jsonResponse({ ...DEMO, version: 2 });
+      : jsonResponse({ ...DEMO, group: sourceGroup, version: 2 });
   }
-  if (url.endsWith("/api/scenarios/S1")) return jsonResponse(DEMO);
+  if (url.endsWith("/api/scenarios/S1")) return jsonResponse({ ...DEMO, group: sourceGroup });
   if (url.endsWith("/api/scenarios/S2")) return jsonResponse(COPY);
   if (url.endsWith("/api/scenarios") && method === "POST")
     return cloneShouldFail ? jsonResponse({ error: "clone failed" }, 500) : jsonResponse(COPY, 201);
   if (url.endsWith("/api/scenarios") && method === "GET")
-    return jsonResponse({ scenarios: [DEMO] });
+    return jsonResponse({ scenarios: [{ ...DEMO, group: sourceGroup }] });
   return jsonResponse({ error: "unexpected" }, 500);
 }
 
@@ -113,6 +114,7 @@ describe("ScenarioEditPage clone", () => {
   beforeEach(() => {
     putShould409 = false;
     cloneShouldFail = false;
+    sourceGroup = null;
   });
 
   it("not dirty: clones immediately and navigates to the new scenario", async () => {
@@ -210,5 +212,28 @@ describe("ScenarioEditPage clone", () => {
 
     const alertBox = await screen.findByRole("alert");
     expect(alertBox).toHaveTextContent("복제 실패: clone failed");
+  });
+
+  it("원본이 그룹에 있으면 복제 POST 본문 group이 그 값", async () => {
+    sourceGroup = "서비스A";
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: "복제" });
+    await user.click(await screen.findByRole("button", { name: "seed" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "복제" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "복제" }));
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect(postBody().group).toBe("서비스A");
+  });
+
+  it("원본이 그룹에 없으면 복제 POST 본문에 group 키가 없다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: "복제" });
+    await user.click(await screen.findByRole("button", { name: "seed" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "복제" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "복제" }));
+    await waitFor(() => expect(postBody()).not.toBeNull());
+    expect("group" in postBody()).toBe(false);
   });
 });

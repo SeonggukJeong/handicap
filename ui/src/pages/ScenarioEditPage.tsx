@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "../api/hooks";
+import {
+  useAssignScenarioGroup,
+  useCloneScenario,
+  useScenario,
+  useScenarios,
+  useUpdateScenario,
+} from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
+import { GroupButton } from "../components/scenario-groups/GroupButton";
 import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
@@ -13,6 +20,7 @@ import { Callout } from "../components/ui/Callout";
 import { Input } from "../components/ui/Input";
 import { useUnsavedGuard } from "../hooks/useUnsavedGuard";
 import { ko } from "../i18n/ko";
+import { groupNames } from "../scenario/grouping";
 import { useScenarioEditor } from "../scenario/store";
 
 type CloneDialog = null | { stage: "confirm" } | { stage: "save-failed"; message: string };
@@ -24,6 +32,7 @@ export function ScenarioEditPage() {
   const { data: scenarios } = useScenarios();
   const update = useUpdateScenario(id ?? "");
   const clone = useCloneScenario();
+  const assign = useAssignScenarioGroup();
   const [yamlText, setYamlText] = useState<string>("");
   const [loadedVersion, setLoadedVersion] = useState<number | null>(null);
   const [originalYaml, setOriginalYaml] = useState<string>("");
@@ -102,13 +111,26 @@ export function ScenarioEditPage() {
     useScenarioEditor.getState().setName(trimmed);
   };
   const scenariosLoaded = scenarios !== undefined;
+  const pickGroup = async (group: string | null) => {
+    try {
+      await assign.mutateAsync({ ids: [data.id], group });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   // 클론 소스는 항상 data.yaml(현재 저장본) 또는 next.yaml(방금 저장한 결과) — 둘 다
   // 서버가 준 유효 YAML. originalYaml(정규화·post-mount까지 "")은 클론 소스로 쓰지 않음.
-  const cloneAndGo = async (sourceYaml: string, sourceName: string) => {
+  const cloneAndGo = async (sourceYaml: string, sourceName: string, sourceGroup: string | null) => {
     const existingNames = scenarios?.scenarios.map((s) => s.name) ?? [];
     try {
-      const created = await clone.mutateAsync({ sourceYaml, sourceName, existingNames });
+      const created = await clone.mutateAsync({
+        sourceYaml,
+        sourceName,
+        existingNames,
+        sourceGroup,
+      });
       setCloneDialog(null);
       bypassNext();
       navigate(`/scenarios/${created.id}`);
@@ -122,7 +144,7 @@ export function ScenarioEditPage() {
 
   const onCloneClick = () => {
     if (!dirty) {
-      void cloneAndGo(data.yaml, data.name);
+      void cloneAndGo(data.yaml, data.name, data.group);
       return;
     }
     setCloneDialog({ stage: "confirm" });
@@ -134,7 +156,7 @@ export function ScenarioEditPage() {
       const next = await update.mutateAsync({ yaml: yamlText, version: loadedVersion });
       setLoadedVersion(next.version);
       setOriginalYaml(next.yaml);
-      await cloneAndGo(next.yaml, next.name);
+      await cloneAndGo(next.yaml, next.name, next.group);
     } catch (e) {
       setCloneDialog({ stage: "save-failed", message: (e as Error).message });
     }
@@ -179,38 +201,53 @@ export function ScenarioEditPage() {
             >
               <span aria-hidden="true">{chromeCollapsed ? "▸" : "▾"}</span>
             </button>
-            <div>
-              {nameEditing ? (
-                <Input
-                  autoFocus
-                  aria-label={ko.editor.nameInputAria}
-                  className="text-xl font-semibold"
-                  value={nameDraft}
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  onBlur={commitName}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitName();
-                    if (e.key === "Escape") {
-                      nameEscapedRef.current = true;
-                      setNameEditing(false);
-                    }
-                  }}
-                />
-              ) : (
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold">{liveName}</h2>
-                  <button
-                    type="button"
-                    aria-label={ko.editor.renameAria}
-                    title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
-                    disabled={!nameEditable}
-                    onClick={startNameEdit}
-                    className="text-slate-500 hover:text-slate-700 disabled:opacity-50"
-                  >
-                    <span aria-hidden="true">✎</span>
-                  </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                {nameEditing ? (
+                  <Input
+                    autoFocus
+                    aria-label={ko.editor.nameInputAria}
+                    className="text-xl font-semibold"
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onBlur={commitName}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitName();
+                      if (e.key === "Escape") {
+                        nameEscapedRef.current = true;
+                        setNameEditing(false);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-semibold">{liveName}</h2>
+                    <button
+                      type="button"
+                      aria-label={ko.editor.renameAria}
+                      title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
+                      disabled={!nameEditable}
+                      onClick={startNameEdit}
+                      className="text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                    >
+                      <span aria-hidden="true">✎</span>
+                    </button>
+                  </div>
+                )}
+                <div
+                  title={data.group ?? undefined}
+                  className="max-w-[16rem] shrink-0 [&>button]:max-w-full [&>button]:truncate"
+                >
+                  <GroupButton
+                    group={data.group}
+                    names={groupNames(scenarios?.scenarios ?? [])}
+                    pending={assign.isPending}
+                    error={assign.error ? (assign.error as Error).message : null}
+                    onPick={pickGroup}
+                    onOpenChange={() => assign.reset()}
+                  />
                 </div>
-              )}
+              </div>
               {!chromeCollapsed && (
                 <p id={subtitleRegionId} className="text-sm text-slate-600">
                   v{data.version} · updated {new Date(data.updated_at).toLocaleString()}
@@ -299,7 +336,7 @@ export function ScenarioEditPage() {
             </Button>
             <Button
               variant="secondary"
-              onClick={() => void cloneAndGo(data.yaml, data.name)}
+              onClick={() => void cloneAndGo(data.yaml, data.name, data.group)}
               disabled={clone.isPending}
             >
               저장 없이 복제
@@ -329,7 +366,7 @@ export function ScenarioEditPage() {
               취소
             </Button>
             <Button
-              onClick={() => void cloneAndGo(data.yaml, data.name)}
+              onClick={() => void cloneAndGo(data.yaml, data.name, data.group)}
               disabled={clone.isPending}
             >
               저장본으로 복제
