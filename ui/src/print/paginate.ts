@@ -97,14 +97,14 @@ export function paginate(
   return { pages, oversized: [...new Set(oversized)] };
 }
 
-export function chooseSummaryLevel(
-  blocksAt: (level: LadderLevel) => Block[],
+export function chooseSummaryLevel<L extends number = LadderLevel>(
+  blocksAt: (level: L) => Block[],
   bodyMm: number,
-): { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } {
-  let last: { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } | null =
-    null;
-  for (let l = 0; l <= 8; l++) {
-    const level = l as LadderLevel;
+  lastLevel = 8,
+): { level: L; pages: PageItem[][]; fits: boolean; oversized: string[] } {
+  let last: { level: L; pages: PageItem[][]; fits: boolean; oversized: string[] } | null = null;
+  for (let l = 0; l <= lastLevel; l++) {
+    const level = l as L;
     const { pages, oversized } = paginate(blocksAt(level), bodyMm);
     last = { level, pages, fits: pages.length === 1 && oversized.length === 0, oversized };
     if (last.fits) return last;

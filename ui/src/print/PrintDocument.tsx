@@ -1,6 +1,5 @@
 // 보고서 문서 렌더: 숨은 측정 시트 → 높이(mm) → 쪽 배치(순수 함수) → A4 쪽. spec §9.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import "./print.css";
+import { useMemo, type ReactNode } from "react";
 import {
   standardBlocks,
   summaryBlocks,
@@ -13,7 +12,6 @@ import {
   PAGE_BODY_MM,
   chooseSummaryLevel,
   paginate,
-  pxToMm,
   type Block,
   type LadderLevel,
   type PageItem,
@@ -39,18 +37,9 @@ import {
 import { SpeedBandTable, SpeedNotes, SpeedTableTitle } from "./components/SpeedBandTable";
 import { SignatureBlock } from "./components/SignatureBlock";
 import { PageFooter } from "./components/PageFooter";
+import { PagedDocument } from "./PagedDocument";
 
 type Props = { doc: PrintDoc; kind: PrintKind; onLadder?: (level: LadderLevel) => void };
-
-type Layout = { doc: PrintDoc; kind: PrintKind; pages: PageItem[][]; level: LadderLevel };
-
-const SHEET_STYLE = {
-  position: "absolute",
-  left: "-10000px",
-  top: 0,
-  width: "180mm",
-  visibility: "hidden",
-} as const;
 
 const SUMMARY_LEVELS: LadderLevel[] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -199,15 +188,6 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
   );
 }
 
-function measureHeights(sheet: HTMLElement): Heights {
-  const h: Heights = new Map();
-  for (const el of sheet.querySelectorAll<HTMLElement>("[data-measure]")) {
-    const id = el.getAttribute("data-measure");
-    if (id) h.set(id, pxToMm(el.getBoundingClientRect().height));
-  }
-  return h;
-}
-
 function place(
   doc: PrintDoc,
   kind: PrintKind,
@@ -229,7 +209,7 @@ function place(
   return { pages: r.pages, level: r.level };
 }
 
-function PageView(props: {
+function PageBody(props: {
   doc: PrintDoc;
   items: PageItem[];
   tableItems: TableItem[];
@@ -238,7 +218,7 @@ function PageView(props: {
 }) {
   const { doc, items, tableItems, n, total } = props;
   return (
-    <div className={n === total ? "p-page p-page--last" : "p-page"}>
+    <>
       {items.map((it) => {
         if (it.kind === "atomic") return <Atomic key={it.id} id={it.id} doc={doc} />;
         if (it.id === "appendix") {
@@ -273,56 +253,27 @@ function PageView(props: {
         );
       })}
       <PageFooter doc={doc} n={n} total={total} />
-    </div>
+    </>
   );
 }
 
 export function PrintDocument({ doc, kind, onLadder }: Props) {
-  const [layout, setLayout] = useState<Layout | null>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  // doc·kind가 바뀌면 이전 배치는 낡았다 → 다시 측정 시트를 그린다.
-  const current = layout && layout.doc === doc && layout.kind === kind ? layout : null;
-
-  useEffect(() => {
-    let alive = true;
-    void Promise.resolve(document.fonts?.ready).then(() => {
-      const sheet = sheetRef.current;
-      if (!alive || !sheet) return;
-      const placed = place(doc, kind, measureHeights(sheet));
-      setLayout({ doc, kind, ...placed });
-    });
-    return () => {
-      alive = false;
-    };
-  }, [doc, kind]);
-
-  useEffect(() => {
-    if (current) onLadder?.(current.level);
-  }, [current, onLadder]);
-
-  if (!current) {
-    return (
-      <div className="p-doc" data-layout-ready="false">
-        <div ref={sheetRef} className="p-sheet" aria-hidden="true" style={SHEET_STYLE}>
-          <MeasureSheet doc={doc} kind={kind} />
-        </div>
-      </div>
-    );
-  }
-
-  const tableItems = kind === "summary" ? summaryItems(doc, current.level) : stepItems(doc);
+  const layoutKey = useMemo(() => ({ doc, kind }), [doc, kind]);
   return (
-    <div className="p-doc" data-layout-ready="true">
-      {current.pages.map((items, i) => (
-        <PageView
-          key={i}
+    <PagedDocument
+      layoutKey={layoutKey}
+      sheet={<MeasureSheet doc={doc} kind={kind} />}
+      place={(h) => place(doc, kind, h)}
+      renderPage={(items, { n, total, level }) => (
+        <PageBody
           doc={doc}
           items={items}
-          tableItems={tableItems}
-          n={i + 1}
-          total={current.pages.length}
+          tableItems={kind === "summary" ? summaryItems(doc, level as LadderLevel) : stepItems(doc)}
+          n={n}
+          total={total}
         />
-      ))}
-    </div>
+      )}
+      onLevel={onLadder as ((level: number) => void) | undefined}
+    />
   );
 }
