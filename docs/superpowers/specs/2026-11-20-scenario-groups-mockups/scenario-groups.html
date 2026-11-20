@@ -44,6 +44,7 @@ input[type="text"], select { font: inherit; padding: 6px 10px; border-radius: 6p
 .band { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 10px;
   background: var(--band); border: 1px solid var(--band-line); border-radius: 8px; }
 .band strong { font-weight: 600; }
+.hintline { margin: 0 0 10px; color: var(--note); }
 
 .row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 52px 132px 176px; align-items: center; gap: 0 8px;
   padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
@@ -98,7 +99,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
 <div class="wrap">
   <header>
     <h1>시나리오 그룹 목업</h1>
-    <p class="lead">구현 전에 화면 모양을 확인하기 위한 목업입니다. 접기, 체크, 검색, 그룹 변경, 이름 바꾸기가 실제로 동작합니다. 시나리오와 그룹 이름은 예시입니다.</p>
+    <p class="lead">구현 전에 화면 모양을 확인하기 위한 목업입니다. 접기, 체크, 검색, 그룹 지정, 이름 바꾸기가 실제로 동작합니다. 시나리오와 그룹 이름은 예시입니다.</p>
   </header>
 
   <section class="scene">
@@ -114,9 +115,10 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
         <div class="btns"><button type="button" class="btn sec">가져오기</button><button type="button" class="btn">새 시나리오</button></div>
       </div>
       <input id="q" class="search" type="text" placeholder="이름으로 검색" aria-label="이름으로 검색">
+      <p id="hint" class="hintline" hidden>묶고 싶은 시나리오를 체크한 뒤 「그룹 지정」을 누르면 그룹이 만들어집니다.</p>
       <div id="band" class="band" hidden>
         <strong id="bandCount"></strong>
-        <button id="moveBtn" type="button" class="btn">그룹 변경</button>
+        <button id="moveBtn" type="button" class="btn">그룹 지정</button>
         <button id="clearBtn" type="button" class="link accent">선택 해제</button>
       </div>
       <div id="list"></div>
@@ -129,7 +131,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
     <div class="screen">
       <div class="edithead">
         <span class="crumb">시나리오 /</span><span class="title">로그인</span>
-        <button type="button" class="chip" data-edit="1">그룹: 서비스A</button>
+        <button type="button" class="chip" data-edit="s0"></button>
         <span class="spacer"></span>
         <button type="button" class="btn sec">복제</button><button type="button" class="btn">저장</button>
       </div>
@@ -137,7 +139,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
     <div class="screen" style="margin-top:10px">
       <div class="edithead">
         <span class="crumb">시나리오 /</span><span class="title">임시 점검</span>
-        <button type="button" class="chip none" data-edit="1">그룹 지정</button>
+        <button type="button" class="chip" data-edit="s8"></button>
         <span class="spacer"></span>
         <button type="button" class="btn sec">복제</button><button type="button" class="btn">저장</button>
       </div>
@@ -177,10 +179,10 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
     ["임시 점검", null, 2, "11/20 14:02"], ["결제 취소", null, 1, "11/19 09:10"]
   ];
   var all = seed.map(function (s, i) { return { id: "s" + i, name: s[0], group: s[1], ver: s[2], at: s[3] }; });
-  var noGroups = false, collapsed = { "서비스B": true }, selected = {}, query = "";
+  var collapsed = { "서비스B": true }, selected = {}, query = "";
   var $ = function (id) { return document.getElementById(id); };
   var el = function (tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
-  var groupOf = function (s) { return noGroups ? null : s.group; };
+  var groupOf = function (s) { return s.group; };
 
   function grouped(list) {
     var map = {}, names = [], loose = [];
@@ -254,6 +256,11 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
     var count = Object.keys(selected).length;
     $("band").hidden = count === 0;
     $("bandCount").textContent = count + "개 선택됨";
+    $("hint").hidden = !(count === 0 && grouped(all).groups.length === 0);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-edit]"), function (chip) {
+      var sc = all.filter(function (x) { return x.id === chip.getAttribute("data-edit"); })[0];
+      chip.textContent = sc.group ? "그룹: " + sc.group : "그룹 지정"; chip.classList.toggle("none", !sc.group);
+    });
     renderPickers();
     var dl = $("groupNames"); dl.textContent = "";
     grouped(all).groups.forEach(function (grp) { var o = el("option"); o.value = grp.name; dl.appendChild(o); });
@@ -283,7 +290,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
   }
   function openMove() {
     var ids = Object.keys(selected);
-    openDialog("그룹 변경", "고른 시나리오 " + ids.length + "개를 옮길 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.", "", "적용", null, function (v) {
+    openDialog("그룹 지정", "고른 시나리오 " + ids.length + "개를 옮길 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.", "", "적용", null, function (v) {
       all.forEach(function (s) { if (selected[s.id]) s.group = v || null; });
       selected = {};
     });
@@ -307,16 +314,17 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
   $("q").addEventListener("input", function (e) { query = e.target.value.trim(); render(); });
   Array.prototype.forEach.call(document.querySelectorAll("[data-variant]"), function (b) {
     b.addEventListener("click", function () {
-      noGroups = b.getAttribute("data-variant") === "none"; selected = {};
+      var none = b.getAttribute("data-variant") === "none"; selected = {};
+      all.forEach(function (x, i) { x.group = none ? null : seed[i][1]; });
       Array.prototype.forEach.call(document.querySelectorAll("[data-variant]"), function (x) { x.setAttribute("aria-pressed", String(x === b)); });
       render();
     });
   });
   Array.prototype.forEach.call(document.querySelectorAll("[data-edit]"), function (chip) {
     chip.addEventListener("click", function () {
-      var cur = chip.classList.contains("none") ? "" : chip.textContent.replace("그룹: ", "");
-      openDialog("그룹 지정", "이 시나리오를 넣을 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.", cur, "적용", null, function (v) {
-        chip.textContent = v ? "그룹: " + v : "그룹 지정"; chip.classList.toggle("none", !v);
+      var sc = all.filter(function (x) { return x.id === chip.getAttribute("data-edit"); })[0];
+      openDialog("그룹 지정", "이 시나리오를 넣을 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.", sc.group || "", "적용", null, function (v) {
+        sc.group = v || null;
       });
     });
   });
