@@ -36,6 +36,7 @@ import {
   StairUnitsNote,
   StairWarnings,
 } from "./components/StairPrintTable";
+import { SpeedBandTable, SpeedNotes, SpeedTableTitle } from "./components/SpeedBandTable";
 import { SignatureBlock } from "./components/SignatureBlock";
 import { PageFooter } from "./components/PageFooter";
 
@@ -109,6 +110,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return <FoldNotes notes={doc.table.foldNotes} />;
     case "notes:unreadable":
       return <UnreadableNote />;
+    case "speed:notes":
+      return doc.speed ? <SpeedNotes model={doc.speed} /> : null;
     case "chart":
       return <ErrorChart doc={doc} />;
     case "conditions":
@@ -174,6 +177,14 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
             <div key={b.id}>
               <StairTableTitle continued={false} measure />
               <StairPrintTable stair={doc.stair} from={0} to={doc.stair.steps.length} measure />
+            </div>
+          );
+        }
+        if (b.id === "speed" && doc.speed) {
+          return (
+            <div key={b.id}>
+              <SpeedTableTitle continued={false} measure />
+              <SpeedBandTable model={doc.speed} from={0} to={doc.speed.rows.length} measure />
             </div>
           );
         }
@@ -243,6 +254,14 @@ function PageView(props: {
             <div key={`${it.id}:${it.from}`}>
               <StairTableTitle continued={it.continued} />
               <StairPrintTable stair={doc.stair} from={it.from} to={it.to} />
+            </div>
+          );
+        }
+        if (it.id === "speed" && doc.speed) {
+          return (
+            <div key={`${it.id}:${it.from}`}>
+              <SpeedTableTitle continued={it.continued} />
+              <SpeedBandTable model={doc.speed} from={it.from} to={it.to} />
             </div>
           );
         }

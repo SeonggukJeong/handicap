@@ -2763,6 +2763,9 @@ export const ko = {
     },
     // 응답 속도 구간 절(spec §7.3–§7.5). 동적 이름 뒤 조사는 병기형(ADR-0035).
     speed: {
+      colStep: "단계",
+      colBar: "응답 속도 비율",
+      colFail: "실패",
       dash: "—",
       totalRow: "전체 요청",
       failSub: "막대와 별개",

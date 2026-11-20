@@ -217,6 +217,9 @@ export const MEASURE_IDS = {
   stairTitle: "stair:title",
   stairHeader: "stair:header",
   stairRowId: (i: number): string => `stair:row:${i}`,
+  speedTitle: "speed:title",
+  speedHeader: "speed:header",
+  speedRowId: (key: string): string => `speed:row:${key}`,
 } as const;
 
 const atom = (h: Heights, id: string): Block => ({
@@ -261,6 +264,18 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
   if (hasCallouts(doc)) out.push(atom(h, "callouts:full"));
   if (doc.table.foldNotes.length > 0) out.push(atom(h, "notes:fold"));
   if (doc.table.scenarioUnreadable) out.push(atom(h, "notes:unreadable"));
+  if (doc.speed !== null) {
+    out.push(
+      {
+        kind: "table",
+        id: "speed",
+        titleMm: h.get(MEASURE_IDS.speedTitle) ?? 0,
+        headerMm: h.get(MEASURE_IDS.speedHeader) ?? 0,
+        rowsMm: doc.speed.rows.map((r) => h.get(MEASURE_IDS.speedRowId(r.key)) ?? 0),
+      },
+      atom(h, "speed:notes"),
+    );
+  }
   out.push(atom(h, "chart"), atom(h, "conditions"), atom(h, "glossary"));
   if (limitOtherRows(doc.otherRows, "standard").truncated) {
     out.push({

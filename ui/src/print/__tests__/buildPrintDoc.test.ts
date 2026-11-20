@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { build as buildSpeed, case1Input } from "./speedFixtures";
 import {
+  MEASURE_IDS,
   buildPrintDoc,
   standardBlocks,
   summaryBlocks,
@@ -349,6 +351,35 @@ describe("standard blocks", () => {
     expect(idsOf(withAppendix)).toContain("appendix");
     expect(tableOf(withAppendix.filter((b) => b.id === "appendix")).rowsMm.length).toBe(7);
     expect(idsOf(standardBlocks(mk(5), heights(base)))).not.toContain("appendix");
+  });
+
+  it("speed 표 블록은 notes류 뒤·chart 앞, 없으면 블록 없음, 요약판엔 없다", () => {
+    const base = ladderDoc();
+    expect(idsOf(standardBlocks(base, heights(base)))).not.toContain("speed");
+    expect(idsOf(standardBlocks(base, heights(base)))).not.toContain("speed:notes");
+    const speed = buildSpeed(case1Input());
+    const doc: PrintDoc = { ...base, speed };
+    const ids = idsOf(standardBlocks(doc, heights(doc)));
+    expect(ids.indexOf("speed")).toBeGreaterThan(ids.indexOf("notes:fold"));
+    expect(ids.indexOf("speed")).toBeLessThan(ids.indexOf("chart"));
+    expect(ids[ids.indexOf("speed") + 1]).toBe("speed:notes");
+    const blk = standardBlocks(doc, heights(doc)).find((b) => b.id === "speed");
+    expect(blk?.kind).toBe("table");
+    expect(blk?.kind === "table" && blk.rowsMm.length).toBe(speed.rows.length);
+    const h = heights(doc);
+    h.set(MEASURE_IDS.speedTitle, 7);
+    h.set(MEASURE_IDS.speedHeader, 9);
+    for (const r of speed.rows) h.set(MEASURE_IDS.speedRowId(r.key), 6);
+    const withH = standardBlocks(doc, h).find((b) => b.id === "speed");
+    expect(withH?.kind === "table" && [withH.titleMm, withH.headerMm, ...withH.rowsMm]).toEqual([
+      7, 9, 6, 6, 6, 6, 6, 6,
+    ]);
+    for (let l = 0; l < 9; l++) {
+      expect(idsOf(summaryBlocks(doc, heights(doc), l as LadderLevel))).not.toContain("speed");
+      expect(idsOf(summaryBlocks(doc, heights(doc), l as LadderLevel))).not.toContain(
+        "speed:notes",
+      );
+    }
   });
 
   it("standard_order", () => {

@@ -10,7 +10,7 @@ export function ConditionsSection({ doc }: { doc: PrintDoc }) {
   const claims = doc.claims;
   return (
     <section>
-      <h2 className="p-h2">{ko.print.section.conditions}</h2>
+      <h2 className="p-h2">{doc.sectionNo.conditions}</h2>
       <div className={claims ? "p-two" : undefined}>
         <div className="p-box">
           <h3 className="p-h3">{C.title}</h3>

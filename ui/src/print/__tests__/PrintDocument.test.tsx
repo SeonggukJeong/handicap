@@ -13,6 +13,8 @@ import { PX_PER_MM, type LadderLevel } from "../paginate";
 import { requestLineBudget } from "../redact";
 import { LABEL_CHAR_MM, PLOT_X1_MM } from "../chartModel";
 import type { Report, Run } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
+import { build as buildSpeed, case1Input } from "./speedFixtures";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
 const T0 = 1_700_000_000_000;
@@ -455,6 +457,9 @@ describe("PrintDocument", () => {
     expect(screen.queryByText("시험자")).toBeNull();
     expect(container.textContent).not.toContain("5. 용어 풀이");
     expect(container.textContent).not.toContain("3. 시간에 따른 변화");
+    expect(container.textContent).not.toContain("3. 단계별 응답 속도 구간");
+    expect(container.textContent).not.toContain("4. 시간에 따른 변화");
+    expect(container.textContent).not.toContain("6. 용어 풀이");
     expect(screen.getByText("✕ 부적합")).toBeInTheDocument();
     expect(screen.getByText("평균 응답시간")).toBeInTheDocument();
     expect(screen.getByText("요청 수")).toBeInTheDocument();
@@ -745,3 +750,48 @@ describe("Legend status symbols", () => {
     expect(tr.children[idx + 3].textContent).toBe("4");
   });
 });
+
+describe("단계별 응답 속도 구간 절", () => {
+  const withSpeed = (): PrintDoc => ({
+    ...makeDoc(coreFixture),
+    speed: buildSpeed(case1Input()),
+    sectionNo: {
+      chart: ko.print.section.chartShifted,
+      conditions: ko.print.section.conditionsShifted,
+      glossary: ko.print.section.glossaryShifted,
+    },
+  });
+
+  it("표준판: 3절 제목 1개, 뒤 절 번호가 밀리고, 2절 표는 한 번만 그려진다", async () => {
+    const { root, container } = renderDoc(withSpeed());
+    await ready(root);
+    const count = (t: string) =>
+      Array.from(container.querySelectorAll("h2")).filter((h) => h.textContent === t).length;
+    expect(count("3. 단계별 응답 속도 구간")).toBe(1);
+    expect(count("4. 시간에 따른 변화")).toBe(1);
+    expect(count("5. 측정 조건과 해석 범위")).toBe(1);
+    expect(count("6. 용어 풀이")).toBe(1);
+    expect(count("3. 시간에 따른 변화")).toBe(0);
+    expect(count("2. 단계별 결과")).toBe(1);
+    expect(container.querySelectorAll(".p-speed")).toHaveLength(1);
+    expect(container.querySelectorAll(".p-steps")).toHaveLength(1);
+    expect(container.querySelector(".p-speed-legend")).not.toBeNull();
+  });
+
+  it("측정 시트도 speed 표를 행마다 data-measure로 낸다(높이 합이 쪽 배치에 쓰인다)", async () => {
+    const seen: string[] = [];
+    const spy = spyHeights((id) => {
+      seen.push(id);
+      return 5;
+    });
+    const doc = withSpeed();
+    const { root } = renderDoc(doc);
+    await ready(root);
+    spy.mockRestore();
+    for (const r of doc.speed!.rows) expect(seen).toContain(`speed:row:${r.key}`);
+    expect(seen).toContain("speed:title");
+    expect(seen).toContain("speed:header");
+    expect(seen).toContain("speed:notes");
+  });
+});
+

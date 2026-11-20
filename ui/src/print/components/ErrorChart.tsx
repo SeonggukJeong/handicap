@@ -144,7 +144,7 @@ export function ErrorChart({ doc }: { doc: PrintDoc }) {
   const hasOther = c.bins.some((b) => b.otherErr > 0);
   return (
     <section>
-      <h2 className="p-h2">{ko.print.section.chart}</h2>
+      <h2 className="p-h2">{doc.sectionNo.chart}</h2>
       <div className="p-chart">
         <ChartSvg doc={doc} />
         <div className="p-legend">
