@@ -92,12 +92,18 @@ function runMatch(matched: Matched[], metric: string): Matched | undefined {
   return matched.find((m) => m.spec.metric === metric && m.spec.target === null);
 }
 
+/** 허용 몫(글자·비교값용). 기준이 없는 default는 null. */
+function allowedOf(basis: Basis): number | null {
+  return basis === "default" ? null : ALLOWED[basis];
+}
+
 function overCell(row: BandRow, isTotal: boolean, matched: Matched[]): SpeedCell {
   const tot = rowTotal(row);
   if (tot === 0) return dash();
   const frac = row.over / tot;
-  const judged = row.basis !== "default";
-  const pair = judged ? fmtPctPair(frac, ALLOWED[row.basis as "p95" | "p99" | "p50"], 1) : null;
+  const allow = allowedOf(row.basis);
+  const judged = allow !== null;
+  const pair = allow !== null ? fmtPctPair(frac, allow, 1) : null;
   const text = pair ? pair.actual : fmtPct(frac);
   const star = pair ? pair.tiny : false;
   const muted = row.over === 0;
@@ -230,7 +236,7 @@ export function buildSpeedModel(a: {
         over: uniform ? K.headOver(B) : K.headOverMixed,
         overSub,
       };
-  const legendOver = overSub === K.overSubOver ? K.legendOver(head.over) : head.over;
+  const legendOver = uniform && runJudged ? K.legendOver(head.over) : head.over;
   const legend: SpeedModel["legend"] = twoBand
     ? [
         { band: "fast", text: head.within },
@@ -243,7 +249,7 @@ export function buildSpeedModel(a: {
       ];
 
   const rows: SpeedRow[] = [];
-  const named: Array<{ glyph: string; label: string; rate: number }> = [];
+  const named: Array<{ glyph: string; label: string; rate: number; text: string }> = [];
   for (const r of ranked) {
     const label = `${r.no} ${r.name}`;
     const sb = r.executed ? stepBands.get(r.stepId) : undefined;
@@ -293,7 +299,7 @@ export function buildSpeedModel(a: {
       fail: failC,
     });
     if (failC.mark !== "none" && bar !== null && r.status.errorRate >= NAMED_MIN_RATE)
-      named.push({ glyph: failC.glyph, label, rate: r.status.errorRate });
+      named.push({ glyph: failC.glyph, label, rate: r.status.errorRate, text: failC.text });
   }
 
   const totalCount = summary.count;
@@ -320,10 +326,10 @@ export function buildSpeedModel(a: {
   });
 
   let rule: SpeedModel["rule"] = null;
-  if (runJudged) {
+  const allow = allowedOf(overall.basis);
+  if (allow !== null) {
     const verdictRow = runMatch(matched, metricOf(overall.basis))?.row ?? null;
     const verdict = verdictRow ? (verdictRow.passed ? "pass" : "fail") : null;
-    const allow = ALLOWED[overall.basis as "p95" | "p99" | "p50"];
     const pct = totalTot === 0 ? K.dash : fmtPctPair(overall.over / totalTot, allow, 2).actual;
     const crit = ko.print.criteria.names[metricOf(overall.basis)]?.name ?? metricOf(overall.basis);
     rule = {
@@ -355,7 +361,7 @@ export function buildSpeedModel(a: {
   if (named.length > 0) {
     let best = named[0];
     for (const n of named) if (n.rate > best.rate) best = n;
-    bars.push({ text: " " }, ...K.noteNamed(best.glyph, best.label, fmtPct(best.rate)));
+    bars.push({ text: " " }, ...K.noteNamed(best.glyph, best.label, best.text));
     if (named.length > 1) bars.push({ text: ` ${K.noteNamedMore(named.length - 1)}` });
   }
   notes.push(bars);

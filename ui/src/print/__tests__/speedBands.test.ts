@@ -746,4 +746,93 @@ describe("buildSpeedModel", () => {
     expect(m2.rows[0].ownNote).toBe("이 단계 기준 2,999ms");
     expect(joined(m2.stepRules[0])).toContain("2,999.5ms 이하」: 2,999ms 초과");
   });
+
+  it("이름 각주의 실패 비율은 실패 칸과 같은 글자", () => {
+    const criteria: Criteria = { max_p95_ms: 3000, max_error_rate: 0.1 };
+    const p = band({ slow_ms: 3000, basis: "p95", fast: 9000, within: 1000, over: 0 });
+    const m = build({
+      bands: { overall: p, steps: [{ step_id: "s1", ...p }] },
+      ranked: [rr(0, "신청 제출", { count: 10000, errorCount: 1004 }, criteria)],
+      summary: summ(10000, 1004),
+      criteria,
+      failing: [],
+    });
+    expect(m.rows[0].fail).toMatchObject({ text: "10.04%", mark: "bad", glyph: "✕" });
+    const note = joined(m.notes[0]);
+    expect(note).toContain("요청의 10.04%가 실패했고");
+    expect(note).not.toContain("10.0%가");
+  });
+
+  it("각주에 이름이 오를 단계가 둘이면 큰 쪽 + 외 1단계", () => {
+    const criteria: Criteria = { max_p95_ms: 3000, max_error_rate: 0.1 };
+    const p = band({ slow_ms: 3000, basis: "p95", fast: 9000, within: 1000, over: 0 });
+    const m = build({
+      bands: {
+        overall: p,
+        steps: [
+          { step_id: "s1", ...p },
+          { step_id: "s2", ...p },
+        ],
+      },
+      ranked: [
+        rr(0, "작은 실패", { count: 10000, errorCount: 1004 }, criteria),
+        rr(1, "큰 실패", { count: 10000, errorCount: 3000 }, criteria),
+      ],
+      summary: summ(20000, 4004),
+      criteria,
+      failing: [],
+    });
+    const note = joined(m.notes[0]);
+    expect(note).toContain("✕ ② 큰 실패은(는) 요청의 30.0%가 실패했고");
+    expect(note).not.toContain("① 작은 실패");
+    expect(note).toContain("외 1단계도 실패 비율이 10% 이상입니다.");
+  });
+
+  it("p50만 건 run: 허용 50%·정수식 2*over > total", () => {
+    const criteria: Criteria = { max_p50_ms: 2000 };
+    const p = (within: number, over: number) =>
+      band({ slow_ms: 2000, basis: "p50", fast: 1000 - within - over, within, over });
+    const m = build({
+      bands: {
+        overall: p(100, 500),
+        steps: [
+          { step_id: "s1", ...p(100, 500) },
+          { step_id: "s2", ...p(100, 501) },
+        ],
+      },
+      ranked: [rr(0, "가", {}, criteria), rr(1, "나", {}, criteria)],
+      summary: summ(2000, 0),
+      criteria,
+      failing: [],
+    });
+    const rule = joined(m.rule?.segs ?? []);
+    expect(rule).toContain("50% 응답시간 2,000ms 이하");
+    expect(rule).toContain("2초 초과가 50% 이하여야 통과");
+    expect(m.rows[0].over.mark).toBe("none");
+    expect(m.rows[1].over).toMatchObject({ mark: "warn", glyph: "▲" });
+  });
+
+  it("p99만 건 run: 허용 1%·정수식 100*over > total", () => {
+    const criteria: Criteria = { max_p99_ms: 3000 };
+    const p = (over: number) =>
+      band({ slow_ms: 3000, basis: "p99", fast: 900 - over, within: 100, over });
+    const m = build({
+      bands: {
+        overall: p(10),
+        steps: [
+          { step_id: "s1", ...p(10) },
+          { step_id: "s2", ...p(11) },
+        ],
+      },
+      ranked: [rr(0, "가", {}, criteria), rr(1, "나", {}, criteria)],
+      summary: summ(2000, 0),
+      criteria,
+      failing: [],
+    });
+    const rule = joined(m.rule?.segs ?? []);
+    expect(rule).toContain("99% 응답시간 3,000ms 이하");
+    expect(rule).toContain("3초 초과가 1% 이하여야 통과");
+    expect(m.rows[0].over.mark).toBe("none");
+    expect(m.rows[1].over).toMatchObject({ mark: "warn", glyph: "▲" });
+  });
 });
