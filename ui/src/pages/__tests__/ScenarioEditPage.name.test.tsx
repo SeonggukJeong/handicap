@@ -193,4 +193,21 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
     expect(pencil).toBeDisabled();
     expect(pencil).toHaveAttribute("title", ko.editor.renameDisabledTitle);
   });
+
+  // 레이아웃은 jsdom이 재지 못한다 — 여기선 "이름이 줄어들고 버튼은 안 줄어든다"는
+  // 클래스 계약만 잡고, 실제 폭은 라이브에서 rect로 잰다(build-log editor-long-name-header).
+  it("긴 이름은 말줄임 + title, 오른쪽 버튼 묶음은 줄어들지 않는다", async () => {
+    renderPage();
+    const h2 = await screen.findByRole("heading", { name: "demo" });
+    expect(h2).toHaveClass("truncate");
+    expect(h2).toHaveAttribute("title", "demo");
+    // 이름에서 머리 줄까지 올라가는 flex 조상이 전부 min-w-0이어야 말줄임이 실제로 일어난다
+    const row = screen.getByTestId("editor-head-row");
+    for (let el = h2.parentElement; el && el !== row; el = el.parentElement) {
+      expect(el).toHaveClass("min-w-0");
+    }
+    const actions = screen.getByRole("button", { name: ko.common.save }).parentElement!;
+    expect(actions).toHaveClass("shrink-0", "whitespace-nowrap");
+    expect(screen.getByRole("button", { name: ko.editor.renameAria })).toHaveClass("shrink-0");
+  });
 });

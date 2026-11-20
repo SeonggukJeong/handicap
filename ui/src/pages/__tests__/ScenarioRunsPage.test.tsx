@@ -983,3 +983,17 @@ describe("ScenarioRunsPage — 좁은 화면 (run-detail-narrow)", () => {
     expect(table.parentElement).toHaveClass("overflow-x-auto");
   });
 });
+
+describe("ScenarioRunsPage — 긴 시나리오 이름 (editor-long-name-header)", () => {
+  it("제목은 말줄임 + title, 「실행」 버튼은 줄어들지 않는다", async () => {
+    mockApi();
+    renderPage();
+    const h2 = await screen.findByRole("heading", { name: `${ko.pages.runsTitle} · demo` });
+    expect(h2).toHaveClass("truncate", "min-w-0");
+    expect(h2).toHaveAttribute("title", `${ko.pages.runsTitle} · demo`);
+    expect(screen.getByRole("button", { name: ko.pages.runScenario })).toHaveClass(
+      "shrink-0",
+      "whitespace-nowrap",
+    );
+  });
+});

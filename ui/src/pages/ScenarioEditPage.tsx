@@ -187,8 +187,11 @@ export function ScenarioEditPage() {
             <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: liveName }]} />
           </div>
         )}
-        <div className="flex items-center justify-between">
-          <div className="flex items-start gap-2">
+        <div
+          data-testid="editor-head-row"
+          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
+        >
+          <div className="flex min-w-0 flex-1 basis-64 items-start gap-2">
             <button
               type="button"
               aria-label={chromeCollapsed ? ko.editor.chromeExpand : ko.editor.chromeCollapse}
@@ -197,12 +200,13 @@ export function ScenarioEditPage() {
                 chromeCollapsed ? undefined : `${breadcrumbRegionId} ${subtitleRegionId}`
               }
               onClick={() => setChromeCollapsed((v) => !v)}
-              className="mt-1 text-slate-500 hover:text-slate-700"
+              className="mt-1 shrink-0 text-slate-500 hover:text-slate-700"
             >
               <span aria-hidden="true">{chromeCollapsed ? "▸" : "▾"}</span>
             </button>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              {/* 이름과 그룹 칩이 남는 폭을 고르게 나눠 갖는다(둘 다 말줄임). */}
+              <div className="grid min-w-0 grid-cols-[minmax(0,max-content)_minmax(0,max-content)] items-center gap-2">
                 {nameEditing ? (
                   <Input
                     autoFocus
@@ -220,15 +224,17 @@ export function ScenarioEditPage() {
                     }}
                   />
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-semibold">{liveName}</h2>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2 className="min-w-0 truncate text-xl font-semibold" title={liveName}>
+                      {liveName}
+                    </h2>
                     <button
                       type="button"
                       aria-label={ko.editor.renameAria}
                       title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
                       disabled={!nameEditable}
                       onClick={startNameEdit}
-                      className="text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                      className="shrink-0 text-slate-500 hover:text-slate-700 disabled:opacity-50"
                     >
                       <span aria-hidden="true">✎</span>
                     </button>
@@ -250,7 +256,7 @@ export function ScenarioEditPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 whitespace-nowrap">
             <Button
               variant="secondary"
               onClick={() => setSaveTplOpen(true)}

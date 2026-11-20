@@ -185,11 +185,18 @@ export function ScenarioRunsPage() {
           { label: ko.breadcrumb.runs },
         ]}
       />
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <h2
+          className="min-w-0 truncate text-xl font-semibold"
+          title={`${ko.pages.runsTitle} · ${scenario.data.name}`}
+        >
           {ko.pages.runsTitle} · {scenario.data.name}
         </h2>
-        {!showDialog && <Button onClick={openBlank}>{ko.pages.runScenario}</Button>}
+        {!showDialog && (
+          <Button className="shrink-0 whitespace-nowrap" onClick={openBlank}>
+            {ko.pages.runScenario}
+          </Button>
+        )}
       </div>
 
       {showDialog && (

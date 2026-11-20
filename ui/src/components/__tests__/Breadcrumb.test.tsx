@@ -45,4 +45,22 @@ describe("Breadcrumb", () => {
     expect(screen.queryByRole("link", { name: "끝" })).toBeNull();
     expect(screen.getByText("끝")).toHaveAttribute("aria-current", "page");
   });
+
+  // 폭은 jsdom이 재지 못한다 — 클래스·title 계약만(실제 폭은 라이브 rect, editor-long-name-header)
+  it("긴 항목은 한 줄 말줄임 + title (링크·현재 항목 모두)", () => {
+    const long = "W".repeat(100);
+    renderCrumbs([
+      { label: "시나리오", to: "/" },
+      { label: long, to: "/s" },
+      { label: long + "!" },
+    ]);
+    const link = screen.getByRole("link", { name: long });
+    expect(link).toHaveClass("truncate");
+    expect(link).toHaveAttribute("title", long);
+    const current = screen.getByText(long + "!");
+    expect(current).toHaveClass("truncate");
+    expect(current).toHaveAttribute("title", long + "!");
+    expect(current.closest("li")).toHaveClass("min-w-0");
+    expect(current.closest("ol")).not.toHaveClass("flex-wrap");
+  });
 });
