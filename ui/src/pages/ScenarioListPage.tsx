@@ -1,17 +1,39 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCloneScenario, useDeleteScenario, useScenarios } from "../api/hooks";
+import type { Scenario } from "../api/schemas";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { OnboardingGuide } from "../components/OnboardingGuide";
 import { Callout } from "../components/ui/Callout";
 import { ko } from "../i18n/ko";
+import { groupScenarios } from "../scenario/grouping";
+import { loadCollapsedGroups, saveCollapsedGroups } from "../scenario/groupPrefs";
+
+/** 열 머리·묶음 안·묶음 밖 모든 행이 쓰는 한 벌의 열 템플릿. */
+const GRID = "grid grid-cols-[minmax(0,1fr)_4rem_11rem_13rem] items-center gap-x-4";
+/** 묶음 상자 테두리(1px)와 같은 폭의 투명 테두리 + 같은 좌우 여백으로 열 x 좌표를 맞춘다. */
+const FRAME = "border border-transparent px-3";
 
 export function ScenarioListPage() {
   const { data, isLoading, error } = useScenarios();
   const clone = useCloneScenario();
   const del = useDeleteScenario();
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [collapsed, setCollapsed] = useState<string[]>(loadCollapsedGroups);
+  const collapsedSet = new Set(collapsed);
+  const grouped = groupScenarios(data?.scenarios ?? []);
+
+  function toggleGroup(name: string) {
+    const live = new Set(grouped.groups.map((g) => g.name));
+    const next = collapsed.includes(name)
+      ? collapsed.filter((n) => n !== name)
+      : [...collapsed, name];
+    const cleaned = next.filter((n) => live.has(n));
+    setCollapsed(cleaned);
+    saveCollapsedGroups(cleaned);
+  }
 
   function onClone(scenario: { yaml: string; name: string }) {
     const existingNames = data?.scenarios.map((s) => s.name) ?? [];
@@ -32,6 +54,48 @@ export function ScenarioListPage() {
       setDeleteError((e as Error).message);
     }
   };
+
+  const renderRow = (s: Scenario, inBox: boolean) => (
+    <div
+      key={s.id}
+      role="row"
+      data-testid="scenario-row"
+      className={`${GRID} border-b border-slate-100 py-3 ${inBox ? "px-3" : ""}`}
+    >
+      <div role="cell" className={`min-w-0 font-medium ${inBox ? "pl-5" : ""}`}>
+        <Link to={`/scenarios/${s.id}`} title={s.name} className="block truncate hover:underline">
+          {s.name}
+        </Link>
+      </div>
+      <div role="cell" className="text-slate-600">
+        v{s.version}
+      </div>
+      <div role="cell" className="text-slate-600">
+        {new Date(s.updated_at).toLocaleString()}
+      </div>
+      <div role="cell" className="flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => onClone(s)}
+          disabled={clone.isPending}
+          className="text-slate-700 hover:underline disabled:text-slate-400"
+        >
+          {ko.pages.duplicate}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onDelete(s)}
+          disabled={del.isPending}
+          className="text-red-600 hover:underline disabled:text-slate-400"
+        >
+          {ko.pages.deleteBtn}
+        </button>
+        <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
+          {ko.pages.runsLink}
+        </Link>
+      </div>
+    </div>
+  );
 
   return (
     <div>
@@ -78,54 +142,66 @@ export function ScenarioListPage() {
       )}
 
       {data && data.scenarios.length > 0 && (
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-slate-600">
-            <tr>
-              <th className="py-2 pr-4 font-medium">{ko.pages.nameCol}</th>
-              <th className="py-2 pr-4 font-medium">{ko.pages.versionCol}</th>
-              <th className="py-2 pr-4 font-medium">{ko.pages.updatedCol}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {data.scenarios.map((s) => (
-              <tr key={s.id} className="border-b border-slate-100">
-                <td className="py-3 pr-4 font-medium">
-                  <Link to={`/scenarios/${s.id}`} className="hover:underline">
-                    {s.name}
-                  </Link>
-                </td>
-                <td className="py-3 pr-4 text-slate-600">v{s.version}</td>
-                <td className="py-3 pr-4 text-slate-600">
-                  {new Date(s.updated_at).toLocaleString()}
-                </td>
-                <td className="py-3 pr-4 text-right">
-                  <div className="flex justify-end gap-3">
+        <div role="table" aria-label={ko.nav.scenarios} className="text-sm">
+          <div
+            role="row"
+            data-testid="scenario-columns"
+            className={`${GRID} ${FRAME} border-b border-slate-200 py-2 text-left text-slate-600`}
+          >
+            <div role="columnheader" className="font-medium">
+              {ko.pages.nameCol}
+            </div>
+            <div role="columnheader" className="font-medium">
+              {ko.pages.versionCol}
+            </div>
+            <div role="columnheader" className="font-medium">
+              {ko.pages.updatedCol}
+            </div>
+            <div role="columnheader" aria-hidden="true" />
+          </div>
+          {grouped.groups.map((g) => {
+            const collapsed = collapsedSet.has(g.name);
+            return (
+              <div
+                key={g.name}
+                role="rowgroup"
+                data-testid="scenario-group"
+                data-group-name={g.name}
+                className="mt-3 overflow-hidden rounded-lg border border-slate-300"
+              >
+                <div
+                  role="row"
+                  data-testid="scenario-group-header"
+                  className="flex items-center gap-2 bg-slate-50 px-3 py-2"
+                >
+                  <div role="cell" className="flex min-w-0 flex-1 items-center">
                     <button
                       type="button"
-                      onClick={() => onClone(s)}
-                      disabled={clone.isPending}
-                      className="text-slate-700 hover:underline disabled:text-slate-400"
+                      aria-expanded={!collapsed}
+                      title={g.name}
+                      onClick={() => toggleGroup(g.name)}
+                      className="flex min-w-0 items-center gap-2 font-medium text-slate-800 hover:underline"
                     >
-                      {ko.pages.duplicate}
+                      <span aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+                      <span className="truncate">{g.name}</span>
+                      <span className="shrink-0 text-slate-500">
+                        {ko.scenarioGroups.groupCount(g.items.length)}
+                      </span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void onDelete(s)}
-                      disabled={del.isPending}
-                      className="text-red-600 hover:underline disabled:text-slate-400"
-                    >
-                      {ko.pages.deleteBtn}
-                    </button>
-                    <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
-                      {ko.pages.runsLink}
-                    </Link>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+                {!collapsed && g.items.map((s) => renderRow(s, true))}
+              </div>
+            );
+          })}
+          <div
+            role="rowgroup"
+            data-testid="scenario-ungrouped"
+            className={`${FRAME} ${grouped.groups.length > 0 ? "mt-6" : ""}`}
+          >
+            {grouped.ungrouped.map((s) => renderRow(s, false))}
+          </div>
+        </div>
       )}
     </div>
   );
