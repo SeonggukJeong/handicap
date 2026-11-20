@@ -84,3 +84,7 @@ plan의 검산 명령 중 **변경-후 상태가 존재해야 실행 자체가 �
 ## 리뷰·구현 병렬 중의 전체 게이트 flake (loop-while-report, 2026-11-14)
 
 task 리뷰(read-only)와 다음 task 구현을 서로 다른 파일에서 병렬로 돌리는 것 자체는 문제없었다(8 task 중 6회, 충돌 0). 다만 **다른 agent가 cargo를 쓰는 동안 orchestrator가 전체 `cargo nextest run --workspace`를 돌리면** `handicap-controller::pool_open_loop_capacity_test pool_open_loop_assigns_capacity_aware`가 "pool_idle_count >= 2 (current = 1)" 타임아웃으로 떨어진다(워커 subprocess 기동이 패키지 캐시 락에 밀림). 단독 3회는 전부 통과. 전체 게이트는 다른 agent의 cargo가 없을 때 돌리고, 이 테스트만 떨어지면 단독 재실행으로 판정한다. 같은 이유로 implementer의 첫 커밋이 pre-commit에서 원인 불명 exit 1로 떨어진 뒤 재시도에 통과한 일이 1회 있었다.
+
+## 커밋 게이트를 기다리는 subagent의 `pgrep` 대기 (nested-json-cost, 2026-11-20)
+
+implementer가 커밋을 백그라운드로 돌리고 `until ! pgrep -f "pre-commit"; do sleep 5; done`으로 기다리다 끝나지 않았다 — Playwright용 Chrome 프로세스 인자의 `--allow-pre-commit-input`이 그 패턴에 걸린다. 커밋은 이미 들어가 있었고, orchestrator가 `git log -1`·`git status --porcelain`을 직접 보고 깨웠다. brief에는 "커밋은 단일 foreground 호출, 하네스가 백그라운드로 넘기면 완료 알림만 기다린다(`pgrep`·`sleep` 대기 금지)"를 적는다. 하네스는 foreground 호출도 180초 뒤 백그라운드로 넘긴다(이 repo의 cargo 게이트는 늘 넘는다) — 그 자체는 정상이다. subagent가 "게이트 대기 중"으로 여러 번 멈춰 있으면 orchestrator가 git 상태를 직접 확인한다.
