@@ -47,7 +47,7 @@ enum Nested {
     Nothing,
     /// 바탕 값이 제자리에서 풀렸다. `early[i]` = 항목 i의 풀기 전 1·2단계 결과 칸:
     /// 트리거 항목 이전·본문 항목이 아님·경로 파싱 실패·1·2단계에서 못 찾음 = `Miss`,
-    /// 찾음(`null`이어도) = `Found`, 이미 쓴 칸 = `Taken`.
+    /// 찾음(`null`이어도) = `Found`, 이미 쓴 칸 = `Taken`. 뒤 본문 항목이 없을 때는 칸이 없다(`early`가 빈 벡터).
     Unwrapped { early: Vec<Early> },
 }
 
@@ -199,21 +199,32 @@ fn body_path_first(
     let Some(base) = cache.base(parsed) else {
         return Ok(None);
     };
-    if !has_unwrappable(&base.borrow()) {
+    // 뒤 본문 항목이 있으면 풀기 전에 그 1·2단계를 구해 둔다 — 풀면 원래 본문 값이 사라진다.
+    // 뒤 본문 항목이 없으면 구할 것이 없어 `unwrap_in_place`의 결과로 풀 것이 있는지 알아낸다(훑기 한 번).
+    let mut early: Vec<Early> = Vec::new();
+    if cache
+        .extracts
+        .get(idx + 1..)
+        .is_some_and(|rest| rest.iter().any(|e| matches!(e, Extract::Body { .. })))
+    {
+        if !has_unwrappable(&base.borrow()) {
+            *cache.nested.borrow_mut() = Nested::Nothing;
+            return Ok(None);
+        }
+        early = cache.extracts.iter().map(|_| Early::Miss).collect();
+        for (j, e) in cache.extracts.iter().enumerate().skip(idx + 1) {
+            if let Extract::Body { path, .. } = e
+                && let Ok(pj) = JsonPath::parse(path)
+                && let Stage::Found(hit) = cache.stage12(parsed, &pj)
+            {
+                early[j] = Early::Found(hit);
+            }
+        }
+    }
+    if !unwrap_in_place(&mut base.borrow_mut()) {
         *cache.nested.borrow_mut() = Nested::Nothing;
         return Ok(None);
     }
-    // 풀기 전에 뒤 본문 항목의 1·2단계를 구해 둔다 — 풀면 원래 본문 값이 사라진다.
-    let mut early: Vec<Early> = cache.extracts.iter().map(|_| Early::Miss).collect();
-    for (j, e) in cache.extracts.iter().enumerate().skip(idx + 1) {
-        if let Extract::Body { path, .. } = e
-            && let Ok(pj) = JsonPath::parse(path)
-            && let Stage::Found(hit) = cache.stage12(parsed, &pj)
-        {
-            early[j] = Early::Found(hit);
-        }
-    }
-    unwrap_in_place(&mut base.borrow_mut());
     *cache.nested.borrow_mut() = Nested::Unwrapped { early };
     let found = p.query(&base.borrow()).first().map(BodyHit::of);
     Ok(found)
@@ -950,6 +961,52 @@ mod tests {
         let b = body_path_first(&cache, &facts, 1, "$.data").unwrap();
         assert_eq!(b.map(|h| h.text).as_deref(), Some("{\"id\":7}"));
         let _ = body_path_first(&cache, &facts, 1, "$.data");
+    }
+
+    #[test]
+    fn last_body_item_plain_miss_settles_nothing() {
+        let body = br#"{"a":"[INFO] x","b":1}"#;
+        let facts = lenient_facts(body, &[]);
+        let xs = [body_extract("b", "$.b"), body_extract("n", "$.nope")];
+        let cache = BodyCache::new(&xs);
+        let first = body_path_first(&cache, &facts, 0, "$.b").unwrap();
+        assert_eq!(first.map(|h| h.text).as_deref(), Some("1"));
+        assert!(
+            body_path_first(&cache, &facts, 1, "$.nope")
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(*cache.nested.borrow(), Nested::Nothing));
+        let lenient = evaluate_lenient(&xs, &facts);
+        assert_eq!(lenient.get("b").map(String::as_str), Some("1"));
+        assert!(!lenient.contains_key("n"));
+        assert_eq!(
+            evaluate(&xs, &facts).unwrap_err().to_string(),
+            "extract failed: no match: $.nope"
+        );
+        assert_same(body, &[], &xs);
+    }
+
+    #[test]
+    fn last_body_item_unwraps_and_finds() {
+        let hdr = Extract::Header {
+            var: "h".into(),
+            name: "x-missing".into(),
+            decode: None,
+            claim: None,
+            default: None,
+        };
+        let xs = [
+            body_extract("name", "$.name"),
+            body_extract("id", "$.data.id"),
+            hdr,
+        ];
+        let facts = lenient_facts(B1.as_bytes(), &[]);
+        let lenient = evaluate_lenient(&xs, &facts);
+        assert_eq!(lenient.get("name").map(String::as_str), Some("kim"));
+        assert_eq!(lenient.get("id").map(String::as_str), Some("7"));
+        assert_same(B1.as_bytes(), &[], &xs);
+        assert_same(B1.as_bytes(), &[("x-missing".into(), "v".into())], &xs);
     }
 
     fn assert_same(body: &[u8], headers: &[(String, String)], xs: &[Extract]) {
