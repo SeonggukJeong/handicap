@@ -7,6 +7,36 @@
 export const ko = {
   // 크로스커팅 UI 동작/상태 — 의미가 어디서나 동일한 것만(ADR-0035, spec R2).
   // 도메인 한정 라벨(Name/Method/VUs/표 헤더 등)은 여기 두지 말고 도메인 네임스페이스로.
+  scenarioGroups: {
+    searchPlaceholder: "이름으로 검색",
+    searchEmpty: "검색 결과가 없습니다",
+    createHint: "묶고 싶은 시나리오를 체크한 뒤 「그룹 지정」을 누르면 그룹이 만들어집니다.",
+    selectedCount: (n: number) => `${n}개 선택됨`,
+    assign: "그룹 지정",
+    clearSelection: "선택 해제",
+    tooMany: "한 번에 500개까지 옮길 수 있습니다",
+    assignManyText: (n: number) =>
+      `고른 시나리오 ${n}개를 옮길 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.`,
+    assignOneText: "이 시나리오를 넣을 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.",
+    apply: "적용",
+    chip: (name: string) => `그룹: ${name}`,
+    fieldLabel: "그룹 이름",
+    fieldPlaceholder: "비워 두면 그룹에 넣지 않습니다",
+    errTooLong: "그룹 이름은 40자까지 쓸 수 있습니다",
+    errForbidden: "그룹 이름에 쓸 수 없는 글자가 들어 있습니다",
+    rename: "이름 바꾸기",
+    renameTitle: "그룹 이름 바꾸기",
+    renameText: (name: string) => `「${name}」 그룹의 새 이름을 입력해 주세요.`,
+    renameOk: "바꾸기",
+    mergeHint: (a: number, b: number) =>
+      `이미 있는 그룹입니다. 바꾸면 두 그룹이 합쳐집니다(${a}개 + ${b}개).`,
+    mergeOk: "합치기",
+    selectAll: "전체 선택",
+    selectRow: (name: string) => `${name} 선택`,
+    selectGroup: (name: string) => `${name} 그룹 전체 선택`,
+    groupCount: (n: number) => `(${n})`,
+    failed: (msg: string) => `그룹을 바꾸지 못했습니다: ${msg}`,
+  },
   common: {
     loading: "불러오는 중…",
     loadingRuns: "실행 목록 불러오는 중…",
