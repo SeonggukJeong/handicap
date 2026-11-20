@@ -259,19 +259,28 @@ function PageBody(props: {
 
 export function PrintDocument({ doc, kind, onLadder }: Props) {
   const layoutKey = useMemo(() => ({ doc, kind }), [doc, kind]);
+  // 쪽마다 다시 만들지 않는다: 표준판은 doc당 1번, 요약판은 doc당 단계별 1번.
+  const standardItems = useMemo(() => stepItems(doc), [doc]);
+  const summaryCache = useMemo(
+    () => ({ doc, byLevel: new Map<number, TableItem[]>() }),
+    [doc],
+  ).byLevel;
+  const tableItemsFor = (level: number): TableItem[] => {
+    if (kind !== "summary") return standardItems;
+    let items = summaryCache.get(level);
+    if (!items) {
+      items = summaryItems(doc, level as LadderLevel);
+      summaryCache.set(level, items);
+    }
+    return items;
+  };
   return (
     <PagedDocument
       layoutKey={layoutKey}
       sheet={<MeasureSheet doc={doc} kind={kind} />}
       place={(h) => place(doc, kind, h)}
       renderPage={(items, { n, total, level }) => (
-        <PageBody
-          doc={doc}
-          items={items}
-          tableItems={kind === "summary" ? summaryItems(doc, level as LadderLevel) : stepItems(doc)}
-          n={n}
-          total={total}
-        />
+        <PageBody doc={doc} items={items} tableItems={tableItemsFor(level)} n={n} total={total} />
       )}
       onLevel={onLadder as ((level: number) => void) | undefined}
     />

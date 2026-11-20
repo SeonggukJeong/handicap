@@ -121,7 +121,9 @@ afterEach(() => vi.restoreAllMocks());
 describe("PrintDocument 쪽 나누기 틀 (출력 고정)", () => {
   it("표준판 출력이 고정되고 측정 시트는 aria-hidden", async () => {
     spyHeights(40);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { html, sheetHidden } = await renderHtml("standard");
+    expect(warn).not.toHaveBeenCalled();
     expect(sheetHidden).toBe("true");
     expect(html).not.toMatch(/\d{1,2}:\d{2}/);
     await expect(html).toMatchFileSnapshot("./__snapshots__/paged-standard.html");
@@ -129,7 +131,9 @@ describe("PrintDocument 쪽 나누기 틀 (출력 고정)", () => {
 
   it("요약판 출력이 고정되고 측정 시트는 aria-hidden", async () => {
     spyHeights(40);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { html, sheetHidden } = await renderHtml("summary");
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/does not fit one page/));
     expect(sheetHidden).toBe("true");
     expect(html).not.toMatch(/\d{1,2}:\d{2}/);
     await expect(html).toMatchFileSnapshot("./__snapshots__/paged-summary.html");
