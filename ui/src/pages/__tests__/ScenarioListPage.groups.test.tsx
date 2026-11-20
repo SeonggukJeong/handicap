@@ -61,6 +61,7 @@ describe("ScenarioListPage 그룹 묶음·접기 (US1)", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("그룹 0개: 묶음 상자 없음·서버 응답 순서·행마다 복제/삭제/실행 목록", async () => {
@@ -200,7 +201,6 @@ describe("ScenarioListPage 그룹 묶음·접기 (US1)", () => {
       expect(within(b).getByRole("button", { expanded: true })).toBeInTheDocument();
     }
     expect(screen.getAllByTestId("scenario-row")).toHaveLength(5);
-    vi.restoreAllMocks();
   });
 
   it("묶음의 마지막 행에는 아래 구분선이 없고, 머리 행은 표 칸 수만큼 가로로 걸친다", async () => {
@@ -212,9 +212,9 @@ describe("ScenarioListPage 그룹 묶음·접기 (US1)", () => {
     const boxRows = within(boxes[1]).getAllByTestId("scenario-row");
     expect(boxRows[0]).toHaveClass("border-b");
     const headerCell = within(boxes[0]).getByTestId("scenario-group-header").firstElementChild;
-    expect(headerCell).toHaveAttribute("aria-colspan", "4");
+    expect(headerCell).toHaveAttribute("aria-colspan", "5");
     const heads = within(screen.getByTestId("scenario-columns")).getAllByRole("columnheader");
-    expect(heads).toHaveLength(4);
-    expect(heads[3]).not.toHaveAttribute("aria-hidden");
+    expect(heads).toHaveLength(5);
+    expect(heads[4]).not.toHaveAttribute("aria-hidden");
   });
 });

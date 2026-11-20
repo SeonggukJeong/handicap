@@ -1,18 +1,35 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useCloneScenario, useDeleteScenario, useScenarios } from "../api/hooks";
+import {
+  useAssignScenarioGroup,
+  useCloneScenario,
+  useDeleteScenario,
+  useRenameScenarioGroup,
+  useScenarios,
+} from "../api/hooks";
 import type { Scenario } from "../api/schemas";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { OnboardingGuide } from "../components/OnboardingGuide";
+import { GroupDialog } from "../components/scenario-groups/GroupDialog";
+import { RenameGroupDialog } from "../components/scenario-groups/RenameGroupDialog";
+import { SelectBox } from "../components/scenario-groups/SelectBox";
 import { Callout } from "../components/ui/Callout";
+import { Input } from "../components/ui/Input";
 import { ko } from "../i18n/ko";
-import { groupScenarios } from "../scenario/grouping";
+import { filterScenarios, groupNames, groupScenarios, MAX_ASSIGN } from "../scenario/grouping";
 import { loadCollapsedGroups, saveCollapsedGroups } from "../scenario/groupPrefs";
 
+/**
+ * 열 정의의 단일 소스. Tailwind가 클래스를 찾을 수 있게 리터럴로 쓰고, 열 수·체크 칸 폭은 거기서 뽑는다.
+ * 첫 열 = 체크 칸.
+ */
+const GRID_COLS = "grid-cols-[2rem_minmax(0,1fr)_4rem_13rem_13rem]";
+const TRACKS = GRID_COLS.slice("grid-cols-[".length, -1).split("_");
+const COLUMN_COUNT = TRACKS.length;
+const CHECK_SLOT_STYLE = { width: TRACKS[0] };
 /** 열 머리·묶음 안·묶음 밖 모든 행이 쓰는 한 벌의 열 템플릿. */
-const GRID = "grid grid-cols-[minmax(0,1fr)_4rem_13rem_13rem] items-center gap-x-4";
-const COLUMN_COUNT = 4;
+const GRID = `grid ${GRID_COLS} items-center gap-x-4`;
 /** 묶음 상자 테두리(1px)만큼 안쪽으로 들여, 묶음 밖 행·열 머리의 구분선과 열 x 좌표를 묶음 안과 맞춘다. */
 const OUTSIDE_INSET = "mx-px";
 
@@ -20,20 +37,117 @@ export function ScenarioListPage() {
   const { data, isLoading, error } = useScenarios();
   const clone = useCloneScenario();
   const del = useDeleteScenario();
+  const assign = useAssignScenarioGroup();
+  const rename = useRenameScenarioGroup();
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [collapsed, setCollapsed] = useState<string[]>(loadCollapsedGroups);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+
+  const [seenData, setSeenData] = useState(data);
+  if (data !== seenData) {
+    setSeenData(data);
+    if (data) {
+      const live = new Set(data.scenarios.map((s) => s.id));
+      setSelected((prev) => {
+        const kept = [...prev].filter((id) => live.has(id));
+        return kept.length === prev.size ? prev : new Set(kept);
+      });
+    }
+  }
+
+  const all = data?.scenarios ?? [];
+  const searching = query.trim() !== "";
+  const visible = filterScenarios(all, query);
+  const grouped = groupScenarios(visible);
   const collapsedSet = new Set(collapsed);
-  const grouped = groupScenarios(data?.scenarios ?? []);
+  const names = groupNames(all);
+  const counts: Record<string, number> = {};
+  for (const s of all) if (s.group) counts[s.group] = (counts[s.group] ?? 0) + 1;
+
+  const selectedCount = selected.size;
+  const tooMany = selectedCount > MAX_ASSIGN;
+  const visibleSelected = visible.filter((s) => selected.has(s.id)).length;
+
+  function setMany(ids: string[], on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleOne(id: string) {
+    setMany([id], !selected.has(id));
+  }
+
+  function toggleMany(items: Scenario[]) {
+    const ids = items.map((s) => s.id);
+    setMany(ids, !ids.every((id) => selected.has(id)));
+  }
 
   function toggleGroup(name: string) {
-    const live = new Set(grouped.groups.map((g) => g.name));
+    if (searching) return;
+    const live = new Set(names);
     const next = collapsed.includes(name)
       ? collapsed.filter((n) => n !== name)
       : [...collapsed, name];
     const cleaned = next.filter((n) => live.has(n));
     setCollapsed(cleaned);
     saveCollapsedGroups(cleaned);
+  }
+
+  function openAssign() {
+    assign.reset();
+    setAssignOpen(true);
+  }
+
+  function closeAssign() {
+    assign.reset();
+    setAssignOpen(false);
+  }
+
+  function submitAssign(group: string | null) {
+    assign.mutate(
+      { ids: [...selected], group },
+      {
+        onSuccess: () => {
+          setAssignOpen(false);
+          setSelected(new Set());
+        },
+      },
+    );
+  }
+
+  function openRename(name: string) {
+    rename.reset();
+    setRenameTarget(name);
+  }
+
+  function closeRename() {
+    rename.reset();
+    setRenameTarget(null);
+  }
+
+  function submitRename(from: string, to: string) {
+    rename.mutate(
+      { from, to },
+      {
+        onSuccess: () => {
+          const moved = collapsed.map((n) => (n === from ? to : n));
+          const next = moved.filter((n, i) => moved.indexOf(n) === i);
+          setCollapsed(next);
+          saveCollapsedGroups(next);
+          setRenameTarget(null);
+        },
+      },
+    );
   }
 
   function onClone(scenario: { yaml: string; name: string; group: string | null }) {
@@ -68,6 +182,14 @@ export function ScenarioListPage() {
       data-testid="scenario-row"
       className={`${GRID} px-3 py-3 ${inBox && isLast ? "" : "border-b border-slate-100"}`}
     >
+      <div role="cell">
+        <SelectBox
+          tall="row"
+          label={ko.scenarioGroups.selectRow(s.name)}
+          checked={selected.has(s.id)}
+          onChange={() => toggleOne(s.id)}
+        />
+      </div>
       <div role="cell" className={`min-w-0 font-medium ${inBox ? "pl-5" : ""}`}>
         <Link to={`/scenarios/${s.id}`} title={s.name} className="block truncate hover:underline">
           {s.name}
@@ -102,6 +224,8 @@ export function ScenarioListPage() {
       </div>
     </div>
   );
+
+  const hasScenarios = data !== undefined && data.scenarios.length > 0;
 
   return (
     <div>
@@ -147,13 +271,60 @@ export function ScenarioListPage() {
         />
       )}
 
-      {data && data.scenarios.length > 0 && (
+      {hasScenarios && (
+        <div className="mb-3">
+          <Input
+            type="search"
+            aria-label={ko.scenarioGroups.searchPlaceholder}
+            placeholder={ko.scenarioGroups.searchPlaceholder}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="max-w-xs"
+          />
+          {names.length === 0 && selectedCount === 0 && (
+            <p className="mt-2 text-sm text-slate-500">{ko.scenarioGroups.createHint}</p>
+          )}
+        </div>
+      )}
+
+      {selectedCount > 0 && (
+        <div
+          data-testid="scenario-selection-band"
+          className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-accent-200 bg-accent-50 px-3 py-2 text-sm"
+        >
+          <span role="status" className="font-medium text-slate-800">
+            {ko.scenarioGroups.selectedCount(selectedCount)}
+          </span>
+          <Button onClick={openAssign} disabled={tooMany || assignOpen}>
+            {ko.scenarioGroups.assign}
+          </Button>
+          <Button variant="secondary" onClick={() => setSelected(new Set())}>
+            {ko.scenarioGroups.clearSelection}
+          </Button>
+          {tooMany && <span className="text-red-600">{ko.scenarioGroups.tooMany}</span>}
+        </div>
+      )}
+
+      {hasScenarios && visible.length === 0 && (
+        <p className="text-slate-500">{ko.scenarioGroups.searchEmpty}</p>
+      )}
+
+      {hasScenarios && visible.length > 0 && (
         <div role="table" aria-label={ko.nav.scenarios} className="text-sm">
           <div
             role="row"
             data-testid="scenario-columns"
             className={`${GRID} ${OUTSIDE_INSET} border-b border-slate-200 px-3 py-2 text-left text-slate-600`}
           >
+            <div role="columnheader">
+              <SelectBox
+                tall="head"
+                label={ko.scenarioGroups.selectAll}
+                checked={visibleSelected === visible.length}
+                indeterminate={visibleSelected > 0}
+                onChange={() => toggleMany(visible)}
+              />
+            </div>
             <div role="columnheader" className="font-medium">
               {ko.pages.nameCol}
             </div>
@@ -166,7 +337,8 @@ export function ScenarioListPage() {
             <div role="columnheader" />
           </div>
           {grouped.groups.map((g) => {
-            const isCollapsed = collapsedSet.has(g.name);
+            const isCollapsed = !searching && collapsedSet.has(g.name);
+            const picked = g.items.filter((s) => selected.has(s.id)).length;
             return (
               <div
                 key={g.name}
@@ -178,13 +350,22 @@ export function ScenarioListPage() {
                 <div
                   role="row"
                   data-testid="scenario-group-header"
-                  className="flex items-center gap-2 bg-slate-50 px-3 py-2"
+                  className="flex items-center bg-slate-50 px-3 py-2"
                 >
                   <div
                     role="cell"
                     aria-colspan={COLUMN_COUNT}
-                    className="flex min-w-0 flex-1 items-center"
+                    className="flex min-w-0 flex-1 items-center gap-x-4"
                   >
+                    <div className="shrink-0" style={CHECK_SLOT_STYLE}>
+                      <SelectBox
+                        tall="head"
+                        label={ko.scenarioGroups.selectGroup(g.name)}
+                        checked={picked === g.items.length}
+                        indeterminate={picked > 0}
+                        onChange={() => toggleMany(g.items)}
+                      />
+                    </div>
                     <button
                       type="button"
                       aria-expanded={!isCollapsed}
@@ -197,6 +378,13 @@ export function ScenarioListPage() {
                       <span className="shrink-0 text-slate-500">
                         {ko.scenarioGroups.groupCount(g.items.length)}
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openRename(g.name)}
+                      className="ml-auto shrink-0 text-slate-700 hover:underline"
+                    >
+                      {ko.scenarioGroups.rename}
                     </button>
                   </div>
                 </div>
@@ -216,6 +404,29 @@ export function ScenarioListPage() {
           )}
         </div>
       )}
+
+      <GroupDialog
+        open={assignOpen}
+        title={ko.scenarioGroups.assign}
+        text={ko.scenarioGroups.assignManyText(selectedCount)}
+        initial={null}
+        names={names}
+        pending={assign.isPending}
+        error={assign.error ? assign.error.message : null}
+        onSubmit={submitAssign}
+        onClose={closeAssign}
+      />
+      <RenameGroupDialog
+        open={renameTarget !== null}
+        name={renameTarget ?? ""}
+        counts={counts}
+        pending={rename.isPending}
+        error={rename.error ? rename.error.message : null}
+        onSubmit={(to) => {
+          if (renameTarget !== null) submitRename(renameTarget, to);
+        }}
+        onClose={closeRename}
+      />
     </div>
   );
 }
