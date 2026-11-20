@@ -49,6 +49,15 @@ fn body_c_dense() -> Vec<u8> {
     body_with(|i| format!("user{i}"), 2200, Some(1))
 }
 
+/// 본문 C와 같은 모양에서 감싼 필드가 맨 끝 레코드 하나뿐이다.
+fn body_c_last() -> Vec<u8> {
+    let mut v: Value = serde_json::from_slice(&body_a()).unwrap();
+    let items = v["items"].as_array_mut().unwrap();
+    let last = items.len() - 1;
+    items[last]["payload"] = Value::String(json!({"k": last, "tag": "x"}).to_string());
+    serde_json::to_vec(&v).unwrap()
+}
+
 fn body_extract(var: &str, path: &str) -> Extract {
     Extract::Body {
         var: var.into(),
@@ -198,6 +207,10 @@ fn nested_cost_rows() {
     ratio(
         "row3 dense C (2200 unwrapped) lenient [$.nope] / old parse+jsonpath_first",
         &body_c_dense(),
+    );
+    ratio(
+        "row6 C-last (감싼 필드가 맨 끝) lenient [$.nope] / old parse+jsonpath_first",
+        &body_c_last(),
     );
     let two = ["$.nope", "$.items"];
     let body_a = body_a();

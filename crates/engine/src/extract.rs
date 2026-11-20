@@ -46,8 +46,8 @@ enum Nested {
     /// 풀 것이 없다 — 원래 본문 그대로. 뒤 항목은 자기 차례에 1·2단계를 찾는다.
     Nothing,
     /// 바탕 값이 제자리에서 풀렸다. `early[i]` = 항목 i의 풀기 전 1·2단계 결과 칸:
-    /// 트리거 항목 이전·본문 항목이 아님·경로 파싱 실패·1·2단계에서 못 찾음 = `Miss`,
-    /// 찾음(`null`이어도) = `Found`, 이미 쓴 칸 = `Taken`. 뒤 본문 항목이 없을 때는 칸이 없다(`early`가 빈 벡터).
+    /// 트리거 항목과 그 앞·본문 항목이 아님·경로 파싱 실패·1·2단계에서 못 찾음 = `Miss`,
+    /// 찾음(`null`이어도) = `Found`, 이미 쓴 칸 = `Taken`. 뒤 본문 항목이 없어 `early`가 빈 벡터면 모든 칸이 `Miss`다.
     Unwrapped { early: Vec<Early> },
 }
 
@@ -147,6 +147,14 @@ impl<'a> BodyCache<'a> {
     }
 }
 
+/// 본문 항목이면 그 경로.
+fn body_path(e: &Extract) -> Option<&str> {
+    match e {
+        Extract::Body { path, .. } => Some(path),
+        _ => None,
+    }
+}
+
 /// `Err` = `body not JSON: …`, `Ok(None)` = 못 찾음. `idx` = `extracts` 안 이 항목의 자리.
 fn body_path_first(
     cache: &BodyCache<'_>,
@@ -205,7 +213,7 @@ fn body_path_first(
     if cache
         .extracts
         .get(idx + 1..)
-        .is_some_and(|rest| rest.iter().any(|e| matches!(e, Extract::Body { .. })))
+        .is_some_and(|rest| rest.iter().any(|e| body_path(e).is_some()))
     {
         if !has_unwrappable(&base.borrow()) {
             *cache.nested.borrow_mut() = Nested::Nothing;
@@ -213,7 +221,7 @@ fn body_path_first(
         }
         early = cache.extracts.iter().map(|_| Early::Miss).collect();
         for (j, e) in cache.extracts.iter().enumerate().skip(idx + 1) {
-            if let Extract::Body { path, .. } = e
+            if let Some(path) = body_path(e)
                 && let Ok(pj) = JsonPath::parse(path)
                 && let Stage::Found(hit) = cache.stage12(parsed, &pj)
             {
