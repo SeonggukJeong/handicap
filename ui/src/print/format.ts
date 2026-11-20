@@ -39,13 +39,13 @@ function roundTo(v: number, d: number): number {
   return Math.round(v * 10 ** d) / 10 ** d;
 }
 
-function pctText(fraction: number, d: number): string {
+export function pctText(fraction: number, d: number): string {
   const p = roundTo(fraction * 100, d);
   if (fraction > 0 && p === 0) return f.pctUnder((10 ** -d).toFixed(d));
   return `${p.toFixed(d)}%`;
 }
 
-function rpsText(v: number, d: number): string {
+export function rpsText(v: number, d: number): string {
   const s = roundTo(v, d).toLocaleString("en-US", {
     minimumFractionDigits: d,
     maximumFractionDigits: d,
