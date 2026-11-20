@@ -60,6 +60,9 @@ pub struct ReportJson {
     /// 계단 시험 집계(spec §5.6). 계단 run이 아니면 키 자체를 내지 않는다(byte-identical).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stair: Option<crate::stair::StairReport>,
+    /// 응답 속도 구간 건수(인쇄 보고서 3절). 표본이 없으면 키 자체를 내지 않는다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_bands: Option<crate::speed_bands::SpeedBands>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -732,6 +735,7 @@ pub fn build_report(
         })
         .collect();
 
+    let speed_bands = crate::speed_bands::build(&overall, &per_step, run.profile.criteria.as_ref());
     let overall_p = percentiles_of(&overall);
     let latency = if !overall.is_empty() {
         Some(LatencyDistribution {
@@ -1190,6 +1194,7 @@ pub fn build_report(
         validity,
         narrative,
         stair,
+        speed_bands,
     }
 }
 
@@ -1872,6 +1877,63 @@ mod tests {
         assert_eq!(
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
+        );
+    }
+
+    #[test]
+    fn build_report_emits_speed_bands_and_keeps_rest() {
+        let r = run_row();
+        let rows = vec![win(
+            100,
+            "s",
+            3,
+            0,
+            r#"{"200":3}"#,
+            &[10_000, 20_000, 30_000],
+        )];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(
+            &r,
+            &yaml,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+            &[],
+        );
+        let v = serde_json::to_value(&rep).unwrap();
+        let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        keys.sort();
+        let sb = rep.speed_bands.as_ref().expect("speed_bands present");
+        assert_eq!(sb.overall.basis, "default");
+        assert_eq!(sb.overall.slow_ms, 3000);
+        assert_eq!(sb.steps.len(), 1);
+        assert!(keys.contains(&"speed_bands"));
+        keys.retain(|k| *k != "speed_bands");
+        assert_eq!(
+            keys,
+            [
+                "active_vu_series",
+                "dropped",
+                "group_latency",
+                "if_breakdown",
+                "insights",
+                "latency",
+                "narrative",
+                "run",
+                "scenario_yaml",
+                "status_distribution",
+                "steps",
+                "summary",
+                "validity",
+                "windows"
+            ]
         );
     }
 

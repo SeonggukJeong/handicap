@@ -742,6 +742,25 @@ export const WorkerBreakdownSchema = z
   .strict();
 export type WorkerBreakdown = z.infer<typeof WorkerBreakdownSchema>;
 
+export const SpeedBandRowSchema = z
+  .object({
+    slow_ms: z.number(),
+    basis: z.enum(["p95", "p99", "p50", "default"]),
+    own: z.boolean(),
+    // 서버 Option에 skip_serializing_if 없음 → null로 온다 (두 구간)
+    fast: z.number().nullable(),
+    within: z.number(),
+    over: z.number(),
+  })
+  .strict();
+export const SpeedBandsSchema = z
+  .object({
+    overall: SpeedBandRowSchema,
+    steps: z.array(SpeedBandRowSchema.extend({ step_id: z.string() }).strict()),
+  })
+  .strict();
+export type SpeedBands = z.infer<typeof SpeedBandsSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -769,6 +788,8 @@ export const ReportSchema = z
     connection: ConnectionStatsSchema.optional(),
     // 계단 run만. 서버 skip_serializing_if → absent → .optional()
     stair: StairReportSchema.optional(),
+    // 표본이 없으면 서버가 키를 생략 → .optional()
+    speed_bands: SpeedBandsSchema.optional(),
   })
   .strict();
 

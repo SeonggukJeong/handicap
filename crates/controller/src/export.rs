@@ -1172,6 +1172,7 @@ mod tests {
             validity: Default::default(),
             narrative: Default::default(),
             stair: None,
+            speed_bands: None,
         }
     }
 

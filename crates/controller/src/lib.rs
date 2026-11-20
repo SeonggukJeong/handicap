@@ -17,6 +17,7 @@ pub mod monitor;
 pub mod report;
 pub mod schedule;
 pub mod settings;
+pub mod speed_bands;
 pub mod stair;
 pub mod stair_live;
 pub mod stair_monitor;
