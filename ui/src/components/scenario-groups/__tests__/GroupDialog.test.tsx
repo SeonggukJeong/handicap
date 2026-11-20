@@ -99,4 +99,55 @@ describe("GroupDialog", () => {
     rerender(<GroupDialog open initial="B" {...props} />);
     expect(screen.getByLabelText(g.fieldLabel)).toHaveValue("B");
   });
+
+  it("keeps a half-typed draft when initial changes while open, reseeds on reopen", async () => {
+    const user = userEvent.setup();
+    const props = {
+      title: g.assign,
+      text: g.assignOneText,
+      names: [],
+      onSubmit: () => {},
+      onClose: () => {},
+    };
+    const { rerender } = render(<GroupDialog open initial="A" {...props} />);
+    await user.type(screen.getByLabelText(g.fieldLabel), "zzz");
+    rerender(<GroupDialog open initial="B" {...props} />);
+    expect(screen.getByLabelText(g.fieldLabel)).toHaveValue("Azzz");
+    rerender(<GroupDialog open={false} initial="B" {...props} />);
+    rerender(<GroupDialog open initial="B" {...props} />);
+    expect(screen.getByLabelText(g.fieldLabel)).toHaveValue("B");
+  });
+
+  it("Enter submits valid input once with the normalized value", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = setup();
+    await user.type(screen.getByLabelText(g.fieldLabel), " 새 그룹 {Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("새 그룹");
+  });
+
+  it("Enter does not submit invalid input", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = setup();
+    await user.type(screen.getByLabelText(g.fieldLabel), "가".repeat(41) + "{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("Enter does not submit while pending", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = setup({ pending: true });
+    await user.type(screen.getByLabelText(g.fieldLabel), "x{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("two mounted instances do not share ids", () => {
+    render(
+      <>
+        <GroupDialog open title="a" text="t" initial={null} names={["A"]} onSubmit={() => {}} onClose={() => {}} />
+        <GroupDialog open title="b" text="t" initial={null} names={["A"]} onSubmit={() => {}} onClose={() => {}} />
+      </>,
+    );
+    const ids = [...document.querySelectorAll("[id]")].map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });

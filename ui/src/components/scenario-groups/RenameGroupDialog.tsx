@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useId, useState } from "react";
 import { ko } from "../../i18n/ko";
 import { Button } from "../Button";
 import { Modal } from "../Modal";
@@ -23,13 +23,16 @@ export function RenameGroupDialog({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setDraft("");
-  }, [open, name]);
+  }
+  const fieldId = useId();
 
   const check = validateGroupName(draft);
   const target = check.ok ? check.value : null;
-  const merges = target != null && target !== name && target in counts;
+  const merges = target != null && target !== name && Object.hasOwn(counts, target);
   const canSubmit = target != null && target !== name && !pending;
 
   return (
@@ -43,7 +46,7 @@ export function RenameGroupDialog({
       >
         <p className="text-sm text-slate-700">{ko.scenarioGroups.renameText(name)}</p>
         <GroupField
-          id="rename-group-field"
+          id={fieldId}
           value={draft}
           onChange={setDraft}
           names={Object.keys(counts).filter((n) => n !== name)}

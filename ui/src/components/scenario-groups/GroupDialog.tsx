@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useId, useState } from "react";
 import { ko } from "../../i18n/ko";
 import { Button } from "../Button";
 import { Modal } from "../Modal";
@@ -27,9 +27,12 @@ export function GroupDialog({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(initial ?? "");
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setDraft(initial ?? "");
-  }, [open, initial]);
+  }
+  const fieldId = useId();
 
   const check = validateGroupName(draft);
   const submit = () => {
@@ -46,7 +49,7 @@ export function GroupDialog({
         }}
       >
         <p className="text-sm text-slate-700">{text}</p>
-        <GroupField id="group-dialog-field" value={draft} onChange={setDraft} names={names} />
+        <GroupField id={fieldId} value={draft} onChange={setDraft} names={names} />
         {error != null && (
           <p role="alert" className="text-sm text-red-600">
             {ko.scenarioGroups.failed(error)}

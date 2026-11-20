@@ -88,4 +88,33 @@ describe("RenameGroupDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(g.failed("x"));
     expect(screen.getByRole("button", { name: g.renameOk })).toBeDisabled();
   });
+
+  it("does not treat Object.prototype names as an existing group", async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.type(field(), "constructor");
+    expect(screen.queryByText(/이미 있는 그룹/)).toBeNull();
+    expect(screen.getByRole("button", { name: g.renameOk })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: g.mergeOk })).toBeNull();
+  });
+
+  it("Enter submits valid input once and ignores invalid or pending", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = setup();
+    await user.type(field(), "가".repeat(41) + "{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.clear(field());
+    await user.type(field(), " C {Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("C");
+  });
+
+  it("keeps the draft when counts change while open", async () => {
+    const user = userEvent.setup();
+    const props = { name: "A", onSubmit: () => {}, onClose: () => {} };
+    const { rerender } = render(<RenameGroupDialog open counts={{ A: 3 }} {...props} />);
+    await user.type(field(), "zz");
+    rerender(<RenameGroupDialog open counts={{ A: 4 }} {...props} />);
+    expect(field()).toHaveValue("zz");
+  });
 });
