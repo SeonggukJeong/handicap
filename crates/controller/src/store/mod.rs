@@ -93,6 +93,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0023).execute(&pool).await?; // migration 0023: run_loop_exit_metrics
     sqlx::query(MIGRATION_SQL_0024).execute(&pool).await?; // migration 0024: run_open_loop_seconds
     ensure_runs_auto_stop_json(&pool).await?; // migration 0025 (Rust-guarded; see fn)
+    ensure_scenarios_group_name(&pool).await?; // migration 0026 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -221,6 +222,21 @@ async fn ensure_runs_auto_stop_json(db: &Db) -> anyhow::Result<()> {
     .await?;
     if has == 0 {
         sqlx::query("ALTER TABLE runs ADD COLUMN auto_stop_json TEXT")
+            .execute(db)
+            .await?;
+    }
+    Ok(())
+}
+
+/// migration 0026 (Rust-guarded): scenarios.group_name (nullable).
+async fn ensure_scenarios_group_name(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('scenarios') WHERE name = 'group_name'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE scenarios ADD COLUMN group_name TEXT")
             .execute(db)
             .await?;
     }
@@ -800,6 +816,36 @@ mod tests {
             .expect("idempotent second call");
         let has: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'auto_stop_json'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(has, 1, "guard must not duplicate the column");
+    }
+
+    #[tokio::test]
+    async fn ensure_scenarios_group_name_is_idempotent() {
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0001)
+            .execute(&pool)
+            .await
+            .unwrap();
+        ensure_scenarios_group_name(&pool)
+            .await
+            .expect("first call");
+        ensure_scenarios_group_name(&pool)
+            .await
+            .expect("idempotent second call");
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('scenarios') WHERE name = 'group_name'",
         )
         .fetch_one(&pool)
         .await
