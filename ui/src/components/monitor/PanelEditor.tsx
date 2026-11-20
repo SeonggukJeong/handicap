@@ -15,6 +15,7 @@ import { Field } from "../ui/Field";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { ko } from "../../i18n/ko";
+import { ScenarioOptions } from "../scenario-groups/ScenarioOptions";
 import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps } from "../../scenario/model";
@@ -344,11 +345,7 @@ export function PanelEditor({
                   }}
                 >
                   <option value="">{ko.monitor.noValue}</option>
-                  {scenarios.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
+                  <ScenarioOptions scenarios={scenarios} />
                 </Select>
               </Field>
               <Field label={ko.monitor.environment} htmlFor={`${pid}-env`}>

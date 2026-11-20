@@ -128,4 +128,50 @@ describe("SchedulesPage", () => {
     expect(await screen.findByText(ko.empty.schedules)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `${ko.empty.schedulesCta} →` })).toBeInTheDocument();
   });
+
+  it("목록 응답에 그룹이 있으면 폼의 시나리오 select에 optgroup이 있다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const body = url.endsWith("/api/schedules")
+          ? { schedules: [] }
+          : url.endsWith("/api/scenarios")
+            ? {
+                scenarios: [
+                  {
+                    id: "s1",
+                    name: "로그인",
+                    yaml: "",
+                    version: 1,
+                    created_at: 1,
+                    updated_at: 1,
+                    group: "서비스A",
+                  },
+                  {
+                    id: "s2",
+                    name: "단독",
+                    yaml: "",
+                    version: 1,
+                    created_at: 1,
+                    updated_at: 1,
+                    group: null,
+                  },
+                ],
+              }
+            : {};
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+          text: () => Promise.resolve(JSON.stringify(body)),
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    wrap(<SchedulesPage />);
+    await user.click(await screen.findByRole("button", { name: ko.pages.newSchedule }));
+    const sel = await screen.findByRole("combobox", { name: "시나리오" });
+    await screen.findByRole("option", { name: "단독" });
+    expect(sel.querySelector('optgroup[label="서비스A"]')).not.toBeNull();
+  });
 });

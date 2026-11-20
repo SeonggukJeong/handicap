@@ -44,6 +44,7 @@ export function SchedulesPage() {
   const scenarioOptions: ScenarioOption[] = (scenarios.data?.scenarios ?? []).map((s) => ({
     id: s.id,
     name: s.name,
+    group: s.group,
   }));
 
   function startNew() {

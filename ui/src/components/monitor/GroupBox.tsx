@@ -7,6 +7,7 @@ import { Field } from "../ui/Field";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { ko } from "../../i18n/ko";
+import { ScenarioOptions } from "../scenario-groups/ScenarioOptions";
 
 type Props = {
   group: CheckGroup;
@@ -111,11 +112,7 @@ export function GroupBox({
               onChange={(e) => onChange({ ...group, scenario_id: e.target.value })}
             >
               <option value="">{m.noValue}</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
+              <ScenarioOptions scenarios={scenarios} />
             </Select>
           </Field>
           <Field label={m.environment} htmlFor={`${gid}-env`}>

@@ -2189,3 +2189,31 @@ describe("MonitorEditPage check groups", () => {
     expect(within(regionOf(1)).getByText(ko.monitor.branchStepsHelp)).toBeInTheDocument();
   });
 });
+
+describe("MonitorEditPage scenario select grouping", () => {
+  beforeEach(() => {
+    handlers["GET /api/scenarios"] = () =>
+      json({
+        scenarios: [
+          { ...flowScenarios.scenarios[0], group: "서비스A" },
+          { ...flowScenarios.scenarios[1], group: null },
+        ],
+      });
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+  });
+
+  it("panel_editor_scenario_select_has_optgroup", async () => {
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    const sel = within(regionOf(1)).getByLabelText(ko.monitor.scenario);
+    expect(sel.querySelector('optgroup[label="서비스A"]')).not.toBeNull();
+  });
+
+  it("group_box_scenario_select_has_optgroup", async () => {
+    const user = userEvent.setup();
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.addGroup }));
+    const sel = within(groupRegion(1)).getByLabelText(ko.monitor.scenario);
+    expect(sel.querySelector('optgroup[label="서비스A"]')).not.toBeNull();
+  });
+});

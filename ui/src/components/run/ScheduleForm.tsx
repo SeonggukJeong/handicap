@@ -32,8 +32,9 @@ import { Select } from "../ui/Select";
 import { Section } from "../ui/Section";
 import { Callout } from "../ui/Callout";
 import { ko } from "../../i18n/ko";
+import { ScenarioOptions } from "../scenario-groups/ScenarioOptions";
 
-export type ScenarioOption = { id: string; name: string };
+export type ScenarioOption = { id: string; name: string; group?: string | null };
 
 type StageRow = { target: string; duration_seconds: string };
 
@@ -316,11 +317,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
             }}
           >
             <option value="">선택…</option>
-            {scenarioOptions.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
+            <ScenarioOptions scenarios={scenarioOptions} />
           </Select>
         </label>
       </div>
