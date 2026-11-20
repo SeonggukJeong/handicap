@@ -294,7 +294,7 @@ it("느림 줄: 단계 p95·기준이 ms로", () => {
     bar: Array<{ band: "fast" | "within" | "over"; pct: number }> | null;  // null = 「—」
     merged: boolean;                 // fast === null 인 행이 세 구간 표에 있을 때
     fast: SpeedCell | null;          // 두 구간 표거나 merged면 null
-    within: SpeedCell;               // merged면 text = "이내 91.0%"
+    within: SpeedCell;               // merged면 text = "800ms 이내 91.0%" — ko.print.speed.withinMerged(fmtBoundary(slow_ms), 비율)
     over: SpeedCell;
     fail: SpeedCell;
   };
@@ -320,7 +320,7 @@ it("느림 줄: 단계 p95·기준이 ms로", () => {
   ```
   `PrintDoc.speed: SpeedModel | null`(`report.speed_bands`가 없으면 `null`). `PrintDoc.sectionNo: { chart: string; conditions: string; glossary: string }` — speed가 있으면 4·5·6 제목, 없으면 기존 3·4·5 제목.
 - `ko.print.section`: `speed: "3. 단계별 응답 속도 구간"`, `chartShifted: "4. 시간에 따른 변화"`, `conditionsShifted: "5. 측정 조건과 해석 범위"`, `glossaryShifted: "6. 용어 풀이"`(기존 세 키는 그대로).
-- `ko.print.speed` 문구는 spec §7.3–§7.5와 시안 v2 글자 그대로(머리·범례·`totalRow: "전체 요청"`·`failSub: "막대와 별개"`·`overSubOver: "기준 넘음"`·`overSubMixed(b)`·`overSubNoCriteria: "기준 없는 단계는 3초"`·`ownNote(b)`·`withinMerged(p)`·`rule(...)`·`ruleNoVerdict(...)`·`stepRule(...)`·`stepRulesRest(n)`·`noteDefault`·`noteDefaultMixed`·`noteBars`·`noteNamed(glyph, name, pct)`·`noteNamedMore(n)`·`noteNotSent`·`noteStar`). 받침에 따라 달라지는 조사는 병기형.
+- `ko.print.speed` 문구는 spec §7.3–§7.5와 시안 v2 글자 그대로(머리·범례·`totalRow: "전체 요청"`·`failSub: "막대와 별개"`·`overSubOver: "기준 넘음"`·`overSubMixed(b)`·`overSubNoCriteria: "기준 없는 단계는 3초"`·`ownNote(b)`·`withinMerged(b, p)`·`rule(...)`·`ruleNoVerdict(...)`·`stepRule(...)`·`stepRulesRest(n)`·`noteDefault`·`noteDefaultMixed`·`noteBars`·`noteNamed(glyph, name, pct)`·`noteNamedMore(n)`·`noteNotSent`·`noteStar`). 받침에 따라 달라지는 조사는 병기형.
 
 규칙은 spec이 정본이다. 구현자가 따로 정할 것이 없도록 판정 갈래만 여기 못박는다:
 - ▲ 판정은 `exceedsAllowance`(정수식)로만 한다. `ALLOWED`는 글자(안내 줄의 "5%", 쌍 표기의 비교값)에만 쓴다.
@@ -361,7 +361,7 @@ it("경우 6: 아슬아슬한 값과 기준 없는 실패", () => {
 });
 it("경우 7: 단계 기준만 있는 run", () => {
   // overSub "기준 없는 단계는 3초"; rule null; stepRules 2줄
-  // ① merged true, within.text "이내 91.0%", bar = [{band:"fast",pct:91},{band:"over",pct:9}]
+  // ① merged true, within.text "800ms 이내 91.0%", bar = [{band:"fast",pct:91},{band:"over",pct:9}]
   // 오류율 기준 0.7% 저장 오차 단계 fail.star true, notes에 noteStar
   // anyNotSent true → noteNotSent; notes[0] === noteDefaultMixed
   // 실행 안 된 단계: bar null, fail.text "—"

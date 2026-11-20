@@ -180,13 +180,13 @@
 
 <!-- ───────── 경우 7 ───────── -->
 <div class="case"><span class="new">새로 추가</span>경우 7 — 단계 기준만 있는 run + 기준이 1초 이하인 단계 + 보내지 않은 요청 + 기준과 차이가 아주 작은 값 (기준: 오류율 0.7% 이하, ① 800ms, ② 5초)
-  <small>전체 응답 시간 기준이 없으므로 전체 안내 줄은 없고 단계 기준 줄만 나옵니다. ①은 기준이 1초 이하라 앞 두 칸을 합쳐 「이내」로 적습니다. ④의 실패 칸 `*`는 기준(0.7%)과 소수 6자리까지 같은 글자인데 판정은 넘은 경우입니다. ⑥은 실행되지 않은 단계라 전부 「—」입니다.</small>
+  <small>전체 응답 시간 기준이 없으므로 전체 안내 줄은 없고 단계 기준 줄만 나옵니다. ①은 기준이 1초 이하라 앞 두 칸을 합쳐 「800ms 이내」처럼 그 단계의 경계를 직접 적습니다. ④의 실패 칸 `*`는 기준(0.7%)과 소수 6자리까지 같은 글자인데 판정은 넘은 경우입니다. ⑥은 실행되지 않은 단계라 전부 「—」입니다.</small>
 </div>
 <div class="page">
   <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
   <table>
     <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>1초 미만</th><th>1초–기준</th><th>기준 초과<small>기준 없는 단계는 3초</small></th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
-    <tr><td class="l">① 로그인<span class="own">이 단계 기준 800ms</span></td><td class="barc"><div class="bar"><i class="s1" style="width:91%"></i><i class="s3" style="width:9%"></i></div></td><td colspan="2" style="text-align:center">이내 91.0%</td><td class="warn">▲ 9.0%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">① 로그인<span class="own">이 단계 기준 800ms</span></td><td class="barc"><div class="bar"><i class="s1" style="width:91%"></i><i class="s3" style="width:9%"></i></div></td><td colspan="2" style="text-align:center">800ms 이내 91.0%</td><td class="warn">▲ 9.0%</td><td class="muted">0.0%</td></tr>
     <tr><td class="l">② 첨부 업로드<span class="own">이 단계 기준 5초</span></td><td class="barc"><div class="bar"><i class="s1" style="width:20%"></i><i class="s2" style="width:77.2%"></i><i class="s3" style="width:2.8%"></i></div></td><td>20.0%</td><td>77.2%</td><td>2.8%</td><td>0.2%</td></tr>
     <tr><td class="l">③ 민원 상세</td><td class="barc"><div class="bar"><i class="s1" style="width:74%"></i><i class="s2" style="width:24.5%"></i><i class="s3" style="width:1.5%"></i></div></td><td>74.0%</td><td>24.5%</td><td>1.5%</td><td>0.1%</td></tr>
     <tr class="rowbad"><td class="l"><span class="bad">✕</span> ④ 신청 제출</td><td class="barc"><div class="bar"><i class="s1" style="width:60%"></i><i class="s2" style="width:38%"></i><i class="s3" style="width:2%"></i></div></td><td>60.0%</td><td>38.0%</td><td>2.0%</td><td class="f bad">✕ 0.7%*</td></tr>
