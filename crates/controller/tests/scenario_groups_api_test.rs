@@ -218,19 +218,36 @@ async fn assign_without_group_key_is_422_and_changes_nothing() {
     assert_eq!(get_one(&app, &a).await["group"], "G");
 }
 
+const COUNT_MSG: &str = "한 번에 1개에서 500개까지 옮길 수 있습니다";
+
 #[tokio::test]
 async fn assign_zero_ids_is_400() {
     let app = new_app().await;
-    let (s, _) = assign(&app, json!({ "scenario_ids": [], "group": "G" })).await;
+    let (s, v) = assign(&app, json!({ "scenario_ids": [], "group": "G" })).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], COUNT_MSG, "{v:?}");
 }
 
 #[tokio::test]
 async fn assign_501_ids_is_400() {
     let app = new_app().await;
     let ids: Vec<String> = (0..501).map(|i| format!("id{i}")).collect();
-    let (s, _) = assign(&app, json!({ "scenario_ids": ids, "group": "G" })).await;
+    let (s, v) = assign(&app, json!({ "scenario_ids": ids, "group": "G" })).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], COUNT_MSG, "{v:?}");
+}
+
+#[tokio::test]
+async fn assign_exactly_500_ids_is_accepted() {
+    let app = new_app().await;
+    let a = create_id(&app, "a", None).await;
+    let mut ids: Vec<String> = (0..499).map(|i| format!("id{i}")).collect();
+    ids.push(a.clone());
+    assert_eq!(ids.len(), 500);
+    let (s, v) = assign(&app, json!({ "scenario_ids": ids, "group": "G" })).await;
+    assert_eq!(s, StatusCode::OK, "{v:?}");
+    assert_eq!(v, json!({ "updated": 1 }));
+    assert_eq!(get_one(&app, &a).await["group"], "G");
 }
 
 #[tokio::test]
@@ -271,16 +288,35 @@ async fn rename_missing_group_is_zero() {
 #[tokio::test]
 async fn rename_same_name_is_400() {
     let app = new_app().await;
-    let (s, _) = rename(&app, "A", " A").await;
+    let (s, v) = rename(&app, "A", " A").await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], "새 이름이 현재 이름과 같습니다", "{v:?}");
 }
 
 #[tokio::test]
 async fn rename_blank_from_or_to_is_400() {
     let app = new_app().await;
-    assert_eq!(rename(&app, "  ", "B").await.0, StatusCode::BAD_REQUEST);
+    let blank = "바꿀 그룹 이름과 새 이름을 모두 입력해야 합니다";
+    let (s, v) = rename(&app, "  ", "B").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], blank, "{v:?}");
+    let (s, v) = rename(&app, "A", "\u{FEFF}").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], blank, "{v:?}");
+}
+
+#[tokio::test]
+async fn rename_to_too_long_or_forbidden_is_400_and_changes_nothing() {
+    let app = new_app().await;
+    let a = create_id(&app, "a", Some(json!("A"))).await;
+    let (s, v) = rename(&app, "A", &"가".repeat(41)).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], "그룹 이름은 40자까지 쓸 수 있습니다", "{v:?}");
+    let (s, v) = rename(&app, "A", "a\u{202E}b").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
     assert_eq!(
-        rename(&app, "A", "\u{FEFF}").await.0,
-        StatusCode::BAD_REQUEST
+        v["error"], "그룹 이름에 쓸 수 없는 글자가 들어 있습니다",
+        "{v:?}"
     );
+    assert_eq!(get_one(&app, &a).await["group"], "A");
 }

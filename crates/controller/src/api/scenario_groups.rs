@@ -58,7 +58,7 @@ pub async fn assign(
 ) -> Result<Json<UpdatedResponse>, ApiError> {
     if body.scenario_ids.is_empty() || body.scenario_ids.len() > MAX_ASSIGN_IDS {
         return Err(ApiError::BadRequest(format!(
-            "scenario_ids는 1개 이상 {MAX_ASSIGN_IDS}개 이하여야 합니다"
+            "한 번에 1개에서 {MAX_ASSIGN_IDS}개까지 옮길 수 있습니다"
         )));
     }
     let group = normalize_group(body.group.as_deref()).map_err(ApiError::BadRequest)?;
