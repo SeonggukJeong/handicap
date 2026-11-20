@@ -168,10 +168,8 @@ function slowLine(i: SummaryInput): string | null {
   const thr = stepThresholds(worst.stepId, i.criteria).p95Ms;
   if (thr === null) return null;
   const pair = fmtMsPair(worst.p95Ms, thr);
-  return (
-    S.slow(worst.name, pair.actual, pair.threshold) +
-    (slow.length > 1 ? S.more(slow.length - 1) : "")
-  );
+  const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
+  return S.slow(worst.name, act, pair.threshold) + (slow.length > 1 ? S.more(slow.length - 1) : "");
 }
 
 export function summaryLines(i: SummaryInput): SummaryLine[] {

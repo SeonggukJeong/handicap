@@ -84,9 +84,21 @@ describe("pair formatting", () => {
     expect(fmtBoundary(2500)).toBe("2,500ms");
   });
   it("비율 쌍은 글자가 달라질 때까지 자릿수를 늘린다", () => {
-    expect(fmtPctPair(0.0104, 0.01, 2)).toEqual({ actual: "1.04%", threshold: "1.00%", tiny: false });
-    expect(fmtPctPair(0.0504, 0.05, 1)).toEqual({ actual: "5.04%", threshold: "5.00%", tiny: false });
-    expect(fmtPctPair(0.0496, 0.05, 1)).toEqual({ actual: "4.96%", threshold: "5.00%", tiny: false });
+    expect(fmtPctPair(0.0104, 0.01, 2)).toEqual({
+      actual: "1.04%",
+      threshold: "1.00%",
+      tiny: false,
+    });
+    expect(fmtPctPair(0.0504, 0.05, 1)).toEqual({
+      actual: "5.04%",
+      threshold: "5.00%",
+      tiny: false,
+    });
+    expect(fmtPctPair(0.0496, 0.05, 1)).toEqual({
+      actual: "4.96%",
+      threshold: "5.00%",
+      tiny: false,
+    });
     expect(fmtPctPair(0.32, 0.05, 1)).toEqual({ actual: "32.0%", threshold: "5.0%", tiny: false });
     expect(fmtPctPair(0.05, 0.05, 2)).toEqual({ actual: "5.00%", threshold: "5.00%", tiny: false });
   });
@@ -99,16 +111,30 @@ describe("pair formatting", () => {
     expect(fmtPctPair(0, 0.05, 1).actual).toBe("0.0%");
   });
   it("rps 쌍", () => {
-    expect(fmtRpsPair(412.64, 400)).toEqual({ actual: "412.6건/초", threshold: "400.0건/초", tiny: false });
-    expect(fmtRpsPair(400.04, 400)).toMatchObject({ actual: "400.04건/초", threshold: "400.00건/초" });
+    expect(fmtRpsPair(412.64, 400)).toEqual({
+      actual: "412.6건/초",
+      threshold: "400.0건/초",
+      tiny: false,
+    });
+    expect(fmtRpsPair(400.04, 400)).toMatchObject({
+      actual: "400.04건/초",
+      threshold: "400.00건/초",
+    });
   });
   it("metric 진입점", () => {
     expect(fmtCriterionPair("p95_ms", 3040, 3000).actual).toBe("3,040ms");
     expect(fmtCriterionPair("error_rate", 0.0104, 0.01).actual).toBe("1.04%");
-    expect(fmtCriterionPair("rps", 412.64, 400)).toMatchObject({ actual: "412.6건/초", threshold: "400.0건/초" });
+    expect(fmtCriterionPair("rps", 412.64, 400)).toMatchObject({
+      actual: "412.6건/초",
+      threshold: "400.0건/초",
+    });
     expect(fmtCriterionThreshold("p95_ms", 3000)).toBe("3,000ms");
     expect(fmtCriterionThreshold("5xx_count", 1234)).toBe("1,234건");
-    expect(fmtCriterionPair("5xx_count", 1234, 1000)).toEqual({ actual: "1,234건", threshold: "1,000건", tiny: false });
+    expect(fmtCriterionPair("5xx_count", 1234, 1000)).toEqual({
+      actual: "1,234건",
+      threshold: "1,000건",
+      tiny: false,
+    });
     expect(fmtCriterionPair("weird", 7, 9)).toEqual({ actual: "7", threshold: "9", tiny: false });
     expect(fmtCriterionThreshold("weird", 7)).toBe("7");
   });

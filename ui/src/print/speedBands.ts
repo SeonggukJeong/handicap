@@ -116,6 +116,11 @@ function overCell(row: BandRow, isTotal: boolean, matched: Matched[]): SpeedCell
   return cell(text, { muted, star });
 }
 
+/** 실제값 글자. 기준과 글자로 구분이 안 되면 꼬리를 붙인다. */
+function pairText(p: { actual: string; tiny: boolean }): string {
+  return p.tiny ? `${p.actual} ${ko.print.fmt.tiny}` : p.actual;
+}
+
 function failCell(rate: number, threshold: number | null, mark: Mark, glyph: SpeedCell["glyph"]) {
   const pair = threshold !== null ? fmtPctPair(rate, threshold, 1) : null;
   return cell(pair ? pair.actual : fmtPct(rate), {
@@ -181,18 +186,17 @@ function ownLine(r: BandRow, id: string, ranked: RankedRow[], matched: Matched[]
   const threshold = pick ? pick.spec.threshold : r.slow_ms;
   const critName = ko.print.criteria.names[metric]?.name ?? metric;
   const tot = rowTotal(r);
-  const pct =
-    tot === 0
-      ? K.dash
-      : r.basis === "default"
-        ? fmtPct(r.over / tot)
-        : fmtPctPair(r.over / tot, ALLOWED[r.basis], 2).actual;
+  let pct: string = K.dash;
+  if (tot !== 0) {
+    if (r.basis === "default") pct = fmtPct(r.over / tot);
+    else pct = pairText(fmtPctPair(r.over / tot, ALLOWED[r.basis], 2));
+  }
   const verdict = pick?.row ? (pick.row.passed ? "pass" : "fail") : null;
   return {
     idx: idx < 0 ? Number.MAX_SAFE_INTEGER : idx,
     fail: verdict === "fail",
     segs: K.stepRule(
-      `${label} ${critName} ${fmtMsExact(threshold)} 이하`,
+      `${label} ${critName} ${ko.print.criteria.targetMax(fmtMsExact(threshold))}`,
       fmtBoundary(r.slow_ms),
       pct,
       verdict,
@@ -299,7 +303,12 @@ export function buildSpeedModel(a: {
       fail: failC,
     });
     if (failC.mark !== "none" && bar !== null && r.status.errorRate >= NAMED_MIN_RATE)
-      named.push({ glyph: failC.glyph, label, rate: r.status.errorRate, text: failC.text });
+      named.push({
+        glyph: failC.glyph,
+        label,
+        rate: r.status.errorRate,
+        text: `${failC.text}${failC.star ? "*" : ""}`,
+      });
   }
 
   const totalCount = summary.count;
@@ -330,11 +339,11 @@ export function buildSpeedModel(a: {
   if (allow !== null) {
     const verdictRow = runMatch(matched, metricOf(overall.basis))?.row ?? null;
     const verdict = verdictRow ? (verdictRow.passed ? "pass" : "fail") : null;
-    const pct = totalTot === 0 ? K.dash : fmtPctPair(overall.over / totalTot, allow, 2).actual;
+    const pct = totalTot === 0 ? K.dash : pairText(fmtPctPair(overall.over / totalTot, allow, 2));
     const crit = ko.print.criteria.names[metricOf(overall.basis)]?.name ?? metricOf(overall.basis);
     rule = {
       segs: K.rule(
-        `${crit} ${fmtMsExact(overall.slow_ms)} 이하`,
+        `${crit} ${ko.print.criteria.targetMax(fmtMsExact(overall.slow_ms))}`,
         B,
         `${Math.round(allow * 100)}%`,
         pct,

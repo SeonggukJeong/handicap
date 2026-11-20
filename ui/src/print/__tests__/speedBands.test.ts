@@ -670,3 +670,68 @@ describe("buildSpeedModel", () => {
     expect(m.rows[1].over).toMatchObject({ mark: "warn", glyph: "▲" });
   });
 });
+
+describe("아주 작은 차이 꼬리 (안내 줄·이름 붙은 단계 각주)", () => {
+  const TINY = "(기준과 차이가 아주 작음)";
+  const tinyBand = (own: boolean, slow: number) =>
+    band({
+      slow_ms: slow,
+      basis: "p95",
+      own,
+      fast: own ? null : 150_000_000,
+      within: own ? 190_000_018 : 40_000_018,
+      over: 10_000_001,
+    });
+
+  it("run 안내 줄: 몫이 허용 몫과 글자로 같으면 꼬리를 붙이고 미달은 그대로", () => {
+    const criteria: Criteria = { max_p95_ms: 3000 };
+    const m = build({
+      bands: { overall: tinyBand(false, 3000), steps: [] },
+      ranked: [rr(0, "로그인", {}, criteria)],
+      summary: summ(200_000_019, 0),
+      criteria,
+      failing: ["p95_ms"],
+    });
+    const rule = joined(m.rule?.segs ?? []);
+    expect(rule).toContain(`5.00% ${TINY}`);
+    expect(rule).toContain("이 기준은 미달");
+  });
+
+  it("단계 안내 줄: 같은 꼬리를 붙인다", () => {
+    const criteria: Criteria = {
+      step_criteria: [{ metric: "p95_ms", op: "max", threshold: 800, target: "s1" }],
+    };
+    const m = build({
+      bands: { overall: tinyBand(false, 3000), steps: [{ step_id: "s1", ...tinyBand(true, 800) }] },
+      ranked: [rr(0, "로그인", {}, criteria)],
+      summary: summ(200_000_019, 0),
+      criteria,
+      failing: ["s1:p95_ms"],
+    });
+    const line = joined(m.stepRules[0]);
+    expect(line).toContain(`5.00% ${TINY}`);
+    expect(line).toContain("미달");
+  });
+
+  it("이름 붙은 단계 각주: 칸의 별표를 같이 옮긴다", () => {
+    const criteria: Criteria = { max_error_rate: 0.0999999999 };
+    const m = build({
+      bands: {
+        overall: band({ slow_ms: 3000, basis: "default", fast: 500, within: 400, over: 100 }),
+        steps: [
+          {
+            step_id: "s1",
+            ...band({ slow_ms: 3000, basis: "default", fast: 500, within: 400, over: 100 }),
+          },
+        ],
+      },
+      ranked: [rr(0, "신청 제출", { errorCount: 100 }, criteria)],
+      summary: summ(1000, 100),
+      criteria,
+      failing: null,
+    });
+    expect(m.rows[0].fail.star).toBe(true);
+    expect(m.rows[0].fail.text).toBe("10.0%");
+    expect(joined(m.notes[1])).toContain("신청 제출은(는) 요청의 10.0%*가 실패했고");
+  });
+});

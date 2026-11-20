@@ -119,7 +119,7 @@ describe("SpeedBandTable", () => {
     expect(plain.container.querySelector("[data-measure]")).toBeNull();
   });
 
-  it("긴 이름은 2절 표와 같은 이름 칸 클래스(p-name)를 쓴다", () => {
+  it("이름 칸은 2절 표와 같은 p-name 클래스를 쓴다", () => {
     const m = build(case1Input());
     const { container } = render(<SpeedBandTable model={m} from={0} to={1} />);
     expect(container.querySelector("tbody td .p-name")).not.toBeNull();

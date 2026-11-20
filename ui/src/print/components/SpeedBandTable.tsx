@@ -72,9 +72,9 @@ function SpeedRowView({ row, measure }: { row: SpeedRow; measure?: boolean }) {
         {row.ownNote !== null && <small className="p-speed-own">{row.ownNote}</small>}
       </td>
       {row.bar === null ? (
-        <td className="p-speed-barc p-muted p-speed-dash">{K.dash}</td>
+        <td className="p-muted p-speed-dash">{K.dash}</td>
       ) : (
-        <td className="p-speed-barc">
+        <td>
           <div className="p-speed-bar">
             {row.bar.map((s, i) => (
               <i

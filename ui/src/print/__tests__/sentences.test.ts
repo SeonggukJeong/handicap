@@ -364,6 +364,22 @@ describe("slow_line", () => {
     expect(t).toContain("3,040ms");
     expect(t).toContain("3,000ms");
   });
+  it("느림 줄: 글자로 같은 값이면 아주 작은 차이 꼬리를 붙인다", () => {
+    const rows = [mkRow(1, "첨부 업로드", { p95Ms: 3000 }, { tags: ["slow"], grade: 2 })];
+    const t = kindLine(
+      summaryLines(
+        base({
+          rows,
+          ranked: rows,
+          criteria: {
+            step_criteria: [{ metric: "p95_ms", op: "max", threshold: 2999.9999, target: "s1" }],
+          },
+        }),
+      ),
+      "slow",
+    )!;
+    expect(t).toContain("3,000ms (기준과 차이가 아주 작음)");
+  });
   it("single", () => {
     const rows = [mkRow(1, "첨부 업로드", { p95Ms: 4800 }, { tags: ["slow"], grade: 2 })];
     expect(kindLine(summaryLines(base({ rows, ranked: rows, criteria: crit })), "slow")).toBe(
