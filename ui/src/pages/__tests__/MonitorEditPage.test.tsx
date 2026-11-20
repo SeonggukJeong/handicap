@@ -46,7 +46,9 @@ const LOOP_YAML = `${YAML}  - id: ${LOOP_ID}
           url: http://x/c
 `;
 const scenarios = {
-  scenarios: [{ id: SID, name: "점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1 }],
+  scenarios: [
+    { id: SID, name: "점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1, group: null },
+  ],
 };
 const environments = {
   environments: [{ id: "E1", name: "staging", var_count: 0, created_at: 1, updated_at: 1 }],
@@ -898,7 +900,15 @@ describe("MonitorEditPage", () => {
     handlers["GET /api/scenarios"] = () =>
       json({
         scenarios: [
-          { id: SID, name: "점검", yaml: LOOP_YAML, version: 1, created_at: 1, updated_at: 1 },
+          {
+            id: SID,
+            name: "점검",
+            yaml: LOOP_YAML,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            group: null,
+          },
         ],
       });
     handlers["GET /api/monitor-boards/B1"] = () =>
@@ -1207,7 +1217,15 @@ describe("MonitorEditPage preview conditions", () => {
       json({
         scenarios: [
           ...scenarios.scenarios,
-          { id: SID2, name: "다른 점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1 },
+          {
+            id: SID2,
+            name: "다른 점검",
+            yaml: YAML,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            group: null,
+          },
         ],
       });
     previewWith({ body: "" });
@@ -1231,7 +1249,15 @@ describe("MonitorEditPage preview conditions", () => {
       json({
         scenarios: [
           ...scenarios.scenarios,
-          { id: SID2, name: "다른 점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1 },
+          {
+            id: SID2,
+            name: "다른 점검",
+            yaml: YAML,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            group: null,
+          },
         ],
       });
     previewWith({ body: "" });
@@ -1791,6 +1817,7 @@ const flowScenarios = {
       version: 1,
       created_at: 1,
       updated_at: 1,
+      group: null,
     },
   ],
 };

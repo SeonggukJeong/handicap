@@ -17,8 +17,22 @@ describe("ScenarioSchema", () => {
       version: 1,
       created_at: 0,
       updated_at: 0,
+      group: null,
     };
     expect(() => ScenarioSchema.parse(v)).not.toThrow();
+    expect(ScenarioSchema.parse({ ...v, group: "서비스A" }).group).toBe("서비스A");
+  });
+
+  it("rejects a scenario without the group key", () => {
+    const v = {
+      id: "01HX",
+      name: "n",
+      yaml: "version: 1\n",
+      version: 1,
+      created_at: 0,
+      updated_at: 0,
+    };
+    expect(() => ScenarioSchema.parse(v)).toThrow();
   });
 
   it("rejects missing required field", () => {

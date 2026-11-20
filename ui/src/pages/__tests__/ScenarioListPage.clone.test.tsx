@@ -26,6 +26,7 @@ const DEMO = {
   version: 1,
   created_at: 0,
   updated_at: 0,
+  group: null,
 };
 const CREATED = {
   ...DEMO,

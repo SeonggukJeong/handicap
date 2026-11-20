@@ -177,7 +177,15 @@ describe("RunDetailPage — 메트릭 표 가로 스크롤 상자", () => {
       }
       if (url.endsWith("/api/scenarios/S1")) {
         return Promise.resolve(
-          jsonResponse({ id: "S1", name: "t", yaml, version: 1, created_at: 1, updated_at: 1 }),
+          jsonResponse({
+            id: "S1",
+            name: "t",
+            yaml,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+            group: null,
+          }),
         );
       }
       return Promise.resolve(jsonResponse({}, 404));
@@ -260,6 +268,7 @@ describe("RunDetailPage — step metadata", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -311,6 +320,7 @@ describe("RunDetailPage — retry (A1)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -443,6 +453,7 @@ describe("RunDetailPage — save preset (A2)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -503,6 +514,7 @@ describe("RunDetailPage — save preset (A2)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -563,6 +575,7 @@ describe("RunDetailPage — save preset (A2)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -726,6 +739,7 @@ describe("RunDetailPage — report on terminal", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -1130,6 +1144,7 @@ describe("RunDetailPage — ValidityBadge (A11)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -1201,6 +1216,7 @@ describe("RunDetailPage — ValidityBadge (A11)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -1281,6 +1297,7 @@ describe("RunDetailPage — heading과 배지 분리 (a11y-bundle C2)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }

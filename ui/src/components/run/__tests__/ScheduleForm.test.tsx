@@ -368,6 +368,7 @@ describe("ScheduleForm", () => {
                   version: 1,
                   created_at: 1754200000000,
                   updated_at: 1754200000000,
+                  group: null,
                 }),
                 { status: 200, headers: { "content-type": "application/json" } },
               )

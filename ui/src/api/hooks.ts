@@ -88,7 +88,8 @@ export function useScenario(id: string | undefined) {
 export function useCreateScenario() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (yaml: string) => api.createScenario(yaml),
+    mutationFn: ({ yaml, group }: { yaml: string; group?: string | null }) =>
+      api.createScenario(yaml, group),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
     },
@@ -102,15 +103,38 @@ export function useCloneScenario() {
       sourceYaml,
       sourceName,
       existingNames,
+      sourceGroup,
     }: {
       sourceYaml: string;
       sourceName: string;
       existingNames: string[];
+      sourceGroup?: string | null;
     }) => {
       const newName = cloneName(sourceName, existingNames);
       const newYaml = renameScenarioYaml(sourceYaml, newName);
-      return api.createScenario(newYaml);
+      return api.createScenario(newYaml, sourceGroup);
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
+    },
+  });
+}
+
+export function useAssignScenarioGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, group }: { ids: string[]; group: string | null }) =>
+      api.assignScenarioGroup(ids, group),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
+    },
+  });
+}
+
+export function useRenameScenarioGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) => api.renameScenarioGroup(from, to),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
     },

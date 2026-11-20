@@ -52,7 +52,9 @@ vi.mock("../../../api/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/hooks")>()),
   useScenarios: () => ({
     data: {
-      scenarios: [{ id: "SC", name: "sc", yaml: YAML, version: 1, created_at: 0, updated_at: 0 }],
+      scenarios: [
+        { id: "SC", name: "sc", yaml: YAML, version: 1, created_at: 0, updated_at: 0, group: null },
+      ],
     },
   }),
 }));

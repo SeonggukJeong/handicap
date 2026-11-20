@@ -32,6 +32,7 @@ const DEMO = {
   version: 1,
   created_at: 0,
   updated_at: 0,
+  group: null,
 };
 
 /** DELETE 응답 시퀀스를 주입하는 fetch 라우터. */

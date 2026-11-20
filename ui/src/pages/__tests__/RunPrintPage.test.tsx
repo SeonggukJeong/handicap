@@ -132,6 +132,7 @@ function mockApi(o: Opts = {}) {
           version: 1,
           created_at: T0,
           updated_at: T0,
+          group: null,
         }),
       );
     }

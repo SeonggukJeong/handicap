@@ -34,6 +34,7 @@ const CREATED = {
   version: 1,
   created_at: 0,
   updated_at: 0,
+  group: null,
 };
 
 function routeFetch(url: string, init?: RequestInit): Response {

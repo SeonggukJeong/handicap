@@ -121,13 +121,16 @@ export function ScenarioNewPage() {
           </Button>
           <Button
             onClick={() =>
-              mutation.mutate(yamlText, {
-                onSuccess: (created) => {
-                  adoptDraftBucket(created.id); // ← navigate 이전
-                  bypassNext();
-                  navigate(`/scenarios/${created.id}`);
+              mutation.mutate(
+                { yaml: yamlText },
+                {
+                  onSuccess: (created) => {
+                    adoptDraftBucket(created.id); // ← navigate 이전
+                    bypassNext();
+                    navigate(`/scenarios/${created.id}`);
+                  },
                 },
-              })
+              )
             }
             disabled={mutation.isPending || yamlText.trim().length === 0}
           >

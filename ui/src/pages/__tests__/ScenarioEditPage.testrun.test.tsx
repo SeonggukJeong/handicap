@@ -27,6 +27,7 @@ const SCENARIO = {
   version: 1,
   created_at: 0,
   updated_at: 0,
+  group: null,
 };
 const TRACE = { ok: true, total_ms: 4, truncated: false, error: null, final_vars: {}, steps: [] };
 

@@ -44,6 +44,7 @@ describe("api.createScenario", () => {
           version: 1,
           created_at: 0,
           updated_at: 0,
+          group: null,
         },
         201,
       ),
@@ -58,7 +59,15 @@ describe("api.createScenario", () => {
 describe("api.updateScenario", () => {
   it("PUTs yaml + version", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ id: "x", name: "n", yaml: "y", version: 2, created_at: 0, updated_at: 0 }),
+      jsonResponse({
+        id: "x",
+        name: "n",
+        yaml: "y",
+        version: 2,
+        created_at: 0,
+        updated_at: 0,
+        group: null,
+      }),
     );
     await api.updateScenario("x", "y", 1);
     const [url, init] = fetchMock.mock.calls[0];

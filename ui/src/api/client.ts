@@ -9,6 +9,7 @@ import {
   ReportSchema,
   RunListSchema,
   RunSchema,
+  GroupUpdatedSchema,
   ScenarioListSchema,
   ScenarioSchema,
   ScenarioTraceSchema,
@@ -230,11 +231,26 @@ export const api = {
   listScenarios: () => request("/scenarios", { method: "GET" }, ScenarioListSchema),
   getScenario: (id: string) =>
     request(`/scenarios/${encodeURIComponent(id)}`, { method: "GET" }, ScenarioSchema),
-  createScenario: async (yaml: string) =>
+  createScenario: async (yaml: string, group?: string | null) =>
     request(
       "/scenarios",
-      { method: "POST", body: guardScenarioBody(JSON.stringify({ yaml })) },
+      {
+        method: "POST",
+        body: guardScenarioBody(JSON.stringify(group == null ? { yaml } : { yaml, group })),
+      },
       ScenarioSchema,
+    ),
+  assignScenarioGroup: (ids: string[], group: string | null) =>
+    request(
+      "/scenario-groups/assign",
+      { method: "POST", body: JSON.stringify({ scenario_ids: ids, group }) },
+      GroupUpdatedSchema,
+    ),
+  renameScenarioGroup: (from: string, to: string) =>
+    request(
+      "/scenario-groups/rename",
+      { method: "POST", body: JSON.stringify({ from, to }) },
+      GroupUpdatedSchema,
     ),
   updateScenario: async (id: string, yaml: string, version: number) =>
     request(

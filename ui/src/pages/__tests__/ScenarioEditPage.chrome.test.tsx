@@ -26,7 +26,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 const DEMO_YAML =
   "version: 1\nname: demo\nsteps:\n  - id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n    type: http\n    name: ping\n    request:\n      method: GET\n      url: http://localhost:1/x\n";
-const DEMO = { id: "S1", name: "demo", yaml: DEMO_YAML, version: 1, created_at: 0, updated_at: 0 };
+const DEMO = {
+  id: "S1",
+  name: "demo",
+  yaml: DEMO_YAML,
+  version: 1,
+  created_at: 0,
+  updated_at: 0,
+  group: null,
+};
 function routeFetch(url: string, init?: RequestInit): Response {
   const method = init?.method ?? "GET";
   if (url.endsWith("/api/scenarios/S1")) return jsonResponse(DEMO);

@@ -50,6 +50,7 @@ function mockApi(runOver: Record<string, unknown> = {}, postStatus = 201) {
           version: 1,
           created_at: 1,
           updated_at: 1,
+          group: null,
         }),
       );
     }
@@ -229,6 +230,7 @@ function mockApiRuns(runs: unknown[]) {
           version: 1,
           created_at: 1,
           updated_at: 1,
+          group: null,
         }),
       );
     }
@@ -362,6 +364,7 @@ function mockApiEmpty() {
           version: 1,
           created_at: 1,
           updated_at: 1,
+          group: null,
         }),
       );
     }
@@ -659,6 +662,7 @@ function mockApiLabelFlow() {
           version: 1,
           created_at: 1,
           updated_at: 1,
+          group: null,
         }),
       );
     }
@@ -749,6 +753,7 @@ describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }
@@ -798,6 +803,7 @@ describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
             version: 1,
             created_at: 1,
             updated_at: 1,
+            group: null,
           }),
         );
       }

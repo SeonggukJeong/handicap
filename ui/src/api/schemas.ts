@@ -7,8 +7,11 @@ export const ScenarioSchema = z.object({
   version: z.number().int(),
   created_at: z.number().int(),
   updated_at: z.number().int(),
+  group: z.string().nullable(),
 });
 export type Scenario = z.infer<typeof ScenarioSchema>;
+
+export const GroupUpdatedSchema = z.object({ updated: z.number().int() });
 
 export const ScenarioListSchema = z.object({
   scenarios: z.array(ScenarioSchema),
