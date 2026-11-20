@@ -1336,9 +1336,9 @@ mod tests {
                 measured_seconds: None,
             },
             // 사이징 3필드 + achieved/target_per_sec를 모두 채운 합성 행: 다섯 새 열
-            // writer를 모두 운동시킨다. (실제 인사이트는 recommended[slots] ⊕
-            // recommended_workers[loadgen]로 배타적이지만, 그 배타성은 insights.rs의
-            // 불변식이지 export writer의 관심사가 아니다.)
+            // writer를 모두 운동시킨다. (실제 인사이트는 원인별로 이 필드 중 일부만
+            // 채우지만, 그 배타성은 insights.rs의 불변식이지 export writer의 관심사가
+            // 아니다.)
             crate::insights::Insight {
                 kind: "load_gen_saturated".into(),
                 severity: "warning".into(),
@@ -1721,7 +1721,7 @@ mod tests {
     #[test]
     fn insight_error_kind_column_round_trips() {
         // E2: 17번째 열 `error_kind`. Some이면 셀에 kind 문자열, None이면 빈 셀.
-        // INSIGHT_COLUMNS는 Insight 필드 선언 순서와 1:1이므로 마지막 열이다.
+        // error_kind는 17번째 열(인덱스 16)이고, 이제 마지막 열은 `measured_seconds`다.
         assert_eq!(
             INSIGHT_COLUMNS.len(),
             21,
