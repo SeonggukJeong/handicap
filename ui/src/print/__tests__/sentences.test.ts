@@ -105,12 +105,36 @@ describe("verdict_line_verbs", () => {
   const fail = (n: number): BoxState => ({ kind: "fail", evaluated: n, failed: n });
   it("upper bound verb", () => {
     const l = summaryLines(base({ box: fail(1), matched: [mk("error_rate", "max", 0.01, 0.026)] }));
-    expect(kindLine(l, "verdict")).toBe("오류율이 기준을 넘었습니다 (측정 2.6%, 기준 1.0% 이하)");
+    expect(kindLine(l, "verdict")).toBe("오류율이 기준을 넘었습니다 (측정 2.60%, 기준 1.00% 이하)");
+  });
+  it("판정 줄: 측정·기준이 구분되는 글자", () => {
+    const l = summaryLines(
+      base({
+        box: { kind: "fail", evaluated: 1, failed: 1 },
+        matched: [mk("p95_ms", "max", 3000, 3040)],
+      }),
+    );
+    const t = kindLine(l, "verdict")!;
+    expect(t).toContain("3,040ms");
+    expect(t).toContain("3,000ms");
+    expect(t).not.toContain("3.0초");
+  });
+  it("판정 줄: 저장 오차 기준은 꼬리", () => {
+    const thr = Number("0.7") / 100;
+    const l = summaryLines(
+      base({
+        box: { kind: "fail", evaluated: 1, failed: 1 },
+        matched: [mk("error_rate", "max", thr, 0.007)],
+      }),
+    );
+    expect(kindLine(l, "verdict")).toBe(
+      "오류율이 기준을 넘었습니다 (측정 0.70% (기준과 차이가 아주 작음), 기준 0.70% 이하)",
+    );
   });
   it("lower bound verb", () => {
     const l = summaryLines(base({ box: fail(1), matched: [mk("rps", "min", 200, 150)] }));
     expect(kindLine(l, "verdict")).toBe(
-      "처리량이 기준에 못 미쳤습니다 (측정 150건/초, 기준 200건/초 이상)",
+      "처리량이 기준에 못 미쳤습니다 (측정 150.0건/초, 기준 200.0건/초 이상)",
     );
   });
   it("three misses -> first + 외 2개", () => {
@@ -125,7 +149,7 @@ describe("verdict_line_verbs", () => {
       }),
     );
     expect(kindLine(l, "verdict")).toBe(
-      "오류율이 기준을 넘었습니다 (측정 2.6%, 기준 1.0% 이하) 외 2개",
+      "오류율이 기준을 넘었습니다 (측정 2.60%, 기준 1.00% 이하) 외 2개",
     );
   });
   it("pass / notJudged / notEvaluable / none", () => {
@@ -331,13 +355,19 @@ describe("slow_line", () => {
       mkRow(1, "첨부 업로드", { p95Ms: 4800 }, { tags: ["slow"], grade: 2 }),
     ];
     expect(kindLine(summaryLines(base({ rows, ranked: rows, criteria: crit })), "slow")).toBe(
-      "'첨부 업로드'(은)는 느립니다 (95% 응답 4.8초, 기준 3.0초) 외 1개",
+      "'첨부 업로드'(은)는 느립니다 (95% 응답 4,800ms, 기준 3,000ms) 외 1개",
     );
+  });
+  it("느림 줄: 단계 p95·기준이 ms로", () => {
+    const rows = [mkRow(1, "첨부 업로드", { p95Ms: 3040 }, { tags: ["slow"], grade: 2 })];
+    const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: crit })), "slow")!;
+    expect(t).toContain("3,040ms");
+    expect(t).toContain("3,000ms");
   });
   it("single", () => {
     const rows = [mkRow(1, "첨부 업로드", { p95Ms: 4800 }, { tags: ["slow"], grade: 2 })];
     expect(kindLine(summaryLines(base({ rows, ranked: rows, criteria: crit })), "slow")).toBe(
-      "'첨부 업로드'(은)는 느립니다 (95% 응답 4.8초, 기준 3.0초)",
+      "'첨부 업로드'(은)는 느립니다 (95% 응답 4,800ms, 기준 3,000ms)",
     );
   });
 });

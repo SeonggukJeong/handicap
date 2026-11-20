@@ -1,11 +1,11 @@
 import { ko } from "../i18n/ko";
 import { formatDurationKo } from "../i18n/duration";
 import type { Criteria, Report } from "../api/schemas";
-import { fmtCount, fmtMs } from "./format";
+import { fmtCount, fmtMs, fmtMsPair, fmtCriterionPair } from "./format";
 import type { ChartModel } from "./chartModel";
 import { rankRows, stepThresholds, type RankedRow, type StatusTag } from "./stepStatus";
 import type { StepRow } from "./stepTable";
-import { criterionName, criterionValue, type BoxState, type Matched } from "./verdict";
+import { criterionName, type BoxState, type Matched } from "./verdict";
 
 const S = ko.print.sentence;
 const MAX_LINES = 5;
@@ -71,8 +71,9 @@ function verdictLine(i: SummaryInput): string | null {
   const { name, subj } = criterionName(spec.metric);
   const subject =
     spec.target === null ? name : ko.print.criteria.stepName(i.stepName(spec.target), name);
-  const thr = criterionValue(spec.metric, spec.threshold);
-  const act = criterionValue(spec.metric, row.actual);
+  const pair = fmtCriterionPair(spec.metric, row.actual, spec.threshold);
+  const thr = pair.threshold;
+  const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
   const head =
     spec.op === "max"
       ? S.verdictOver(subject, subj, act, thr)
@@ -166,8 +167,9 @@ function slowLine(i: SummaryInput): string | null {
   for (const r of slow) if (r.p95Ms > worst.p95Ms) worst = r;
   const thr = stepThresholds(worst.stepId, i.criteria).p95Ms;
   if (thr === null) return null;
+  const pair = fmtMsPair(worst.p95Ms, thr);
   return (
-    S.slow(worst.name, fmtMs(worst.p95Ms), fmtMs(thr)) +
+    S.slow(worst.name, pair.actual, pair.threshold) +
     (slow.length > 1 ? S.more(slow.length - 1) : "")
   );
 }

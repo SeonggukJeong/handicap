@@ -1,6 +1,6 @@
 import { ko } from "../i18n/ko";
 import type { Criteria, Report, Verdict } from "../api/schemas";
-import { fmtCount, fmtMs, fmtPct, fmtRps } from "./format";
+import { fmtCount, fmtCriterionPair, fmtCriterionThreshold, fmtMs, fmtPct, fmtRps } from "./format";
 
 const k = ko.print;
 
@@ -107,14 +107,6 @@ export function criterionName(metric: string): { name: string; subj: string } {
   return k.criteria.names[metric] ?? { name: metric, subj: k.criteria.unknownSubj };
 }
 
-export function criterionValue(metric: string, v: number): string {
-  if (metric.endsWith("_ms")) return fmtMs(v);
-  if (metric.endsWith("_rate")) return fmtPct(v);
-  if (metric === "rps" || metric === "min_window_rps") return fmtRps(v);
-  if (metric.endsWith("_count")) return k.criteria.count(fmtCount(v));
-  return String(v);
-}
-
 export type KpiCard = {
   key: "rps" | "mean" | "p95" | "errorRate";
   label: string;
@@ -137,15 +129,16 @@ export function kpiCards(summary: Report["summary"], matched: Matched[], box: Bo
     const i = metric ? cardMatchIndex(matched, metric) : -1;
     if (i < 0) return { target: k.kpi.noTarget, bad: false };
     const { spec, row } = matched[i];
-    const t = criterionValue(spec.metric, spec.threshold);
+    const withRow = box.kind !== "notJudged" && box.kind !== "notEvaluable" && row ? row : null;
+    const pair = withRow ? fmtCriterionPair(spec.metric, withRow.actual, spec.threshold) : null;
+    const t = pair ? pair.threshold : fmtCriterionThreshold(spec.metric, spec.threshold);
     const head = spec.op === "max" ? k.kpi.targetMax(t) : k.kpi.targetMin(t);
     if (box.kind === "notJudged") return { target: `${head} ${k.kpi.notJudged}`, bad: false };
-    if (box.kind === "notEvaluable" || !row) {
-      return { target: `${head} ${k.kpi.notEvaluable}`, bad: false };
-    }
-    return row.passed
-      ? { target: `${head} ${k.kpi.met}`, bad: false }
-      : { target: `${head} ${k.kpi.missed}`, bad: true };
+    if (!withRow || !pair) return { target: `${head} ${k.kpi.notEvaluable}`, bad: false };
+    const measured = pair.tiny ? k.kpi.measuredTiny(pair.actual) : k.kpi.measured(pair.actual);
+    return withRow.passed
+      ? { target: `${head} ${k.kpi.met} ${measured}`, bad: false }
+      : { target: `${head} ${k.kpi.missed} ${measured}`, bad: true };
   };
   const rpsText = fmtRps(summary.rps).replace(k.fmt.rpsUnit, "");
   return [
@@ -200,13 +193,14 @@ export function otherCriteriaRows(
     const row = box.kind === "notJudged" ? null : serverRow;
     const base = criterionName(spec.metric).name;
     const name = spec.target === null ? base : k.criteria.stepName(stepName(spec.target), base);
-    const t = criterionValue(spec.metric, spec.threshold);
+    const pair = row ? fmtCriterionPair(spec.metric, row.actual, spec.threshold) : null;
+    const t = pair ? pair.threshold : fmtCriterionThreshold(spec.metric, spec.threshold);
     const target = spec.op === "max" ? k.criteria.targetMax(t) : k.criteria.targetMin(t);
-    if (row) {
+    if (row && pair) {
       out.push({
         name,
         target,
-        actual: criterionValue(spec.metric, row.actual),
+        actual: pair.tiny ? `${pair.actual} ${k.fmt.tiny}` : pair.actual,
         judgement: row.passed ? "pass" : "fail",
       });
     } else {

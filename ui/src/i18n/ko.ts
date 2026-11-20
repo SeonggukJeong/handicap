@@ -2616,6 +2616,8 @@ export const ko = {
       targetMin: (t: string) => `목표 ${t} 이상`,
       met: "● 달성",
       missed: "✕ 미달",
+      measured: (v: string) => `(측정 ${v})`,
+      measuredTiny: (v: string) => `(측정 ${v}, 기준과 차이가 아주 작음)`,
       notJudged: "(판정 안 함)",
       notEvaluable: "(평가 불가)",
       noTarget: "목표 없음 (참고값)",

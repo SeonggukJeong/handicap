@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   criteriaHasAny,
   criterionName,
-  criterionValue,
   expandCriteria,
   kpiCards,
   limitOtherRows,
@@ -147,19 +146,12 @@ describe("expandCriteria / matchVerdict", () => {
   });
 });
 
-describe("criterionName / criterionValue", () => {
+describe("criterionName", () => {
   it("names and particles", () => {
     expect(criterionName("p95_ms")).toEqual({ name: "95% 응답시간", subj: "이" });
     expect(criterionName("4xx_count")).toEqual({ name: "4xx 응답 수", subj: "가" });
     expect(criterionName("min_window_rps")).toEqual({ name: "가장 낮은 1초 처리량", subj: "이" });
     expect(criterionName("weird")).toEqual({ name: "weird", subj: "(이)가" });
-  });
-  it("values", () => {
-    expect(criterionValue("p95_ms", 3000)).toBe("3.0초");
-    expect(criterionValue("error_rate", 0.01)).toBe("1.0%");
-    expect(criterionValue("rps", 200)).toBe("200건/초");
-    expect(criterionValue("5xx_count", 1234)).toBe("1,234건");
-    expect(criterionValue("weird", 7)).toBe("7");
   });
 });
 
@@ -178,12 +170,12 @@ describe("kpiCards", () => {
     const cards = kpiCards(summary(), matched(crit, rows), box);
     expect(cards.map((c) => c.key)).toEqual(["rps", "mean", "p95", "errorRate"]);
     const by = Object.fromEntries(cards.map((c) => [c.key, c]));
-    expect(by.p95.target).toBe("목표 3.0초 이하 ● 달성");
+    expect(by.p95.target).toBe("목표 3,000ms 이하 ● 달성 (측정 2,400ms)");
     expect(by.p95.bad).toBe(false);
-    expect(by.errorRate.target).toBe("목표 1.0% 이하 ✕ 미달");
+    expect(by.errorRate.target).toBe("목표 1.00% 이하 ✕ 미달 (측정 2.60%)");
     expect(by.errorRate.bad).toBe(true);
     expect(by.mean.target).toBe("목표 없음 (참고값)");
-    expect(by.rps.target).toBe("목표 200건/초 이상 ● 달성");
+    expect(by.rps.target).toBe("목표 200.0건/초 이상 ● 달성 (측정 240.0건/초)");
     expect(by.errorRate.explain).toBe("전체 요청 중 실패한 비율. 실패 3,720건 / 전체 144,000건");
     expect(by.rps.explain).toBe("1초에 처리한 요청 수. 클수록 많이 감당합니다.");
     expect(by.mean.explain).toBe("요청을 보내고 답을 받기까지 걸린 시간의 평균.");
@@ -194,14 +186,34 @@ describe("kpiCards", () => {
     expect(by.rps.value).toBe("240");
     expect(by.rps.unit).toBe("건/초");
   });
+  it("목표 줄에 측정값이 반올림 없이 붙는다 (미달)", () => {
+    const c: Criteria = { max_p95_ms: 3000 };
+    const r = [vrow({ metric: "p95_ms", threshold: 3000, actual: 3040, passed: false })];
+    const card = kpiCards(summary({ p95_ms: 3040 }), matched(c, r), box).find(
+      (x) => x.key === "p95",
+    )!;
+    expect(card.value).toBe("3.0초");
+    expect(card.target).toBe("목표 3,000ms 이하 ✕ 미달 (측정 3,040ms)");
+  });
+  it("판정 안 함이면 측정값을 덧붙이지 않는다", () => {
+    const nj = kpiCards(summary(), matched(crit, rows), { kind: "notJudged", reason: "aborted" });
+    for (const c of nj) expect(c.target).not.toContain("(측정");
+  });
+  it("오류율 0.7% 저장 오차: 꼬리가 붙는다", () => {
+    const thr = Number("0.7") / 100;
+    const c: Criteria = { max_error_rate: thr };
+    const r = [vrow({ metric: "error_rate", threshold: thr, actual: 0.007, passed: false })];
+    const card = kpiCards(summary(), matched(c, r), box).find((x) => x.key === "errorRate")!;
+    expect(card.target).toBe("목표 0.70% 이하 ✕ 미달 (측정 0.70%, 기준과 차이가 아주 작음)");
+  });
   it("not judged / not evaluable / no row", () => {
     const m = matched(crit, rows);
     const nj = kpiCards(summary(), m, { kind: "notJudged", reason: "aborted" });
-    expect(nj.find((c) => c.key === "p95")?.target).toBe("목표 3.0초 이하 (판정 안 함)");
+    expect(nj.find((c) => c.key === "p95")?.target).toBe("목표 3,000ms 이하 (판정 안 함)");
     const ne = kpiCards(summary(), m, { kind: "notEvaluable" });
-    expect(ne.find((c) => c.key === "p95")?.target).toBe("목표 3.0초 이하 (평가 불가)");
+    expect(ne.find((c) => c.key === "p95")?.target).toBe("목표 3,000ms 이하 (평가 불가)");
     const noRow = kpiCards(summary(), matched(crit, [rows[1], rows[2]]), box);
-    expect(noRow.find((c) => c.key === "p95")?.target).toBe("목표 3.0초 이하 (평가 불가)");
+    expect(noRow.find((c) => c.key === "p95")?.target).toBe("목표 3,000ms 이하 (평가 불가)");
     const none = kpiCards(summary(), [], { kind: "noCriteria" });
     expect(none.every((c) => c.target === "목표 없음 (참고값)")).toBe(true);
   });
@@ -230,16 +242,42 @@ describe("otherCriteriaRows", () => {
       name,
     );
     expect(out).toEqual([
-      { name: "99% 응답시간", target: "5.0초 이하", actual: "6.0초", judgement: "fail" },
+      { name: "99% 응답시간", target: "5,000ms 이하", actual: "6,000ms", judgement: "fail" },
       {
         name: "가장 낮은 1초 처리량",
-        target: "10건/초 이상",
+        target: "10.0건/초 이상",
         actual: "–",
         judgement: "notEvaluable",
       },
-      { name: "로그인 · 95% 응답시간", target: "2.0초 이하", actual: "2.5초", judgement: "fail" },
-      { name: "s2 · 처리량", target: "5건/초 이상", actual: "–", judgement: "notEvaluable" },
+      {
+        name: "로그인 · 95% 응답시간",
+        target: "2,000ms 이하",
+        actual: "2,500ms",
+        judgement: "fail",
+      },
+      { name: "s2 · 처리량", target: "5.0건/초 이상", actual: "–", judgement: "notEvaluable" },
     ]);
+  });
+  it("미달 행의 target·actual 글자가 다르다", () => {
+    const c: Criteria = { max_p99_ms: 5000 };
+    const out = otherCriteriaRows(
+      matched(c, [vrow({ metric: "p99_ms", threshold: 5000, actual: 5004, passed: false })]),
+      { kind: "fail", evaluated: 1, failed: 1 },
+      name,
+    );
+    expect(out[0].target).toBe("5,000ms 이하");
+    expect(out[0].actual).toBe("5,004ms");
+  });
+  it("저장 오차 기준: actual 뒤에 꼬리", () => {
+    const thr = Number("0.7") / 100;
+    const out = otherCriteriaRows(
+      matched({ max_5xx_rate: thr }, [
+        vrow({ metric: "5xx_rate", threshold: thr, actual: 0.007, passed: false }),
+      ]),
+      { kind: "fail", evaluated: 1, failed: 1 },
+      name,
+    );
+    expect(out[0].actual).toBe("0.70% (기준과 차이가 아주 작음)");
   });
   it("notJudged box", () => {
     const out = otherCriteriaRows(
@@ -256,7 +294,7 @@ describe("otherCriteriaRows", () => {
       name,
     );
     expect(out).toEqual([
-      { name: "99% 응답시간", target: "5.0초 이하", actual: "–", judgement: "notJudged" },
+      { name: "99% 응답시간", target: "5,000ms 이하", actual: "–", judgement: "notJudged" },
     ]);
   });
 });
