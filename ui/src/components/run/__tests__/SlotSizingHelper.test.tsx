@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SlotSizingHelper } from "../SlotSizingHelper";
+import { ko } from "../../../i18n/ko";
 import type { Scenario, Step } from "../../../scenario/model";
 
 // 실 헬퍼 보존(factory-spread) — 이 파일이 모킹하는 4개 훅만 stub, 나머지는 실물.
@@ -107,6 +108,38 @@ describe("SlotSizingHelper", () => {
     expect(screen.getByText(/직전 실행이 포화였어요/)).toBeInTheDocument();
     expect(screen.queryByText(/지난 실행의 스텝별 응답시간/)).not.toBeInTheDocument();
     expect(screen.getByText(/max_in_flight를 최소 ~23\(으\)로 설정하세요/)).toBeInTheDocument();
+  });
+
+  it("stall prior run shows note and no recommendation", () => {
+    const scenario = { steps: [http("a"), http("b")] } as unknown as Scenario;
+    setHooks({
+      runs: [openRun(100, 3)],
+      report: {
+        insights: [{ kind: "load_gen_saturated", cause: "stall", achieved_per_sec: 6980 }],
+        steps: [
+          { step_id: "a", p50_ms: 100 },
+          { step_id: "b", p50_ms: 200 },
+        ],
+        summary: { mean_ms: 999 },
+      },
+    });
+    render(
+      <SlotSizingHelper
+        scenarioId="s1"
+        scenario={scenario}
+        env={{}}
+        targetRps="20"
+        onApply={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(ko.slotSizing.fromStallRun)).toBeInTheDocument();
+    expect(screen.getByText(ko.slotSizing.title)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ko.slotSizing.apply })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(ko.slotSizing.estMs)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ko.slotSizing.measureBtn })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ko.slotSizing.helpLabel })).not.toBeInTheDocument();
+    expect(screen.queryByText(/max_in_flight를 최소/)).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.slotSizing.cannotCompute)).not.toBeInTheDocument();
   });
 
   // ⓑ scenario walk(iterationHoldMs, p50 ?? mean_ms)

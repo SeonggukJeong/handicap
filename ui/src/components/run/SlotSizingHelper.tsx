@@ -14,7 +14,8 @@ const MAX_IN_FLIGHT_CAP = 10000;
 
 type SlotAnchor =
   | { kind: "insight"; holdMs: number } // ⓐ 직전 포화 run 실측 hold 복원
-  | { kind: "walk"; holdMs: number }; // ⓑ per-step p50 + think 평균 walk
+  | { kind: "walk"; holdMs: number } // ⓑ per-step p50 + think 평균 walk
+  | { kind: "stall" }; // 직전 run이 대상 간헐 멈춤 — 응답 시간 기반 권장 불가
 
 /** 최근 종료 open-loop run에서 반복 점유시간(hold) 앵커 도출(ADR-0046 R8).
  *  ⓐ 포화(cause=slots) 인사이트의 실측 achieved_per_sec + prior max_in_flight로
@@ -34,6 +35,7 @@ function usePriorOpenRunAnchor(
     const rep = report.data;
     if (!rep) return null;
     const sat = rep.insights?.find((i) => i.kind === "load_gen_saturated");
+    if (sat?.cause === "stall") return { kind: "stall" };
     if (
       sat?.cause === "slots" &&
       sat.achieved_per_sec != null &&
@@ -94,10 +96,11 @@ export function SlotSizingHelper({
     trace && !trace.truncated ? trace.steps.filter((s) => s.response !== null).length : 0;
   const measuredHold = trace && !trace.truncated && trace.total_ms > 0 ? trace.total_ms : null;
 
+  const anchorHold = anchor && anchor.kind !== "stall" ? anchor.holdMs : null;
   const estMsNum = Number(estMs);
   // hold 출처 precedence: prior 앵커(ⓐ/ⓑ) > 수동 추정(estMs 입력, ⓒ) > 측정(ⓓ).
   const holdMs: number | null =
-    anchor?.holdMs ??
+    anchorHold ??
     (estMs.trim() !== "" && Number.isFinite(estMsNum) && estMsNum > 0 ? estMsNum : measuredHold);
 
   const targetNum = Number(targetRps);
@@ -113,10 +116,14 @@ export function SlotSizingHelper({
     <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
       <div className="flex items-center gap-1 mb-1">
         <span className="text-sm font-medium text-slate-700">{ko.slotSizing.title}</span>
-        <HelpTip label={ko.slotSizing.helpLabel}>{ko.slotSizing.help}</HelpTip>
+        {anchor?.kind !== "stall" && (
+          <HelpTip label={ko.slotSizing.helpLabel}>{ko.slotSizing.help}</HelpTip>
+        )}
       </div>
 
-      {anchor ? (
+      {anchor?.kind === "stall" ? (
+        <p className="text-xs text-slate-500">{ko.slotSizing.fromStallRun}</p>
+      ) : anchor ? (
         <p className="text-xs text-slate-500 mb-2">
           {anchor.kind === "insight"
             ? ko.slotSizing.fromSaturatedRun
@@ -162,7 +169,7 @@ export function SlotSizingHelper({
         </div>
       )}
 
-      {result ? (
+      {anchor?.kind === "stall" ? null : result ? (
         <>
           <div className="flex items-center gap-2">
             <span className="text-sm text-slate-700">

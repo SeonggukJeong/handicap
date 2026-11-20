@@ -414,6 +414,9 @@ describe("InsightPanel", () => {
     expect(row.textContent).toContain("18초");
     expect(row.textContent).not.toContain("지점부터 포화");
     // 조치문 토글 꺼짐(기본)에서도 안내가 보인다
+    expect(
+      screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }),
+    ).not.toBeChecked();
     expect(row.textContent).toContain("14개");
     expect(row.textContent).toContain("2,500개");
     expect(row.textContent).toContain("p95 응답 시간 (ms)");
@@ -436,7 +439,13 @@ describe("InsightPanel", () => {
       />,
     );
     const row = screen.getByTestId("insight");
-    expect(row.textContent).toMatch(/^.*목표한 부하를 다 걸지 못했어요/);
+    expect(row.textContent).toContain("목표한 부하를 다 걸지 못했어요");
+    expect(row.textContent?.trimStart().startsWith("목표한 부하를 다 걸지 못했어요")).toBe(true);
+    // 토글 꺼짐(기본) — computed:false인 일반 안내는 감춘다
+    expect(
+      screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }),
+    ).not.toBeChecked();
+    expect(row.textContent).not.toContain(ko.insightActions.load_gen_saturated);
     expect(row.textContent).not.toContain("가끔 멈춰");
     expect(row.textContent).not.toContain("평소에는");
   });
