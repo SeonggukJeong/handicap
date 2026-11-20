@@ -2517,6 +2517,31 @@ export const ko = {
         reference: "참고용",
         none: "–",
       },
+      star: {
+        before: "이전",
+        after: "이후",
+        notCounted: (step: string, code: string, n: string, side: string) =>
+          `'${step}'의 ${code} ${n}건은 ${side} 측정에서 오류율에 포함되지 않았습니다(다른 측정에서는 오류로 셉니다). 이 단계의 오류율 비교는 참고용입니다.`,
+        unknown: (step: string, code: string, n: string, side: string) =>
+          `'${step}'의 ${code} ${n}건이 ${side} 측정에서 오류로 세었는지 확정할 수 없습니다. 이 단계의 오류율 비교는 참고용입니다.`,
+        countedOnly: (step: string, code: string, n: string, side: string) =>
+          `'${step}'의 ${code} ${n}건은 ${side} 측정에서만 오류로 세었습니다. 이 단계의 오류율 비교는 참고용입니다.`,
+        more: (n: number) => `외 ${n}곳`,
+      },
+      issues: {
+        noResponse: "응답 없음",
+        merge: (head: string, rest: string) => `${head}. ${rest}`,
+        codeLine: (code: string, name: string) => `${code} ${name}`,
+        notSent: "보내지 않음",
+        stepStatus: (label: string, words: string) => `${label}: ${words}`,
+        rate: (pct: string) => `(${pct})`,
+        unchanged: (label: string, code: string, n: string) =>
+          `${label}의 ${code} ${n}건은 그대로입니다.`,
+        increased: (label: string, code: string, before: string, after: string) =>
+          `${label}의 ${code} ${before}건 → ${after}건으로 늘었습니다.`,
+        appeared: (label: string, code: string, n: string) =>
+          `${label}의 ${code} ${n}건이 새로 생겼습니다.`,
+      },
     },
     fmt: {
       msUnderOne: "1ms 미만",
