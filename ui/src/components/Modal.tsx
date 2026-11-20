@@ -12,6 +12,7 @@ export function Modal({
   onClose,
   title,
   size,
+  dismissible = true,
   children,
 }: {
   open: boolean;
@@ -19,13 +20,20 @@ export function Modal({
   title: string;
   /** "sm" = 입력 한 칸짜리 작은 창(폭 28rem). 없으면 기존 폭. */
   size?: "sm";
+  /** false면 Escape·바깥 클릭·✕로 닫히지 않는다(✕는 비활성). 처리 중인 창에 쓴다. */
+  dismissible?: boolean;
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const dismissibleRef = useRef(dismissible);
   useEffect(() => {
     onCloseRef.current = onClose;
+    dismissibleRef.current = dismissible;
   });
+  const dismiss = () => {
+    if (dismissible) onClose();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -36,7 +44,7 @@ export function Modal({
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onCloseRef.current();
+        if (dismissibleRef.current) onCloseRef.current();
         return;
       }
       if (e.key === "Tab" && panel) {
@@ -67,7 +75,7 @@ export function Modal({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+      onClick={dismiss}
     >
       <div
         ref={panelRef}
@@ -82,9 +90,10 @@ export function Modal({
           <h2 className="text-base font-semibold">{title}</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={dismiss}
+            disabled={!dismissible}
             aria-label="닫기"
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
+            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
           >
             ✕
           </button>

@@ -43,7 +43,13 @@ export function RenameGroupDialog({
   const canSubmit = target != null && target !== name && !pending;
 
   return (
-    <Modal open={open} onClose={onClose} title={ko.scenarioGroups.renameTitle} size="sm">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={ko.scenarioGroups.renameTitle}
+      size="sm"
+      dismissible={!pending}
+    >
       <form
         className="flex flex-col"
         onSubmit={(e) => {
@@ -63,7 +69,7 @@ export function RenameGroupDialog({
           note={merges ? ko.scenarioGroups.mergeHint(counts[name] ?? 0, counts[target]) : null}
         />
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={pending}>
             {ko.common.cancel}
           </Button>
           <Button type="submit" disabled={!canSubmit}>

@@ -22,9 +22,10 @@ import { loadCollapsedGroups, saveCollapsedGroups } from "../scenario/groupPrefs
 
 /**
  * 열 정의의 단일 소스. Tailwind가 클래스를 찾을 수 있게 리터럴로 쓰고, 열 수·체크 칸 폭은 거기서 뽑는다.
- * 첫 열 = 체크 칸. 수정 열(12rem)은 ko-KR 최장 표기 `2026. 12. 31. 오후 12:59:59`가 한 줄에 드는 폭.
+ * 첫 열 = 체크 칸. 수정 열 13rem(208px): ko-KR `2026. 12. 31. 오후 12:59:59`가 macOS(14px)에서
+ * 180.8px로 실측됨. Windows 글꼴에서는 재지 않았다.
  */
-const GRID_COLS = "grid-cols-[1.75rem_minmax(0,1fr)_3.25rem_12rem_11rem]";
+const GRID_COLS = "grid-cols-[1.75rem_minmax(0,1fr)_3.25rem_13rem_11rem]";
 const TRACKS = GRID_COLS.slice("grid-cols-[".length, -1).split("_");
 const COLUMN_COUNT = TRACKS.length;
 const CHECK_SLOT_STYLE = { width: TRACKS[0] };
@@ -80,6 +81,20 @@ export function ScenarioListPage() {
     }
   });
 
+  // 목록이 도착하면 이제 없는 그룹 이름을 접힘 기억에서 뺀다(빈 것을 본 뒤 같은 이름이 다시 생기면
+  // 펼친 채 나온다). 그룹 변경 처리 중에 도착한 목록으로는 정리하지 않는다 — 이름 바꾸기는 성공 처리가
+  // 옛 이름의 접힘을 새 이름으로 옮긴 뒤에 정리한다. 다시 읽기가 실패한 옛 목록으로도 정리하지 않는다.
+  const listFailed = error != null;
+  const groupChangeBusy = assign.isPending || rename.isPending;
+  useEffect(() => {
+    if (!data || listFailed || groupChangeBusy) return;
+    const live = new Set(groupNames(data.scenarios));
+    const kept = collapsed.filter((n) => live.has(n));
+    if (kept.length === collapsed.length) return;
+    setCollapsed(kept);
+    saveCollapsedGroups(kept);
+  }, [data, listFailed, groupChangeBusy, collapsed]);
+
   const all = data?.scenarios ?? [];
   const searching = query.trim() !== "";
   const visible = filterScenarios(all, query);
@@ -120,11 +135,9 @@ export function ScenarioListPage() {
 
   function toggleGroup(name: string) {
     if (searching) return;
-    const live = new Set(names);
-    const next = collapsed.includes(name)
-      ? collapsed.filter((n) => n !== name)
-      : [...collapsed, name];
-    storeCollapsed(next.filter((n) => live.has(n)));
+    storeCollapsed(
+      collapsed.includes(name) ? collapsed.filter((n) => n !== name) : [...collapsed, name],
+    );
   }
 
   function openAssign() {
@@ -142,10 +155,6 @@ export function ScenarioListPage() {
       { ids: [...selected], group },
       {
         onSuccess: () => {
-          // 비었다가 같은 이름으로 다시 생긴 그룹이 옛 접힘을 물려받지 않게.
-          if (group != null && collapsed.includes(group)) {
-            storeCollapsed(collapsed.filter((n) => n !== group));
-          }
           focusSearchRef.current = true;
           setAssignOpen(false);
           setSelected(new Set());

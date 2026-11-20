@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -135,16 +135,19 @@ describe("ScenarioListPage 그룹 묶음·접기 (US1)", () => {
     expect(within(box).getAllByTestId("scenario-row")).toHaveLength(2);
   });
 
-  it("이제 없는 그룹 이름이 저장돼 있어도 그려지고, 다음 접기 저장에서 빠진다", async () => {
-    window.localStorage.setItem(KEY, JSON.stringify(["사라진그룹"]));
+  it("이제 없는 그룹 이름이 저장돼 있어도 그려지고, 목록이 도착하면 저장에서 빠진다(있는 이름은 남는다)", async () => {
+    window.localStorage.setItem(KEY, JSON.stringify(["사라진그룹", "쇼핑"]));
     serve(MIXED);
     const user = userEvent.setup();
     renderPage();
     const boxes = await screen.findAllByTestId("scenario-group");
     expect(boxes).toHaveLength(2);
-    expect(window.localStorage.getItem(KEY)).toBe(JSON.stringify(["사라진그룹"]));
+    await waitFor(() =>
+      expect(JSON.parse(window.localStorage.getItem(KEY) ?? "null")).toEqual(["쇼핑"]),
+    );
+    expect(within(boxes[1]).getByRole("button", { expanded: false })).toBeInTheDocument();
     await user.click(within(boxes[0]).getByRole("button", { expanded: true }));
-    expect(JSON.parse(window.localStorage.getItem(KEY) ?? "null")).toEqual(["결제"]);
+    expect(JSON.parse(window.localStorage.getItem(KEY) ?? "null")).toEqual(["쇼핑", "결제"]);
   });
 
   it("같은 이름의 시나리오가 두 묶음에 있어도 각 묶음 안에서 찾아진다", async () => {

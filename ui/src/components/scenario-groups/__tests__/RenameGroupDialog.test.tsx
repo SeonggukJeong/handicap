@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RenameGroupDialog } from "../RenameGroupDialog";
 import { ko } from "../../../i18n/ko";
@@ -145,6 +145,18 @@ describe("RenameGroupDialog", () => {
     await retype(user, " C {Enter}");
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith("C");
+  });
+
+  it("cannot be dismissed while pending (Escape, backdrop, close and cancel do nothing)", async () => {
+    const user = userEvent.setup();
+    const { onClose } = setup({ pending: true });
+    const dialog = screen.getByRole("dialog");
+    expect(screen.getByRole("button", { name: ko.common.cancel })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: ko.common.close })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    await user.click(dialog.parentElement!);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBe(dialog);
   });
 
   it("Enter does not submit while pending", async () => {

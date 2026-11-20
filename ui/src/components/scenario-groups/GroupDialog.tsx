@@ -45,7 +45,7 @@ export function GroupDialog({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={title} size="sm">
+    <Modal open={open} onClose={onClose} title={title} size="sm" dismissible={!pending}>
       <form
         className="flex flex-col"
         onSubmit={(e) => {
@@ -63,7 +63,7 @@ export function GroupDialog({
           failure={error}
         />
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={pending}>
             {ko.common.cancel}
           </Button>
           <Button type="submit" disabled={!check.ok || pending}>

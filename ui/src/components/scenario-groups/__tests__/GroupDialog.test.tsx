@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GroupDialog } from "../GroupDialog";
 import { ko } from "../../../i18n/ko";
@@ -116,6 +116,31 @@ describe("GroupDialog", () => {
   it("disables apply while pending", () => {
     setup({ pending: true });
     expect(screen.getByRole("button", { name: g.apply })).toBeDisabled();
+  });
+
+  it("cannot be dismissed while pending (Escape, backdrop, close and cancel do nothing)", async () => {
+    const user = userEvent.setup();
+    const { onClose } = setup({ pending: true });
+    const dialog = screen.getByRole("dialog");
+    const cancel = screen.getByRole("button", { name: ko.common.cancel });
+    const x = within(dialog).getByRole("button", { name: ko.common.close });
+    expect(cancel).toBeDisabled();
+    expect(x).toBeDisabled();
+    await user.keyboard("{Escape}");
+    await user.click(dialog.parentElement!);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+  });
+
+  it("can be dismissed again once not pending", async () => {
+    const user = userEvent.setup();
+    const { onClose } = setup();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("dialog").parentElement!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: ko.common.close }));
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("calls onClose from cancel", async () => {

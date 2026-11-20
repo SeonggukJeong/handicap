@@ -36,12 +36,26 @@ let posts: { url: string; body: Record<string, unknown> }[] = [];
 let postFails = false;
 let getFails = false;
 let hold: Promise<void> | null = null;
+let postHold: Promise<void> | null = null;
+
+/** 다음 POST를 붙잡는다. 반환값을 부르면 풀린다. */
+function holdPost(): () => void {
+  let release: () => void = () => {};
+  postHold = new Promise<void>((r) => {
+    release = r;
+  });
+  return () => {
+    postHold = null;
+    release();
+  };
+}
 
 function installFetch() {
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       posts.push({ url, body });
+      if (postHold) await postHold;
       if (postFails) return jsonResponse({ error: "서버가 거절했습니다" }, 400);
       if (url.endsWith("/scenario-groups/assign")) {
         const ids = new Set(body.scenario_ids as string[]);
@@ -137,6 +151,7 @@ describe("ScenarioListPage 체크·일괄 지정·이름 바꾸기 (US3)", () =>
     postFails = false;
     getFails = false;
     hold = null;
+    postHold = null;
     current = [];
     installFetch();
     vi.stubGlobal("fetch", fetchMock);
@@ -302,6 +317,7 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     postFails = false;
     getFails = false;
     hold = null;
+    postHold = null;
     current = [];
     installFetch();
     vi.stubGlobal("fetch", fetchMock);
@@ -376,6 +392,28 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     expect(document.activeElement).toBe(search());
   });
 
+  it("접힌 그룹 이름을 바꾼 뒤 다시 읽기가 실패해도 옛 목록 때문에 새 이름의 접힘이 지워지지 않는다", async () => {
+    window.localStorage.setItem(KEY, JSON.stringify(["쇼핑"]));
+    current = [sc("A", "하나", "쇼핑"), sc("C", "셋", "결제")];
+    const user = userEvent.setup();
+    const { qc } = renderPage();
+    await screen.findAllByTestId("scenario-group");
+    const dialog = await openRenameAndType(user, "쇼핑", "새이름");
+    getFails = true;
+    await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(toggleOf("결제"));
+    expect(stored()).toEqual(["새이름", "결제"]);
+
+    getFails = false;
+    await act(async () => {
+      await qc.invalidateQueries();
+    });
+    await waitFor(() => expect(groupBox("새이름")).toBeDefined());
+    expect(toggleOf("새이름")).toHaveAttribute("aria-expanded", "false");
+    expect(stored()).toEqual(["새이름", "결제"]);
+  });
+
   it("접어 둔 그룹이 비었다가 같은 이름으로 다시 지정되면 펼친 채 나온다", async () => {
     current = [sc("A", "하나", "쇼핑"), sc("B", "둘", null)];
     const user = userEvent.setup();
@@ -388,6 +426,8 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
       await qc.invalidateQueries();
     });
     await waitFor(() => expect(screen.queryAllByTestId("scenario-group")).toHaveLength(0));
+    // 목록에서 사라진 이름은 목록이 도착한 그때 접힘 기억에서 빠진다.
+    await waitFor(() => expect(stored()).toEqual([]));
 
     await user.click(row("둘"));
     await user.click(within(band()!).getByRole("button", { name: g.assign }));
@@ -416,6 +456,96 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(band()).toBeNull();
     expect(posts).toHaveLength(0);
+  });
+
+  it("접은 그룹이 빈 것을 본 뒤 화면을 떠났다가, 다른 곳에서 같은 이름이 다시 생겨 돌아오면 펼친 채 나온다", async () => {
+    current = [sc("A", "하나", "쇼핑"), sc("B", "둘", null)];
+    const user = userEvent.setup();
+    const first = renderPage();
+    await screen.findAllByTestId("scenario-group");
+    await user.click(toggleOf("쇼핑"));
+    expect(stored()).toEqual(["쇼핑"]);
+    current = current.map((s) => ({ ...s, group: null }));
+    await act(async () => {
+      await first.qc.invalidateQueries();
+    });
+    await waitFor(() => expect(screen.queryAllByTestId("scenario-group")).toHaveLength(0));
+    first.unmount();
+
+    // 편집 화면 등 목록 밖에서 같은 이름으로 다시 지정된 상태.
+    current = current.map((s) => (s.id === "B" ? { ...s, group: "쇼핑" } : s));
+    renderPage();
+    await screen.findAllByTestId("scenario-group");
+    expect(toggleOf("쇼핑")).toHaveAttribute("aria-expanded", "true");
+    expect(rowsIn("쇼핑")).toBe(1);
+    expect(stored()).toEqual([]);
+  });
+
+  it("이름 바꾸기 처리 중엔 Escape·취소로 창이 닫히지 않고, 끝나면 접힘 기억이 새 이름으로 옮겨진다", async () => {
+    window.localStorage.setItem(KEY, JSON.stringify(["쇼핑"]));
+    current = [sc("A", "하나", "쇼핑"), sc("C", "셋", "결제")];
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("scenario-group");
+    const dialog = await openRenameAndType(user, "쇼핑", "새이름");
+    const release = holdPost();
+    await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    await user.keyboard("{Escape}");
+    await user.click(within(dialog).getByRole("button", { name: ko.common.cancel }));
+    expect(screen.getByRole("dialog")).toBe(dialog);
+
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(toggleOf("새이름")).toHaveAttribute("aria-expanded", "false");
+    expect(stored()).toEqual(["새이름"]);
+  });
+
+  it("이름 바꾸기 처리 중 다른 이유로 목록이 다시 읽혀도 접힘 기억을 정리하지 않고, 끝나면 새 이름으로 옮긴다", async () => {
+    window.localStorage.setItem(KEY, JSON.stringify(["쇼핑"]));
+    current = [sc("A", "하나", "쇼핑"), sc("C", "셋", "결제")];
+    const user = userEvent.setup();
+    const { qc } = renderPage();
+    await screen.findAllByTestId("scenario-group");
+    const dialog = await openRenameAndType(user, "쇼핑", "새이름");
+    const release = holdPost();
+    await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    // 서버에는 이미 반영된 목록이 (예: 다른 화면의 무효화로) 처리 중에 먼저 도착한다.
+    current = current.map((s) => (s.group === "쇼핑" ? { ...s, group: "새이름" } : s));
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["scenarios"] });
+    });
+    await waitFor(() => expect(groupBox("새이름")).toBeDefined());
+    expect(stored()).toEqual(["쇼핑"]);
+
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(toggleOf("새이름")).toHaveAttribute("aria-expanded", "false");
+    expect(stored()).toEqual(["새이름"]);
+  });
+
+  it("그룹 지정 처리 중엔 Escape·취소로 창이 닫히지 않고, 끝나면 선택이 풀린다", async () => {
+    current = [sc("A", "하나", null), sc("B", "둘", null)];
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("scenario-row");
+    await user.click(row("하나"));
+    await user.click(within(band()!).getByRole("button", { name: g.assign }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(g.fieldLabel), "신규");
+    const release = holdPost();
+    await user.click(within(dialog).getByRole("button", { name: g.apply }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    await user.keyboard("{Escape}");
+    await user.click(within(dialog).getByRole("button", { name: ko.common.cancel }));
+    expect(screen.getByRole("dialog")).toBe(dialog);
+
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(band()).toBeNull();
+    expect(row("하나")).not.toBeChecked();
+    expect(rowsIn("신규")).toBe(1);
   });
 
   it("안내·띠 자리: 세 상태(안내/띠/비어 있음)에서 같은 높이 클래스의 한 칸이고 상태 영역은 계속 마운트돼 있다", async () => {
