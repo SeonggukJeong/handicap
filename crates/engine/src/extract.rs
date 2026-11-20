@@ -1285,27 +1285,35 @@ mod tests {
     /// `$..key`의 원래 본문 결과(`null`)와 풀린 값의 결과가 갈리는 모양.
     fn arb_null_shadow() -> impl proptest::strategy::Strategy<Value = (String, Vec<String>, bool)> {
         use proptest::prelude::*;
-        ("[a-c]", 0usize..=2, any::<bool>(), 0i64..100, any::<bool>()).prop_flat_map(
-            |(key, layers, spaced, n, dflt)| {
+        (
+            "[a-c]",
+            0usize..=2,
+            any::<bool>(),
+            0i64..100,
+            any::<bool>(),
+            any::<bool>(),
+        )
+            .prop_flat_map(|(key, layers, spaced, n, dflt, none)| {
                 let inner = serde_json::json!({ key.clone(): n });
                 let body = serde_json::json!({
                     "p": wrap_text(&inner, layers, spaced),
                     "q": { key.clone(): null },
                 })
                 .to_string();
-                let paths = vec![
+                let mut paths = vec![
                     format!("$.p.{key}"),
                     format!("$..{key}"),
                     "$".to_owned(),
                     "$.q".to_owned(),
                     format!("$.q.{key}"),
-                    "$.__none__".to_owned(),
                 ];
+                if none {
+                    paths.push("$.__none__".to_owned());
+                }
                 Just(paths)
                     .prop_shuffle()
                     .prop_map(move |ps| (body.clone(), ps, dflt))
-            },
-        )
+            })
     }
 
     proptest::proptest! {
