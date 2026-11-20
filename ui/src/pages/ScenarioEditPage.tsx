@@ -234,19 +234,14 @@ export function ScenarioEditPage() {
                     </button>
                   </div>
                 )}
-                <div
-                  title={data.group ?? undefined}
-                  className="max-w-[16rem] shrink-0 [&>button]:max-w-full [&>button]:truncate"
-                >
-                  <GroupButton
-                    group={data.group}
-                    names={groupNames(scenarios?.scenarios ?? [])}
-                    pending={assign.isPending}
-                    error={assign.error ? (assign.error as Error).message : null}
-                    onPick={pickGroup}
-                    onOpenChange={() => assign.reset()}
-                  />
-                </div>
+                <GroupButton
+                  group={data.group}
+                  names={groupNames(scenarios?.scenarios ?? [])}
+                  pending={assign.isPending}
+                  error={assign.error ? (assign.error as Error).message : null}
+                  onPick={pickGroup}
+                  onOpenChange={() => assign.reset()}
+                />
               </div>
               {!chromeCollapsed && (
                 <p id={subtitleRegionId} className="text-sm text-slate-600">

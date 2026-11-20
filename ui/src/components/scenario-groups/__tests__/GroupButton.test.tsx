@@ -22,14 +22,17 @@ function setup(over: Partial<Parameters<typeof GroupButton>[0]> = {}) {
 }
 
 describe("GroupButton", () => {
-  it("shows the chip text for a group", () => {
-    setup({ group: "서비스A" });
-    expect(screen.getByRole("button", { name: g.chip("서비스A") })).toBeInTheDocument();
+  it("shows the chip text for a group, with the full name as title (the chip truncates)", () => {
+    const long = "가".repeat(40);
+    setup({ group: long });
+    const chip = screen.getByRole("button", { name: g.chip(long) });
+    expect(chip).toHaveAttribute("title", long);
   });
 
   it("shows 그룹 지정 and never 그룹 없음 when ungrouped", () => {
     setup();
-    expect(screen.getByRole("button", { name: g.assign })).toBeInTheDocument();
+    const chip = screen.getByRole("button", { name: g.assign });
+    expect(chip).not.toHaveAttribute("title");
     expect(screen.queryByText(/그룹 없음/)).toBeNull();
   });
 

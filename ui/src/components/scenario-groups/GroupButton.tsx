@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { ko } from "../../i18n/ko";
-import { Button } from "../Button";
 import { GroupDialog } from "./GroupDialog";
 
+const CHIP =
+  "inline-flex max-w-[16rem] shrink-0 items-center rounded-full border px-2.5 py-[3px] text-sm " +
+  "transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40";
+const CHIP_SET = "border-slate-300 bg-white text-slate-900";
+const CHIP_NONE = "border-dashed border-slate-300 bg-white text-slate-500";
+
+/** 편집·새 시나리오 머리 줄의 그룹 칩. 그룹이 없으면 점선·흐린 「그룹 지정」. 긴 이름은 말줄임 + title. */
 export function GroupButton({
   group,
   names,
@@ -25,9 +31,16 @@ export function GroupButton({
   };
   return (
     <>
-      <Button variant="secondary" onClick={() => change(true)}>
-        {group != null ? ko.scenarioGroups.chip(group) : ko.scenarioGroups.assign}
-      </Button>
+      <button
+        type="button"
+        title={group ?? undefined}
+        onClick={() => change(true)}
+        className={`${CHIP} ${group != null ? CHIP_SET : CHIP_NONE}`}
+      >
+        <span className="truncate">
+          {group != null ? ko.scenarioGroups.chip(group) : ko.scenarioGroups.assign}
+        </span>
+      </button>
       <GroupDialog
         open={open}
         title={ko.scenarioGroups.assign}

@@ -70,9 +70,9 @@ describe("ScenarioListPage 검색 (US4)", () => {
     serve([sc("A", "하나", null), sc("B", "둘", null)]);
     renderPage();
     await screen.findAllByTestId("scenario-row");
-    expect(
-      screen.getByRole("searchbox", { name: ko.scenarioGroups.searchPlaceholder }),
-    ).toBeInTheDocument();
+    // 그룹 이름으로도 걸리므로 문구가 그 동작을 말한다.
+    const box = screen.getByRole("searchbox", { name: "이름·그룹으로 검색" });
+    expect(box).toHaveAttribute("placeholder", "이름·그룹으로 검색");
     expect(
       screen.getByRole("checkbox", { name: ko.scenarioGroups.selectRow("하나") }),
     ).toBeInTheDocument();

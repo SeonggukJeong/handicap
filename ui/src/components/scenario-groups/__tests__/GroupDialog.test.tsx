@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -24,7 +25,48 @@ function setup(over: Partial<Parameters<typeof GroupDialog>[0]> = {}) {
   return { onSubmit, onClose, ...utils };
 }
 
+function Harness({ initial }: { initial: string | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        trigger
+      </button>
+      <GroupDialog
+        open={open}
+        title={g.assign}
+        text={g.assignOneText}
+        initial={initial}
+        names={[]}
+        onSubmit={() => {}}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
 describe("GroupDialog", () => {
+  it("focuses the field on open so typing goes in, and focus returns to the trigger on close", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={null} />);
+    const trigger = screen.getByRole("button", { name: "trigger" });
+    await user.click(trigger);
+    const field = screen.getByLabelText(g.fieldLabel);
+    expect(document.activeElement).toBe(field);
+    await user.keyboard("새 그룹");
+    expect(field).toHaveValue("새 그룹");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("focuses an already-filled field on open", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="서비스A" />);
+    await user.click(screen.getByRole("button", { name: "trigger" }));
+    expect(document.activeElement).toBe(screen.getByLabelText(g.fieldLabel));
+  });
+
   it("seeds the field from initial", () => {
     setup({ initial: "서비스A" });
     expect(screen.getByLabelText(g.fieldLabel)).toHaveValue("서비스A");
@@ -143,8 +185,24 @@ describe("GroupDialog", () => {
   it("two mounted instances do not share ids", () => {
     render(
       <>
-        <GroupDialog open title="a" text="t" initial={null} names={["A"]} onSubmit={() => {}} onClose={() => {}} />
-        <GroupDialog open title="b" text="t" initial={null} names={["A"]} onSubmit={() => {}} onClose={() => {}} />
+        <GroupDialog
+          open
+          title="a"
+          text="t"
+          initial={null}
+          names={["A"]}
+          onSubmit={() => {}}
+          onClose={() => {}}
+        />
+        <GroupDialog
+          open
+          title="b"
+          text="t"
+          initial={null}
+          names={["A"]}
+          onSubmit={() => {}}
+          onClose={() => {}}
+        />
       </>,
     );
     const ids = [...document.querySelectorAll("[id]")].map((e) => e.id);

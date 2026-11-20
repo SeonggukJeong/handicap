@@ -125,9 +125,8 @@ export function useAssignScenarioGroup() {
   return useMutation({
     mutationFn: ({ ids, group }: { ids: string[]; group: string | null }) =>
       api.assignScenarioGroup(ids, group),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
-    },
+    // 다시 읽기를 기다린다 — 호출부의 onSuccess·mutateAsync는 새 목록이 든 뒤에 이어진다.
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.scenarios() }),
   });
 }
 
@@ -135,9 +134,8 @@ export function useRenameScenarioGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ from, to }: { from: string; to: string }) => api.renameScenarioGroup(from, to),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
-    },
+    // 다시 읽기를 기다린다 — 호출부의 onSuccess는 새 목록이 든 뒤에 돈다.
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.scenarios() }),
   });
 }
 

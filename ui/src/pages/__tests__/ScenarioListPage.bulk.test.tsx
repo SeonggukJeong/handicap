@@ -34,6 +34,7 @@ function sc(id: string, name: string, group: string | null) {
 let current: Sc[] = [];
 let posts: { url: string; body: Record<string, unknown> }[] = [];
 let postFails = false;
+let getFails = false;
 let hold: Promise<void> | null = null;
 
 function installFetch() {
@@ -53,6 +54,7 @@ function installFetch() {
       return jsonResponse({ updated: 1 });
     }
     if (hold) await hold;
+    if (getFails) return jsonResponse({ error: "목록을 못 읽었습니다" }, 500);
     return jsonResponse({ scenarios: current });
   });
 }
@@ -82,6 +84,46 @@ const groupBox = (name: string) =>
   screen.getAllByTestId("scenario-group").find((b) => b.dataset.groupName === name);
 const stored = () => JSON.parse(window.localStorage.getItem(KEY) ?? "null") as string[] | null;
 const search = () => screen.getByRole("searchbox", { name: g.searchPlaceholder });
+const toggleOf = (name: string) =>
+  groupBox(name)!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+
+/** 이름 바꾸기 창을 열고 미리 채워진 지금 이름을 지운 뒤 새 이름을 친다. */
+async function openRenameAndType(
+  user: ReturnType<typeof userEvent.setup>,
+  from: string,
+  to: string,
+) {
+  await user.click(within(groupBox(from)!).getByRole("button", { name: g.renameGroupLabel(from) }));
+  const dialog = await screen.findByRole("dialog");
+  const field = within(dialog).getByLabelText(g.fieldLabel);
+  expect(field).toHaveValue(from);
+  await user.clear(field);
+  await user.type(field, to);
+  return dialog;
+}
+
+/** 커밋마다 DOM을 보고, 한 번이라도 `bad`가 참이면 기록한다(렌더 사이의 잠깐 펼침 검출). */
+function watchDom(bad: () => string | null) {
+  const seen: string[] = [];
+  const check = () => {
+    const b = bad();
+    if (b) seen.push(b);
+  };
+  const mo = new MutationObserver(check);
+  mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+  return {
+    seen,
+    stop: () => {
+      check();
+      mo.disconnect();
+    },
+  };
+}
+
+function rowsIn(name: string): number {
+  const box = screen.queryAllByTestId("scenario-group").find((b) => b.dataset.groupName === name);
+  return box ? within(box).queryAllByTestId("scenario-row").length : 0;
+}
 
 function many(n: number): Sc[] {
   return Array.from({ length: n }, (_, i) => sc(`ID${i}`, `시나리오${i}`, null));
@@ -93,6 +135,7 @@ describe("ScenarioListPage 체크·일괄 지정·이름 바꾸기 (US3)", () =>
     fetchMock.mockReset();
     posts = [];
     postFails = false;
+    getFails = false;
     hold = null;
     current = [];
     installFetch();
@@ -257,6 +300,7 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     fetchMock.mockReset();
     posts = [];
     postFails = false;
+    getFails = false;
     hold = null;
     current = [];
     installFetch();
@@ -266,51 +310,112 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("이름 바꾸기: 기존 이름을 치면 합치기 안내, 새 이름으로 바꾸면 접힘 기억이 옛→새 이름(목록 도착 전·후)이고 도착 전엔 옛 이름 상자도 접힌 채", async () => {
+  it("이름 바꾸기: 기존 이름이면 합치기 안내, 접힌 그룹을 새 이름으로 바꾸면 다시 읽기가 끝날 때까지 창이 열린 채(버튼 막힘)이고 옛·새 이름 상자가 한 번도 펼쳐지지 않으며 접힘 기억이 새 이름으로 옮겨진다", async () => {
     window.localStorage.setItem(KEY, JSON.stringify(["쇼핑"]));
     current = [sc("A", "하나", "쇼핑"), sc("B", "둘", "쇼핑"), sc("C", "셋", "결제")];
     const user = userEvent.setup();
     renderPage();
     await screen.findAllByTestId("scenario-group");
-    const box = screen
-      .getAllByTestId("scenario-group")
-      .find((b) => b.dataset.groupName === "쇼핑")!;
-    await user.click(within(box).getByRole("button", { name: g.renameGroupLabel("쇼핑") }));
-    const dialog = await screen.findByRole("dialog");
-    const field = within(dialog).getByLabelText(g.fieldLabel);
-    await user.type(field, "결제");
+    const dialog = await openRenameAndType(user, "쇼핑", "결제");
     expect(within(dialog).getByText(g.mergeHint(2, 1))).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: g.mergeOk })).toBeInTheDocument();
+    const field = within(dialog).getByLabelText(g.fieldLabel);
     await user.clear(field);
     await user.type(field, "새이름");
 
+    const dom = watchDom(() => {
+      if (rowsIn("쇼핑") > 0) return "옛 이름 상자가 펼쳐짐";
+      if (rowsIn("새이름") > 0) return "새 이름 상자가 펼쳐짐";
+      return null;
+    });
     let release: () => void = () => {};
     hold = new Promise<void>((r) => {
       release = r;
     });
     await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(posts).toHaveLength(1);
+    await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0].url).toContain("/scenario-groups/rename");
     expect(posts[0].body).toEqual({ from: "쇼핑", to: "새이름" });
-    expect(JSON.parse(window.localStorage.getItem(KEY) ?? "null")).toEqual(["새이름"]);
-    const oldBox = groupBox("쇼핑")!;
-    expect(within(oldBox).getByRole("button", { expanded: false })).toBeInTheDocument();
-    expect(within(oldBox).queryAllByTestId("scenario-row")).toHaveLength(0);
+    // 다시 읽기가 끝날 때까지 창은 열린 채 버튼이 막혀 있다.
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(within(dialog).getByRole("button", { name: g.renameOk })).toBeDisabled();
 
     hold = null;
     release();
-    await waitFor(() =>
-      expect(
-        screen.getAllByTestId("scenario-group").some((b) => b.dataset.groupName === "새이름"),
-      ).toBe(true),
-    );
-    const renamed = screen
-      .getAllByTestId("scenario-group")
-      .find((b) => b.dataset.groupName === "새이름")!;
-    expect(within(renamed).getByRole("button", { expanded: false })).toBeInTheDocument();
-    expect(within(renamed).queryAllByTestId("scenario-row")).toHaveLength(0);
-    expect(JSON.parse(window.localStorage.getItem(KEY) ?? "null")).toEqual(["새이름"]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(groupBox("새이름")).toBeDefined());
+    dom.stop();
+    expect(dom.seen).toEqual([]);
+    expect(groupBox("쇼핑")).toBeUndefined();
+    expect(toggleOf("새이름")).toHaveAttribute("aria-expanded", "false");
+    expect(rowsIn("새이름")).toBe(0);
+    expect(stored()).toEqual(["새이름"]);
+  });
+
+  it("이름 바꾼 뒤 다시 읽기가 실패해도 다음 접기가 그대로 저장되고, 나중에 목록이 와도 포커스를 빼앗지 않는다", async () => {
+    current = [sc("A", "하나", "쇼핑"), sc("C", "셋", "결제")];
+    const user = userEvent.setup();
+    const { qc } = renderPage();
+    await screen.findAllByTestId("scenario-group");
+    const dialog = await openRenameAndType(user, "쇼핑", "새이름");
+    getFails = true;
+    await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts).toHaveLength(1);
+    // 화면은 아직 옛 목록 — 그 옛 이름 묶음을 접으면 저장에 들어간다.
+    await user.click(toggleOf("쇼핑"));
+    expect(toggleOf("쇼핑")).toHaveAttribute("aria-expanded", "false");
+    expect(stored()).toEqual(["쇼핑"]);
+
+    await user.click(search());
+    getFails = false;
+    await act(async () => {
+      await qc.invalidateQueries();
+    });
+    await waitFor(() => expect(groupBox("새이름")).toBeDefined());
+    expect(document.activeElement).toBe(search());
+  });
+
+  it("접어 둔 그룹이 비었다가 같은 이름으로 다시 지정되면 펼친 채 나온다", async () => {
+    current = [sc("A", "하나", "쇼핑"), sc("B", "둘", null)];
+    const user = userEvent.setup();
+    const { qc } = renderPage();
+    await screen.findAllByTestId("scenario-group");
+    await user.click(toggleOf("쇼핑"));
+    expect(stored()).toEqual(["쇼핑"]);
+    current = current.map((s) => ({ ...s, group: null }));
+    await act(async () => {
+      await qc.invalidateQueries();
+    });
+    await waitFor(() => expect(screen.queryAllByTestId("scenario-group")).toHaveLength(0));
+
+    await user.click(row("둘"));
+    await user.click(within(band()!).getByRole("button", { name: g.assign }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(g.fieldLabel), "쇼핑");
+    await user.click(within(dialog).getByRole("button", { name: g.apply }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(toggleOf("쇼핑")).toHaveAttribute("aria-expanded", "true");
+    expect(rowsIn("쇼핑")).toBe(1);
+    expect(stored()).toEqual([]);
+  });
+
+  it("그룹 지정 창이 열린 사이 고른 시나리오가 모두 사라지면 창이 닫힌다", async () => {
+    current = [sc("A", "하나", null), sc("B", "둘", null)];
+    const user = userEvent.setup();
+    const { qc } = renderPage();
+    await screen.findAllByTestId("scenario-row");
+    await user.click(row("하나"));
+    await user.click(within(band()!).getByRole("button", { name: g.assign }));
+    await screen.findByRole("dialog");
+    current = current.filter((s) => s.id !== "A");
+    await act(async () => {
+      await qc.invalidateQueries();
+    });
+    await waitFor(() => expect(screen.queryAllByTestId("scenario-row")).toHaveLength(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(band()).toBeNull();
+    expect(posts).toHaveLength(0);
   });
 
   it("안내·띠 자리: 세 상태(안내/띠/비어 있음)에서 같은 높이 클래스의 한 칸이고 상태 영역은 계속 마운트돼 있다", async () => {
@@ -319,6 +424,10 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     const first = renderPage();
     await screen.findAllByTestId("scenario-row");
     const s0 = slot();
+    // 검색 칸과 같은 줄(한 flex 줄)에 놓인다 — 표 위에 빈 줄을 따로 만들지 않는다.
+    const toolbar = screen.getByTestId("scenario-toolbar");
+    expect(s0.parentElement).toBe(toolbar);
+    expect(toolbar).toContainElement(search());
     const heightClass = Array.from(s0.classList).find((c) => c.startsWith("min-h-"));
     expect(heightClass).toBeTruthy();
     const status = within(s0).getByRole("status");
@@ -413,66 +522,30 @@ describe("ScenarioListPage 이름 바꾸기·안내 줄 (US3)", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findAllByTestId("scenario-group");
-    await user.click(
-      within(groupBox("쇼핑")!).getByRole("button", { name: g.renameGroupLabel("쇼핑") }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText(g.fieldLabel), "결제");
+    const dialog = await openRenameAndType(user, "쇼핑", "결제");
     expect(within(dialog).getByText(g.mergeHint(2, 1))).toBeInTheDocument();
+    const dom = watchDom(() => (rowsIn("결제") > 0 ? "합친 상자가 펼쳐짐" : null));
     await user.click(within(dialog).getByRole("button", { name: g.mergeOk }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(posts).toHaveLength(1);
     expect(posts[0].body).toEqual({ from: "쇼핑", to: "결제" });
+    expect(screen.getAllByTestId("scenario-group")).toHaveLength(1);
+    expect(toggleOf("결제")).toHaveAttribute("aria-expanded", "false");
+    expect(rowsIn("결제")).toBe(0);
     expect(stored()).toEqual(["결제"]);
-    await waitFor(() => expect(screen.getAllByTestId("scenario-group")).toHaveLength(1));
-    const only = groupBox("결제")!;
-    expect(within(only).getByRole("button", { expanded: false })).toBeInTheDocument();
-    expect(within(only).queryAllByTestId("scenario-row")).toHaveLength(0);
-    expect(stored()).toEqual(["결제"]);
+    dom.stop();
+    expect(dom.seen).toEqual([]);
   });
 
-  it("이름 바꾸기 직후 목록이 오기 전에 다른 묶음을 접어도 새 이름의 접힘이 저장에서 빠지지 않는다", async () => {
-    window.localStorage.setItem(KEY, JSON.stringify(["쇼핑"]));
-    current = [sc("A", "하나", "쇼핑"), sc("C", "셋", "결제")];
-    const user = userEvent.setup();
-    renderPage();
-    await screen.findAllByTestId("scenario-group");
-    await user.click(
-      within(groupBox("쇼핑")!).getByRole("button", { name: g.renameGroupLabel("쇼핑") }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText(g.fieldLabel), "새이름");
-    let release: () => void = () => {};
-    hold = new Promise<void>((r) => {
-      release = r;
-    });
-    await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await user.click(within(groupBox("결제")!).getByRole("button", { expanded: true }));
-    expect(stored()).toEqual(["새이름", "결제"]);
-    hold = null;
-    release();
-    await waitFor(() => expect(groupBox("새이름")).toBeDefined());
-    expect(stored()).toEqual(["새이름", "결제"]);
-    expect(
-      within(groupBox("새이름")!).getByRole("button", { expanded: false }),
-    ).toBeInTheDocument();
-  });
-
-  it("이름 바꾸기 성공 뒤 목록이 오면 포커스가 바뀐 그룹의 접기 버튼에 있다", async () => {
+  it("이름 바꾸기 성공 뒤 창이 닫히면 포커스가 바뀐 그룹의 접기 버튼에 있다", async () => {
     current = [sc("A", "하나", "쇼핑")];
     const user = userEvent.setup();
     renderPage();
     await screen.findAllByTestId("scenario-group");
-    await user.click(
-      within(groupBox("쇼핑")!).getByRole("button", { name: g.renameGroupLabel("쇼핑") }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText(g.fieldLabel), "새이름");
+    const dialog = await openRenameAndType(user, "쇼핑", "새이름");
     await user.click(within(dialog).getByRole("button", { name: g.renameOk }));
-    await waitFor(() => expect(groupBox("새이름")).toBeDefined());
-    const toggle = within(groupBox("새이름")!).getByRole("button", { expanded: true });
-    await waitFor(() => expect(document.activeElement).toBe(toggle));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(toggleOf("새이름"));
   });
 
   it("그룹마다 이름 바꾸기 버튼의 접근 이름이 그룹 이름을 담는다", async () => {

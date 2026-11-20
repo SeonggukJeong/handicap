@@ -110,7 +110,7 @@ describe("ScenarioEditPage 그룹 버튼", () => {
     assignFails = false;
   });
 
-  it("그룹이 없으면 「그룹 지정」, 있으면 chip", async () => {
+  it("그룹이 없으면 「그룹 지정」", async () => {
     renderPage();
     expect(await screen.findByRole("button", { name: ko.scenarioGroups.assign })).toBeVisible();
   });

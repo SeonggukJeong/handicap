@@ -25,9 +25,7 @@ export function ScenarioNewPage() {
   const mutation = useCreateScenario();
   const { data: scenarioList } = useScenarios();
   const [group, setGroup] = useState<string | null>(null);
-  const existingGroups = Array.isArray(scenarioList?.scenarios)
-    ? groupNames(scenarioList.scenarios)
-    : [];
+  const existingGroups = groupNames(scenarioList?.scenarios ?? []);
   // null = 템플릿 선택 단계(EditorShell mount 이전 — initialYaml은 mount 1회 고정이라
   // 선택을 mount 앞에 둔다, spec §4). 선택 후엔 그 YAML이 에디터 시드.
   const [seedYaml, setSeedYaml] = useState<string | null>(null);
@@ -110,19 +108,14 @@ export function ScenarioNewPage() {
       <div className="flex items-center justify-between">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="text-xl font-semibold">{ko.pages.newScenario}</h2>
-          <div
-            title={group ?? undefined}
-            className="max-w-[16rem] shrink-0 [&>button]:max-w-full [&>button]:truncate"
-          >
-            <GroupButton
-              group={group}
-              names={existingGroups}
-              onPick={(g) => {
-                setGroup(g);
-                return true;
-              }}
-            />
-          </div>
+          <GroupButton
+            group={group}
+            names={existingGroups}
+            onPick={(g) => {
+              setGroup(g);
+              return true;
+            }}
+          />
         </div>
         <div className="flex items-center gap-2">
           <Button

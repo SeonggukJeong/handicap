@@ -2214,6 +2214,6 @@ describe("MonitorEditPage scenario select grouping", () => {
     renderAt("/monitors/B1");
     await user.click(await screen.findByRole("button", { name: ko.monitor.addGroup }));
     const sel = within(groupRegion(1)).getByLabelText(ko.monitor.scenario);
-    expect(sel.querySelector('optgroup[label="서비스A"]')).not.toBeNull();
+    await waitFor(() => expect(sel.querySelector('optgroup[label="서비스A"]')).not.toBeNull());
   });
 });

@@ -11,11 +11,14 @@ export function Modal({
   open,
   onClose,
   title,
+  size,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** "sm" = 입력 한 칸짜리 작은 창(폭 28rem). 없으면 기존 폭. */
+  size?: "sm";
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -73,7 +76,7 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl outline-none"
+        className={`flex max-h-[85vh] w-full ${size === "sm" ? "max-w-md" : "max-w-3xl"} flex-col rounded-lg bg-white shadow-xl outline-none`}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h2 className="text-base font-semibold">{title}</h2>

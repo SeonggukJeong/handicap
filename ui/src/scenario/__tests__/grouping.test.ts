@@ -61,6 +61,9 @@ describe("filterScenarios", () => {
   it("matches name substring case-insensitively", () => {
     expect(filterScenarios(list, "cART").map((x) => x.id)).toEqual(["4"]);
   });
+  it("trims the query before matching", () => {
+    expect(filterScenarios(list, " cart ").map((x) => x.id)).toEqual(["4"]);
+  });
   it("matching group name returns all members, in input order", () => {
     expect(filterScenarios(list, "주문").map((x) => x.id)).toEqual(["1", "4"]);
   });

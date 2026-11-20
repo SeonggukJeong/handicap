@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ko } from "../../i18n/ko";
 import { Button } from "../Button";
 import { Modal } from "../Modal";
@@ -33,6 +33,11 @@ export function GroupDialog({
     if (open) setDraft(initial ?? "");
   }
   const fieldId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // 자식 Modal의 effect(패널 포커스·닫을 때 되돌릴 곳 기억)가 먼저 돈 뒤 입력칸으로 옮긴다.
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
 
   const check = validateGroupName(draft);
   const submit = () => {
@@ -40,21 +45,23 @@ export function GroupDialog({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={title}>
+    <Modal open={open} onClose={onClose} title={title} size="sm">
       <form
-        className="flex flex-col gap-2"
+        className="flex flex-col"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <p className="text-sm text-slate-700">{text}</p>
-        <GroupField id={fieldId} value={draft} onChange={setDraft} names={names} />
-        {error != null && (
-          <p role="alert" className="text-sm text-red-600">
-            {ko.scenarioGroups.failed(error)}
-          </p>
-        )}
+        <p className="mb-3 text-sm text-slate-600">{text}</p>
+        <GroupField
+          id={fieldId}
+          value={draft}
+          onChange={setDraft}
+          names={names}
+          inputRef={inputRef}
+          failure={error}
+        />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             {ko.common.cancel}

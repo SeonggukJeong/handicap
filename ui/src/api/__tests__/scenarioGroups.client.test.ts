@@ -61,6 +61,7 @@ describe("scenario group wire", () => {
     const res = await api.renameScenarioGroup("A", "B");
     expect(res).toEqual({ updated: 2 });
     expect(String(fn.mock.calls[0][0])).toContain("/api/scenario-groups/rename");
+    expect((fn.mock.calls[0][1] as RequestInit).method).toBe("POST");
     expect(sentBody(fn)).toEqual({ from: "A", to: "B" });
   });
 });
