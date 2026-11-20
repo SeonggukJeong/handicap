@@ -49,12 +49,12 @@ fn body_c_dense() -> Vec<u8> {
     body_with(|i| format!("user{i}"), 2200, Some(1))
 }
 
-/// 본문 C와 같은 모양에서 감싼 필드가 맨 끝 레코드 하나뿐이다.
-fn body_c_last() -> Vec<u8> {
+/// 본문 A와 같은 모양에서 감싼 필드가 맨 앞 레코드 하나뿐이다. `has_unwrappable`은 스택에서 뒤쪽부터
+/// 꺼내므로 맨 앞 레코드가 마지막으로 닿고, 키 `a_payload`는 객체 값 중 가장 먼저 쌓여(키 순서) 그 레코드 안에서도 마지막으로 닿는다.
+fn body_c_first() -> Vec<u8> {
     let mut v: Value = serde_json::from_slice(&body_a()).unwrap();
     let items = v["items"].as_array_mut().unwrap();
-    let last = items.len() - 1;
-    items[last]["payload"] = Value::String(json!({"k": last, "tag": "x"}).to_string());
+    items[0]["a_payload"] = Value::String(json!({"k": 0, "tag": "x"}).to_string());
     serde_json::to_vec(&v).unwrap()
 }
 
@@ -209,8 +209,8 @@ fn nested_cost_rows() {
         &body_c_dense(),
     );
     ratio(
-        "row6 C-last (감싼 필드가 맨 끝) lenient [$.nope] / old parse+jsonpath_first",
-        &body_c_last(),
+        "row6 C-first (감싼 필드가 맨 앞 레코드 하나 — 스택 순회가 마지막에 닿는 곳) lenient [$.nope] / old parse+jsonpath_first",
+        &body_c_first(),
     );
     let two = ["$.nope", "$.items"];
     let body_a = body_a();
