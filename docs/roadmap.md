@@ -1168,7 +1168,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - ✅ **해소(profile-duration-default 2026-11-20 소형 수정, build-log)** — `#[serde(default)]` 한 줄로 runs·presets·schedules가 같이 고쳐짐(셋 다 `store::Profile`), UI는 곡선에 `0`을 명시 전송해 무영향. 고정 closed-loop·고정 `target_rps`에서 생략하면 이제 422가 아니라 검증 400. 원문: **`stages`를 쓸 때 `duration_seconds`를 빼도 넣어도 거절된다**: 빼면 422 `missing field duration_seconds`, 양수면 400 "stages 사용 시 duration_seconds를 비워야 합니다". 통과하는 값은 `0`뿐이다. 원인: `store::Profile.duration_seconds`에 `#[serde(default)]`가 없다(`crates/controller/src/store/runs.rs`, 같은 구조체의 `vus`는 같은 이유로 이미 default). `vu_stages`도 같다. cost-if-left: API를 직접 쓰는 쪽이 "비워야 한다"는 안내대로 필드를 빼면 실패한다(실제로 측정이 두 번 실패했다). 해소: `#[serde(default)]` 한 줄 + 422가 아니라 통과하는지 보는 통합 테스트 1건(소형 수정 경로). 확인할 것: UI는 stages일 때 `0`을 보내는지 생략하는지, 프리셋(`api/presets.rs`의 `duration_seconds`)도 같은 모양인지.
 - **버린 요청(`dropped`)이 초 단위로 없다**: 워커는 실행 중 `dropped: 0`을 보내고 마지막 flush에만 합계를 싣는다(`crates/engine/src/runner.rs` open-loop 종료부 주석, `runs.dropped` 단일 UPDATE). 리포트 `windows`에도 없다. cost-if-left: 급증(조용하다 뛰는) 시험에서 "언제부터 몇 초 동안 버렸나"를 볼 수 없고, 실행 중 진행 차트(ADR-0051)에서 버림이 끝나야 보인다. 해소: 초별 dropped 델타를 MetricBatch에 싣고 `run_metrics` 또는 별도 scalar 테이블로 — proto·migration이 드는 정식 슬라이스 크기. `load_gen_saturated`의 `onset_second`도 처리량 추정 대신 이 값으로 정확해진다.
 - **초별 창의 지연 시간이 ms 정수다**: `windows[].p50_ms/p95_ms/p99_ms`가 `u64` ms라 빠른 대상에서는 `0`·`1`만 찍힌다(전체 구간 `latency.percentile_curve`는 µs). `summary`에 p99가 없어 곡선에서 `quantile≈0.99`를 찾아 꺼내야 했다. cost-if-left: sub-ms 대상의 초별 변화를 읽을 수 없다(localhost p95=0 함정과 같은 뿌리 — controller CLAUDE.md). 해소 후보: `*_us` 필드를 나란히 추가(additive, UI Zod `.optional()`), `summary.p99_ms` 추가는 `ReportSummary` 비-optional 필드 함정(골든 픽스처·`.strict()`)을 그대로 밟는다.
-- **`load_gen_saturated`가 간헐적 대상 멈춤을 `slots`로 분류한다**: 대상이 수백 ms씩 가끔 멈추는(초별 p95가 평소 2 ms, 멈춘 초 300–900 ms, 60초 중 약 20초) 실행에서 `cause: slots, recommended: 2507`이 나왔다(당시 `max_in_flight` 2500, 5xx 0.02 %). `sut_stress`의 두 조건(5xx률 ≥ 1 % 또는 late/early p95 ≥ 1.5×) 어느 쪽에도 안 걸린다 — 멈춤이 실행 내내 고르게 흩어져 있어 앞·뒤 p95가 같다. cost-if-left: "슬롯을 7개 늘리라"는 권고가 틀린 방향을 가리킨다. 해소 후보: 초별 p95의 흩어짐(예: 상위 초들의 p95가 중앙값의 N배)을 세 번째 sut 조건으로 — 임계는 재현 픽스처로 정할 것(slots/sut 경계가 본래 borderline이라는 controller CLAUDE.md 노트 참조). 재현 자료는 별도 리포에 있어 여기서는 못 돌린다 — 지연이 간헐적으로 튀는 responder로 다시 만들어야 한다.
+- ✅ **해소(stall-saturation 2026-11-20, 코드 `829b897d`..`10589092`, §B73)** — 초 단위 계수로 `cause=stall`(권장값 없음). 해소 방식은 아래 후보(초별 p95 흩어짐을 sut 조건으로)가 아니라 첫 버림 뒤 회복 초의 사용 슬롯 비교. 원문: **`load_gen_saturated`가 간헐적 대상 멈춤을 `slots`로 분류한다**: 대상이 수백 ms씩 가끔 멈추는(초별 p95가 평소 2 ms, 멈춘 초 300–900 ms, 60초 중 약 20초) 실행에서 `cause: slots, recommended: 2507`이 나왔다(당시 `max_in_flight` 2500, 5xx 0.02 %). `sut_stress`의 두 조건(5xx률 ≥ 1 % 또는 late/early p95 ≥ 1.5×) 어느 쪽에도 안 걸린다 — 멈춤이 실행 내내 고르게 흩어져 있어 앞·뒤 p95가 같다. cost-if-left: "슬롯을 7개 늘리라"는 권고가 틀린 방향을 가리킨다. 해소 후보: 초별 p95의 흩어짐(예: 상위 초들의 p95가 중앙값의 N배)을 세 번째 sut 조건으로 — 임계는 재현 픽스처로 정할 것(slots/sut 경계가 본래 borderline이라는 controller CLAUDE.md 노트 참조). 재현 자료는 별도 리포에 있어 여기서는 못 돌린다 — 지연이 간헐적으로 튀는 responder로 다시 만들어야 한다.
 
 **(2) 기능 후보**
 - **반복(도착) 사이에 값을 기억하는 변수**: open-loop 도착은 서로 독립이라 "받은 `ETag`를 다음 요청의 `If-None-Match`로" 같은 조건부 요청·폴링·페이지 커서를 만들 수 없었다(측정 전용 표기로 흉내 냈다). closed-loop에서 흐름 변수가 반복을 넘어 유지되는지는 **확인하지 않았다**. 해소 후보: VU 범위 변수(쿠키 jar처럼 VU에 붙는 저장소) — open-loop는 VU 개념이 약하므로 설계가 필요하다(§A 후보로 올릴지 판단).
@@ -1709,3 +1709,30 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **(4) 수치**
   - 엔진 미세 측정(release, 못 찾는 본문 항목 하나, 새 길 ÷ 옛 길, ≈105 KB 본문): 후보 없음 1.003 / 1.005 / 1.064(기준 1.25) · 후보만 ≈1.22 · 풀림 ≈1.51. `has_unwrappable` 2.54 ms / `clone` 46.9 ms / `unwrap_nested` 2.75 ms. 조기 반환을 지우면 후보 없음이 1.541로 올라 측정이 복사 부활을 잡는다.
   - 라이브(release, 요청당 워커 CPU µs, 4 VU × 15초, 본문 ≈142 KB, master 4회·브랜치 3회 교차, 전 회차 에러 0): ⓐ 찾는 경로만 605.86 → 611.34 (+0.90%, 기준 ±3%, master 회차 간 흔들림 2.1%) · ⓑ 못 찾음+후보 없음 608.35 → 624.21 (+2.61%, 기준 +5%) · ⓒ 못 찾음+풀림 610.98 → 1,096.04 (+79.39%, 기록만).
+
+### B73. 포화 진단 — 대상 간헐 멈춤 구별 (stall-saturation, 2026-11-20, 코드 `829b897d`..`10589092`, spec `docs/superpowers/specs/2026-11-20-stall-saturation-design.md`, plan `docs/superpowers/plans/2026-11-20-stall-saturation.md`, ADR-0046 덧붙임) 판단·연기 — **라이브 US1–5 통과·원격 사용자 화면 확인 뒤 master 합류(push 안 함)**
+
+§B57 (1) 넷째 항목 해소. `load_gen_saturated` cause가 3-way(slots/sut/stall)가 됐다 — 상세 build-log.
+
+- **(0) 사용자 확인**: 화면 세 장(인사이트·결과 해석·실행 창 도우미)을 원격으로 보고 "이상 없어 보이는데 실제 부하를 줘봐야 확실하게 알겠다"(2026-11-20). 재개 신호 = 실제 대상(계단 시험·redis-large-list-bench 재측정)에서 stall이 나와야 할 run이 slots/sut로, 또는 진짜 부족 run이 stall로 나오는 관측.
+- **(1) 판단(cost-if-wrong · 해소)**
+  - **필드 없이 `cause:"stall"`만 온 인사이트의 화면 대비 문구를 그대로 둠**(최종 리뷰 M3): 제목은 옛 「…지속 가능한 최대 RPS」, 조치 안내 토글을 켜면 일반 문구 「max_in_flight를 늘려 다시 실행」. spec §4.6이 일반 문구 대비를 정했고 지금 서버는 stall이면 네 필드를 늘 함께 채운다(도달 불가). cost: 다른 버전 서버(필드 없는 stall)를 보면 stall run에 슬롯 증설 조언. 해소 = `actionFor`가 그 경우 `undefined`, 제목은 stall 일반 문구.
+  - **`crates/controller/CLAUDE.md`의 `cause=sut` 라이브 재현 레시피 본문은 ADR-0046 이전 설명(「슬롯충분 arm」·`required<max_in_flight`) 그대로**(최종 리뷰 M4a): plan이 본문 유지를 정했고, 레시피를 다시 돌려 보지 않고 고쳐 쓰면 새 거짓 서술이 생긴다. cost: 다음 독자가 낡은 근거를 읽는다. 해소 = 다음에 sut 재현을 실제로 돌릴 때 본문을 실측 기준으로 다시 쓰기.
+  - **리뷰 Minor를 다음 task 커밋에 접어 넣음**(Task 2 → 3, Task 3 → 4, Task 5 → 6): 게이트 한 바퀴(수 분)를 아꼈다. 각 접힘은 받은 task 리뷰가 존재를 확인했다. cost: 커밋 하나가 두 task의 변경을 담는다(이력 읽기만 불편).
+- **(2) 관찰 — 같은 멈춤이 run 길이·멈춤 위상에 따라 다른 원인으로 나온다**: 같은 멈춤 응답기(5초마다 1초)로 30초 run은 `stall`, 20초 run은 `sut`. 기존 `sut_stress`의 「뒤 1/3 p95 ≥ 앞 1/3 × 1.5」가 멈춘 초가 세 구간에 고르지 않게 걸리면 먼저 참이 된다(판정 순서 sut → stall → slots는 spec대로). sut도 대상 쪽을 가리켜 슬롯 증설은 안 권하므로 해롭지 않지만 QA에겐 같은 원인이 다른 문구로 보인다. 해소 후보 = stall 판정을 sut 앞으로(단 진짜 대상 과부하 + 흩어진 버림을 stall로 부를 위험 — 실데이터로 정할 것) 또는 `sut_stress` 지연 조건이 초별 p95 중앙값을 보게.
+- **(3) 연기(spec §7, 재개 신호)**
+  - **한 run 안에서 멈춤과 진짜 부족이 섞이면 한쪽만 진단**(`a*`를 어느 쪽 버림 초가 더 많이 차지하느냐). cost: 최고 구간 슬롯 부족을 「대상 멈춤」으로 오진. 해소 = 도착률 구간별(계단 run이면 계단별) 판정.
+  - **슬롯을 빠듯하게 잡은 run의 멈춤**(평소 F > M/2)은 그대로 `slots` + 「M보다 조금 더」. cost: §B57 원래 증상이 좁은 범위에 남는다. 해소 = 버림 초 비율과 무버림 초 F 분포를 함께 쓰는 2차 규칙(실데이터 뒤).
+  - **run 끝 무렵 처음 멈춘 run**(회복 초 3개 미만)은 `slots`. cost: 그 run엔 원래 오진. 해소 없음(회복을 못 봤으니 멈춤이라 말할 근거가 없다).
+  - **부하기 쪽 멈춤도 stall**(계수로 구별 불가 — 문구가 「드물게 부하기 쪽」 병기). 해소 = 워커 텔레메트리(§B20과 같은 전제).
+  - **초별 행 유실**(삽입 실패·시계 이상 행 폐기)은 F를 치우치게 한다(멈춤 시작 초가 빠지면 stall 쪽으로). 해소 = 초별 시작·완료 쌍 대조로 유실 감지.
+  - **옛 run(migration 0024 이전)은 원래 오진 그대로**(사용자 결정).
+  - **슬롯이 작고 지연 꼬리가 긴 run**(예: 목표 10/s·반복 0.5 s·M 10)에서 가끔 M에 닿으면 `stall` → 도우미가 숫자를 숨긴다. cost: 슬롯 여유를 늘리는 게 맞는 작은 run에서 덜 유용. 해소 = 여유 슬롯 절대 하한(`M − f̃ ≥ N`) 보조 조건.
+  - **풀 모드 용량 축소를 확정하면 실제 M < 프로필 M** → 0.5·프로필 M 비교가 실제 여유보다 관대(기존 slots 공식도 같은 노출). 해소 = 실제 배정 슬롯 합을 run에 남겨 그 값으로 비교.
+  - `InsightCompareMatrix`(run 비교)는 kind별 행이라 stall과 slots가 한 「포화」 행에 섞인다(지금도 cause 미표시 — 비목표).
+- **(4) 남은 작은 것(최종 리뷰가 park 판정)**
+  - `build_report_for_run`의 질의 게이트(`needs_open_loop_totals`)는 술어만 테스트로 잠겼고 호출 지점은 안 잠김 — 게이트를 빼도 출력은 같고 비용만 는다(반목표 4). 해소 = 질의 횟수 계측이 생기면 단언.
+  - 테스트 다듬기: `sum_by_second_matches_sql`은 자기 리터럴 없음(SQL 쪽이 리터럴로 잠겨 전이 커버) · `F≈0.95M` 회복 초 단독 테스트 없음(US4 픽스처가 0.93M으로 커버) · RTL은 슬롯 칸 값 불변을 못 본다(컴포넌트가 칸을 안 가짐 — 라이브 US2가 진입 3곳에서 확인) · 인쇄 보고서에 새 해석 키 단독 테스트 없음(같은 `ko.narrative.can` 맵, ValidityBanner 테스트가 커버).
+  - 코드 다듬기: `stall_stats`를 맞는 인사이트마다 다시 계산(실제 1개) · stall이면 `SlotSizingHelper`의 `result`가 계산만 되고 안 쓰임 · export 4셀 `map/unwrap_or_default` 인라인 · `BTreeMap` 전체 경로 2회.
+  - **pre-commit 게이트의 `handicap-worker::sigterm_test worker_exits_promptly_on_sigterm`이 기계 부하(load ≈ 24)에서 두 번 실패**, 단독 통과(11.9 s) — 이 슬라이스와 무관. 재개 신호 = 부하 없는 때도 실패하거나 CI에서 실패 → 테스트의 시간 한도를 부하에 맞게.
+- **(5) 릴리즈 노트 한 줄**: "open-loop run의 포화 진단이 대상 서버가 가끔 멈춰 생긴 버림을 「슬롯 부족 → 슬롯을 N으로 늘리세요」 대신 「서버 응답이 가끔 멈춤」으로 알리고, 평소 쓰인 슬롯 수와 버림이 몰린 초 수를 보여 줍니다(권장 숫자 없음). 그런 run 뒤 실행 창의 슬롯 도우미는 권장값 대신 안내를 보입니다. **인사이트 CSV/XLSX 내보내기에 열 4개(`typical_in_flight`·`max_in_flight`·`drop_seconds`·`measured_seconds`)가 끝에 붙어 헤더가 바뀝니다.**"
