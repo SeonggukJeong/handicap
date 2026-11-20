@@ -210,4 +210,26 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
     expect(actions).toHaveClass("shrink-0", "whitespace-nowrap");
     expect(screen.getByRole("button", { name: ko.editor.renameAria })).toHaveClass("shrink-0");
   });
+
+  // 폭은 jsdom이 못 잰다 — 열 규칙만 잡고 실제 폭은 라이브 rect(build-log name-input-width).
+  it("이름을 고치는 동안에는 입력칸이 남는 폭을 다 쓴다(보는 동안은 제 폭)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const h2 = await screen.findByRole("heading", { name: "demo" });
+    const viewCols = "grid-cols-[minmax(0,max-content)_minmax(0,max-content)]";
+    const editCols = "grid-cols-[minmax(12rem,1fr)_minmax(0,max-content)]";
+    expect(h2.parentElement!.parentElement).toHaveClass(viewCols);
+    const pencil = screen.getByRole("button", { name: ko.editor.renameAria });
+    await waitFor(() => expect(pencil).toBeEnabled());
+    await user.click(pencil);
+    const input = screen.getByRole("textbox", { name: ko.editor.nameInputAria });
+    expect(input.parentElement).toHaveClass(editCols);
+    expect(input.parentElement).not.toHaveClass(viewCols);
+    // 고치는 동안 그룹 칩(입력칸 옆 직계 button)은 8rem까지만
+    expect(input.parentElement).toHaveClass("[&>button]:max-w-[8rem]");
+    expect(input.nextElementSibling?.tagName).toBe("BUTTON");
+    expect(input).toHaveClass("w-full");
+    // 왼쪽 묶음이 줄 폭을 차지해야 1fr이 실제로 넓어진다
+    expect(input.closest('[data-testid="editor-head-row"] > div')).toHaveClass("flex-1");
+  });
 });

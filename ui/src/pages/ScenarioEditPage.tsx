@@ -204,9 +204,16 @@ export function ScenarioEditPage() {
             >
               <span aria-hidden="true">{chromeCollapsed ? "▸" : "▾"}</span>
             </button>
-            <div className="min-w-0">
-              {/* 이름과 그룹 칩이 남는 폭을 고르게 나눠 갖는다(둘 다 말줄임). */}
-              <div className="grid min-w-0 grid-cols-[minmax(0,max-content)_minmax(0,max-content)] items-center gap-2">
+            <div className="min-w-0 flex-1">
+              {/* 보는 동안: 이름과 그룹 칩이 남는 폭을 고르게 나눠 갖는다(둘 다 말줄임).
+                  고치는 동안: 입력칸이 남는 폭을 다 쓰고 칩(직계 button)은 8rem까지만. */}
+              <div
+                className={`grid min-w-0 items-center gap-2 ${
+                  nameEditing
+                    ? "grid-cols-[minmax(12rem,1fr)_minmax(0,max-content)] [&>button]:max-w-[8rem]"
+                    : "grid-cols-[minmax(0,max-content)_minmax(0,max-content)]"
+                }`}
+              >
                 {nameEditing ? (
                   <Input
                     autoFocus
