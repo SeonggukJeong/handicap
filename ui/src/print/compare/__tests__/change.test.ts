@@ -49,6 +49,23 @@ describe("classifyChange", () => {
   });
 });
 
+describe("classifyChange 경계값", () => {
+  it("십진수로 정확히 5%는 비슷", () => {
+    expect(classifyChange("lower", 0.02, 0.021, 0.0005)).toBe("similar");
+    expect(classifyChange("lower", 0.2, 0.21, 0.0005)).toBe("similar");
+    expect(classifyChange("lower", 1000, 1050, 5)).toBe("similar");
+  });
+  it("5%를 조금이라도 넘으면 나빠짐", () => {
+    expect(classifyChange("lower", 0.02, 0.0211, 0.0005)).toBe("worse");
+  });
+  it("차이가 하한과 정확히 같으면 비슷이 아니다", () => {
+    expect(classifyChange("lower", 0.0026, 0.0031, 0.0005)).toBe("worse");
+    expect(classifyChange("lower", 0.0041, 0.0046, 0.0005)).toBe("worse");
+    expect(classifyChange("lower", 0.0044, 0.0049, 0.0005)).toBe("worse");
+    expect(classifyChange("lower", 0.0026, 0.003, 0.0005)).toBe("similar");
+  });
+});
+
 describe("metricRows", () => {
   it("순서와 major", () => {
     const rows = metricRows(BEFORE, AFTER, OPTS);
@@ -142,6 +159,20 @@ describe("metricRows", () => {
     expect(r.cls).toBe("worse");
     expect(r.beforeText).toBe("0.01% 미만");
     expect(r.afterText).toBe("0.06%");
+  });
+
+  it("같은 글자 방지: 오류율 일반 경우", () => {
+    const r = row(
+      metricRows(
+        { ...BEFORE, count: 100000, errors: 260 },
+        { ...BEFORE, count: 100000, errors: 310 },
+        OPTS,
+      ),
+      "error_rate",
+    );
+    expect(r.cls).toBe("worse");
+    expect(r.beforeText).toBe("0.26%");
+    expect(r.afterText).toBe("0.31%");
   });
 
   it("새로 생김", () => {

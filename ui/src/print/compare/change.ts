@@ -11,6 +11,11 @@ export const FLOOR = { error_rate: 0.0005, ms: 5, rps: 0, count: 0 } as const;
 
 const SIMILAR_RATIO = 0.05;
 const MAX_DIGITS = 6;
+const TOLERANCE = 1e-9; // 십진수로 딱 맞는 경계값이 부동소수 오차로 뒤집히지 않게 하는 여유
+
+const belowFloor = (diff: number, floor: number) => diff < floor - TOLERANCE;
+const withinSimilarRatio = (before: number, diff: number) =>
+  before > 0 && diff / before <= SIMILAR_RATIO + TOLERANCE;
 
 export function classifyChange(
   dir: Direction,
@@ -20,8 +25,8 @@ export function classifyChange(
 ): BaseClass {
   if (before === after) return "similar";
   const diff = Math.abs(after - before);
-  if (diff < floor) return "similar";
-  if (before > 0 && diff / before <= SIMILAR_RATIO) return "similar";
+  if (belowFloor(diff, floor)) return "similar";
+  if (withinSimilarRatio(before, diff)) return "similar";
   const rose = after > before;
   if (dir === "neutral") return rose ? "up" : "down";
   const good = dir === "higher" ? rose : !rose;
@@ -41,6 +46,7 @@ export type MetricRow = {
   afterText: string;
   cls: RowClass;
   major: boolean;
+  /** before가 0이고 after가 0보다 크면 true — cls가 "similar"인 행도 포함하므로 소비자는 cls도 함께 본다. */
   isNew: boolean;
   pct: number | null;
   arrow: "▼" | "▲" | "=" | "–";
@@ -200,7 +206,7 @@ export function metricRows(
       if (cls === "similar") {
         arrow = "=";
         changeText =
-          bv === av || (pct !== null && pct <= SIMILAR_RATIO)
+          bv === av || withinSimilarRatio(bv, Math.abs(av - bv))
             ? c.change.withinFive
             : c.change.smallDiff;
       } else {
