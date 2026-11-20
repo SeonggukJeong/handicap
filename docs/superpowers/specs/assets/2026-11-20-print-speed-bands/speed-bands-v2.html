@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>응답 속도 구간 시안 v1</title>
+<title>응답 속도 구간 시안 v2</title>
 <style>
   :root{
     --ink:#1a1d24; --sub:#5b6170; --line:#c9ccd3; --faint:#eef0f3;
@@ -44,12 +44,23 @@
   .own{font-size:7.3pt;color:var(--sub);display:block}
   .alt{border-top:1px dashed var(--line);margin-top:5mm;padding-top:3mm}
   .alt .t{font-size:8.3pt;font-weight:700;color:var(--accent);margin-bottom:1.5mm}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:3mm}
+  .kpi{border:1px solid var(--line);border-radius:2mm;padding:2.5mm 3mm}
+  .kpi .l{font-size:8pt;color:var(--sub);font-weight:600}
+  .kpi .v{font-size:16pt;font-weight:800;margin:.5mm 0}
+  .kpi .v small{font-size:9pt;font-weight:600}
+  .kpi .e{font-size:7.5pt;color:var(--sub);line-height:1.35}
+  .kpi .t{font-size:7.5pt;margin-top:1mm}
+  .kpi.bad{border:1.5px solid var(--bad);background:var(--badbg)}
+  .kpi.bad .v{color:var(--bad)}
+  .new{display:inline-block;background:#fff;color:var(--accent);border-radius:3px;padding:0 5px;font-size:11px;margin-right:6px}
 </style>
 </head>
 <body>
 
 <div class="guide">
-  <b>응답 속도 구간 시안 v1</b> — 측정결과 보고서에 새로 들어갈 절 하나만 떼어 낸 것입니다(A4 폭, 예시 데이터).<br>
+  <b>응답 속도 구간 시안 v2</b> — 측정결과 보고서에 새로 들어갈 절 하나만 떼어 낸 것입니다(A4 폭, 예시 데이터).<br>
+  v1에서 바뀐 것: 안내 줄 끝말 「<b>이 기준은</b> 통과/미달입니다」·안내 줄 비율 소수 2자리·기준 이름 「95% 응답시간」. <b>경우 5–7이 새로 추가</b>됐습니다(지표 칸 목표 줄 / 기준에 아슬아슬한 값·기준 없이 실패 많은 단계 / 단계 기준만 있는 run).<br>
   막대 색은 <b>빠름 → 느림</b>(옅은 파랑 → 짙은 빗금)이고 좋음/나쁨 색(초록/빨강)을 쓰지 않습니다. 흑백으로 뽑아도 읽히도록 구간 비율을 <b>숫자 칸</b>으로도 적습니다. 실패는 막대 밖 맨 오른쪽 칸입니다.
 </div>
 
@@ -69,7 +80,7 @@
     <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:72.4%"></i><i class="s2" style="width:20.6%"></i><i class="s3" style="width:7%"></i></div></td><td>72.4%</td><td>20.6%</td><td class="bad">7.0%</td><td class="f bad">5.4%</td></tr>
   </table>
   <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–3초</span><span><i class="sw s3"></i>3초 초과 (기준 넘음)</span></div>
-  <div class="rule fail">기준 「95% 응답 시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>7.0%</b>가 3초를 넘어 <b class="bad">미달</b>입니다.</div>
+  <div class="rule fail">기준 「95% 응답시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>7.00%</b>가 3초를 넘어 <b class="bad">이 기준은 미달</b>입니다.</div>
   <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다. <b>✕ ⑤ 신청 제출</b>은 요청의 26.6%가 실패했고, 실패한 응답은 금방 돌아오는 경우가 많아 막대가 빠르게 보일 수 있습니다. 어떤 응답 코드였는지는 2절 표를 보십시오.</div>
 
   <div class="alt">
@@ -99,7 +110,7 @@
     <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:74%"></i><i class="s2" style="width:22.9%"></i><i class="s3" style="width:3.1%"></i></div></td><td>74.0%</td><td>22.9%</td><td>3.1%</td><td>0.1%</td></tr>
   </table>
   <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–기준</span><span><i class="sw s3"></i>기준 초과</span></div>
-  <div class="rule">기준 「95% 응답 시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>3.1%</b>가 3초를 넘어 <b>통과</b>입니다.<br>단계 기준 「④ 첨부 업로드 95% 응답 시간 5,000ms 이하」: 5초 초과 <b>14.0%</b> — <b class="bad">미달</b>.</div>
+  <div class="rule">기준 「95% 응답시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>3.10%</b>가 3초를 넘어 <b>이 기준은 통과</b>입니다.<br>단계 기준 「④ 첨부 업로드 95% 응답시간 5,000ms 이하」: 5초 초과 <b>14.00%</b> — <b class="bad">미달</b>.</div>
   <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다.</div>
 </div>
 
@@ -132,8 +143,60 @@
     <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:95.6%"></i><i class="s3" style="width:4.4%"></i></div></td><td>95.6%</td><td>4.4%</td><td>0.2%</td></tr>
   </table>
   <div class="legend"><span><i class="sw s1"></i>800ms 이내</span><span><i class="sw s3"></i>800ms 초과 (기준 넘음)</span></div>
-  <div class="rule">기준 「95% 응답 시간 800ms 이하」는 <b>800ms 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>4.4%</b>가 800ms를 넘어 <b>통과</b>입니다.</div>
+  <div class="rule">기준 「95% 응답시간 800ms 이하」는 <b>800ms 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>4.40%</b>가 800ms를 넘어 <b>이 기준은 통과</b>입니다.</div>
   <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다.</div>
+</div>
+
+<!-- ───────── 경우 5 ───────── -->
+<div class="case"><span class="new">새로 추가</span>경우 5 — 1쪽 지표 칸의 목표 줄 (측정 3,040ms · 기준 3,000ms)
+  <small>큰 숫자는 지금처럼 「3.0초」로 두고, 기준이 걸린 칸은 목표 줄 끝에 측정값을 반올림 없이 덧붙입니다. 기준이 없는 칸(평균)은 그대로입니다.</small>
+</div>
+<div class="page">
+  <div class="kpis">
+    <div class="kpi"><div class="l">처리량</div><div class="v">412.6 <small>건/초</small></div><div class="e">1초에 처리한 요청 수</div><div class="t">목표 400.0건/초 이상 ● 달성 (측정 412.6건/초)</div></div>
+    <div class="kpi"><div class="l">평균 응답시간</div><div class="v">1.2<small>초</small></div><div class="e">요청 하나가 끝나는 데 걸린 평균 시간</div><div class="t" style="color:var(--sub)">목표 없음</div></div>
+    <div class="kpi bad"><div class="l">95% 응답시간</div><div class="v">3.0<small>초</small></div><div class="e">요청 100건 중 95건이 이 시간 안에 끝남</div><div class="t bad">목표 3,000ms 이하 ✕ 미달 (측정 3,040ms)</div></div>
+    <div class="kpi bad"><div class="l">오류율</div><div class="v">1.0<small>%</small></div><div class="e">전체 요청 중 실패한 비율. 실패 1,498건 / 전체 144,000건</div><div class="t bad">목표 1.00% 이하 ✕ 미달 (측정 1.04%)</div></div>
+  </div>
+</div>
+
+<!-- ───────── 경우 6 ───────── -->
+<div class="case"><span class="new">새로 추가</span>경우 6 — 기준에 아슬아슬한 값 + 오류율 기준 없이 실패가 많은 단계 (기준: 95% 응답시간 3,000ms 이하만)
+  <small>▲가 걸릴 수 있는 초과 칸은 허용 몫(5%)과 같은 글자가 되면 자릿수를 늘립니다 — ①은 4.96%(표시 없음), ②는 ▲ 5.04%. 오류율 기준이 없어 ✕는 없지만, 실패가 있는 단계는 실패 칸에 ▲(2절의 「▲ 오류 있음」과 같은 규칙)가 붙고, 실패가 10% 이상인 단계는 각주에 이름이 나옵니다.</small>
+</div>
+<div class="page">
+  <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
+  <table>
+    <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>1초 미만</th><th>1초–3초</th><th>3초 초과<small>기준 넘음</small></th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
+    <tr><td class="l">① 목록 조회</td><td class="barc"><div class="bar"><i class="s1" style="width:70%"></i><i class="s2" style="width:25.04%"></i><i class="s3" style="width:4.96%"></i></div></td><td>70.0%</td><td>25.0%</td><td>4.96%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">② 상세 조회</td><td class="barc"><div class="bar"><i class="s1" style="width:68%"></i><i class="s2" style="width:26.96%"></i><i class="s3" style="width:5.04%"></i></div></td><td>68.0%</td><td>27.0%</td><td class="warn">▲ 5.04%</td><td class="warn">▲ 0.3%</td></tr>
+    <tr><td class="l">③ 신청 제출</td><td class="barc"><div class="bar"><i class="s1" style="width:97%"></i><i class="s2" style="width:2.6%"></i><i class="s3" style="width:.4%"></i></div></td><td>97.0%</td><td>2.6%</td><td>0.4%</td><td class="warn">▲ 90.0%</td></tr>
+    <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:78.3%"></i><i class="s2" style="width:18.2%"></i><i class="s3" style="width:3.5%"></i></div></td><td>78.3%</td><td>18.2%</td><td>3.5%</td><td>30.1%</td></tr>
+  </table>
+  <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–3초</span><span><i class="sw s3"></i>3초 초과 (기준 넘음)</span></div>
+  <div class="rule">기준 「95% 응답시간 3,000ms 이하」는 <b>3초 초과가 5% 이하</b>여야 통과입니다. 이번 측정은 전체 요청의 <b>3.50%</b>가 3초를 넘어 <b>이 기준은 통과</b>입니다.</div>
+  <div class="note">※ 막대에는 실패한 응답의 시간도 들어 있습니다. <b>▲ ③ 신청 제출</b>은 요청의 90.0%가 실패했고, 실패한 응답은 금방 돌아오는 경우가 많아 막대가 빠르게 보일 수 있습니다. 어떤 응답 코드였는지는 2절 표를 보십시오.</div>
+</div>
+
+<!-- ───────── 경우 7 ───────── -->
+<div class="case"><span class="new">새로 추가</span>경우 7 — 단계 기준만 있는 run + 기준이 1초 이하인 단계 + 보내지 않은 요청 + 기준과 차이가 아주 작은 값 (기준: 오류율 0.7% 이하, ① 800ms, ② 5초)
+  <small>전체 응답 시간 기준이 없으므로 전체 안내 줄은 없고 단계 기준 줄만 나옵니다. ①은 기준이 1초 이하라 앞 두 칸을 합쳐 「이내」로 적습니다. ④의 실패 칸 `*`는 기준(0.7%)과 소수 6자리까지 같은 글자인데 판정은 넘은 경우입니다. ⑥은 실행되지 않은 단계라 전부 「—」입니다.</small>
+</div>
+<div class="page">
+  <h2><span class="no">3.</span>단계별 응답 속도 구간</h2>
+  <table>
+    <tr><th class="l" style="width:36mm">단계</th><th style="width:62mm">응답 속도 비율</th><th>1초 미만</th><th>1초–기준</th><th>기준 초과<small>기준 없는 단계는 3초</small></th><th style="width:22mm">실패<small>막대와 별개</small></th></tr>
+    <tr><td class="l">① 로그인<span class="own">이 단계 기준 800ms</span></td><td class="barc"><div class="bar"><i class="s1" style="width:91%"></i><i class="s3" style="width:9%"></i></div></td><td colspan="2" style="text-align:center">이내 91.0%</td><td class="warn">▲ 9.0%</td><td class="muted">0.0%</td></tr>
+    <tr><td class="l">② 첨부 업로드<span class="own">이 단계 기준 5초</span></td><td class="barc"><div class="bar"><i class="s1" style="width:20%"></i><i class="s2" style="width:77.2%"></i><i class="s3" style="width:2.8%"></i></div></td><td>20.0%</td><td>77.2%</td><td>2.8%</td><td>0.2%</td></tr>
+    <tr><td class="l">③ 민원 상세</td><td class="barc"><div class="bar"><i class="s1" style="width:74%"></i><i class="s2" style="width:24.5%"></i><i class="s3" style="width:1.5%"></i></div></td><td>74.0%</td><td>24.5%</td><td>1.5%</td><td>0.1%</td></tr>
+    <tr class="rowbad"><td class="l"><span class="bad">✕</span> ④ 신청 제출</td><td class="barc"><div class="bar"><i class="s1" style="width:60%"></i><i class="s2" style="width:38%"></i><i class="s3" style="width:2%"></i></div></td><td>60.0%</td><td>38.0%</td><td>2.0%</td><td class="f bad">✕ 0.7%*</td></tr>
+    <tr class="rowbad"><td class="l"><span class="bad">✕</span> ⑤ 결과 확인</td><td class="barc"><div class="bar"><i class="s1" style="width:88%"></i><i class="s2" style="width:11%"></i><i class="s3" style="width:1%"></i></div></td><td>88.0%</td><td>11.0%</td><td>1.0%</td><td class="f bad">✕ 40.0%</td></tr>
+    <tr><td class="l">⑥ 로그아웃</td><td class="barc muted" style="text-align:center">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td></tr>
+    <tr class="total"><td class="l">전체 요청</td><td class="barc"><div class="bar"><i class="s1" style="width:61%"></i><i class="s2" style="width:36.2%"></i><i class="s3" style="width:2.8%"></i></div></td><td>61.0%</td><td>36.2%</td><td>2.8%</td><td>0.4%</td></tr>
+  </table>
+  <div class="legend"><span><i class="sw s1"></i>1초 미만</span><span><i class="sw s2"></i>1초–기준</span><span><i class="sw s3"></i>기준 초과</span></div>
+  <div class="rule">단계 기준 「① 로그인 95% 응답시간 800ms 이하」: 800ms 초과 <b>9.00%</b> — <b class="bad">미달</b>.<br>단계 기준 「② 첨부 업로드 95% 응답시간 5,000ms 이하」: 5초 초과 <b>2.80%</b> — <b>통과</b>.</div>
+  <div class="note">※ 응답 시간 기준이 없는 단계와 전체 요청은 1초·3초로 나눠 보였습니다(판정과 무관). ※ 막대에는 실패한 응답의 시간도 들어 있습니다. <b>✕ ⑤ 결과 확인</b>은 요청의 40.0%가 실패했고, 실패한 응답은 금방 돌아오는 경우가 많아 막대가 빠르게 보일 수 있습니다. 어떤 응답 코드였는지는 2절 표를 보십시오. ※ 보내지 않은 요청은 응답 시간이 없어 막대에는 없고 실패 칸에만 들어 있습니다. * 기준과 차이가 아주 작은 값입니다.</div>
 </div>
 
 </body>
