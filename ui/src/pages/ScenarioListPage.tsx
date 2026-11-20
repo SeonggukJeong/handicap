@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useAssignScenarioGroup,
@@ -47,6 +47,13 @@ export function ScenarioListPage() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
 
+  /** 이름을 바꾼 직후 새 목록이 오기 전까지의 옛·새 이름. 그 사이 옛 이름 상자도 접힌 채 두고 새 이름의 접힘이 정리에서 빠지지 않게 한다. */
+  const [renamed, setRenamed] = useState<{ from: string; to: string } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const focusSearchRef = useRef(false);
+  const focusGroupRef = useRef<string | null>(null);
+
   const [seenData, setSeenData] = useState(data);
   if (data !== seenData) {
     setSeenData(data);
@@ -56,8 +63,28 @@ export function ScenarioListPage() {
         const kept = [...prev].filter((id) => live.has(id));
         return kept.length === prev.size ? prev : new Set(kept);
       });
+      if (renamed && !data.scenarios.some((s) => s.group === renamed.from)) {
+        const oldName = renamed.from;
+        setRenamed(null);
+        setCollapsed((c) => c.filter((n) => n !== oldName));
+      }
     }
   }
+
+  useEffect(() => {
+    if (focusSearchRef.current) {
+      focusSearchRef.current = false;
+      searchRef.current?.focus();
+    }
+    const target = focusGroupRef.current;
+    if (target === null) return;
+    const box = Array.from(
+      rootRef.current?.querySelectorAll<HTMLElement>('[data-testid="scenario-group"]') ?? [],
+    ).find((b) => b.dataset.groupName === target);
+    const toggle = box?.querySelector<HTMLElement>("button[aria-expanded]");
+    if (toggle) toggle.focus();
+    if (toggle || renamed === null) focusGroupRef.current = null;
+  });
 
   const all = data?.scenarios ?? [];
   const searching = query.trim() !== "";
@@ -94,13 +121,13 @@ export function ScenarioListPage() {
 
   function toggleGroup(name: string) {
     if (searching) return;
-    const live = new Set(names);
+    const live = new Set(renamed ? [...names, renamed.from, renamed.to] : names);
     const next = collapsed.includes(name)
       ? collapsed.filter((n) => n !== name)
       : [...collapsed, name];
     const cleaned = next.filter((n) => live.has(n));
     setCollapsed(cleaned);
-    saveCollapsedGroups(cleaned);
+    saveCollapsedGroups(cleaned.filter((n) => n !== renamed?.from));
   }
 
   function openAssign() {
@@ -118,6 +145,7 @@ export function ScenarioListPage() {
       { ids: [...selected], group },
       {
         onSuccess: () => {
+          focusSearchRef.current = true;
           setAssignOpen(false);
           setSelected(new Set());
         },
@@ -142,8 +170,10 @@ export function ScenarioListPage() {
         onSuccess: () => {
           const moved = collapsed.map((n) => (n === from ? to : n));
           const next = moved.filter((n, i) => moved.indexOf(n) === i);
-          setCollapsed(next);
           saveCollapsedGroups(next);
+          setCollapsed(collapsed.includes(from) ? [...next, from] : next);
+          setRenamed({ from, to });
+          focusGroupRef.current = to;
           setRenameTarget(null);
         },
       },
@@ -228,7 +258,7 @@ export function ScenarioListPage() {
   const hasScenarios = data !== undefined && data.scenarios.length > 0;
 
   return (
-    <div>
+    <div ref={rootRef}>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold">{ko.nav.scenarios}</h2>
         <div className="flex items-center gap-2">
@@ -272,37 +302,51 @@ export function ScenarioListPage() {
       )}
 
       {hasScenarios && (
-        <div className="mb-3">
-          <Input
-            type="search"
-            aria-label={ko.scenarioGroups.searchPlaceholder}
-            placeholder={ko.scenarioGroups.searchPlaceholder}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="max-w-xs"
-          />
-          {names.length === 0 && selectedCount === 0 && (
-            <p className="mt-2 text-sm text-slate-500">{ko.scenarioGroups.createHint}</p>
-          )}
-        </div>
-      )}
-
-      {selectedCount > 0 && (
-        <div
-          data-testid="scenario-selection-band"
-          className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-accent-200 bg-accent-50 px-3 py-2 text-sm"
-        >
-          <span role="status" className="font-medium text-slate-800">
-            {ko.scenarioGroups.selectedCount(selectedCount)}
-          </span>
-          <Button onClick={openAssign} disabled={tooMany || assignOpen}>
-            {ko.scenarioGroups.assign}
-          </Button>
-          <Button variant="secondary" onClick={() => setSelected(new Set())}>
-            {ko.scenarioGroups.clearSelection}
-          </Button>
-          {tooMany && <span className="text-red-600">{ko.scenarioGroups.tooMany}</span>}
-        </div>
+        <>
+          <div className="mb-3">
+            <Input
+              ref={searchRef}
+              type="search"
+              aria-label={ko.scenarioGroups.searchPlaceholder}
+              placeholder={ko.scenarioGroups.searchPlaceholder}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="max-w-xs"
+            />
+          </div>
+          <div
+            data-testid="scenario-action-slot"
+            className="mb-3 flex min-h-14 items-center text-sm"
+          >
+            {names.length === 0 && selectedCount === 0 && (
+              <p className="text-slate-500">{ko.scenarioGroups.createHint}</p>
+            )}
+            <div
+              data-testid="scenario-selection-band"
+              data-selected={selectedCount > 0}
+              className={
+                selectedCount > 0
+                  ? "flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-accent-200 bg-accent-50 px-3 py-1.5"
+                  : "contents"
+              }
+            >
+              <span role="status" className="font-medium text-slate-800">
+                {selectedCount > 0 ? ko.scenarioGroups.selectedCount(selectedCount) : ""}
+              </span>
+              {selectedCount > 0 && (
+                <>
+                  <Button onClick={openAssign} disabled={tooMany || assignOpen}>
+                    {ko.scenarioGroups.assign}
+                  </Button>
+                  <Button variant="secondary" onClick={() => setSelected(new Set())}>
+                    {ko.scenarioGroups.clearSelection}
+                  </Button>
+                  {tooMany && <span className="text-red-600">{ko.scenarioGroups.tooMany}</span>}
+                </>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {hasScenarios && visible.length === 0 && (
@@ -369,9 +413,12 @@ export function ScenarioListPage() {
                     <button
                       type="button"
                       aria-expanded={!isCollapsed}
+                      aria-disabled={searching ? true : undefined}
                       title={g.name}
                       onClick={() => toggleGroup(g.name)}
-                      className="flex min-w-0 items-center gap-2 font-medium text-slate-800 hover:underline"
+                      className={`flex min-w-0 items-center gap-2 font-medium text-slate-800 ${
+                        searching ? "cursor-default" : "cursor-pointer hover:underline"
+                      }`}
                     >
                       <span aria-hidden="true">{isCollapsed ? "▸" : "▾"}</span>
                       <span className="truncate">{g.name}</span>
@@ -381,6 +428,7 @@ export function ScenarioListPage() {
                     </button>
                     <button
                       type="button"
+                      aria-label={ko.scenarioGroups.renameGroupLabel(g.name)}
                       onClick={() => openRename(g.name)}
                       className="ml-auto shrink-0 text-slate-700 hover:underline"
                     >

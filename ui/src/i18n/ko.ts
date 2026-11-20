@@ -25,6 +25,7 @@ export const ko = {
     errTooLong: "그룹 이름은 40자까지 쓸 수 있습니다",
     errForbidden: "그룹 이름에 쓸 수 없는 글자가 들어 있습니다",
     rename: "이름 바꾸기",
+    renameGroupLabel: (name: string) => `${name} 그룹 이름 바꾸기`,
     renameTitle: "그룹 이름 바꾸기",
     renameText: (name: string) => `「${name}」 그룹의 새 이름을 입력해 주세요.`,
     renameOk: "바꾸기",

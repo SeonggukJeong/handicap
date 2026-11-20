@@ -128,6 +128,46 @@ describe("ScenarioListPage 검색 (US4)", () => {
     expect(window.localStorage.getItem(KEY)).toBe(JSON.stringify(["쇼핑"]));
   });
 
+  it("그룹이 0개일 때도 검색은 평평한 행을 거르고, 맞는 것이 없으면 searchEmpty", async () => {
+    serve([sc("A", "하나", null), sc("B", "둘", null), sc("C", "하늘", null)]);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("scenario-row");
+    const box = screen.getByRole("searchbox", { name: ko.scenarioGroups.searchPlaceholder });
+    await user.type(box, "하");
+    expect(rowNames()).toEqual(["하나", "하늘"]);
+    expect(screen.queryAllByTestId("scenario-group")).toHaveLength(0);
+    await user.type(box, "없음");
+    expect(screen.getByText(ko.scenarioGroups.searchEmpty)).toBeInTheDocument();
+    expect(rowNames()).toEqual([]);
+  });
+
+  it("검색 중 접기 버튼은 aria-disabled이고 펼침 그대로이며 눌러도 상태가 안 바뀐다, 지우면 되돌아온다", async () => {
+    serve(MIXED);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("scenario-group");
+    const box = () =>
+      screen.getAllByTestId("scenario-group").find((b) => b.dataset.groupName === "쇼핑")!;
+    const before = within(box()).getByRole("button", { expanded: true });
+    expect(before).not.toHaveAttribute("aria-disabled", "true");
+    expect(before).toHaveClass("hover:underline");
+    await user.type(
+      screen.getByRole("searchbox", { name: ko.scenarioGroups.searchPlaceholder }),
+      "쇼핑",
+    );
+    const inert = within(box()).getByRole("button", { expanded: true });
+    expect(inert).toHaveAttribute("aria-disabled", "true");
+    expect(inert).not.toHaveClass("hover:underline");
+    expect(inert).toHaveClass("cursor-default");
+    await user.click(inert);
+    expect(within(box()).getAllByTestId("scenario-row")).toHaveLength(2);
+    await user.clear(screen.getByRole("searchbox", { name: ko.scenarioGroups.searchPlaceholder }));
+    const back = within(box()).getByRole("button", { expanded: true });
+    expect(back).not.toHaveAttribute("aria-disabled", "true");
+    expect(back).toHaveClass("hover:underline");
+  });
+
   it("맞는 것이 없는 묶음은 상자째 사라진다", async () => {
     serve(MIXED);
     const user = userEvent.setup();
