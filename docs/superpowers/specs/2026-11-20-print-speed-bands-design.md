@@ -1,6 +1,7 @@
 # 인쇄 보고서 보강 — 응답 속도 구간 + 기준·측정값 자릿수 (print-speed-bands)
 
 - 날짜: 2026-11-20 · 유형: `user-path` + `correctness-bug`
+- 상태: **완료** (2026-11-21, 코드 `a2660ada`..`22f25d67`) — 연기·판단 roadmap §B76
 - 앞 슬라이스: `docs/superpowers/specs/2026-11-05-a4-print-report-design.md`(§14 이월 중 `speed_bands`만), roadmap §B43 (1) 첫 항목
 - 시안: `docs/superpowers/specs/assets/2026-11-20-print-speed-bands/speed-bands-v2.html` — 경우 1–4는 사용자 확인(2026-11-20, "이대로 구현되면 딱 좋겠다"), 경우 5–7은 spec 리뷰에서 정한 것을 사용자 지시("시안에 없던 경우도 목업에 반영해서 다르게 나오지 않게")로 추가. 경우 5 = 지표 칸 목표 줄(§5), 경우 6 = 기준에 아슬아슬한 값·기준 없이 실패 많은 단계, 경우 7 = 단계 기준만 있는 run·합친 칸·보내지 않은 요청·`*`.
   - **이 파일의 CSS·마크업이 새 절의 시각 기준이다**(working-rules §4). 색·빗금·굵기·칸 폭·줄 간격은 시안 값을 그대로 옮긴다. 시안의 「경우 1」 점선 아래 "(비교용)" 블록과 맨 위 `.guide`·`.case` 설명은 보고서에 들어가지 않는다.
