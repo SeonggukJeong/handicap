@@ -65,9 +65,11 @@ struct BodyCache<'a> {
 }
 
 enum Stage {
+    /// 1단계나 2단계에서 찾았다(값이 `null`이어도 찾음).
     Found(serde_json::Value),
     /// 뿌리가 문자열인데 안 풀린다 — 3단계도 없다.
     NoRoot,
+    /// 1·2단계에서 못 찾았다.
     Miss,
 }
 
@@ -94,13 +96,14 @@ impl<'a> BodyCache<'a> {
             return Stage::Miss;
         }
         let root = self.root.get_or_init(|| {
-            // 뿌리 문자열이 안 풀리면 3단계도 없다(뿌리 문자열을 다시 파싱하지 않는다).
-            match &*parsed.borrow() {
-                serde_json::Value::String(s) => unwrap_json_str(s).map(std::cell::RefCell::new),
-                _ => None,
+            if let serde_json::Value::String(s) = &*parsed.borrow() {
+                unwrap_json_str(s).map(std::cell::RefCell::new)
+            } else {
+                None
             }
         });
         let Some(root) = root else {
+            // 뿌리 문자열이 안 풀리면 3단계도 없다(뿌리 문자열을 다시 파싱하지 않는다).
             return Stage::NoRoot;
         };
         match p.query(&root.borrow()).first() {
@@ -189,6 +192,7 @@ fn body_path_first(
     let found = p.query(&base.borrow()).first().map(|v| (*v).clone());
     Ok(found)
 }
+
 /// One item under the strict rules (body JSON parsed once, lazily).
 fn strict_item(
     e: &Extract,
@@ -853,6 +857,7 @@ mod reference {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1170,6 +1175,8 @@ mod tests {
             .prop_map(|(v, n, sp)| Value::String(wrap_text(&v, n, sp)));
         let leaf = prop_oneof![
             Just(Value::Null),
+            Just(Value::Null),
+            Just(Value::Null),
             any::<bool>().prop_map(Value::Bool),
             (0i64..1000).prop_map(|n| json!(n)),
             "[a-z ]{0,6}".prop_map(Value::String),
@@ -1202,6 +1209,23 @@ mod tests {
         }
     }
 
+    fn object_keys(v: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+        match v {
+            serde_json::Value::Object(o) => {
+                for (k, x) in o {
+                    out.insert(k.clone());
+                    object_keys(x, out);
+                }
+            }
+            serde_json::Value::Array(a) => {
+                for x in a {
+                    object_keys(x, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn arb_case()
     -> impl proptest::strategy::Strategy<Value = (serde_json::Value, Vec<String>, bool)> {
         use proptest::prelude::*;
@@ -1212,14 +1236,20 @@ mod tests {
                 let mut leaves = Vec::new();
                 leaf_paths(&full, "$".into(), &mut leaves);
                 let max = leaves.len().min(6);
+                let mut key_set = std::collections::BTreeSet::new();
+                object_keys(&full, &mut key_set);
+                let keys: Vec<String> = key_set.into_iter().map(|k| format!("$..{k}")).collect();
+                let kmax = keys.len().min(3);
                 (
                     Just(v),
                     proptest::sample::subsequence(leaves, 0..=max),
+                    proptest::sample::subsequence(keys, 0..=kmax),
                     any::<bool>(),
                     any::<bool>(),
                 )
             })
-            .prop_flat_map(|(v, mut ps, none, dflt)| {
+            .prop_flat_map(|(v, mut ps, desc, none, dflt)| {
+                ps.extend(desc);
                 ps.push("$".into());
                 if none {
                     ps.push("$.__none__".into());
@@ -1250,6 +1280,52 @@ mod tests {
             assert_same(body.as_bytes(), &[], &xs);
         }
     }
+
+    /// 풀린 필드가 문서 순서로 앞서고 원래 본문엔 뒤쪽에 `null` 키가 있는 본문 —
+    /// `$..key`의 원래 본문 결과(`null`)와 풀린 값의 결과가 갈리는 모양.
+    fn arb_null_shadow() -> impl proptest::strategy::Strategy<Value = (String, Vec<String>, bool)> {
+        use proptest::prelude::*;
+        ("[a-c]", 0usize..=2, any::<bool>(), 0i64..100, any::<bool>()).prop_flat_map(
+            |(key, layers, spaced, n, dflt)| {
+                let inner = serde_json::json!({ key.clone(): n });
+                let body = serde_json::json!({
+                    "p": wrap_text(&inner, layers, spaced),
+                    "q": { key.clone(): null },
+                })
+                .to_string();
+                let paths = vec![
+                    format!("$.p.{key}"),
+                    format!("$..{key}"),
+                    "$".to_owned(),
+                    "$.q".to_owned(),
+                    format!("$.q.{key}"),
+                    "$.__none__".to_owned(),
+                ];
+                Just(paths)
+                    .prop_shuffle()
+                    .prop_map(move |ps| (body.clone(), ps, dflt))
+            },
+        )
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn equivalence_prop_null_shadow((body, paths, dflt) in arb_null_shadow()) {
+            let xs: Vec<Extract> = paths
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if dflt && i % 2 == 1 {
+                        body_default(&format!("v{i}"), p)
+                    } else {
+                        body_extract(&format!("v{i}"), p)
+                    }
+                })
+                .collect();
+            assert_same(body.as_bytes(), &[], &xs);
+        }
+    }
+
     fn lenient_facts<'a>(body: &'a [u8], headers: &'a [(String, String)]) -> ResponseFacts<'a> {
         ResponseFacts {
             status: 200,

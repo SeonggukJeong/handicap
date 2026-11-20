@@ -78,7 +78,7 @@ pub fn unwrap_nested(root: &Value) -> Option<Value> {
 }
 
 /// `unwrap_nested`의 제자리 판: 풀리는 문자열을 푼 값으로 바꾸고(푼 값 안쪽도 이어서),
-/// 하나라도 바꿨으면 `true`. 복사하지 않고, 직접 쌓는 스택으로 `unwrap_nested`의 교체 순회와 같은 순서로 훑는다.
+/// 하나라도 바꿨으면 `true`. 본문을 복사하지 않고, 직접 쌓는 스택으로 `unwrap_nested`의 교체 순회와 같은 순서로 훑는다.
 pub fn unwrap_in_place(root: &mut Value) -> bool {
     let mut changed = false;
     let mut stack: Vec<&mut Value> = vec![root];
@@ -280,6 +280,19 @@ mod tests {
             .spawn(|| {
                 let mut v = deep_value();
                 assert!(unwrap_in_place(&mut v));
+                // 반복으로 가장 깊은 배열까지 내려가 안쪽 값이 풀렸는지 본다.
+                let mut cur = &v;
+                let mut depth = 0usize;
+                while let Value::Array(a) = cur {
+                    if a.len() == 1 && a[0].is_array() {
+                        cur = &a[0];
+                        depth += 1;
+                    } else {
+                        break;
+                    }
+                }
+                assert_eq!(depth, 20_000);
+                assert_eq!(cur, &json!([{"k": 1}]));
             })
             .unwrap()
             .join()
