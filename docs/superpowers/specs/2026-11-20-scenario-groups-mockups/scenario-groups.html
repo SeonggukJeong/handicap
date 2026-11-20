@@ -1,0 +1,325 @@
+<title>시나리오 그룹 목업</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 배치: 실제 앱 화면(흰 바탕·slate 글자·indigo 강조)을 그대로 본뜬 세 장면을 세로로 — 목록 / 편집 머리 줄 / 선택 칸 */
+:root {
+  --bg: #f8fafc; --surface: #ffffff; --fg: #0f172a; --muted: #64748b; --line: #e2e8f0; --line-soft: #f1f5f9;
+  --accent: #4f46e5; --accent-soft: #eef2ff; --accent-fg: #ffffff; --danger: #dc2626;
+  --box-line: #cbd5e1; --box-head: #f1f5f9; --band: #eef2ff; --band-line: #c7d2fe; --note: #475569;
+  --font: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1120; --surface: #111827; --fg: #e5e7eb; --muted: #94a3b8; --line: #1f2937; --line-soft: #1a2333;
+  --accent: #818cf8; --accent-soft: #1e1b4b; --accent-fg: #0b1120; --danger: #f87171;
+  --box-line: #334155; --box-head: #1a2333; --band: #1e1b4b; --band-line: #3730a3; --note: #cbd5e1; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b1120; --surface: #111827; --fg: #e5e7eb; --muted: #94a3b8; --line: #1f2937; --line-soft: #1a2333;
+  --accent: #818cf8; --accent-soft: #1e1b4b; --accent-fg: #0b1120; --danger: #f87171;
+  --box-line: #334155; --box-head: #1a2333; --band: #1e1b4b; --band-line: #3730a3; --note: #cbd5e1; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 36px; }
+h1 { font-size: 20px; margin: 0; text-wrap: balance; }
+.lead { color: var(--note); margin: 6px 0 0; max-width: 65ch; }
+.scene > h2 { font-size: 13px; letter-spacing: .04em; color: var(--muted); margin: 0 0 4px; font-weight: 600; }
+.scene > p { margin: 0 0 12px; color: var(--note); max-width: 70ch; }
+.screen { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.variant { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.variant button { font: inherit; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.variant button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+.head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.head h3 { font-size: 20px; margin: 0; font-weight: 600; }
+.btn { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+.btn.sec { background: var(--surface); color: var(--fg); border-color: var(--box-line); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+input[type="text"], select { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--box-line); background: var(--surface); color: var(--fg); min-width: 0; }
+.search { width: min(320px, 100%); margin-bottom: 12px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.band { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 10px;
+  background: var(--band); border: 1px solid var(--band-line); border-radius: 8px; }
+.band strong { font-weight: 600; }
+
+.row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 52px 132px 176px; align-items: center; gap: 0 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+.row.cols { color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding-block: 6px; }
+.row .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .dim { color: var(--muted); font-variant-numeric: tabular-nums; }
+.row .acts { display: flex; gap: 12px; justify-content: flex-end; white-space: nowrap; }
+.link { color: var(--fg); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.link.del { color: var(--danger); }
+.link.accent { color: var(--accent); }
+
+.groups { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.gbox { border: 1px solid var(--box-line); border-radius: 8px; overflow: hidden; }
+.ghead { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; padding: 8px 11px; background: var(--box-head); }
+.gtoggle { display: flex; align-items: center; gap: 8px; font: inherit; font-weight: 600; color: var(--fg); background: none; border: 0; padding: 2px 0; cursor: pointer; min-width: 0; text-align: left; }
+.gtoggle .gname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gtoggle .count { color: var(--muted); font-weight: 400; }
+.caret { display: inline-block; width: 1em; color: var(--muted); }
+.gbox .row { padding-left: 31px; padding-right: 11px; border-top: 1px solid var(--line-soft); border-bottom: 0; }
+.loose { margin-top: 22px; border-top: 1px solid var(--line); }
+.loose.only { margin-top: 0; border-top: 0; }
+.empty { padding: 18px 12px; color: var(--muted); }
+
+.edithead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.crumb { color: var(--muted); }
+.edithead .title { font-size: 18px; font-weight: 600; }
+.chip { font: inherit; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--box-line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.chip.none { color: var(--muted); border-style: dashed; }
+.spacer { flex: 1 1 auto; }
+.pickers { display: flex; flex-wrap: wrap; gap: 20px; }
+.pickers label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); min-width: min(260px, 100%); }
+.pickers select { color: var(--fg); }
+
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--fg); padding: 20px; width: min(420px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(15, 23, 42, .45); }
+dialog h4 { margin: 0 0 6px; font-size: 16px; }
+dialog p { margin: 0 0 12px; color: var(--note); }
+dialog input { width: 100%; box-sizing: border-box; }
+dialog .hint { margin: 8px 0 0; min-height: 1.5em; color: var(--note); }
+dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+@media (max-width: 640px) {
+  .row { grid-template-columns: 28px minmax(0, 1fr); row-gap: 4px; }
+  .row .dim { display: none; }
+  .row .acts { grid-column: 2; justify-content: flex-start; }
+  .row.cols > :nth-child(n+3) { display: none; }
+  .screen { padding: 14px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>시나리오 그룹 목업</h1>
+    <p class="lead">구현 전에 화면 모양을 확인하기 위한 목업입니다. 접기, 체크, 검색, 그룹 변경, 이름 바꾸기가 실제로 동작합니다. 시나리오와 그룹 이름은 예시입니다.</p>
+  </header>
+
+  <section class="scene">
+    <h2>1. 시나리오 목록</h2>
+    <p>그룹 묶음이 위에, 그룹에 넣지 않은 시나리오가 아래에 옵니다. 묶음은 테두리 상자와 들여쓰기로 구분하고, 마지막 묶음과 아래 행 사이를 띄웁니다.</p>
+    <div class="variant" role="group" aria-label="예시 상태">
+      <button type="button" data-variant="groups" aria-pressed="true">그룹을 쓰는 경우</button>
+      <button type="button" data-variant="none" aria-pressed="false">그룹이 하나도 없는 경우</button>
+    </div>
+    <div class="screen">
+      <div class="head">
+        <h3>시나리오</h3>
+        <div class="btns"><button type="button" class="btn sec">가져오기</button><button type="button" class="btn">새 시나리오</button></div>
+      </div>
+      <input id="q" class="search" type="text" placeholder="이름으로 검색" aria-label="이름으로 검색">
+      <div id="band" class="band" hidden>
+        <strong id="bandCount"></strong>
+        <button id="moveBtn" type="button" class="btn">그룹 변경</button>
+        <button id="clearBtn" type="button" class="link accent">선택 해제</button>
+      </div>
+      <div id="list"></div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>2. 편집 화면의 머리 줄</h2>
+    <p>이름 옆 버튼으로 그룹을 정합니다. 누르면 바로 적용되고, 시나리오 내용의 저장 상태나 버전은 바뀌지 않습니다.</p>
+    <div class="screen">
+      <div class="edithead">
+        <span class="crumb">시나리오 /</span><span class="title">로그인</span>
+        <button type="button" class="chip" data-edit="1">그룹: 서비스A</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn sec">복제</button><button type="button" class="btn">저장</button>
+      </div>
+    </div>
+    <div class="screen" style="margin-top:10px">
+      <div class="edithead">
+        <span class="crumb">시나리오 /</span><span class="title">임시 점검</span>
+        <button type="button" class="chip none" data-edit="1">그룹 지정</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn sec">복제</button><button type="button" class="btn">저장</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>3. 시나리오 선택 칸 (스케줄, 모니터 보드)</h2>
+    <p>목록과 같은 순서입니다. 그룹에 든 시나리오는 그룹 이름 아래로 들여 쓰이고, 그룹에 넣지 않은 시나리오는 그 뒤에 옵니다.</p>
+    <div class="screen">
+      <div class="pickers">
+        <label for="pick1">스케줄에서 시나리오 고르기<select id="pick1"></select></label>
+        <label for="pick2">모니터 칸에서 시나리오 고르기<select id="pick2"></select></label>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <h4 id="dlgTitle"></h4>
+  <p id="dlgText"></p>
+  <input id="dlgInput" type="text" list="groupNames" aria-labelledby="dlgTitle">
+  <datalist id="groupNames"></datalist>
+  <p id="dlgHint" class="hint"></p>
+  <div class="foot">
+    <button id="dlgCancel" type="button" class="btn sec">취소</button>
+    <button id="dlgOk" type="button" class="btn">적용</button>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  var seed = [
+    ["로그인", "서비스A", 4, "11/20 13:40"], ["주문 조회", "서비스A", 2, "11/18 10:00"], ["결제", "서비스A", 7, "11/17 16:21"],
+    ["로그인", "서비스B", 3, "11/20 11:05"], ["주문 조회", "서비스B", 1, "11/19 17:30"], ["결제", "서비스B", 5, "11/16 09:12"],
+    ["회원 가입", "서비스B", 2, "11/15 14:48"], ["상품 검색", "서비스B", 6, "11/14 10:20"],
+    ["임시 점검", null, 2, "11/20 14:02"], ["결제 취소", null, 1, "11/19 09:10"]
+  ];
+  var all = seed.map(function (s, i) { return { id: "s" + i, name: s[0], group: s[1], ver: s[2], at: s[3] }; });
+  var noGroups = false, collapsed = { "서비스B": true }, selected = {}, query = "";
+  var $ = function (id) { return document.getElementById(id); };
+  var el = function (tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  var groupOf = function (s) { return noGroups ? null : s.group; };
+
+  function grouped(list) {
+    var map = {}, names = [], loose = [];
+    list.forEach(function (s) { var g = groupOf(s); if (!g) { loose.push(s); return; } if (!map[g]) { map[g] = []; names.push(g); } map[g].push(s); });
+    names.sort(function (a, b) { return a.localeCompare(b, "ko"); });
+    return { groups: names.map(function (n) { return { name: n, items: map[n] }; }), loose: loose };
+  }
+  function matches(s) {
+    if (!query) return true;
+    var q = query.toLowerCase(), g = groupOf(s);
+    return s.name.toLowerCase().indexOf(q) >= 0 || (g && g.toLowerCase().indexOf(q) >= 0);
+  }
+  function check(checked, some, label, onChange) {
+    var c = el("input"); c.type = "checkbox"; c.checked = checked; c.indeterminate = !checked && some;
+    c.setAttribute("aria-label", label); c.addEventListener("change", function () { onChange(c.checked); });
+    return c;
+  }
+  function setMany(items, on) { items.forEach(function (s) { if (on) selected[s.id] = true; else delete selected[s.id]; }); render(); }
+
+  function scenarioRow(s) {
+    var r = el("div", "row");
+    r.appendChild(check(!!selected[s.id], false, s.name + " 선택", function (on) { setMany([s], on); }));
+    r.appendChild(el("span", "name", s.name));
+    r.appendChild(el("span", "dim", "v" + s.ver));
+    r.appendChild(el("span", "dim", s.at));
+    var a = el("span", "acts");
+    a.appendChild(el("button", "link", "복제")); a.appendChild(el("button", "link del", "삭제")); a.appendChild(el("button", "link", "실행 목록"));
+    r.appendChild(a);
+    return r;
+  }
+
+  function render() {
+    var visible = all.filter(matches), g = grouped(visible), list = $("list");
+    list.textContent = "";
+    var cols = el("div", "row cols");
+    var selVisible = visible.filter(function (s) { return selected[s.id]; }).length;
+    cols.appendChild(check(visible.length > 0 && selVisible === visible.length, selVisible > 0, "전체 선택", function (on) { setMany(visible, on); }));
+    ["이름", "버전", "수정"].forEach(function (t) { cols.appendChild(el("span", null, t)); });
+    cols.appendChild(el("span"));
+    list.appendChild(cols);
+
+    if (visible.length === 0) { list.appendChild(el("div", "empty", "검색 결과가 없습니다")); }
+
+    if (g.groups.length) {
+      var wrap = el("div", "groups");
+      g.groups.forEach(function (grp) {
+        var open = query ? true : !collapsed[grp.name];
+        var box = el("div", "gbox"), head = el("div", "ghead");
+        var n = grp.items.filter(function (s) { return selected[s.id]; }).length;
+        head.appendChild(check(n === grp.items.length, n > 0, grp.name + " 그룹 전체 선택", function (on) { setMany(grp.items, on); }));
+        var t = el("button", "gtoggle"); t.type = "button"; t.setAttribute("aria-expanded", String(open));
+        var caret = el("span", "caret", open ? "▾" : "▸"); caret.setAttribute("aria-hidden", "true");
+        t.appendChild(caret); t.appendChild(el("span", "gname", grp.name)); t.appendChild(el("span", "count", "(" + grp.items.length + ")"));
+        t.addEventListener("click", function () { if (query) return; collapsed[grp.name] = !collapsed[grp.name]; render(); });
+        head.appendChild(t);
+        var rn = el("button", "link accent", "이름 바꾸기"); rn.type = "button";
+        rn.addEventListener("click", function () { openRename(grp.name); });
+        head.appendChild(rn);
+        box.appendChild(head);
+        if (open) grp.items.forEach(function (s) { box.appendChild(scenarioRow(s)); });
+        wrap.appendChild(box);
+      });
+      list.appendChild(wrap);
+    }
+    if (g.loose.length) {
+      var loose = el("div", g.groups.length ? "loose" : "loose only");
+      g.loose.forEach(function (s) { loose.appendChild(scenarioRow(s)); });
+      list.appendChild(loose);
+    }
+
+    var count = Object.keys(selected).length;
+    $("band").hidden = count === 0;
+    $("bandCount").textContent = count + "개 선택됨";
+    renderPickers();
+    var dl = $("groupNames"); dl.textContent = "";
+    grouped(all).groups.forEach(function (grp) { var o = el("option"); o.value = grp.name; dl.appendChild(o); });
+  }
+
+  function renderPickers() {
+    var g = grouped(all);
+    ["pick1", "pick2"].forEach(function (id) {
+      var sel = $(id), keep = sel.value; sel.textContent = "";
+      g.groups.forEach(function (grp) {
+        var og = el("optgroup"); og.label = grp.name;
+        grp.items.forEach(function (s) { var o = el("option", null, s.name); o.value = s.id; og.appendChild(o); });
+        sel.appendChild(og);
+      });
+      g.loose.forEach(function (s) { var o = el("option", null, s.name); o.value = s.id; sel.appendChild(o); });
+      if (keep) sel.value = keep;
+    });
+  }
+
+  var dlg = $("dlg"), onOk = null;
+  function openDialog(title, text, value, okText, hintFn, ok) {
+    $("dlgTitle").textContent = title; $("dlgText").textContent = text; $("dlgInput").value = value || "";
+    onOk = ok;
+    var refresh = function () { var h = hintFn ? hintFn($("dlgInput").value.trim()) : null; $("dlgHint").textContent = (h && h.hint) || ""; $("dlgOk").textContent = (h && h.ok) || okText; };
+    $("dlgInput").oninput = refresh; refresh();
+    dlg.showModal(); $("dlgInput").focus();
+  }
+  function openMove() {
+    var ids = Object.keys(selected);
+    openDialog("그룹 변경", "고른 시나리오 " + ids.length + "개를 옮길 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.", "", "적용", null, function (v) {
+      all.forEach(function (s) { if (selected[s.id]) s.group = v || null; });
+      selected = {};
+    });
+  }
+  function openRename(name) {
+    var mine = all.filter(function (s) { return s.group === name; }).length;
+    openDialog("그룹 이름 바꾸기", "「" + name + "」 그룹의 새 이름을 입력해 주세요.", name, "바꾸기", function (v) {
+      var other = all.filter(function (s) { return s.group === v; }).length;
+      if (v && v !== name && other > 0) return { hint: "이미 있는 그룹입니다. 바꾸면 두 그룹이 합쳐집니다(" + mine + "개 + " + other + "개).", ok: "합치기" };
+      return null;
+    }, function (v) {
+      if (!v || v === name) return;
+      all.forEach(function (s) { if (s.group === name) s.group = v; });
+      if (collapsed[name]) { delete collapsed[name]; collapsed[v] = true; }
+    });
+  }
+  $("dlgOk").addEventListener("click", function () { if (onOk) onOk($("dlgInput").value.trim()); dlg.close(); render(); });
+  $("dlgCancel").addEventListener("click", function () { dlg.close(); });
+  $("moveBtn").addEventListener("click", openMove);
+  $("clearBtn").addEventListener("click", function () { selected = {}; render(); });
+  $("q").addEventListener("input", function (e) { query = e.target.value.trim(); render(); });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-variant]"), function (b) {
+    b.addEventListener("click", function () {
+      noGroups = b.getAttribute("data-variant") === "none"; selected = {};
+      Array.prototype.forEach.call(document.querySelectorAll("[data-variant]"), function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+      render();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-edit]"), function (chip) {
+    chip.addEventListener("click", function () {
+      var cur = chip.classList.contains("none") ? "" : chip.textContent.replace("그룹: ", "");
+      openDialog("그룹 지정", "이 시나리오를 넣을 그룹을 정해 주세요. 비워 두면 그룹에서 뺍니다.", cur, "적용", null, function (v) {
+        chip.textContent = v ? "그룹: " + v : "그룹 지정"; chip.classList.toggle("none", !v);
+      });
+    });
+  });
+  render();
+})();
+</script>
