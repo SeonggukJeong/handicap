@@ -1,0 +1,385 @@
+import { describe, expect, it } from "vitest";
+import type { Report } from "../../../api/schemas";
+import { metricRows } from "../change";
+import { biggestCodeChange, hasStar, stepPairs } from "../errorCells";
+import { buildFairness } from "../fairness";
+import { buildHeadline, summaryLines } from "../headline";
+import type { BoxState } from "../../verdict";
+import { baseProfile } from "./fixtures";
+import { sceneModel, summaryOf, type SceneRun } from "./scene";
+
+type Over = Partial<Report["summary"]>;
+
+const BEFORE: Over = {
+  count: 1000,
+  errors: 26,
+  rps: 240,
+  mean_ms: 840,
+  p95_ms: 2400,
+  p99_ms: 3000,
+};
+const AFTER_GOOD: Over = {
+  count: 1000,
+  errors: 3,
+  rps: 252,
+  mean_ms: 620,
+  p95_ms: 1600,
+  p99_ms: 1800,
+};
+
+const fail: BoxState = { kind: "fail", evaluated: 3, failed: 1 };
+const pass: BoxState = { kind: "pass", evaluated: 3 };
+const noCrit: BoxState = { kind: "noCriteria" };
+
+function head(
+  before: Over,
+  after: Over,
+  o: {
+    beforeBox?: BoxState;
+    afterBox?: BoxState;
+    criteriaSame?: boolean;
+    anyDiff?: boolean;
+    incomparable?: boolean;
+    errorRateReference?: boolean;
+  } = {},
+) {
+  const rows = metricRows(summaryOf(before), summaryOf(after), {
+    errorRateReference: o.errorRateReference ?? false,
+    incomparable: o.incomparable ?? false,
+  });
+  return buildHeadline({
+    rows,
+    beforeBox: o.beforeBox ?? noCrit,
+    afterBox: o.afterBox ?? noCrit,
+    criteriaSame: o.criteriaSame ?? true,
+    anyDiff: o.anyDiff ?? false,
+    incomparable: o.incomparable ?? false,
+  });
+}
+
+describe("buildHeadline (spec §6.3 표)", () => {
+  it("좋음 4·비슷 1·나쁨 0 → 개선", () => {
+    const h = head(BEFORE, AFTER_GOOD);
+    expect(h.answer).toBe("improved");
+    expect(h.glyph).toBe("▼");
+    expect(h.word).toBe("개선");
+    expect(h.countsLine).toContain("5개 중");
+    expect(h.countsLine).toContain("4개 좋아짐");
+    expect(h.countsLine).toContain("1개 비슷");
+    expect(h.countsLine).toContain("0개 나빠짐");
+    expect(h.countsLine).not.toContain("판정");
+    expect(h.reference).toBe(false);
+  });
+
+  it("나쁨만 → 악화", () => {
+    const h = head(BEFORE, {
+      ...BEFORE,
+      errors: 90,
+      p95_ms: 4000,
+      p99_ms: 5000,
+      mean_ms: 1500,
+      rps: 100,
+    });
+    expect(h.answer).toBe("worsened");
+    expect(h.glyph).toBe("▲");
+    expect(h.countsLine).toContain("0개 좋아짐");
+    expect(h.countsLine).toContain("5개 나빠짐");
+  });
+
+  it("좋음 1 + 나쁨 1 → 엇갈림", () => {
+    const h = head(BEFORE, { ...BEFORE, p95_ms: 1000, rps: 100 });
+    expect(h.answer).toBe("mixed");
+    expect(h.glyph).toBe("◆");
+    expect(h.word).toBe("엇갈림");
+  });
+
+  it("모두 비슷 → 비슷", () => {
+    const h = head(BEFORE, BEFORE);
+    expect(h.answer).toBe("similar");
+    expect(h.glyph).toBe("=");
+    expect(h.countsLine).toContain("5개 비슷");
+  });
+
+  it("지표가 모두 비슷해도 판정 ✕→●이고 기준이 같으면 개선, 끝에 판정 변화가 붙는다", () => {
+    const h = head(BEFORE, BEFORE, { beforeBox: fail, afterBox: pass });
+    expect(h.answer).toBe("improved");
+    expect(h.verdictSignal).toBe("good");
+    expect(h.countsLine.endsWith("판정 ✕ → ●")).toBe(true);
+    expect(h.countsLine).toContain("0개 좋아짐");
+  });
+
+  it("기준이 다르면 판정 변화는 신호가 아니다", () => {
+    const h = head(BEFORE, BEFORE, { beforeBox: fail, afterBox: pass, criteriaSame: false });
+    expect(h.answer).toBe("similar");
+    expect(h.verdictSignal).toBeNull();
+    expect(h.countsLine).not.toContain("판정");
+  });
+
+  it("● → ✕(기준 같음)에 지표가 좋아지면 엇갈림", () => {
+    const h = head(
+      BEFORE,
+      { ...BEFORE, p95_ms: 1000, mean_ms: 400 },
+      { beforeBox: pass, afterBox: fail },
+    );
+    expect(h.answer).toBe("mixed");
+    expect(h.verdictSignal).toBe("bad");
+    expect(h.countsLine.endsWith("판정 ● → ✕")).toBe(true);
+    expect(h.countsLine).toContain("2개 좋아짐");
+  });
+
+  it("한쪽이 기준 미설정이면 신호가 없다", () => {
+    const h = head(BEFORE, BEFORE, { beforeBox: noCrit, afterBox: pass });
+    expect(h.verdictSignal).toBeNull();
+    expect(h.answer).toBe("similar");
+  });
+
+  it("오류율이 참고용이면 4개 중이고 그 행은 어느 개수에도 들어가지 않는다", () => {
+    const h = head(BEFORE, AFTER_GOOD, { errorRateReference: true });
+    expect(h.countsLine).toContain("4개 중");
+    expect(h.countsLine).toContain("3개 좋아짐");
+    expect(h.countsLine).toContain("1개 비슷");
+    expect(h.countsLine).toContain("0개 나빠짐");
+  });
+
+  it("anyDiff면 reference true지만 답 낱말은 그대로", () => {
+    const h = head(BEFORE, AFTER_GOOD, { anyDiff: true });
+    expect(h.reference).toBe(true);
+    expect(h.answer).toBe("improved");
+    expect(h.word).toBe("개선");
+  });
+
+  it("비교 불가", () => {
+    const h = head(BEFORE, { ...BEFORE, count: 0, errors: 0 }, { incomparable: true });
+    expect(h.answer).toBe("incomparable");
+    expect(h.glyph).toBe("–");
+    expect(h.word).toBe("비교 불가");
+    expect(h.verdictSignal).toBeNull();
+  });
+});
+
+const critProfile = (extra: Record<string, unknown> = {}) => ({
+  ...baseProfile,
+  criteria: { max_p95_ms: 3000 },
+  ...extra,
+});
+const crit = (passed: boolean) => ({
+  metric: "p95_ms",
+  direction: "max" as const,
+  threshold: 3000,
+  actual: passed ? 1600 : 3500,
+  passed,
+});
+const failV = { passed: false, criteria: [crit(false), crit(true), crit(true)] };
+const passV = { passed: true, criteria: [crit(true), crit(true), crit(true)] };
+
+const CODE_STEPS = [{ id: "s1", name: "접수", assert: [200] }];
+
+function scene(b: Partial<SceneRun>, a: Partial<SceneRun>) {
+  const before = sceneModel({ id: "bbbbbb", profile: critProfile(), ...b });
+  const after = sceneModel({ id: "aaaaaa", profile: critProfile(), ...a });
+  const pairs = stepPairs(before, after);
+  const incomparable = before.report.summary.count === 0 || after.report.summary.count === 0;
+  const rows = metricRows(before.report.summary, after.report.summary, {
+    errorRateReference: hasStar(pairs),
+    incomparable,
+  });
+  const fairness = buildFairness(before, after);
+  const headline = buildHeadline({
+    rows,
+    beforeBox: before.box,
+    afterBox: after.box,
+    criteriaSame: fairness.criteriaSame,
+    anyDiff: fairness.anyDiff,
+    incomparable,
+  });
+  const lines = summaryLines({
+    headline,
+    rows,
+    before,
+    after,
+    fairness,
+    codeChange: biggestCodeChange(pairs),
+  });
+  const byId = (id: number) => lines.find((l) => l.id === id)?.text;
+  return { lines, byId, headline, rows };
+}
+
+describe("summaryLines 1번 줄 (판정)", () => {
+  it("✕ → ●: 바뀌었고 기준 3개를 모두 지켰다", () => {
+    const s = scene({ summary: BEFORE, verdict: failV }, { summary: AFTER_GOOD, verdict: passV });
+    const t = s.byId(1) ?? "";
+    expect(t).toContain("✕ 부적합");
+    expect(t).toContain("● 적합");
+    expect(t).toContain("바뀌었습니다");
+    expect(t).toContain("기준 3개를 모두 지켰습니다");
+  });
+
+  it("같은 판정이면 두 측정 모두라고 적는다", () => {
+    const s = scene({ summary: BEFORE, verdict: passV }, { summary: AFTER_GOOD, verdict: passV });
+    expect(s.byId(1)).toContain("두 측정 모두 ● 적합");
+  });
+
+  it("한쪽이 기준 미설정이면 낱말 그대로", () => {
+    const s = scene(
+      { summary: BEFORE, profile: { ...baseProfile } },
+      { summary: AFTER_GOOD, verdict: passV },
+    );
+    const t = s.byId(1) ?? "";
+    expect(t).toContain("이전: 기준 미설정");
+    expect(t).toContain("이후: ● 적합");
+  });
+});
+
+describe("summaryLines 2·3번 줄", () => {
+  it("오류율이 최고 순위면 수치와 건수 변화 문장이 이어진다", () => {
+    const s = scene(
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9000, "503": 2880 }, errors: 2880 }],
+        summary: BEFORE,
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 10000 }, errors: 0 }],
+        summary: AFTER_GOOD,
+      },
+    );
+    const t = s.byId(2) ?? "";
+    expect(t).toContain("오류율");
+    expect(t).toContain("2.6%");
+    expect(t).toContain("0.3%");
+    expect(t).toContain("88%");
+    expect(t).toContain("2,880건이 0건이 되었습니다");
+    expect(t).toContain("503");
+  });
+
+  it("줄었음: 312건이 24건으로 줄었습니다", () => {
+    const s = scene(
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9000, "502": 312 }, errors: 312 }],
+        summary: BEFORE,
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9900, "502": 24 }, errors: 24 }],
+        summary: AFTER_GOOD,
+      },
+    );
+    expect(s.byId(2)).toContain("312건이 24건으로 줄었습니다");
+  });
+
+  it("이전 0건이던 코드가 생겼으면 새로 생겼습니다", () => {
+    const s = scene(
+      { steps: CODE_STEPS, summary: BEFORE },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 990, "502": 10 }, errors: 10 }],
+        summary: { ...AFTER_GOOD, errors: 3 },
+      },
+    );
+    expect(s.byId(2)).toContain("10건이 새로 생겼습니다");
+  });
+
+  it("'새로 생김'(이전 0)이 변화율 큰 행보다 앞선다", () => {
+    const s = scene({ summary: { ...BEFORE, rps: 0 } }, { summary: { ...AFTER_GOOD, rps: 100 } });
+    const t = s.byId(2) ?? "";
+    expect(t).toContain("처리량");
+    expect(t).toContain("새로 생김");
+    expect(t).not.toContain("오류율");
+  });
+
+  it("오류율이 참고용이면 후보에서 빠져 다음 순위 지표가 나온다", () => {
+    const s = scene(
+      {
+        steps: [{ id: "s1", name: "접수" }],
+        rep: [{ id: "s1", counts: { "200": 9400, "502": 600 }, errors: 0 }],
+        summary: BEFORE,
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 10000 }, errors: 0 }],
+        summary: AFTER_GOOD,
+      },
+    );
+    expect(s.rows[0].cls).toBe("reference");
+    const t = s.byId(2) ?? "";
+    expect(t).not.toContain("오류율");
+    expect(t).toContain("99% 응답시간");
+  });
+
+  it("답이 비슷이면 2번 줄이 없다", () => {
+    const s = scene({ summary: BEFORE }, { summary: BEFORE });
+    expect(s.byId(2)).toBeUndefined();
+    expect(s.byId(3)).toBeUndefined();
+  });
+
+  it("개선이 판정 변화뿐이면 2번 줄이 없다", () => {
+    const s = scene({ summary: BEFORE, verdict: failV }, { summary: BEFORE, verdict: passV });
+    expect(s.headline.answer).toBe("improved");
+    expect(s.byId(2)).toBeUndefined();
+  });
+
+  it("엇갈림이면 3번 줄에 나빠진 지표 하나", () => {
+    const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, errors: 3, p95_ms: 2800 } });
+    expect(s.headline.answer).toBe("mixed");
+    expect(s.byId(3)).toBe("반면 95% 응답시간은 2.4초 → 2.8초로 늘었습니다.");
+  });
+
+  it("오류율이 나빠진 엇갈림: 2번은 좋아진 지표, 3번은 오류율", () => {
+    const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, errors: 90, p95_ms: 1000 } });
+    expect(s.byId(2)).toContain("95% 응답시간");
+    expect(s.byId(3)).toContain("반면 오류율은");
+    expect(s.byId(3)).toContain("늘었습니다");
+  });
+
+  it("나쁨이 판정 변화뿐이면 3번 줄이 없다", () => {
+    const s = scene(
+      { summary: BEFORE, verdict: passV },
+      { summary: { ...BEFORE, errors: 3 }, verdict: failV },
+    );
+    expect(s.headline.answer).toBe("mixed");
+    expect(s.byId(3)).toBeUndefined();
+  });
+
+  it("개선에서는 3번 줄이 없다", () => {
+    expect(scene({ summary: BEFORE }, { summary: AFTER_GOOD }).byId(3)).toBeUndefined();
+  });
+});
+
+describe("summaryLines 4번 줄·비교 불가", () => {
+  it("조건이 다르면 항목 앞 2개 + 외 N개", () => {
+    const s = scene(
+      { summary: BEFORE, env: { A: "1" } },
+      {
+        summary: AFTER_GOOD,
+        env: { A: "2" },
+        profile: critProfile({ vus: 20, criteria: { max_p95_ms: 2000 } }),
+      },
+    );
+    const t = s.byId(4) ?? "";
+    expect(t).toContain("참고용");
+    expect(t).toContain("부하 조건·환경 변수");
+    expect(t).toContain("외 1개");
+  });
+
+  it("같으면 4번 줄이 없다", () => {
+    expect(scene({ summary: BEFORE }, { summary: AFTER_GOOD }).byId(4)).toBeUndefined();
+  });
+
+  it("비교 불가: 1번 줄 자리에 사유와 함께", () => {
+    const s = scene(
+      { summary: BEFORE },
+      {
+        summary: { ...BEFORE, count: 0, errors: 0 },
+        rep: [],
+        meta: { status: "failed", message: "연결할 수 없습니다" },
+      },
+    );
+    const t = s.byId(1) ?? "";
+    expect(t).toContain("요청이 실행되지 않은 측정이 있어 비교하지 않았습니다");
+    expect(t).toContain("연결할 수 없습니다");
+    expect(s.headline.answer).toBe("incomparable");
+    expect(s.byId(2)).toBeUndefined();
+  });
+});

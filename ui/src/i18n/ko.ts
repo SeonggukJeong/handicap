@@ -2630,6 +2630,55 @@ export const ko = {
         appeared: (label: string, code: string, n: string) =>
           `${label}의 ${code} ${n}건이 새로 생겼습니다.`,
       },
+      headline: {
+        title: "비교 결과",
+        words: {
+          improved: "개선",
+          worsened: "악화",
+          mixed: "엇갈림",
+          similar: "비슷",
+          incomparable: "비교 불가",
+        },
+        counts: (total: number, good: number, similar: number, bad: number) =>
+          `주요 지표 ${total}개 중 ${good}개 좋아짐 · ${similar}개 비슷 · ${bad}개 나빠짐`,
+        verdictGood: " · 판정 ✕ → ●",
+        verdictBad: " · 판정 ● → ✕",
+        reference: "조건이 달라 참고용",
+        incomparable: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다",
+      },
+      lines: {
+        title: "요약 (자동 작성)",
+        incomparable: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다.",
+        incomparableReason: (side: string, message: string) => ` ${side} 측정 사유: ${message}`,
+        verdictChanged: (before: string, after: string) =>
+          `판정이 ${before} → ${after}(으)로 바뀌었습니다.`,
+        verdictSame: (word: string) => `판정은 두 측정 모두 ${word}입니다.`,
+        verdictWords: (before: string, after: string) => `이전: ${before}, 이후: ${after}`,
+        allMet: (n: number) => `기준 ${n}개를 모두 지켰습니다.`,
+        biggest: (name: string, before: string, after: string, change: string) =>
+          `${name} ${before} → ${after} (${change}).`,
+        codeZeroed: (label: string, code: string, n: string) =>
+          `'${label}'의 ${code} ${n}건이 0건이 되었습니다.`,
+        codeReduced: (label: string, code: string, n: string, m: string) =>
+          `'${label}'의 ${code} ${n}건이 ${m}건으로 줄었습니다.`,
+        codeIncreased: (label: string, code: string, n: string, m: string) =>
+          `'${label}'의 ${code} ${n}건이 ${m}건으로 늘었습니다.`,
+        codeAppeared: (label: string, code: string, m: string) =>
+          `'${label}'의 ${code} ${m}건이 새로 생겼습니다.`,
+        opposite: (name: string, before: string, after: string, rose: boolean) =>
+          `반면 ${name}은 ${before} → ${after}로 ${rose ? "늘었습니다" : "줄었습니다"}.`,
+        reference: (names: string, rest: number) =>
+          `두 측정의 ${names}${rest > 0 ? ` 외 ${rest}개` : ""}(이)가 달라 이 비교는 참고용입니다.`,
+        nameJoin: "·",
+      },
+      doc: {
+        kicker: "성능 비교 보고서",
+        title: (name: string) => `${name} — 이전·이후 비교`,
+        roleBefore: "이전",
+        roleAfter: "이후",
+        footerLeft: (name: string, before: string, after: string) =>
+          `${name} 이전·이후 비교 · ${before} → ${after}`,
+      },
     },
     fmt: {
       msUnderOne: "1ms 미만",

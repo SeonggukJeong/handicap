@@ -114,7 +114,7 @@ export function hasStar(pairs: StepPair[]): boolean {
   return pairs.some((p) => p.codes.some((x) => x.starBefore || x.starAfter));
 }
 
-const codeText = (code: CodeKey): string => {
+export const codeText = (code: CodeKey): string => {
   if (code === "notSent") return c.issues.notSent;
   if (code === "residual") return ko.print.table.residual;
   if (code === 0) return c.issues.noResponse;
