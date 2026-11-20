@@ -89,6 +89,30 @@ const build = (run: Run, report: Report, fallback: string | null = null): PrintD
   buildPrintDoc({ run, report, fallbackScenarioName: fallback, now: NOW });
 
 describe("buildPrintDoc", () => {
+  it("speed_bands 유무에 따라 speed·절 번호가 정해진다", () => {
+    const withBands = mkReport(2, {
+      speed_bands: {
+        overall: { slow_ms: 3000, basis: "default", own: false, fast: 10, within: 5, over: 0 },
+        steps: [],
+      },
+    });
+    const d1 = build(mkRun(), withBands);
+    expect(d1.speed).not.toBeNull();
+    expect(d1.speed?.rows).toHaveLength(3);
+    expect(d1.sectionNo).toEqual({
+      chart: "4. 시간에 따른 변화",
+      conditions: "5. 측정 조건과 해석 범위",
+      glossary: "6. 용어 풀이",
+    });
+    const d2 = build(mkRun(), mkReport());
+    expect(d2.speed).toBeNull();
+    expect(d2.sectionNo).toEqual({
+      chart: "3. 시간에 따른 변화",
+      conditions: "4. 측정 조건과 해석 범위",
+      glossary: "5. 용어 풀이",
+    });
+  });
+
   it("title_falls_back", () => {
     expect(build(mkRun(), mkReport()).title).toBe("민원 부하 측정");
     const broken = mkReport(2, { scenario_yaml: "a: [unclosed" });

@@ -2754,8 +2754,88 @@ export const ko = {
       chart: "3. 시간에 따른 변화",
       conditions: "4. 측정 조건과 해석 범위",
       glossary: "5. 용어 풀이",
+      speed: "3. 단계별 응답 속도 구간",
+      chartShifted: "4. 시간에 따른 변화",
+      conditionsShifted: "5. 측정 조건과 해석 범위",
+      glossaryShifted: "6. 용어 풀이",
       appendix: "부록. 그 밖의 기준 전체",
       continued: " (이어짐)",
+    },
+    // 응답 속도 구간 절(spec §7.3–§7.5). 동적 이름 뒤 조사는 병기형(ADR-0035).
+    speed: {
+      dash: "—",
+      totalRow: "전체 요청",
+      failSub: "막대와 별개",
+      overSubOver: "기준 넘음",
+      overSubNoCriteria: "기준 없는 단계는 3초",
+      overSubMixed: (b: string) => `${b} (따로 적힌 단계 제외)`,
+      headFast: "1초 미만",
+      headWithin: (b: string) => `1초–${b}`,
+      headWithinMixed: "1초–기준",
+      headOver: (b: string) => `${b} 초과`,
+      headOverMixed: "기준 초과",
+      headIn: (b: string) => `${b} 이내`,
+      headInMixed: "기준 이내",
+      legendOver: (over: string) => `${over} (기준 넘음)`,
+      ownNote: (b: string) => `이 단계 기준 ${b}`,
+      withinMerged: (b: string, p: string) => `${b} 이내 ${p}`,
+      rule: (
+        crit: string,
+        b: string,
+        allow: string,
+        pct: string,
+        verdict: "pass" | "fail" | null,
+      ): Array<{ text: string; strong?: boolean; bad?: boolean }> => [
+        { text: `기준 「${crit}」는 ` },
+        { text: `${b} 초과가 ${allow} 이하`, strong: true },
+        { text: "여야 통과입니다. 이번 측정은 전체 요청의 " },
+        { text: pct, strong: true },
+        ...(verdict === null
+          ? [{ text: `가 ${b}를 넘었습니다.` }]
+          : [
+              { text: `가 ${b}를 넘어 ` },
+              verdict === "fail"
+                ? { text: "이 기준은 미달", strong: true, bad: true }
+                : { text: "이 기준은 통과", strong: true },
+              { text: "입니다." },
+            ]),
+      ],
+      stepRule: (
+        label: string,
+        b: string,
+        pct: string,
+        verdict: "pass" | "fail" | null,
+      ): Array<{ text: string; strong?: boolean; bad?: boolean }> => [
+        { text: `단계 기준 「${label}」: ${b} 초과 ` },
+        { text: pct, strong: true },
+        ...(verdict === null
+          ? [{ text: "." }]
+          : [
+              { text: " — " },
+              verdict === "fail"
+                ? { text: "미달", strong: true, bad: true }
+                : { text: "통과", strong: true },
+              { text: "." },
+            ]),
+      ],
+      stepRulesRest: (n: number) => `그 밖의 단계 기준 ${n}건은 「그 밖의 기준」 표를 보십시오.`,
+      noteDefault: "※ 이 측정에는 응답 시간 기준이 없어 1초·3초로 나눠 보였습니다(판정과 무관).",
+      noteDefaultMixed:
+        "※ 응답 시간 기준이 없는 단계와 전체 요청은 1초·3초로 나눠 보였습니다(판정과 무관).",
+      noteBars: "※ 막대에는 실패한 응답의 시간도 들어 있습니다.",
+      noteNamed: (
+        glyph: string,
+        name: string,
+        pct: string,
+      ): Array<{ text: string; strong?: boolean }> => [
+        { text: `${glyph} ${name}`, strong: true },
+        {
+          text: `은(는) 요청의 ${pct}가 실패했고, 실패한 응답은 금방 돌아오는 경우가 많아 막대가 빠르게 보일 수 있습니다. 어떤 응답 코드였는지는 2절 표를 보십시오.`,
+        },
+      ],
+      noteNamedMore: (n: number) => `외 ${n}단계도 실패 비율이 10% 이상입니다.`,
+      noteNotSent: "※ 보내지 않은 요청은 응답 시간이 없어 막대에는 없고 실패 칸에만 들어 있습니다.",
+      noteStar: "* 기준과 차이가 아주 작은 값입니다.",
     },
     columns: {
       step: "단계",

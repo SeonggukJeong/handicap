@@ -40,6 +40,7 @@ import {
 } from "./verdict";
 import { buildChartModel, chartReadingLine, runT0, type ChartModel } from "./chartModel";
 import { summaryLines, type SummaryLine } from "./sentences";
+import { buildSpeedModel, type SpeedModel } from "./speedBands";
 import type { Block, LadderLevel } from "./paginate";
 
 const D = ko.print.doc;
@@ -67,6 +68,8 @@ export type PrintDoc = {
   claims: { can: string[]; cannot: string[] } | null;
   glossary: ReturnType<typeof buildGlossary>;
   stair: StairReport | null;
+  speed: SpeedModel | null;
+  sectionNo: { chart: string; conditions: string; glossary: string };
 };
 
 function boxText(box: BoxState): { big: string; sub: string } {
@@ -116,6 +119,17 @@ export function buildPrintDoc(a: {
   });
   const t0 = runT0(run.started_at, report.windows);
   const chart = buildChartModel(report.windows, t0, table.rows);
+
+  const speed = report.speed_bands
+    ? buildSpeedModel({
+        bands: report.speed_bands,
+        ranked,
+        summary: report.summary,
+        matched,
+        criteria,
+        anyNotSent: table.rows.some((r) => r.notSent > 0),
+      })
+    : null;
 
   const rawName = facts.ok ? facts.name : null;
   const name =
@@ -173,6 +187,18 @@ export function buildPrintDoc(a: {
     claims: can.length === 0 && cannot.length === 0 ? null : { can, cannot },
     glossary: buildGlossary(table, ranked, report.error_kinds),
     stair: report.stair ?? null,
+    speed,
+    sectionNo: speed
+      ? {
+          chart: ko.print.section.chartShifted,
+          conditions: ko.print.section.conditionsShifted,
+          glossary: ko.print.section.glossaryShifted,
+        }
+      : {
+          chart: ko.print.section.chart,
+          conditions: ko.print.section.conditions,
+          glossary: ko.print.section.glossary,
+        },
   };
 }
 
