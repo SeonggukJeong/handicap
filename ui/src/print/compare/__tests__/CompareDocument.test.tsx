@@ -265,15 +265,16 @@ describe("CompareDocument 표준판", () => {
     expect(runs[1].querySelector(".p-cmp-ok")?.textContent).toBe("라마바");
   });
 
-  it("절 번호는 1·2·3·4·5", async () => {
+  it("절 번호는 1–6", async () => {
     const { root } = renderDoc(makeDoc());
     await ready(root);
     for (const t of [
       "1. 종합",
       "2. 핵심 지표 비교",
       "3. 단계별 95% 응답시간 변화",
-      "4. 측정 조건 대조",
-      "5. 남은 문제",
+      "4. 단계별 오류 변화",
+      "5. 측정 조건 대조",
+      "6. 남은 문제",
     ]) {
       expect(screen.getByRole("heading", { name: t })).toBeInTheDocument();
     }
@@ -464,7 +465,7 @@ describe("CompareDocument 표준판", () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     expect(container.querySelectorAll(".p-page").length).toBeGreaterThan(1);
-    expect(screen.getByRole("heading", { name: "4. 측정 조건 대조 (이어짐)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "5. 측정 조건 대조 (이어짐)" })).toBeInTheDocument();
     expect(container.querySelectorAll(".p-sign").length).toBe(1);
   });
 
@@ -489,6 +490,44 @@ describe("CompareDocument 표준판", () => {
   });
 });
 
+describe("CompareDocument 오류 변화 절", () => {
+  it("측정 시트에 오류 표의 제목·머리·행이 있다", async () => {
+    const { container, root } = renderDoc(makeDoc());
+    for (const id of ["cmp:err:title", "cmp:err:header", "cmp:err:row:0"]) {
+      expect(container.querySelector(`.p-sheet [data-measure="${id}"]`), id).not.toBeNull();
+    }
+    await ready(root);
+  });
+
+  it("쪽에 4절 제목과 오류 표가 있다", async () => {
+    const { root, container } = renderDoc(makeDoc());
+    await ready(root);
+    expect(screen.getByRole("heading", { name: "4. 단계별 오류 변화" })).toBeInTheDocument();
+    expect(container.querySelector(".p-page table.p-cmp-err")).not.toBeNull();
+  });
+
+  it("각주가 있으면 cmp:err:notes가 p-cmp-b--note 블록으로 측정되고 쪽에 그려진다", async () => {
+    const base = makeDoc();
+    const doc: CompareDoc = {
+      ...base,
+      errors: { ...base.errors, notes: ["* 각주 한 줄", "둘째 줄"] },
+    };
+    const { container, root } = renderDoc(doc);
+    expect(container.querySelector('.p-sheet [data-measure="cmp:err:notes"]')).not.toBeNull();
+    await ready(root);
+    const notes = [...container.querySelectorAll(".p-page .p-cmp-note")];
+    const mine = notes.filter((n) => ["* 각주 한 줄", "둘째 줄"].includes(n.textContent ?? ""));
+    expect(mine).toHaveLength(2);
+    expect(mine[0]!.closest(".p-block")).toHaveClass("p-cmp-b--note");
+  });
+
+  it("요약판에는 오류 절이 없다", async () => {
+    const { root } = renderDoc(makeDoc(), "summary");
+    await ready(root);
+    expect(screen.queryByText(/단계별 오류 변화/)).toBeNull();
+  });
+});
+
 describe("CompareDocument 덤벨 절", () => {
   it("측정 시트에 덤벨 표의 제목·머리·행·범례가 있다", async () => {
     const { container, root } = renderDoc(makeDoc());
@@ -498,13 +537,13 @@ describe("CompareDocument 덤벨 절", () => {
     await ready(root);
   });
 
-  it("쪽에 3절 제목·덤벨 표·범례(p-cmp-b--note)가 있고 조건 대조는 4절", async () => {
+  it("쪽에 3절 제목·덤벨 표·범례(p-cmp-b--note)가 있고 조건 대조는 5절", async () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     expect(
       screen.getByRole("heading", { name: "3. 단계별 95% 응답시간 변화" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "4. 측정 조건 대조" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "5. 측정 조건 대조" })).toBeInTheDocument();
     expect(container.querySelector(".p-page table.p-cmp-db")).not.toBeNull();
     const legend = container.querySelector(".p-page .p-cmp-db-legend") as HTMLElement;
     expect(legend.closest(".p-block")).toHaveClass("p-cmp-b--note");
@@ -514,6 +553,7 @@ describe("CompareDocument 덤벨 절", () => {
     const { root } = renderDoc(makeDoc({ steps: [], rep: [] }, { steps: [], rep: [] }));
     await ready(root);
     expect(screen.queryByText(/단계별 95% 응답시간 변화/)).toBeNull();
+    expect(screen.queryByText(/단계별 오류 변화/)).toBeNull();
     expect(screen.getByRole("heading", { name: "3. 측정 조건 대조" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "4. 남은 문제" })).toBeInTheDocument();
   });

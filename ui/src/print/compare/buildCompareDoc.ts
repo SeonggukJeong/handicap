@@ -8,6 +8,7 @@ import type { Block } from "../paginate";
 import type { BoxState } from "../verdict";
 import type { Heights } from "../buildPrintDoc";
 import { buildDumbbell, type DumbbellModel } from "./dumbbell";
+import { buildErrorTable, type ErrorTableModel } from "./errorTable";
 import { metricRows, type MetricRow } from "./change";
 import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } from "./errorCells";
 import { buildFairness, type Fairness } from "./fairness";
@@ -46,6 +47,7 @@ export type CompareDoc = {
   issues: string[];
   incomparable: boolean;
   dumbbell: DumbbellModel;
+  errors: ErrorTableModel;
   /** stepPairs가 1개 이상 */
   hasSteps: boolean;
 };
@@ -119,6 +121,7 @@ export function buildCompareDoc(a: {
     issues: incomparable ? [] : remainingIssues(after, pairs),
     incomparable,
     dumbbell: buildDumbbell(before, after),
+    errors: buildErrorTable({ before, after, pairs, incomparable }),
     hasSteps: pairs.length > 0,
   };
 }
@@ -168,7 +171,12 @@ export function compareStandardBlocks(doc: CompareDoc, h: Heights): Block[] {
     atom(h, "cmp:kpi:bars"),
     atom(h, "cmp:kpi:note"),
     ...(doc.hasSteps
-      ? [tableBlock("cmp:db", doc.dumbbell.rows.length, h), atom(h, "cmp:db:legend")]
+      ? [
+          tableBlock("cmp:db", doc.dumbbell.rows.length, h),
+          atom(h, "cmp:db:legend"),
+          tableBlock("cmp:err", doc.errors.rows.length, h),
+          ...(doc.errors.notes.length > 0 ? [atom(h, "cmp:err:notes")] : []),
+        ]
       : []),
     tableBlock("cmp:cond", doc.fairness.condRows.length, h),
     atom(h, "cmp:issues:8"),
@@ -206,7 +214,7 @@ export type SectionNos = {
 type SectionKey = keyof SectionNos;
 
 /** 표준판 절 순서. 뒤 task가 제 키를 끼운다. */
-const STANDARD_SECTIONS: SectionKey[] = ["overview", "kpi", "dumbbell", "cond", "issues"];
+const STANDARD_SECTIONS: SectionKey[] = ["overview", "kpi", "dumbbell", "errors", "cond", "issues"];
 
 /** 절 번호 — 그 판에 있는 절만 차례로 센다. */
 export function sectionNo(

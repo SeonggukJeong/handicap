@@ -966,6 +966,28 @@
   border-radius: 50%;
 }
 
+/* 비교 보고서: 단계별 오류 변화 표 — compare-report-v2.html 시안 값 */
+.p-root .p-cmp-err th,
+.p-root .p-cmp-err td {
+  padding: 1.3mm 1.8mm;
+}
+.p-root .p-cmp-err th small.p-cmp-err-sub {
+  display: inline;
+}
+/* 이전·이후 두 조각은 쪼개지지 않고, 줄은 조각 사이에서만 바뀐다 */
+.p-root .p-cmp-err-piece {
+  white-space: nowrap;
+}
+.p-root .p-cmp-err-cell--down {
+  background: var(--okbg);
+}
+.p-root .p-cmp-err-cell--up {
+  background: var(--badbg);
+}
+.p-root .p-cmp-err-cell--flat {
+  background: #f4f5f7;
+}
+
 @media print {
   .p-root {
     background: #fff;

@@ -10,7 +10,6 @@ import {
   compareStandardBlocks,
   compareSummaryBlocks,
   sectionNoFor,
-  type CmpTableId,
   type CompareDoc,
 } from "./buildCompareDoc";
 import { CompareFooter } from "./components/CompareFooter";
@@ -20,7 +19,8 @@ import { HeadlineHeading, VerdictRow } from "./components/HeadlineBox";
 import { IssuesBox } from "./components/IssuesBox";
 import { KpiCompareTable, KpiNote } from "./components/KpiCompareTable";
 import { DumbbellLegend } from "./components/DumbbellTable";
-import { CMP_TABLES } from "./tables";
+import { ErrorNotes } from "./components/ErrorChangeTable";
+import { cmpTable } from "./tables";
 
 type Kind = "standard" | "summary";
 type Props = { doc: CompareDoc; kind: Kind; onLadder?: (level: number) => void };
@@ -55,6 +55,8 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
       return <KpiNote doc={doc} clamp={clamp} />;
     case "cmp:db:legend":
       return <DumbbellLegend model={doc.dumbbell} />;
+    case "cmp:err:notes":
+      return <ErrorNotes notes={doc.errors.notes} />;
     case "signature":
       return <SignatureBlock />;
     default:
@@ -66,7 +68,8 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
 function blockClass(id: string): string {
   if (id === "signature") return "p-block";
   if (id === "cmp:header") return "p-block p-block--header";
-  if (id === "cmp:kpi:note" || id === "cmp:db:legend") return "p-block p-cmp-b--note";
+  if (id === "cmp:kpi:note" || id === "cmp:db:legend" || id === "cmp:err:notes")
+    return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";
   const name = id.split(":")[1];
   return name === "headline" || name === "kpi"
@@ -90,7 +93,7 @@ function MeasureSheet({ doc, kind }: { doc: CompareDoc; kind: Kind }) {
       {compareSheetBlocks(doc, kind).map((b) => {
         if (b.kind === "atomic")
           return <Atomic key={b.id} id={b.id} doc={doc} kind={kind} measure />;
-        const def = CMP_TABLES[b.id as CmpTableId];
+        const def = cmpTable(b.id);
         if (!def) return null;
         return (
           <div key={b.id}>
@@ -137,7 +140,7 @@ function PageBody(props: {
     <>
       {items.map((it) => {
         if (it.kind === "atomic") return <Atomic key={it.id} id={it.id} doc={doc} kind={kind} />;
-        const def = CMP_TABLES[it.id as CmpTableId];
+        const def = cmpTable(it.id);
         if (!def) return null;
         return (
           <div key={`${it.id}:${it.from}`}>

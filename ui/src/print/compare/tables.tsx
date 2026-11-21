@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import type { CmpTableId, CompareDoc, SectionNos } from "./buildCompareDoc";
 import { CondTable, CondTitle } from "./components/CondTable";
 import { DumbbellTable, DumbbellTitle } from "./components/DumbbellTable";
+import { ErrorChangeTable, ErrorTitle } from "./components/ErrorChangeTable";
 
 export type CmpTableDef = {
   rowCount: (doc: CompareDoc) => number;
@@ -29,8 +30,22 @@ const db: CmpTableDef = {
   no: (n) => n.dumbbell ?? "",
 };
 
-/** "cmp:err"는 아직 없다. */
-export const CMP_TABLES: Partial<Record<CmpTableId, CmpTableDef>> = {
+const err: CmpTableDef = {
+  rowCount: (doc) => doc.errors.rows.length,
+  Title: ErrorTitle,
+  Table: ({ doc, from, to, measure }) => (
+    <ErrorChangeTable model={doc.errors} from={from} to={to} measure={measure} />
+  ),
+  no: (n) => n.errors ?? "",
+};
+
+export const CMP_TABLES: Record<CmpTableId, CmpTableDef> = {
   "cmp:cond": cond,
   "cmp:db": db,
+  "cmp:err": err,
 };
+
+/** 알려진 표 id의 정의. 모르는 id는 null. */
+export function cmpTable(id: string): CmpTableDef | null {
+  return Object.hasOwn(CMP_TABLES, id) ? CMP_TABLES[id as CmpTableId] : null;
+}

@@ -165,6 +165,7 @@ describe("블록", () => {
       "cmp:kpi:note",
       "cmp:db",
       "cmp:db:legend",
+      "cmp:err",
       "cmp:cond",
       "cmp:issues:8",
       "signature",
@@ -176,6 +177,28 @@ describe("블록", () => {
     expect(d.hasSteps).toBe(false);
     expect(ids(d)).not.toContain("cmp:db");
     expect(ids(d)).not.toContain("cmp:db:legend");
+    expect(ids(d)).not.toContain("cmp:err");
+    expect(ids(d)).not.toContain("cmp:err:notes");
+  });
+
+  it("오류 표 블록: 행 수는 모델과 같고 각주가 있을 때만 cmp:err:notes(p-cmp-b--note), 요약판엔 없다", () => {
+    const d = doc();
+    const t = compareStandardBlocks(d, new Map()).find((b) => b.id === "cmp:err");
+    if (!t || t.kind !== "table") throw new Error("no err table");
+    expect(t.rowsMm.length).toBe(d.errors.rows.length);
+    expect(t.rowsMm.length).toBeGreaterThan(0);
+    const list = ids(d);
+    expect(list.indexOf("cmp:err")).toBe(list.indexOf("cmp:db:legend") + 1);
+    expect(list.includes("cmp:err:notes")).toBe(d.errors.notes.length > 0);
+    const withNote = { ...d, errors: { ...d.errors, notes: ["각주"] } };
+    const l2 = ids(withNote);
+    expect(l2.indexOf("cmp:err:notes")).toBe(l2.indexOf("cmp:err") + 1);
+    const none = { ...d, errors: { ...d.errors, notes: [] } };
+    expect(ids(none)).not.toContain("cmp:err:notes");
+    const lv = [0, 1, 2, 3, 4, 5].flatMap((l) =>
+      compareSummaryBlocks(d, new Map(), l).map((b) => b.id),
+    );
+    expect(lv.some((x) => x.startsWith("cmp:err"))).toBe(false);
   });
 
   it("덤벨 표 블록의 행 수는 모델 행 수와 같고, 요약판에는 없다", () => {
@@ -309,11 +332,11 @@ describe("블록", () => {
       overview: "1",
       kpi: "2",
       dumbbell: "3",
-      errors: null,
+      errors: "4",
       overlay: null,
       speed: null,
-      cond: "4",
-      issues: "5",
+      cond: "5",
+      issues: "6",
     });
     expect(sectionNo("standard", { steps: false, speed: false })).toEqual({
       overview: "1",

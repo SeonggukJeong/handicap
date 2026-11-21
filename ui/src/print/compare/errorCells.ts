@@ -182,7 +182,7 @@ export function starFootnote(pairs: StepPair[]): string | null {
   return shown.join(c.star.join);
 }
 
-const isTargetClass = (cls: CellClass | null): boolean =>
+export const isTargetClass = (cls: CellClass | null): boolean =>
   cls === "counted" || cls === "uncounted" || cls === "unknown";
 
 const notReduced = (before: number, after: number): boolean => after * 100 >= before * 95;

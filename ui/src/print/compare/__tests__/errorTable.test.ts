@@ -23,6 +23,19 @@ const R = (
   notSent?: number,
 ): ReportStepSpec => ({ id, counts, errors, ...(notSent ? { notSent } : {}) });
 
+/** NaN·undefined 값과 그 글자가 든 문자열이 어디에도 없다(JSON.stringify는 NaN을 null로 바꿔 못 잡는다). */
+function expectClean(v: unknown, path = "$"): void {
+  if (typeof v === "number") expect(Number.isNaN(v), path).toBe(false);
+  else if (v === undefined) throw new Error(`undefined at ${path}`);
+  else if (typeof v === "string") {
+    expect(v.includes("NaN"), path).toBe(false);
+    expect(v.includes("undefined"), path).toBe(false);
+  } else if (Array.isArray(v)) v.forEach((x, i) => expectClean(x, `${path}[${i}]`));
+  else if (v !== null && typeof v === "object") {
+    for (const [k, x] of Object.entries(v)) expectClean(x, `${path}.${k}`);
+  }
+}
+
 function table(before: RunModel, after: RunModel, incomparable = false) {
   return buildErrorTable({ before, after, pairs: stepPairs(before, after), incomparable });
 }
@@ -217,12 +230,43 @@ describe("buildErrorTable", () => {
     expect(c.note).toBe("(이전 측정에 없음)");
     expect(c.rate.before).toBe("–");
     expect(c.change).toEqual({ cls: "none", glyph: "", word: "–" });
+    // 없는 쪽은 0이 아니라 "–"(측정하지 않음), 톤 없음
+    expect(b.cells.c500).toEqual({
+      before: "4",
+      after: "–",
+      starBefore: false,
+      starAfter: false,
+      tone: null,
+    });
+    expect(c.cells.c500).toEqual({
+      before: "–",
+      after: "4",
+      starBefore: false,
+      starAfter: false,
+      tone: null,
+    });
     for (const r of [b, c]) {
       expect(r.rate.starBefore || r.rate.starAfter).toBe(false);
       for (const cell of Object.values(r.cells)) {
         expect(cell?.starBefore || cell?.starAfter).toBeFalsy();
       }
     }
+  });
+
+  it("한쪽에만 있는 단계가 오류 없는 쪽만 있으면 칸 전체가 null", () => {
+    const before = model(
+      "b",
+      [S("s1", "A"), S("s2", "B")],
+      [R("s1", { "500": 4, "200": 6 }, 4), R("s2", { "200": 10 })],
+    );
+    const after = model("a", [S("s1", "A")], [R("s1", { "500": 4, "200": 6 }, 4)]);
+    const m = table(before, after);
+    expect(m.rows.find((r) => r.stepId === "s2")!.cells.c500).toBeNull();
+    expect(m.rows.find((r) => r.stepId === "s1")!.cells.c500).toMatchObject({
+      before: "4",
+      after: "4",
+      tone: "flat",
+    });
   });
 
   it("단계가 하나도 안 겹치면 모든 행 none, NaN·undefined 없음", () => {
@@ -239,9 +283,7 @@ describe("buildErrorTable", () => {
     const m = table(before, after);
     expect(m.rows).toHaveLength(4);
     expect(m.rows.every((r) => r.change.cls === "none")).toBe(true);
-    const json = JSON.stringify(m);
-    expect(json).not.toContain("NaN");
-    expect(json).not.toContain("undefined");
+    expectClean(m);
   });
 
   it("incomparable이면 모든 행 none · remaining false · 별 각주 없음", () => {

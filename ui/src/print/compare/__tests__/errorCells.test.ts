@@ -547,4 +547,31 @@ describe("remainingStepIds", () => {
     expect(list[0]).toContain("가");
     expect(list[1]).toContain("나");
   });
+  it("문제 단계 경로와 줄지 않은 오류 경로를 따로 센다(둘 다·문제만·줄지 않은 오류만·깨끗)", () => {
+    const steps = [
+      S("s1", "문제만"),
+      S("s2", "오류만", { assert: [200] }),
+      S("s3", "둘다"),
+      S("s4", "깨끗"),
+    ];
+    const before = model("b", steps, [
+      R("s1", { "200": 100, "500": 1000 }, 1000),
+      R("s2", { "200": 100000, "429": 1 }, 0),
+      R("s3", { "200": 100 }),
+      R("s4", { "200": 100 }),
+    ]);
+    const after = model("a", steps, [
+      R("s1", { "200": 1000, "500": 100 }, 100),
+      R("s2", { "200": 100000, "429": 1 }, 0),
+      R("s3", { "200": 50, "500": 50 }, 50),
+      R("s4", { "200": 100 }),
+    ]);
+    const pairs = stepPairs(before, after);
+    const ids = remainingStepIds(after, pairs);
+    expect([...ids].sort()).toEqual(["s1", "s2", "s3"]);
+    // 두 경로가 정말 갈리는지: 문제 단계 목록과 오류 목록에 각각 걸린 단계
+    const issues = remainingIssues(after, pairs);
+    expect(issues).toHaveLength(3);
+    expect(issues.join("\n")).not.toContain("깨끗");
+  });
 });

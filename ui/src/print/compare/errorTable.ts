@@ -1,7 +1,14 @@
 import { ko } from "../../i18n/ko";
 import { fmtCount } from "../format";
 import { classifyChange, FLOOR, valueTexts } from "./change";
-import { hasStar, remainingStepIds, starFootnote, type CodeKey, type StepPair } from "./errorCells";
+import {
+  hasStar,
+  isTargetClass,
+  remainingStepIds,
+  starFootnote,
+  type CodeKey,
+  type StepPair,
+} from "./errorCells";
 import type { RunModel } from "./runModel";
 
 const c = ko.print.cmp;
@@ -41,8 +48,13 @@ export type ErrorTableModel = { cols: ErrCol[]; rows: ErrRow[]; notes: string[] 
 
 type Cell = StepPair["codes"][number];
 
-const isTarget = (cls: Cell["classBefore"]): boolean =>
-  cls === "counted" || cls === "uncounted" || cls === "unknown";
+/** 칸 모음의 이전·이후 건수 합 — 「그 밖의 코드」 칸과 각주가 같은 식을 쓴다. */
+function sumCells(cells: Cell[]): { before: number; after: number } {
+  return {
+    before: cells.reduce((n, x) => n + x.before, 0),
+    after: cells.reduce((n, x) => n + x.after, 0),
+  };
+}
 
 /** 정상 응답으로 센 칸은 오류 표에 찍지 않는다. */
 function visible(x: Cell): boolean {
@@ -50,8 +62,8 @@ function visible(x: Cell): boolean {
   return (
     x.starBefore ||
     x.starAfter ||
-    (x.before > 0 && isTarget(x.classBefore)) ||
-    (x.after > 0 && isTarget(x.classAfter))
+    (x.before > 0 && isTargetClass(x.classBefore)) ||
+    (x.after > 0 && isTargetClass(x.classAfter))
   );
 }
 
@@ -137,17 +149,18 @@ function cellFor(col: ErrCol, pair: StepPair): ErrCell {
     return colKey(x.code) === col.key;
   });
   if (cells.length === 0) return null;
-  const before = cells.reduce((n, x) => n + x.before, 0);
-  const after = cells.reduce((n, x) => n + x.after, 0);
+  const { before, after } = sumCells(cells);
   if (before === 0 && after === 0) return null;
   const starBefore = cells.some((x) => x.starBefore);
   const starAfter = cells.some((x) => x.starAfter);
+  // 없는 쪽(실행되지 않은 단계)은 0이 아니라 측정하지 않은 것이다.
+  const missing = !pair.executedBefore || !pair.executedAfter;
   return {
-    before: fmtCount(before),
-    after: fmtCount(after),
+    before: pair.executedBefore ? fmtCount(before) : c.db.none,
+    after: pair.executedAfter ? fmtCount(after) : c.db.none,
     starBefore,
     starAfter,
-    tone: tone(before, after, starBefore || starAfter),
+    tone: missing ? null : tone(before, after, starBefore || starAfter),
   };
 }
 
@@ -217,15 +230,9 @@ export function buildErrorTable(a: Args): ErrorTableModel {
   const otherCol = cols.find((col) => col.kind === "other");
   if (otherCol) {
     const parts = otherCol.codes.map((code) => {
-      let before = 0;
-      let after = 0;
-      for (const p of a.pairs) {
-        for (const x of p.codes) {
-          if (x.code !== code || !visible(x)) continue;
-          before += x.before;
-          after += x.after;
-        }
-      }
+      const { before, after } = sumCells(
+        a.pairs.flatMap((p) => p.codes.filter((x) => x.code === code && visible(x))),
+      );
       return c.err.otherPart(code, fmtCount(before), fmtCount(after));
     });
     notes.push(c.err.otherNote(parts));
