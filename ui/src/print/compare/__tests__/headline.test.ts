@@ -285,6 +285,7 @@ describe("cmpSummaryLines 1번 줄 (판정)", () => {
     expect(t).toContain("● 적합");
     expect(t).toContain("바뀌었습니다");
     expect(t).toContain("기준 3개를 모두 지켰습니다");
+    expect(t).toBe("판정이 ✕ 부적합 → ● 적합으로 바뀌었습니다. 기준 3개를 모두 지켰습니다.");
   });
 
   it("같은 판정이면 두 측정 모두라고 적는다", () => {
@@ -396,7 +397,7 @@ describe("cmpSummaryLines 2·3번 줄", () => {
   it("엇갈림이면 3번 줄에 나빠진 지표 하나", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, errors: 3, p95_ms: 2800 } });
     expect(s.headline.answer).toBe("mixed");
-    expect(s.byId(3)).toBe("반면 95% 응답시간은 2.4초 → 2.8초(으)로 늘었습니다.");
+    expect(s.byId(3)).toBe("반면 95% 응답시간은 2.4초 → 2.8초로 늘었습니다.");
   });
 
   it("오류율이 나빠진 엇갈림: 2번은 좋아진 지표, 3번은 오류율", () => {
@@ -485,21 +486,20 @@ describe("cmpSummaryLines 악화·조사·줄었음", () => {
     expect(s.byId(3)).toBeUndefined();
   });
 
-  it("3번 줄: 값이 받침으로 끝나도 (으)로 병기형이다", () => {
+  it("3번 줄: 값이 받침으로 끝나면 '으로'", () => {
     const s = scene(
       { summary: { ...BEFORE, count: 10000, errors: 0 } },
       { summary: { ...BEFORE, count: 10000, errors: 6, p95_ms: 1000 } },
     );
     expect(s.headline.answer).toBe("mixed");
     const t = s.byId(3) ?? "";
-    expect(t).toBe("반면 오류율은 0.0% → 0.1% 미만(으)로 늘었습니다.");
-    expect(t).not.toContain("미만로");
+    expect(t).toBe("반면 오류율은 0.0% → 0.1% 미만으로 늘었습니다.");
   });
 
   it("3번 줄: 나빠진 지표가 줄어든 쪽이면 줄었습니다", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, rps: 100, p95_ms: 1000 } });
     expect(s.headline.answer).toBe("mixed");
-    expect(s.byId(3)).toBe("반면 처리량은 240건/초 → 100건/초(으)로 줄었습니다.");
+    expect(s.byId(3)).toBe("반면 처리량은 240건/초 → 100건/초로 줄었습니다.");
   });
 });
 
@@ -531,6 +531,26 @@ describe("cmpSummaryLines 4번 줄·비교 불가", () => {
     expect(t).toContain("참고용");
     expect(t).toContain("부하 조건·환경 변수");
     expect(t).toContain("외 1개");
+    expect(t).toBe("두 측정의 부하 조건·환경 변수 외 1개가 달라 이 비교는 참고용입니다.");
+  });
+
+  it("4번 줄 조사는 마지막 항목 이름의 받침을 따른다", () => {
+    const crit = scene(
+      { summary: BEFORE },
+      { summary: AFTER_GOOD, profile: critProfile({ criteria: { max_p95_ms: 2000 } }) },
+    );
+    expect(crit.byId(4)).toBe("두 측정의 판정 기준이 달라 이 비교는 참고용입니다.");
+    const env = scene({ summary: BEFORE, env: { A: "1" } }, { summary: AFTER_GOOD, env: { A: "2" } });
+    expect(env.byId(4)).toBe("두 측정의 환경 변수가 달라 이 비교는 참고용입니다.");
+  });
+
+  it("요약 문장 어디에도 두 꼴을 함께 쓴 조사가 남지 않는다", () => {
+    const s = scene(
+      { summary: BEFORE, verdict: failV, env: { A: "1" } },
+      { summary: { ...BEFORE, errors: 3, p95_ms: 2800 }, verdict: passV, env: { A: "2" } },
+    );
+    expect(s.lines.map((l) => l.id)).toEqual([1, 2, 3, 4]);
+    for (const l of s.lines) expect(l.text).not.toMatch(/\((으|이|은|을)\)/);
   });
 
   it("같으면 4번 줄이 없다", () => {
