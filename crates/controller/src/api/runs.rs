@@ -1039,10 +1039,12 @@ pub(crate) async fn spawn_run(
     // unreachable) is an authoritative run-start failure: tear down the enqueued
     // coordinator state, mark the run `failed` with the cause, and surface a 5xx
     // — instead of returning 201 and letting the 60s watchdog fail it anonymously
-    // (codex eval, item 2).
+    // (codex eval, item 2). Failure goes through `fail_run_start`: an active run
+    // becomes `failed` with the cause and the call returns 5xx; a run that was
+    // already aborted is returned as it is.
     if let Err(e) = state.dispatcher.dispatch(&row.id, n).await {
         let message = format!("failed to dispatch workers: {e}");
-        tracing::error!(run_id = %row.id, error = %e, "worker dispatch failed; marking run failed");
+        tracing::error!(run_id = %row.id, error = %e, "worker dispatch failed");
         return fail_run_start(
             &state.coord,
             &state.db,
@@ -3653,8 +3655,6 @@ steps:
         scenario: crate::store::scenarios::ScenarioRow,
     ) -> Result<runs::RunRow, ApiError> {
         let mut holder = state.db.acquire().await.unwrap();
-        let spare = state.db.acquire().await.unwrap();
-        drop(spare);
         sqlx::query("BEGIN IMMEDIATE")
             .execute(&mut *holder)
             .await
