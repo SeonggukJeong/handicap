@@ -18,8 +18,8 @@ export function IssuesBox({
   const { shown, more } = issuesShown(doc, max);
   const hasItems = !doc.incomparable && shown.length > 0;
   return (
-    <section>
-      <SectionHeading no={no} title={V.titles.issues} />
+    <section className="p-cmp-issues-wrap">
+      <SectionHeading no={no} title={V.titles.issues} warn={hasItems} />
       <div
         className={
           hasItems ? "p-cmp-box p-cmp-issues p-cmp-issues--warn" : "p-cmp-box p-cmp-issues"

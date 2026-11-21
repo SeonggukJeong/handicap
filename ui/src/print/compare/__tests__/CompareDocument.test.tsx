@@ -140,6 +140,85 @@ describe("CompareDocument 표준판", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("결과 상자와 요약 문장은 한 .p-cmp-verdict 안에 나란히 있다", async () => {
+    const { root, container } = renderDoc(makeDoc());
+    await ready(root);
+    const verdict = container.querySelector(".p-page .p-cmp-verdict") as HTMLElement;
+    expect(verdict.querySelector(".p-cmp-vbox")).not.toBeNull();
+    expect(verdict.querySelector(".p-cmp-summary")).not.toBeNull();
+    expect(verdict.querySelectorAll(".p-cmp-summary li").length).toBe(makeDoc().lines.length);
+  });
+
+  it("종합 블록(cmp:headline)은 제목만, 결과 상자는 줄 블록 쪽에 있다", async () => {
+    const { container, root } = renderDoc(makeDoc());
+    const head = container.querySelector('.p-sheet [data-measure="cmp:headline"]') as HTMLElement;
+    expect(head.textContent).toContain("1. 종합");
+    expect(head.querySelector(".p-cmp-vbox")).toBeNull();
+    const full = container.querySelector('.p-sheet [data-measure="cmp:lines:full"]') as HTMLElement;
+    expect(full.querySelector(".p-cmp-verdict .p-cmp-vbox")).not.toBeNull();
+    expect(full.querySelector(".p-cmp-verdict .p-cmp-summary")).not.toBeNull();
+    await ready(root);
+  });
+
+  it("절 제목은 번호 뒤에 따로 띄어쓰기 글자 없이 번호 칸(2mm 여백)만 둔다", async () => {
+    const { root, container } = renderDoc(makeDoc());
+    await ready(root);
+    const h2 = screen.getByRole("heading", { name: "1. 종합" });
+    expect(h2.textContent).toBe("1. 종합");
+    const no = h2.querySelector(".p-cmp-no") as HTMLElement;
+    expect(no.textContent).toBe("1. ");
+    expect(h2.lastChild?.nodeType).toBe(Node.TEXT_NODE);
+    expect(h2.lastChild?.textContent).toBe("종합");
+    expect(container.querySelector(".p-sign")?.closest(".p-block")?.className).toBe("p-block");
+  });
+
+  it("남은 문제 상자: 항목이 있을 때만 ▲, 없음·비교 불가에는 없다", async () => {
+    const a = renderDoc({ ...makeDoc(), issues: ["문제 하나"] });
+    await ready(a.root);
+    const heading = within(a.container.querySelector(".p-cmp-issues-wrap") as HTMLElement);
+    expect(heading.getByRole("heading", { name: /남은 문제/ }).textContent).toContain("▲");
+    expect(a.container.querySelector(".p-cmp-issues .p-cmp-warn")).toBeNull();
+    a.unmount();
+
+    const b = renderDoc(makeDoc());
+    await ready(b.root);
+    expect(b.container.querySelector(".p-cmp-issues-wrap h2 .p-cmp-warn")).toBeNull();
+    b.unmount();
+
+    const c = renderDoc(makeDoc({ summary: { count: 0, errors: 0, rps: 0 } }));
+    await ready(c.root);
+    expect(c.container.querySelector(".p-cmp-issues-wrap h2 .p-cmp-warn")).toBeNull();
+  });
+
+  it("공정 비교 카드 넷의 제목이 글로 있다", async () => {
+    const doc = makeDoc();
+    const { root, container } = renderDoc(doc);
+    await ready(root);
+    const cards = [...container.querySelectorAll(".p-cmp-fair > div")];
+    expect(cards.length).toBe(4);
+    doc.fairness.cards.forEach((c, i) => expect(cards[i].textContent).toContain(c.title));
+    expect(doc.fairness.cards.map((c) => c.title)).toEqual([
+      "부하 조건",
+      "환경 변수",
+      "시나리오 내용",
+      "판정 기준",
+    ]);
+  });
+
+  it("실행 판정 글자의 색은 글자 모양이 아니라 판정 종류로 정해진다", async () => {
+    const base = makeDoc();
+    const doc: CompareDoc = {
+      ...base,
+      before: { ...base.before, verdictKind: "fail", verdictText: "가나다" },
+      after: { ...base.after, verdictKind: "pass", verdictText: "라마바" },
+    };
+    const { root, container } = renderDoc(doc);
+    await ready(root);
+    const runs = container.querySelectorAll(".p-page .p-cmp-run");
+    expect(runs[0].querySelector(".p-cmp-bad")?.textContent).toBe("가나다");
+    expect(runs[1].querySelector(".p-cmp-ok")?.textContent).toBe("라마바");
+  });
+
   it("절 번호는 1·2·3·4", async () => {
     const { root } = renderDoc(makeDoc());
     await ready(root);
@@ -295,6 +374,79 @@ describe("CompareDocument 요약판", () => {
     expect(within(box).getByText("외 2개 — 표준판 참조")).toBeInTheDocument();
     expect(box.querySelector("li > span")).toHaveClass("p-cmp-clamp2");
     expect(container.querySelector(".p-cmp-reason")).toHaveClass("p-cmp-clamp1");
+  });
+
+  it("요약판 깊은 칸: 쪽에 한 줄 공정 비교·짧은 요약·결과 상자·지표 6행·남은 문제가 있다", async () => {
+    spyHeights((id) =>
+      id === "cmp:kpi:bars" || id === "cmp:lines:full" || id === "cmp:cards" ? 200 : 20,
+    );
+    const onLadder = vi.fn();
+    const doc = makeDoc();
+    const { root, container } = renderDoc(doc, "summary", onLadder);
+    await ready(root);
+    await waitFor(() => expect(onLadder).toHaveBeenLastCalledWith(4));
+    const page = container.querySelector(".p-page") as HTMLElement;
+    expect(container.querySelectorAll(".p-page").length).toBe(1);
+    expect(page.querySelector(".p-cmp-fairline")?.textContent).toBe(doc.fairness.oneLine);
+    expect(page.querySelector(".p-cmp-fair")).toBeNull();
+    const verdict = page.querySelector(".p-cmp-verdict") as HTMLElement;
+    expect(verdict.querySelector(".p-cmp-vbox")).not.toBeNull();
+    const shown = [...verdict.querySelectorAll(".p-cmp-summary li")].map((li) => li.textContent);
+    expect(shown.length).toBe(doc.lines.filter((l) => l.id === 1 || l.id === 4).length);
+    expect(shown[0]).toContain(doc.lines.find((l) => l.id === 1)?.text);
+    expect(page.querySelectorAll(".p-cmp-kpi tbody tr").length).toBe(6);
+    expect(page.querySelector(".p-cmp-bar")).toBeNull();
+    expect(page.querySelector(".p-cmp-issues")).not.toBeNull();
+  });
+
+  it("줄 수 자르기 클래스는 요약판에만 붙는다", async () => {
+    const issues = ["문제 하나"];
+    const lines = [{ id: 1 as const, text: "본문", reasons: [{ side: "이전", text: "사유" }] }];
+    const clampSel = [
+      ".p-cmp-runlabel",
+      ".p-cmp-fairline",
+      ".p-cmp-starnote",
+      ".p-cmp-issues li > span",
+      ".p-cmp-reason",
+    ];
+    const base = starDoc();
+    expect(base.starNote).not.toBeNull();
+    const doc = { ...base, issues, lines };
+    const sum = renderDoc(doc, "summary");
+    await ready(sum.root);
+    // 한 줄 공정 비교는 깊은 칸에서만 그려지므로 같은 글 요소를 표준판 카드와 구분해 따로 확인한다.
+    for (const sel of clampSel.filter((x) => x !== ".p-cmp-fairline")) {
+      expect(sum.container.querySelector(`.p-page ${sel}`), sel).toHaveClass(
+        sel === ".p-cmp-issues li > span" ? "p-cmp-clamp2" : "p-cmp-clamp1",
+      );
+    }
+    sum.unmount();
+    const std = renderDoc(doc, "standard");
+    await ready(std.root);
+    for (const sel of clampSel.filter((x) => x !== ".p-cmp-fairline")) {
+      const el = std.container.querySelector(`.p-page ${sel}`);
+      expect(el, sel).not.toBeNull();
+      expect(el?.className ?? "", sel).not.toMatch(/p-cmp-clamp/);
+    }
+  });
+
+  it("한 줄 공정 비교도 요약판에서만 한 줄로 자른다", async () => {
+    spyHeights((id) =>
+      id === "cmp:kpi:bars" || id === "cmp:lines:full" || id === "cmp:cards" ? 200 : 20,
+    );
+    const { root, container } = renderDoc(makeDoc(), "summary");
+    await ready(root);
+    await waitFor(() =>
+      expect(container.querySelector(".p-page .p-cmp-fairline")).toHaveClass("p-cmp-clamp1"),
+    );
+  });
+
+  it("요약판 중간 칸: 결과 상자와 요약 문장이 한 .p-cmp-verdict 안에 있다", async () => {
+    const { root, container } = renderDoc(makeDoc(), "summary");
+    await ready(root);
+    const verdict = container.querySelector(".p-page .p-cmp-verdict") as HTMLElement;
+    expect(verdict.querySelector(".p-cmp-vbox")).not.toBeNull();
+    expect(verdict.querySelector(".p-cmp-summary")).not.toBeNull();
   });
 
   it("측정 시트: 사다리 칸 0..5의 모든 블록 id가 배치 전에 data-measure로 있다", async () => {

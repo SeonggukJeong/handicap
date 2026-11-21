@@ -16,7 +16,7 @@ import { CompareFooter } from "./components/CompareFooter";
 import { CompareHeader } from "./components/CompareHeader";
 import { CondTable, CondTitle } from "./components/CondTable";
 import { FairCards } from "./components/FairCards";
-import { HeadlineBox, SummaryLines } from "./components/HeadlineBox";
+import { HeadlineHeading, VerdictRow } from "./components/HeadlineBox";
 import { IssuesBox } from "./components/IssuesBox";
 import { KpiCompareTable, KpiNote } from "./components/KpiCompareTable";
 
@@ -36,11 +36,11 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
     case "cmp:header":
       return <CompareHeader doc={doc} clamp={clamp} />;
     case "cmp:headline":
-      return <HeadlineBox doc={doc} no={no.overview} />;
+      return <HeadlineHeading no={no.overview} />;
     case "cmp:lines:full":
-      return <SummaryLines doc={doc} short={false} clamp={clamp} />;
+      return <VerdictRow doc={doc} short={false} clamp={clamp} />;
     case "cmp:lines:short":
-      return <SummaryLines doc={doc} short clamp={clamp} />;
+      return <VerdictRow doc={doc} short clamp={clamp} />;
     case "cmp:cards":
       return <FairCards doc={doc} line={false} clamp={clamp} />;
     case "cmp:cards:line":
@@ -60,6 +60,7 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
 
 /** 블록 위 간격(padding-top)을 고르는 클래스 — 측정 시트와 쪽이 같은 규칙을 쓴다. */
 function blockClass(id: string): string {
+  if (id === "signature") return "p-block";
   if (id === "cmp:header") return "p-block p-block--header";
   if (id === "cmp:kpi:note") return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";

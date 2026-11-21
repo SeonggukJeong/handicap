@@ -58,6 +58,15 @@ describe("buildCompareDoc", () => {
     expect(d.headline.answer).toBe("improved");
   });
 
+  it("각 쪽 머리는 판정 종류(verdictKind)를 낱말과 함께 싣는다", () => {
+    const d = doc({ summary: { count: 0, errors: 0, rps: 0 } });
+    expect(d.before.verdictKind).toBe("notJudged");
+    expect(d.before.verdictText).not.toBe("");
+    expect(d.after.verdictKind).toBe(
+      sceneModel({ id: "01HAFTER0000def222", summary: AFTER }).box.kind,
+    );
+  });
+
   it("run 라벨은 공백이면 null, 있으면 앞뒤 공백을 뗀 값", () => {
     const d = doc({ meta: { label: "  " } }, { meta: { label: "  고친 뒤  " } });
     expect(d.before.label).toBeNull();

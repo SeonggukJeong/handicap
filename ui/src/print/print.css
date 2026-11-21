@@ -595,6 +595,7 @@
   padding-top: 1.5mm;
 }
 .p-root .p-cmp-no {
+  display: inline-block;
   color: var(--accent);
   margin-right: 2mm;
 }
@@ -659,8 +660,12 @@
 }
 
 /* 비교 결과 상자 */
+.p-root .p-cmp-verdict {
+  display: flex;
+  gap: 4mm;
+}
 .p-root .p-cmp-vbox {
-  margin-top: 3mm;
+  flex: 0 0 42mm;
   border: 2px solid var(--ok);
   background: var(--okbg);
   color: var(--ok);
@@ -712,6 +717,8 @@
 
 /* 요약 문장 */
 .p-root .p-cmp-summary {
+  flex: 1;
+  min-width: 0;
   border: 1px solid var(--line);
   padding: 2.5mm 4mm;
   border-radius: 2mm;
@@ -749,6 +756,7 @@
 }
 .p-root .p-cmp-fair > div {
   min-width: 0;
+  word-break: keep-all;
   overflow-wrap: anywhere;
   border: 1px solid var(--line);
   border-radius: 1.5mm;
@@ -781,14 +789,15 @@
 }
 
 /* 핵심 지표 표 */
-.p-root .p-cmp-kpi {
-  margin-top: 3mm;
-}
 .p-root .p-cmp-kpi th,
 .p-root .p-cmp-kpi td,
 .p-root .p-cmp-cond th,
 .p-root .p-cmp-cond td {
   padding: 1.3mm 1.8mm;
+}
+.p-root .p-cmp-kpi td[class*="p-cmp-chg--"] {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 .p-root .p-cmp-chg--better {
   background: var(--okbg);

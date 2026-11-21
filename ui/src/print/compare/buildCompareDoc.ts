@@ -5,6 +5,7 @@ import { runShortLabel } from "../../compare/runLabel";
 import { measuredWindow } from "../conditions";
 import { fmtDate } from "../format";
 import type { Block } from "../paginate";
+import type { BoxState } from "../verdict";
 import type { Heights } from "../buildPrintDoc";
 import { metricRows, type MetricRow } from "./change";
 import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } from "./errorCells";
@@ -26,6 +27,7 @@ export type SideHead = {
   shortId: string;
   window: string;
   verdictText: string;
+  verdictKind: BoxState["kind"];
 };
 
 export type CompareDoc = {
@@ -56,6 +58,7 @@ function sideHead(role: string, run: RunModel): SideHead {
     shortId: runShortLabel(meta.id),
     window: measuredWindow(meta.started_at, meta.ended_at, meta.status),
     verdictText: verdictWord(run.box),
+    verdictKind: run.box.kind,
   };
 }
 

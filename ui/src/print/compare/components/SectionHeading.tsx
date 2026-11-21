@@ -6,14 +6,22 @@ export function SectionHeading({
   no,
   title,
   continued,
+  warn,
 }: {
   no: string;
   title: string;
   continued?: boolean;
+  warn?: boolean;
 }) {
   return (
     <h2 className="p-h2">
-      <span className="p-cmp-no">{no}.</span> {title}
+      <span className="p-cmp-no">{no}. </span>
+      {warn && (
+        <>
+          <span className="p-cmp-warn">{V.fairDiffGlyph}</span>{" "}
+        </>
+      )}
+      {title}
       {continued ? V.continued : ""}
     </h2>
   );

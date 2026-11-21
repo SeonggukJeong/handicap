@@ -5,11 +5,13 @@ const D = ko.print.doc;
 const C = ko.print.cmp.doc;
 const V = ko.print.cmp.view;
 
-function verdictTone(text: string): string {
-  if (text.startsWith("✕")) return "p-cmp-bad";
-  if (text.startsWith("●")) return "p-cmp-ok";
-  return "p-cmp-same";
-}
+const VERDICT_TONE: Record<SideHead["verdictKind"], string> = {
+  fail: "p-cmp-bad",
+  pass: "p-cmp-ok",
+  notJudged: "p-cmp-same",
+  notEvaluable: "p-cmp-same",
+  noCriteria: "p-cmp-same",
+};
 
 function RunBox({ head, after, clamp }: { head: SideHead; after: boolean; clamp: boolean }) {
   return (
@@ -23,7 +25,7 @@ function RunBox({ head, after, clamp }: { head: SideHead; after: boolean; clamp:
       {head.shortId}
       <br />
       {head.window} · {V.verdictPrefix}{" "}
-      <span className={verdictTone(head.verdictText)}>{head.verdictText}</span>
+      <span className={VERDICT_TONE[head.verdictKind]}>{head.verdictText}</span>
     </div>
   );
 }
