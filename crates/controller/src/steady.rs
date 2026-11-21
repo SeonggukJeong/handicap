@@ -101,7 +101,7 @@ pub fn normalize_steady(p: &mut Profile) -> Result<(), String> {
     if p.target_rps.is_some() {
         if c.ramp_seconds != 0 {
             return Err(
-                "도착률 고정에 상승 시간을 쓰려면 steady.target과 max_in_flight가 필요합니다"
+                "도착률 고정에 상승 시간을 쓰려면 target_rps 대신 steady.target을 넣어야 합니다"
                     .into(),
             );
         }
@@ -190,15 +190,10 @@ fn ceil_sec(ms: i64) -> i64 {
     ms.div_euclid(1000) + i64::from(ms.rem_euclid(1000) > 0)
 }
 
-/// 일한 워커(메트릭 행이 있는 워커)마다 시작 시각 기준 [lo, hi) 초를 구해 공통 구간을 낸다.
-/// `ended_at_ms`: completed가 아닐 때의 끝(없으면 마지막 메트릭 초의 끝).
-pub fn steady_window(
-    cfg: &SteadyConfig,
-    completed: bool,
-    ended_at_ms: Option<i64>,
+/// 워커별 (첫, 마지막) 메트릭 초. 키 = 메트릭 행이 있는 워커 id(서로 다름).
+pub fn worker_spans(
     rows: &[crate::store::metrics::WindowWithHdr],
-    starts: &[crate::store::open_loop::WorkerStartRow],
-) -> SteadyWindow {
+) -> std::collections::HashMap<&str, (i64, i64)> {
     let mut span: std::collections::HashMap<&str, (i64, i64)> = std::collections::HashMap::new();
     for r in rows {
         let e = span
@@ -207,6 +202,31 @@ pub fn steady_window(
         e.0 = e.0.min(r.ts_second);
         e.1 = e.1.max(r.ts_second);
     }
+    span
+}
+
+/// `rows`에서 `worker_spans`를 구해 `steady_window_from_spans`를 부른다.
+#[cfg(test)]
+pub fn steady_window(
+    cfg: &SteadyConfig,
+    completed: bool,
+    ended_at_ms: Option<i64>,
+    rows: &[crate::store::metrics::WindowWithHdr],
+    starts: &[crate::store::open_loop::WorkerStartRow],
+) -> SteadyWindow {
+    steady_window_from_spans(cfg, completed, ended_at_ms, &worker_spans(rows), starts)
+}
+
+/// 일한 워커(`span` 키)마다 시작 시각 기준 [lo, hi) 초를 구해 공통 구간을 낸다.
+/// `ended_at_ms`: run의 끝 시각. completed가 아니면 끝(없으면 마지막 메트릭 초의 끝),
+/// completed이면 있을 때만 `floor(ended_at_ms / 1000)`로 예정 끝을 줄인다(없으면 예정 끝).
+pub fn steady_window_from_spans(
+    cfg: &SteadyConfig,
+    completed: bool,
+    ended_at_ms: Option<i64>,
+    span: &std::collections::HashMap<&str, (i64, i64)>,
+    starts: &[crate::store::open_loop::WorkerStartRow],
+) -> SteadyWindow {
     let state_of = |found: bool| match (completed, found) {
         (true, true) => BasisState::Measured,
         (true, false) => BasisState::NoCommonWindow,
@@ -223,7 +243,7 @@ pub fn steady_window(
 
     let last_metric = span.values().map(|s| s.1).max().unwrap_or(0);
     let end_sec = if completed {
-        None
+        ended_at_ms.map(|ms| ms.div_euclid(1000))
     } else {
         let end_ms =
             ended_at_ms.unwrap_or_else(|| last_metric.saturating_add(1).saturating_mul(1000));
@@ -235,7 +255,7 @@ pub fn steady_window(
     let mut estimated = false;
     let mut lo = i64::MIN;
     let mut hi = i64::MAX;
-    for (worker, (first, last)) in &span {
+    for (worker, (first, last)) in span {
         let known = starts
             .iter()
             .find(|s| s.worker_id == *worker)
@@ -403,6 +423,10 @@ mod tests {
             m(&mut p);
             assert!(normalize_steady(&mut p).is_err());
         }
+        let mut p = open_discard();
+        p.steady = Some(sc(10, 60, 5, None));
+        let e = normalize_steady(&mut p).unwrap_err();
+        assert!(e.contains("target_rps 대신"), "{e}");
     }
 
     #[test]
@@ -670,6 +694,32 @@ mod window_tests {
             &default_cfg(),
             true,
             None,
+            &rows("w1", 100..=136),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((115, 140)));
+        assert_eq!(w.state, BasisState::Measured);
+    }
+
+    #[test]
+    fn completed_run_that_ended_early_is_capped_at_ended_at() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            Some(125_000),
+            &rows("w1", 100..=124),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((115, 125)));
+        assert_eq!(w.state, BasisState::Measured);
+    }
+
+    #[test]
+    fn completed_run_ending_after_plan_is_not_shrunk() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            Some(140_600),
             &rows("w1", 100..=136),
             &[start("w1", 100_000)],
         );

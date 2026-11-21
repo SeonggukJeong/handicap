@@ -2329,7 +2329,7 @@ async fn ingest_metrics(
             run_id = %batch.run_id,
             worker_id = %batch.worker_id,
             started_at_ms = batch.open_loop_started_at_ms,
-            "dropping open-loop start far from controller clock"
+            "dropping worker start time far from controller clock"
         );
     } else if batch.open_loop_started_at_ms > 0 {
         if let Err(e) = crate::store::open_loop::insert_worker_start(

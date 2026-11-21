@@ -588,7 +588,7 @@ pub fn build_report(
     // step attribution isn't surfaced in the report (spec §3.1/§9.2, counts-only)
     // — except `blank_var`, which is surfaced per step as `ReportStep.not_sent`.
     let mut kind_totals: BTreeMap<String, u64> = BTreeMap::new();
-    // blank_var(보내지 않은 요청)은 스텝별로도 모아 ReportStep.not_sent에 싣는다.
+    // blank_var(보내지 않은 요청)은 스텝별로도 모아 범위가 없을 때 ReportStep.not_sent에 싣는다.
     let mut not_sent_by_step: BTreeMap<String, u64> = BTreeMap::new();
     for r in error_kinds {
         let n = r.count.max(0) as u64;
@@ -661,8 +661,9 @@ pub fn build_report(
     let mut window_acc: BTreeMap<(i64, String), WindowAcc> = BTreeMap::new();
     let mut overall = fresh_hist();
     let mut per_step: BTreeMap<String, Histogram<u64>> = BTreeMap::new();
-    // (count, error_count, status_counts)
-    let mut per_step_count: BTreeMap<String, (u64, u64, BTreeMap<String, u64>)> = BTreeMap::new();
+    // (count, error_count, status_counts, 범위가 있을 때 응답 수 합 Σ status_counts)
+    let mut per_step_count: BTreeMap<String, (u64, u64, BTreeMap<String, u64>, u64)> =
+        BTreeMap::new();
     let mut status_dist: BTreeMap<String, u64> = BTreeMap::new();
     let mut total_count: u64 = 0;
     let mut total_errors: u64 = 0;
@@ -744,6 +745,9 @@ pub fn build_report(
         step_acc.0 += r.count as u64;
         step_acc.1 += r.error_count as u64;
         add_status(&mut step_acc.2, &sc);
+        if scope.is_some() {
+            step_acc.3 += sc.values().sum::<u64>();
+        }
     }
 
     // Emit one window per (ts_second, step_id) — BTreeMap iterates sorted by (ts, step),
@@ -1008,7 +1012,7 @@ pub fn build_report(
 
     let mut steps: Vec<ReportStep> = per_step_count
         .into_iter()
-        .map(|(step_id, (count, errors, status_counts))| {
+        .map(|(step_id, (count, errors, status_counts, responded))| {
             let p = per_step
                 .get(&step_id)
                 .map(percentiles_of)
@@ -1017,7 +1021,13 @@ pub fn build_report(
             let download = download_by_step.remove(&step_id);
             let wait = wait_by_step.remove(&step_id);
             let loop_split = split_by_step.remove(&step_id);
-            let not_sent = not_sent_by_step.get(&step_id).copied();
+            // 보내지 않은 요청은 건수에만 들어가고 status 칸이 없으므로(엔진 `record_not_sent`)
+            // 범위 안 값은 건수 − 응답 수다. 범위가 없으면 blank_var 오류 종류의 run 전체 합.
+            let not_sent = if scope.is_some() {
+                Some(count.saturating_sub(responded)).filter(|n| *n > 0)
+            } else {
+                not_sent_by_step.get(&step_id).copied()
+            };
             ReportStep {
                 step_id,
                 count,
@@ -2047,10 +2057,61 @@ mod tests {
         let j = |r: &ReportJson| serde_json::to_value(&r.steps[0]).unwrap();
         let (a, b) = (j(&rep), j(&whole));
         assert!(!a["loop_breakdown"].as_array().unwrap().is_empty());
-        for k in ["loop_breakdown", "download", "not_sent"] {
+        for k in ["loop_breakdown", "download"] {
             assert!(!a[k].is_null(), "{k}");
             assert_eq!(a[k], b[k], "{k}");
         }
+    }
+
+    /// 초 100..=109는 초당 10건 중 `ramp_200`건 응답, 110..=129는 초당 10건 중 `window_200`건 응답.
+    /// 응답 없는 건(보내지 않음)은 건수·오류에만 들어간다.
+    fn rows_not_sent(ramp_200: i64, window_200: i64) -> Vec<WindowWithHdr> {
+        let mut v = Vec::new();
+        for ts in 100..=109 {
+            let sc = format!(r#"{{"200":{ramp_200}}}"#);
+            v.push(steady_row(ts, "a", "w", 10, 10 - ramp_200, &sc, 20_000));
+        }
+        for ts in 110..=129 {
+            let sc = format!(r#"{{"200":{window_200}}}"#);
+            v.push(steady_row(ts, "a", "w", 10, 10 - window_200, &sc, 20_000));
+        }
+        v
+    }
+
+    fn blank_var(count: i64) -> [crate::store::metrics::ErrorKindRow; 1] {
+        [crate::store::metrics::ErrorKindRow {
+            run_id: "R1".into(),
+            step_id: "a".into(),
+            kind: "blank_var".into(),
+            count,
+        }]
+    }
+
+    #[test]
+    fn steady_not_sent_counts_window_only() {
+        let run = steady_run(130);
+        let rows = rows_not_sent(4, 9);
+        let kinds = blank_var(80);
+        let whole = build_steady(&run, &rows, &[], &[], &kinds, None);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &kinds, Some(&sc));
+        assert_eq!(rep.steps[0].count, 200);
+        assert_eq!(rep.steps[0].not_sent, Some(20));
+        assert_eq!(whole.steps[0].not_sent, Some(80));
+    }
+
+    #[test]
+    fn steady_not_sent_absent_when_window_has_none() {
+        let run = steady_run(130);
+        let rows = rows_not_sent(4, 10);
+        let kinds = blank_var(60);
+        let whole = build_steady(&run, &rows, &[], &[], &kinds, None);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &kinds, Some(&sc));
+        assert_eq!(rep.steps[0].not_sent, None);
+        assert_eq!(whole.steps[0].not_sent, Some(60));
+        let j = serde_json::to_value(&rep.steps[0]).unwrap();
+        assert!(!j.as_object().unwrap().contains_key("not_sent"));
     }
 
     #[test]

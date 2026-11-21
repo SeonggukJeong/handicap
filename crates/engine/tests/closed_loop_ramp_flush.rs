@@ -66,7 +66,6 @@ async fn metrics_flow_during_ramp_up() {
     ));
     let first = rx.recv().await.expect("a flush");
     let elapsed = started.elapsed();
-    eprintln!("first flush at {elapsed:?}");
     assert!(
         elapsed < Duration::from_millis(2500),
         "첫 flush가 상승이 끝난 뒤({elapsed:?})에야 왔다"

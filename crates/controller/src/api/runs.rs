@@ -1138,6 +1138,11 @@ pub async fn metrics(
 /// Fetch a run's metrics and build its full report. Shared by the `report`
 /// JSON handler, single-run export, and N-run comparison export. Returns
 /// `NotFound` if the run id doesn't exist.
+///
+/// `basis: None` selects the default basis. For a run with `steady` whose steady
+/// window exists the default is the steady report; otherwise (window empty) it is
+/// the whole-run report. For a run without `steady` the argument is ignored and the
+/// report has no `basis` block.
 pub async fn build_report_for_run(
     db: &crate::store::Db,
     run_id: &str,
@@ -1222,11 +1227,12 @@ pub async fn build_report_for_run(
     };
 
     use crate::steady::{Basis, BasisBlock, BasisOther, BasisWindow};
-    let w = crate::steady::steady_window(
+    let spans = crate::steady::worker_spans(&rows);
+    let w = crate::steady::steady_window_from_spans(
         &cfg,
         row.status == RunStatus::Completed,
         row.ended_at,
-        &rows,
+        &spans,
         &starts,
     );
     let mut dropped_whole_run = false;
@@ -1239,29 +1245,26 @@ pub async fn build_report_for_run(
             .unwrap_or(0)
             .saturating_sub(cfg.ramp_seconds + cfg.discard_seconds);
         let target = cfg.target.or(row.profile.target_rps);
-        let in_window: Vec<crate::store::open_loop::OpenLoopSecondRow> = open_loop_rows
-            .iter()
-            .filter(|r| r.ts_second >= lo && r.ts_second < hi)
-            .cloned()
-            .collect();
+        let in_window = || {
+            open_loop_rows
+                .iter()
+                .filter(move |r| r.ts_second >= lo && r.ts_second < hi)
+        };
         let counted_workers: std::collections::HashSet<&str> = open_loop_rows
             .iter()
             .map(|r| r.worker_id.as_str())
             .collect();
-        let recountable = rows
-            .iter()
-            .all(|r| counted_workers.contains(r.worker_id.as_str()));
+        let recountable = spans.keys().all(|w| counted_workers.contains(w));
         dropped_whole_run = row.profile.is_open_loop() && !recountable;
         let totals = if recountable {
-            crate::store::open_loop::sum_by_second(&in_window)
+            crate::store::open_loop::sum_by_second(in_window())
         } else {
             Vec::new()
         };
         let open_loop = target.filter(|_| row.profile.is_open_loop()).map(|target| {
             crate::report::ScopedOpenLoop {
                 target,
-                dropped: recountable
-                    .then(|| in_window.iter().map(|r| r.dropped.max(0) as u64).sum()),
+                dropped: recountable.then(|| in_window().map(|r| r.dropped.max(0) as u64).sum()),
                 totals: &totals,
             }
         });

@@ -93,7 +93,9 @@ pub struct OpenLoopTotal {
 }
 
 /// 워커별 행을 초별로 더한다(`ts_second` 오름차순).
-pub fn sum_by_second(rows: &[OpenLoopSecondRow]) -> Vec<OpenLoopTotal> {
+pub fn sum_by_second<'a>(
+    rows: impl IntoIterator<Item = &'a OpenLoopSecondRow>,
+) -> Vec<OpenLoopTotal> {
     let mut acc: std::collections::BTreeMap<i64, OpenLoopTotal> = std::collections::BTreeMap::new();
     for r in rows {
         let e = acc.entry(r.ts_second).or_insert(OpenLoopTotal {

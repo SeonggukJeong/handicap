@@ -812,7 +812,6 @@ async fn steady_run_defaults_to_steady_basis() {
     assert_eq!(b["window"]["start_ms"], T0 + 15_000);
     assert_eq!(json["summary"]["duration_seconds"], 25);
     assert!(b["other"]["count"].as_u64().unwrap() > json["summary"]["count"].as_u64().unwrap());
-    eprintln!("BASIS_SAMPLE {}", json["basis"]);
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
 }
 
@@ -880,7 +879,20 @@ async fn aborted_before_window_falls_back_to_whole() {
     assert_eq!(b["state"], "not_reached");
     assert!(b["window"].is_null());
     assert!(b.contains_key("other") && b["other"].is_null());
-    eprintln!("BASIS_NULL_SAMPLE {}", json["basis"]);
+}
+
+#[tokio::test]
+async fn completed_run_that_ended_early_is_measured_up_to_ended_at() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut s = SteadySeed::closed();
+    s.ended_ms = T0 + 25_000;
+    s.seconds = 25;
+    let id = seed_steady(&db, s).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(json["basis"]["state"], "measured");
+    assert_eq!(json["basis"]["window"]["measured_seconds"], 10);
+    assert_eq!(json["basis"]["window"]["end_ms"], T0 + 25_000);
+    assert_eq!(json["summary"]["duration_seconds"], 10);
 }
 
 #[tokio::test]
@@ -955,6 +967,49 @@ async fn open_loop_steady_without_second_counts_marks_whole_run() {
     let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
     assert_eq!(json["basis"]["dropped_whole_run"], true);
     assert_eq!(json["dropped"], 30);
+}
+
+#[tokio::test]
+async fn open_loop_whole_basis_equals_report_without_steady() {
+    use handicap_controller::store::open_loop::insert_open_loop_seconds;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let with = seed_steady(&db, open_steady_seed()).await;
+    let mut plain = open_steady_seed();
+    plain.profile = serde_json::json!({
+        "max_in_flight": 50,
+        "stages": [
+            {"target": 10, "duration_seconds": 10},
+            {"target": 10, "duration_seconds": 30}
+        ]
+    });
+    let without = seed_steady(&db, plain).await;
+    let base = T0 / 1000;
+    let second_worker: Vec<(i64, i64, i64, i64)> = (0..40)
+        .map(|o| (base + o, 4, 3, if o % 7 == 0 { 2 } else { 0 }))
+        .collect();
+    for id in [&with, &without] {
+        seed_open_counts(&db, id).await;
+        insert_open_loop_seconds(&db, id, "w1", &second_worker)
+            .await
+            .unwrap();
+    }
+    let mut a = report_json(&db, &format!("/api/runs/{with}/report?basis=whole")).await;
+    let mut b = report_json(&db, &format!("/api/runs/{without}/report")).await;
+    assert!(
+        a["insights"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["kind"] == "load_gen_saturated"),
+        "{}",
+        a["insights"]
+    );
+    for v in [&mut a, &mut b] {
+        let o = v.as_object_mut().unwrap();
+        o.remove("basis");
+        o.remove("run");
+    }
+    assert_eq!(a, b);
 }
 
 #[tokio::test]
