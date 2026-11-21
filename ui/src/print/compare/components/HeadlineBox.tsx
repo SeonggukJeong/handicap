@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { ko } from "../../../i18n/ko";
 import type { CompareDoc } from "../buildCompareDoc";
 import type { Answer } from "../headline";
-import type { LinePart, LineTone } from "../lineParts";
+import type { LinePart, LineTone } from "../../../i18n/lineParts";
 import { SectionHeading } from "./SectionHeading";
 
 const H = ko.print.cmp.headline;

@@ -430,7 +430,10 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     optional: boolean,
   ) => {
     if (optional && b === null && a === null) return;
-    condRows.push({ label, before: b ?? C.none, after: a ?? C.none, differs });
+    const before = b ?? C.none;
+    const after = a ?? C.none;
+    const needsTag = differs && before === after && before !== C.differs;
+    condRows.push({ label, before, after: needsTag ? after + C.differsTag : after, differs });
   };
   if (pa && pb) {
     const optional = new Set<ItemKey>([

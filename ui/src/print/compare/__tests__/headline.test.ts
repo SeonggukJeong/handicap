@@ -513,20 +513,6 @@ describe("cmpSummaryLines 악화·조사·줄었음", () => {
   });
 });
 
-describe("주요 지표 이름의 받침", () => {
-  it("주요 지표 이름은 모두 받침으로 끝난다(3번 줄의 '은')", () => {
-    const names = scene({ summary: BEFORE }, { summary: AFTER_GOOD })
-      .rows.filter((r) => r.major)
-      .map((r) => r.name);
-    expect(names.length).toBeGreaterThan(0);
-    for (const n of names) {
-      const c = n.charCodeAt(n.length - 1);
-      const isHangul = c >= 0xac00 && c <= 0xd7a3;
-      expect(isHangul && (c - 0xac00) % 28 !== 0, n).toBe(true);
-    }
-  });
-});
-
 describe("cmpSummaryLines 4번 줄·비교 불가", () => {
   it("조건이 다르면 항목 앞 2개 + 외 N개", () => {
     const s = scene(

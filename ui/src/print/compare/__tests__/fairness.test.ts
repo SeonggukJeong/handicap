@@ -40,9 +40,18 @@ function expectDiffersWhenTextDiffers(f: Fairness): void {
   }
 }
 
+function expectTextDiffersWhenDiffers(f: Fairness): void {
+  for (const r of f.condRows) {
+    if (!r.differs) continue;
+    const valueless = r.before === "다름" && r.after === "다름";
+    expect(valueless || r.before !== r.after, `${r.label}: ${r.before} / ${r.after}`).toBe(true);
+  }
+}
+
 const fair = (a: Opts = {}, b: Opts = {}): Fairness => {
   const f = buildFairness(model("b", a), model("a", b));
   expectDiffersWhenTextDiffers(f);
+  expectTextDiffersWhenDiffers(f);
   return f;
 };
 const card = (f: Fairness, key: string) => {
@@ -160,6 +169,44 @@ describe("부하 조건", () => {
       { profile: prof({ connect_timeout_seconds: 5, think_time: { min_ms: 100, max_ms: 200 } }) },
     );
     expect(card(f, "load").line).toBe("단계 사이 쉼 · 연결 제한 시간 다름");
+  });
+
+  it("같은 정책에 데이터셋만 바뀌면 같은 글이어도 뒤쪽 칸에 다름 표지가 붙는다", () => {
+    const b = (id: string) => ({ dataset_id: id, policy: "per_vu", mappings: [] });
+    const f = fair(
+      { profile: prof({ data_binding: b("ds1") }) },
+      { profile: prof({ data_binding: b("ds2") }) },
+    );
+    const row = f.condRows.find((r) => r.label === "데이터 연결");
+    expect(row?.differs).toBe(true);
+    expect(row?.after.endsWith(" · 다름")).toBe(true);
+    expect(row?.before.endsWith("다름")).toBe(false);
+  });
+
+  it("반올림하면 같게 찍히는 단계 사이 쉼도 다름 표지가 붙는다", () => {
+    const f = fair(
+      { profile: prof({ think_time: { min_ms: 1000, max_ms: 2000 } }) },
+      { profile: prof({ think_time: { min_ms: 1004, max_ms: 2004 } }) },
+    );
+    const row = f.condRows.find((r) => r.label === "단계 사이 쉼");
+    expect(row?.differs).toBe(true);
+    expect(row?.before).toBe("1.0초–2.0초 무작위");
+    expect(row?.after).toBe("1.0초–2.0초 무작위 · 다름");
+  });
+
+  it("단계 길이만 달라 같은 글로 찍히는 크기 행에도 다름 표지가 붙는다", () => {
+    const curve = (d: number) => ({
+      target_rps: undefined,
+      stages: [
+        { target: 10, duration_seconds: d },
+        { target: 50, duration_seconds: 30 },
+      ],
+    });
+    const f = fair({ profile: prof(curve(30)) }, { profile: prof(curve(60)) });
+    const size = f.condRows.find((r) => r.label === "초당 목표");
+    expect(size?.differs).toBe(true);
+    expect(size?.before).not.toMatch(/다름/);
+    expect(size?.after).toBe(`${size?.before} · 다름`);
   });
 
   it("think_seed만 다르면 같다", () => {

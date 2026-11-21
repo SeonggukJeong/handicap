@@ -1,6 +1,6 @@
 import type { BindingPolicy } from "../api/schemas";
-import { josa } from "../print/compare/josa";
-import { plain, strong, type LinePart } from "../print/compare/lineParts";
+import { josa } from "./josa";
+import { plain, strong, type LinePart } from "./lineParts";
 
 /**
  * UI 한국어 메시지 카탈로그 (ADR-0035).
@@ -2577,6 +2577,7 @@ export const ko = {
       cond: {
         none: "–",
         differs: "다름",
+        differsTag: " · 다름",
         unreadable: "읽을 수 없음",
         envCount: "환경 변수 개수",
         envCountDiff: (n: number, keys: number) => `${n}개 · 다른 키 ${keys}개`,

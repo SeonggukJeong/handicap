@@ -892,7 +892,7 @@
 /* 비교 보고서 꼬리말: 제목만 한 줄 말줄임, 측정 번호·가운데 글·쪽 번호는 줄지 않는다 */
 .p-root .p-cmp-foot-left {
   display: flex;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .p-root .p-cmp-foot-title {

@@ -4,7 +4,14 @@ import type { BoxState } from "../verdict";
 import type { MetricRow } from "./change";
 import { codeText, type biggestCodeChange } from "./errorCells";
 import type { Fairness } from "./fairness";
-import { joinParts, partsText, plain, strong, type LinePart, type LineTone } from "./lineParts";
+import {
+  joinParts,
+  partsText,
+  plain,
+  strong,
+  type LinePart,
+  type LineTone,
+} from "../../i18n/lineParts";
 import type { RunModel } from "./runModel";
 
 const H = ko.print.cmp.headline;
