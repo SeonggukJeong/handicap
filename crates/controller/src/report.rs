@@ -63,6 +63,9 @@ pub struct ReportJson {
     /// 응답 속도 구간 건수(인쇄 보고서 3절). 표본이 없으면 키 자체를 내지 않는다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_bands: Option<crate::speed_bands::SpeedBands>,
+    /// 집계 기준(유지 구간 설정이 있는 run만). 없으면 키 자체를 내지 않는다(byte-identical).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<crate::steady::BasisBlock>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -792,8 +795,9 @@ pub fn build_report(
     // Convert to seconds for the report; keep ms for rps so sub-second resolution survives.
     // 시작 시각이 없는 run(부하 시작 전 중단 등)은 측정 구간(첫~마지막 창, 양끝 포함)으로,
     // 끝 시각이 없는 실행 중 run은 0으로 둔다 — 0 기준 뺄셈은 epoch 기준 값이나 음수를 낳는다.
-    let duration_ms = match (scope, run.started_at, run.ended_at) {
-        (Some(s), _, _) => s.hi.saturating_sub(s.lo).max(0).saturating_mul(1_000),
+    let scoped_seconds = scope.map(|s| s.hi.saturating_sub(s.lo).max(0));
+    let duration_ms = match (scoped_seconds, run.started_at, run.ended_at) {
+        (Some(secs), _, _) => secs.saturating_mul(1_000),
         (None, Some(s), Some(e)) => e.saturating_sub(s).max(0),
         (None, None, _) => match (
             rows.iter().map(|w| w.ts_second).min(),
@@ -1068,10 +1072,10 @@ pub fn build_report(
     };
     let open = scope.and_then(|s| s.open_loop.as_ref().map(|o| (s, o)));
     let (insight_dropped, insight_target, insight_scheduled) = match open {
-        Some((s, o)) => (
+        Some((_, o)) => (
             o.dropped.unwrap_or(0),
             Some(o.target),
-            Some(f64::from(o.target) * s.hi.saturating_sub(s.lo) as f64),
+            Some(f64::from(o.target) * scoped_seconds.unwrap_or(0) as f64),
         ),
         None => (
             run.dropped as u64,
@@ -1103,7 +1107,11 @@ pub fn build_report(
     );
     crate::insights::refine_saturation_stall(
         &mut insights,
-        open.map_or(open_loop_totals, |(_, o)| o.totals),
+        match (scope, open) {
+            (_, Some((_, o))) => o.totals,
+            (Some(_), None) => &[],
+            (None, None) => open_loop_totals,
+        },
         run.profile.max_in_flight,
     );
     if let (Some(first_scoped), Some(first_all)) = (scoped_windows.first(), windows.first()) {
@@ -1291,6 +1299,7 @@ pub fn build_report(
         narrative,
         stair,
         speed_bands,
+        basis: None,
     }
 }
 
@@ -1917,6 +1926,42 @@ mod tests {
         let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
         assert_eq!(rep.dropped, 0);
         assert!(insight_of(&rep, "load_gen_saturated").is_none());
+    }
+
+    #[test]
+    fn steady_open_loop_scheduled_uses_target_times_window() {
+        use handicap_engine::Stage;
+        let mut run = open_run();
+        run.profile.target_rps = None;
+        run.profile.stages = Some(vec![
+            Stage {
+                target: 10,
+                duration_seconds: 10,
+            },
+            Stage {
+                target: 10,
+                duration_seconds: 20,
+            },
+        ]);
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let totals = open_totals(110, 130);
+        let sc = SteadyScope {
+            lo: 110,
+            hi: 130,
+            warmup_seconds: 0,
+            open_loop: Some(ScopedOpenLoop {
+                target: 10,
+                dropped: Some(100),
+                totals: &totals,
+            }),
+            whole: &whole,
+        };
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        let sat = insight_of(&rep, "load_gen_saturated").expect("창 안 포화");
+        // 예정 200 (= 10 × 20초), 버림 100 → 달성 5/s → 필요 슬롯 ceil(10 × 5 ÷ 5) = 10
+        assert_eq!(sat.achieved_per_sec, Some(5.0));
+        assert_eq!(sat.recommended, Some(10.0));
     }
 
     #[test]

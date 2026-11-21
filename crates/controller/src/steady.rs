@@ -141,6 +141,43 @@ pub enum BasisState {
     NoCommonWindow,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Basis {
+    Steady,
+    Whole,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BasisWindow {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub measured_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BasisOther {
+    pub rps: f64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
+    pub error_rate: f64,
+    pub count: u64,
+    pub duration_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BasisBlock {
+    pub selected: Basis,
+    pub default: Basis,
+    pub state: BasisState,
+    pub config: SteadyConfig,
+    pub window: Option<BasisWindow>,
+    pub t0_estimated: bool,
+    pub dropped_whole_run: bool,
+    pub other: Option<BasisOther>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SteadyWindow {
     /// ts_second 반열린 구간 [lo, hi). 창이 비면 None.
@@ -170,17 +207,18 @@ pub fn steady_window(
         e.0 = e.0.min(r.ts_second);
         e.1 = e.1.max(r.ts_second);
     }
-    let empty = |t0_estimated| SteadyWindow {
-        range: None,
-        state: if completed {
-            BasisState::NoCommonWindow
-        } else {
-            BasisState::NotReached
-        },
-        t0_estimated,
+    let state_of = |found: bool| match (completed, found) {
+        (true, true) => BasisState::Measured,
+        (true, false) => BasisState::NoCommonWindow,
+        (false, true) => BasisState::Partial,
+        (false, false) => BasisState::NotReached,
     };
     if span.is_empty() {
-        return empty(false);
+        return SteadyWindow {
+            range: None,
+            state: state_of(false),
+            t0_estimated: false,
+        };
     }
 
     let last_metric = span.values().map(|s| s.1).max().unwrap_or(0);
@@ -219,15 +257,9 @@ pub fn steady_window(
     }
 
     let range = (lo < hi).then_some((lo, hi));
-    let state = match (completed, range.is_some()) {
-        (true, true) => BasisState::Measured,
-        (true, false) => BasisState::NoCommonWindow,
-        (false, true) => BasisState::Partial,
-        (false, false) => BasisState::NotReached,
-    };
     SteadyWindow {
         range,
-        state,
+        state: state_of(range.is_some()),
         t0_estimated: estimated,
     }
 }
@@ -697,6 +729,21 @@ mod window_tests {
         );
         assert_eq!(w.range, Some((115, 125)));
         assert_eq!(w.state, BasisState::Partial);
+    }
+
+    #[test]
+    fn aborted_run_with_start_gap_larger_than_hold_is_not_reached() {
+        let mut r = rows("w1", 100..=159);
+        r.extend(rows("w2", 130..=159));
+        let w = steady_window(
+            &default_cfg(),
+            false,
+            Some(160_000),
+            &r,
+            &[start("w1", 100_000), start("w2", 130_000)],
+        );
+        assert_eq!(w.range, None);
+        assert_eq!(w.state, BasisState::NotReached);
     }
 
     #[test]

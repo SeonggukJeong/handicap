@@ -1437,7 +1437,7 @@ impl CoordinatorState {
     /// 빌드 실패는 finalize를 막지 않는다(run은 이미 Completed) — warn! + skip(배지가 NULL로
     /// 남을 뿐, run은 Completed).
     async fn persist_verdict(&self, run_id: &str) {
-        match crate::api::runs::build_report_for_run(&self.db, run_id).await {
+        match crate::api::runs::build_report_for_run(&self.db, run_id, None).await {
             Ok(report) => {
                 if let Some(verdict) = &report.verdict {
                     if let Err(e) = runs::set_verdict(&self.db, run_id, verdict).await {
@@ -2731,6 +2731,106 @@ mod tests {
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Failed);
         assert!(row.verdict.is_none(), "Failed run never gets a verdict");
+    }
+
+    /// 앞 15초는 느리고(p95 500 ms) 뒤 25초는 빠른(20 ms) 메트릭을 가진 완료 run의 영속 verdict.
+    async fn persisted_verdict_for_ramp_run(steady: Option<crate::steady::SteadyConfig>) -> bool {
+        const T0_MS: i64 = 1_700_000_000_000;
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario_yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(scenario_yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(&db, &sc, scenario_yaml)
+            .await
+            .unwrap();
+        let profile = runs::Profile {
+            vus: 4,
+            ramp_up_seconds: 10,
+            duration_seconds: 40,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            data_bindings: vec![],
+            criteria: Some(runs::Criteria {
+                max_p95_ms: Some(100),
+                ..Default::default()
+            }),
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+            measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
+            graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
+            worker_count: None,
+            apply_scenario_think_time: true,
+            stair: None,
+            steady,
+        };
+        let run_id = runs::insert(
+            &db,
+            &scenario.id,
+            scenario_yaml,
+            &profile,
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+        crate::store::open_loop::insert_worker_start(&db, &run_id, "w0", T0_MS)
+            .await
+            .unwrap();
+        let rows: Vec<crate::store::metrics::MetricRow> = (0..40)
+            .map(|o| {
+                let slow = o < 15;
+                crate::store::metrics::MetricRow {
+                    run_id: run_id.clone(),
+                    ts_second: T0_MS / 1000 + o,
+                    step_id: "s".to_string(),
+                    worker_id: "w0".to_string(),
+                    count: if slow { 2 } else { 10 },
+                    error_count: 0,
+                    hdr_histogram: hdr_bytes(if slow { 500_000 } else { 20_000 }),
+                    status_counts: r#"{"200":1}"#.to_string(),
+                }
+            })
+            .collect();
+        crate::store::metrics::insert_batch(&db, &rows)
+            .await
+            .unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        row.verdict.expect("verdict persisted").passed
+    }
+
+    #[tokio::test]
+    async fn persisted_verdict_follows_default_basis() {
+        let cfg = crate::steady::SteadyConfig {
+            ramp_seconds: 10,
+            hold_seconds: 30,
+            discard_seconds: 5,
+            target: None,
+        };
+        assert!(
+            persisted_verdict_for_ramp_run(Some(cfg)).await,
+            "유지 구간(20 ms)만 보면 p95 100 ms 기준 합격"
+        );
+        assert!(
+            !persisted_verdict_for_ramp_run(None).await,
+            "steady 없는 같은 메트릭은 전체(500 ms)로 불합격"
+        );
     }
 
     fn base_assignment() -> PendingAssignment {

@@ -1173,6 +1173,7 @@ mod tests {
             narrative: Default::default(),
             stair: None,
             speed_bands: None,
+            basis: None,
         }
     }
 

@@ -690,3 +690,307 @@ async fn report_endpoint_marks_stall_for_stair_run() {
     assert_eq!(ins["typical_in_flight"], 14);
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
 }
+const T0: i64 = 1_700_000_000_000;
+
+struct SteadySeed {
+    profile: Value,
+    status: RunStatus,
+    ended_ms: i64,
+    worker_start: bool,
+    seconds: i64,
+    slow_until: i64,
+}
+
+impl SteadySeed {
+    fn closed() -> Self {
+        Self {
+            profile: serde_json::json!({
+                "vus": 2,
+                "ramp_up_seconds": 10,
+                "duration_seconds": 40,
+                "steady": {"ramp_seconds": 10, "hold_seconds": 30, "discard_seconds": 5}
+            }),
+            status: RunStatus::Completed,
+            ended_ms: T0 + 40_000,
+            worker_start: true,
+            seconds: 40,
+            slow_until: 15,
+        }
+    }
+
+    fn without_steady() -> Self {
+        let mut s = Self::closed();
+        s.profile = serde_json::json!({
+            "vus": 2, "ramp_up_seconds": 10, "duration_seconds": 40
+        });
+        s
+    }
+}
+
+/// 앞 `slow_until`초는 느리고 오류가 있고, 나머지는 빠르다. 워커 `w0`.
+async fn seed_steady(db: &handicap_controller::store::Db, s: SteadySeed) -> String {
+    use handicap_controller::store::open_loop::insert_worker_start;
+    let yaml = "version: 1\nname: steady\nsteps: []\n";
+    let mut profile: Profile = serde_json::from_value(s.profile).unwrap();
+    handicap_controller::steady::normalize_steady(&mut profile).unwrap();
+    sqlx::query(
+        "INSERT OR IGNORE INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+         VALUES('S-steady','steady',?,1,1,1)",
+    )
+    .bind(yaml)
+    .execute(db)
+    .await
+    .unwrap();
+    let row = store::runs::insert(db, "S-steady", yaml, &profile, &serde_json::json!({}), None)
+        .await
+        .unwrap();
+    store::runs::set_status(db, &row.id, s.status, Some(T0), Some(s.ended_ms))
+        .await
+        .unwrap();
+    if s.worker_start {
+        insert_worker_start(db, &row.id, "w0", T0).await.unwrap();
+    }
+    let base = T0 / 1000;
+    let metric_rows: Vec<MetricRow> = (0..s.seconds)
+        .map(|o| {
+            let slow = o < s.slow_until;
+            let (count, errors, us, sc) = if slow {
+                (2, 1, 500_000, r#"{"200":1,"500":1}"#)
+            } else {
+                (10, 0, 20_000, r#"{"200":10}"#)
+            };
+            MetricRow {
+                run_id: row.id.clone(),
+                ts_second: base + o,
+                step_id: "s".to_string(),
+                worker_id: "w0".to_string(),
+                count,
+                error_count: errors,
+                hdr_histogram: make_hdr_bytes(&vec![us; count as usize]),
+                status_counts: sc.to_string(),
+            }
+        })
+        .collect();
+    insert_batch(db, &metric_rows).await.unwrap();
+    row.id
+}
+
+async fn get_report(db: &handicap_controller::store::Db, uri: &str) -> (StatusCode, Vec<u8>) {
+    let resp = make_app(db.clone())
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    (status, body.to_vec())
+}
+
+async fn report_json(db: &handicap_controller::store::Db, uri: &str) -> Value {
+    let (st, body) = get_report(db, uri).await;
+    assert_eq!(st, StatusCode::OK);
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn steady_run_defaults_to_steady_basis() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    let b = &json["basis"];
+    assert_eq!(b["selected"], "steady");
+    assert_eq!(b["default"], "steady");
+    assert_eq!(b["state"], "measured");
+    assert_eq!(b["window"]["measured_seconds"], 25);
+    assert_eq!(b["window"]["start_ms"], T0 + 15_000);
+    assert_eq!(json["summary"]["duration_seconds"], 25);
+    assert!(b["other"]["count"].as_u64().unwrap() > json["summary"]["count"].as_u64().unwrap());
+    eprintln!("BASIS_SAMPLE {}", json["basis"]);
+    let _typed: ReportJson = serde_json::from_value(json).unwrap();
+}
+
+#[tokio::test]
+async fn basis_whole_param_returns_whole_report() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
+    assert_eq!(json["basis"]["selected"], "whole");
+    assert_eq!(json["basis"]["default"], "steady");
+    assert_eq!(json["summary"]["duration_seconds"], 40);
+    assert_eq!(json["basis"]["other"]["duration_seconds"], 25);
+}
+
+#[tokio::test]
+async fn whole_basis_equals_report_without_steady() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let with = seed_steady(&db, SteadySeed::closed()).await;
+    let without = seed_steady(&db, SteadySeed::without_steady()).await;
+    let mut a = report_json(&db, &format!("/api/runs/{with}/report?basis=whole")).await;
+    let mut b = report_json(&db, &format!("/api/runs/{without}/report")).await;
+    for v in [&mut a, &mut b] {
+        let o = v.as_object_mut().unwrap();
+        o.remove("basis");
+        o.remove("run");
+    }
+    assert_eq!(a, b);
+}
+
+#[tokio::test]
+async fn run_without_steady_has_no_basis_key() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::without_steady()).await;
+    let (st, plain_body) = get_report(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(st, StatusCode::OK);
+    let v: Value = serde_json::from_slice(&plain_body).unwrap();
+    assert!(!v.as_object().unwrap().contains_key("basis"));
+    let (st, with_param) = get_report(&db, &format!("/api/runs/{id}/report?basis=steady")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(plain_body, with_param);
+}
+
+#[tokio::test]
+async fn invalid_basis_param_is_400() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let steady = seed_steady(&db, SteadySeed::closed()).await;
+    let without = seed_steady(&db, SteadySeed::without_steady()).await;
+    for id in [steady, without, "no-such-run".to_string()] {
+        let (st, _) = get_report(&db, &format!("/api/runs/{id}/report?basis=x")).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{id}");
+    }
+}
+
+#[tokio::test]
+async fn aborted_before_window_falls_back_to_whole() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut s = SteadySeed::closed();
+    s.status = RunStatus::Aborted;
+    s.ended_ms = T0 + 8_000;
+    let id = seed_steady(&db, s).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report?basis=steady")).await;
+    let b = json["basis"].as_object().unwrap();
+    assert_eq!(b["selected"], "whole");
+    assert_eq!(b["default"], "whole");
+    assert_eq!(b["state"], "not_reached");
+    assert!(b["window"].is_null());
+    assert!(b.contains_key("other") && b["other"].is_null());
+    eprintln!("BASIS_NULL_SAMPLE {}", json["basis"]);
+}
+
+#[tokio::test]
+async fn aborted_mid_window_is_partial() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut s = SteadySeed::closed();
+    s.status = RunStatus::Aborted;
+    s.ended_ms = T0 + 25_000;
+    s.profile["criteria"] = serde_json::json!({"max_p95_ms": 1000});
+    let id = seed_steady(&db, s).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(json["basis"]["state"], "partial");
+    assert_eq!(json["basis"]["window"]["measured_seconds"], 10);
+    assert!(!json.as_object().unwrap().contains_key("verdict"));
+}
+
+#[tokio::test]
+async fn start_time_missing_sets_estimated() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut s = SteadySeed::closed();
+    s.worker_start = false;
+    let id = seed_steady(&db, s).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(json["basis"]["t0_estimated"], true);
+    assert_eq!(json["basis"]["state"], "measured");
+}
+
+fn open_steady_seed() -> SteadySeed {
+    let mut s = SteadySeed::closed();
+    s.profile = serde_json::json!({
+        "max_in_flight": 50,
+        "steady": {"ramp_seconds": 10, "hold_seconds": 30, "discard_seconds": 5, "target": 10}
+    });
+    s
+}
+
+async fn seed_open_counts(db: &handicap_controller::store::Db, id: &str) {
+    use handicap_controller::store::open_loop::insert_open_loop_seconds;
+    sqlx::query("UPDATE runs SET dropped = 30 WHERE id = ?")
+        .bind(id)
+        .execute(db)
+        .await
+        .unwrap();
+    let base = T0 / 1000;
+    let rows: Vec<(i64, i64, i64, i64)> = (0..40)
+        .map(|o| (base + o, 10, 10, if o < 10 { 3 } else { 0 }))
+        .collect();
+    insert_open_loop_seconds(db, id, "w0", &rows).await.unwrap();
+}
+
+#[tokio::test]
+async fn open_loop_steady_recounts_dropped() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, open_steady_seed()).await;
+    seed_open_counts(&db, &id).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(json["dropped"], 0);
+    assert_eq!(json["basis"]["dropped_whole_run"], false);
+    let whole = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
+    assert_eq!(whole["dropped"], 30);
+}
+
+#[tokio::test]
+async fn open_loop_steady_without_second_counts_marks_whole_run() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, open_steady_seed()).await;
+    sqlx::query("UPDATE runs SET dropped = 30 WHERE id = ?")
+        .bind(&id)
+        .execute(&db)
+        .await
+        .unwrap();
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(json["basis"]["dropped_whole_run"], true);
+    assert_eq!(json["dropped"], 30);
+}
+
+#[tokio::test]
+async fn warmup_copied_from_ramp_is_not_subtracted_twice() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut s = SteadySeed::closed();
+    s.profile = serde_json::json!({
+        "vus": 2,
+        "ramp_up_seconds": 30,
+        "duration_seconds": 50,
+        "steady": {"ramp_seconds": 30, "hold_seconds": 20, "discard_seconds": 0},
+        "criteria": {"min_window_rps": 1.0, "rps_warmup_seconds": 30}
+    });
+    s.ended_ms = T0 + 50_000;
+    s.seconds = 50;
+    s.slow_until = 0;
+    let id = seed_steady(&db, s).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    assert_eq!(json["basis"]["state"], "measured");
+    let rows = json["verdict"]["criteria"].as_array().unwrap();
+    assert!(
+        rows.iter().any(|r| r["metric"] == "min_window_rps"),
+        "{rows:?}"
+    );
+}
+
+#[tokio::test]
+async fn exports_use_default_basis() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report")).await;
+    let (st, csv) = get_report(&db, &format!("/api/runs/{id}/report.csv")).await;
+    assert_eq!(st, StatusCode::OK);
+    let text = String::from_utf8(csv).unwrap();
+    let row = text.lines().nth(1).unwrap();
+    let count = json["steps"][0]["count"].as_u64().unwrap();
+    assert_eq!(row.split(',').nth(1).unwrap(), count.to_string());
+    assert_eq!(count, 250);
+}

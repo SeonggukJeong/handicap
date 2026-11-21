@@ -1141,6 +1141,7 @@ pub async fn metrics(
 pub async fn build_report_for_run(
     db: &crate::store::Db,
     run_id: &str,
+    basis: Option<crate::steady::Basis>,
 ) -> Result<crate::report::ReportJson, ApiError> {
     let row = runs::get(db, run_id).await?.ok_or(ApiError::NotFound)?;
     let rows = crate::store::metrics::windows_with_hdr(db, run_id).await?;
@@ -1171,10 +1172,25 @@ pub async fn build_report_for_run(
     } else {
         crate::stair::StairInputs::default()
     };
-    // 초별 합계는 버림이 있는 open-loop run만(stall 진단 입력). 계단 run은 이미 읽은 행을 더한다.
+    // 유지 구간 run만 워커 시작 시각을 읽고, open-loop이면 초 단위 계수도 읽는다(없는 run은 조회 0회).
+    let steady_inputs = match row.profile.steady.clone() {
+        Some(cfg) => {
+            let starts = crate::store::open_loop::worker_starts(db, run_id).await?;
+            let open_loop_rows = if row.profile.is_open_loop() {
+                crate::store::open_loop::open_loop_seconds(db, run_id).await?
+            } else {
+                Vec::new()
+            };
+            Some((cfg, starts, open_loop_rows))
+        }
+        None => None,
+    };
+    // 초별 합계는 버림이 있는 open-loop run만(stall 진단 입력). 계단·유지 구간 run은 이미 읽은 행을 더한다.
     let open_loop_totals = if needs_open_loop_totals(&row.profile, row.dropped) {
         if row.profile.stair.is_some() {
             crate::store::open_loop::sum_by_second(&stair_inputs.open_loop)
+        } else if let Some((_, _, open_loop_rows)) = &steady_inputs {
+            crate::store::open_loop::sum_by_second(open_loop_rows)
         } else {
             crate::store::open_loop::open_loop_totals(db, run_id).await?
         }
@@ -1182,33 +1198,160 @@ pub async fn build_report_for_run(
         Vec::new()
     };
     let scenario_yaml = row.scenario_yaml.clone();
-    Ok(crate::report::build_report(
-        &row,
-        &scenario_yaml,
+    let build = |scope: Option<&crate::report::SteadyScope<'_>>| {
+        crate::report::build_report(
+            &row,
+            &scenario_yaml,
+            &rows,
+            &loops,
+            &branches,
+            &groups,
+            &phases,
+            &active_vu,
+            &active_vu_by_worker,
+            &error_kinds,
+            &loop_exits,
+            &stair_inputs,
+            &open_loop_totals,
+            scope,
+        )
+    };
+    let whole = build(None);
+    let Some((cfg, starts, open_loop_rows)) = steady_inputs else {
+        return Ok(whole);
+    };
+
+    use crate::steady::{Basis, BasisBlock, BasisOther, BasisWindow};
+    let w = crate::steady::steady_window(
+        &cfg,
+        row.status == RunStatus::Completed,
+        row.ended_at,
         &rows,
-        &loops,
-        &branches,
-        &groups,
-        &phases,
-        &active_vu,
-        &active_vu_by_worker,
-        &error_kinds,
-        &loop_exits,
-        &stair_inputs,
-        &open_loop_totals,
-        None,
-    ))
+        &starts,
+    );
+    let mut dropped_whole_run = false;
+    let steady_report = w.range.map(|(lo, hi)| {
+        let warmup_seconds = row
+            .profile
+            .criteria
+            .as_ref()
+            .and_then(|c| c.rps_warmup_seconds)
+            .unwrap_or(0)
+            .saturating_sub(cfg.ramp_seconds + cfg.discard_seconds);
+        let target = cfg.target.or(row.profile.target_rps);
+        let in_window: Vec<crate::store::open_loop::OpenLoopSecondRow> = open_loop_rows
+            .iter()
+            .filter(|r| r.ts_second >= lo && r.ts_second < hi)
+            .cloned()
+            .collect();
+        let counted_workers: std::collections::HashSet<&str> = open_loop_rows
+            .iter()
+            .map(|r| r.worker_id.as_str())
+            .collect();
+        let recountable = rows
+            .iter()
+            .all(|r| counted_workers.contains(r.worker_id.as_str()));
+        dropped_whole_run = row.profile.is_open_loop() && !recountable;
+        let totals = if recountable {
+            crate::store::open_loop::sum_by_second(&in_window)
+        } else {
+            Vec::new()
+        };
+        let open_loop = target.filter(|_| row.profile.is_open_loop()).map(|target| {
+            crate::report::ScopedOpenLoop {
+                target,
+                dropped: recountable
+                    .then(|| in_window.iter().map(|r| r.dropped.max(0) as u64).sum()),
+                totals: &totals,
+            }
+        });
+        let scope = crate::report::SteadyScope {
+            lo,
+            hi,
+            warmup_seconds,
+            open_loop,
+            whole: &whole,
+        };
+        build(Some(&scope))
+    });
+
+    let default = if steady_report.is_some() {
+        Basis::Steady
+    } else {
+        Basis::Whole
+    };
+    let selected = match (basis.unwrap_or(default), steady_report.is_some()) {
+        (Basis::Steady, false) => Basis::Whole,
+        (b, _) => b,
+    };
+    let other_of = |s: &crate::report::ReportSummary| BasisOther {
+        rps: s.rps,
+        p50_ms: s.p50_ms,
+        p95_ms: s.p95_ms,
+        p99_ms: s.p99_ms,
+        error_rate: if s.count == 0 {
+            0.0
+        } else {
+            s.errors as f64 / s.count as f64
+        },
+        count: s.count,
+        duration_seconds: s.duration_seconds,
+    };
+    let (mut chosen, other) = match (selected, steady_report) {
+        (Basis::Steady, Some(steady)) => {
+            let other = other_of(&whole.summary);
+            (steady, Some(other))
+        }
+        (_, Some(steady)) => {
+            let other = other_of(&steady.summary);
+            (whole, Some(other))
+        }
+        (_, None) => (whole, None),
+    };
+    chosen.basis = Some(BasisBlock {
+        selected,
+        default,
+        state: w.state,
+        config: cfg,
+        window: w.range.map(|(lo, hi)| BasisWindow {
+            start_ms: lo * 1000,
+            end_ms: hi * 1000,
+            measured_seconds: hi - lo,
+        }),
+        t0_estimated: w.t0_estimated,
+        dropped_whole_run,
+        other,
+    });
+    Ok(chosen)
 }
 
 fn needs_open_loop_totals(profile: &Profile, dropped: i64) -> bool {
     profile.is_open_loop() && dropped > 0
 }
 
+#[derive(Deserialize)]
+pub struct ReportParams {
+    basis: Option<String>,
+}
+
+fn parse_basis(raw: Option<&str>) -> Result<Option<crate::steady::Basis>, ApiError> {
+    match raw {
+        None => Ok(None),
+        Some("steady") => Ok(Some(crate::steady::Basis::Steady)),
+        Some("whole") => Ok(Some(crate::steady::Basis::Whole)),
+        Some(_) => Err(ApiError::BadRequest(
+            "basis는 steady 또는 whole이어야 합니다".into(),
+        )),
+    }
+}
+
 pub async fn report(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<ReportParams>,
 ) -> Result<Json<crate::report::ReportJson>, ApiError> {
-    Ok(Json(build_report_for_run(&state.db, &id).await?))
+    let basis = parse_basis(params.basis.as_deref())?;
+    Ok(Json(build_report_for_run(&state.db, &id, basis).await?))
 }
 
 fn file_response(content_type: &str, filename: &str, bytes: Vec<u8>) -> axum::response::Response {
@@ -1238,7 +1381,7 @@ pub async fn report_csv(
 ) -> Result<axum::response::Response, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id).await?;
+    let report = build_report_for_run(&state.db, &id, None).await?;
     let bytes = crate::export::report_to_csv(&report);
     Ok(file_response(
         "text/csv; charset=utf-8",
@@ -1253,7 +1396,7 @@ pub async fn report_xlsx(
 ) -> Result<axum::response::Response, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id).await?;
+    let report = build_report_for_run(&state.db, &id, None).await?;
     let bytes = crate::export::report_to_xlsx(&report);
     Ok(file_response(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1268,7 +1411,7 @@ pub async fn report_insights_csv(
 ) -> Result<axum::response::Response, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id).await?;
+    let report = build_report_for_run(&state.db, &id, None).await?;
     let bytes = crate::export::report_to_insights_csv(&report);
     Ok(file_response(
         "text/csv; charset=utf-8",
@@ -1283,7 +1426,7 @@ pub async fn report_stairs_csv(
 ) -> Result<axum::response::Response, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id).await?;
+    let report = build_report_for_run(&state.db, &id, None).await?;
     let bytes = crate::export::report_to_stairs_csv(&report).ok_or(ApiError::NotFound)?;
     Ok(file_response(
         "text/csv; charset=utf-8",
@@ -1340,7 +1483,7 @@ async fn resolve_comparison(
             )));
         }
         ensure_terminal(&row)?;
-        reports.push(build_report_for_run(&state.db, id).await?);
+        reports.push(build_report_for_run(&state.db, id, None).await?);
     }
     Ok((reports, baseline_idx))
 }
