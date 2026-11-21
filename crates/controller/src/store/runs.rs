@@ -541,22 +541,7 @@ pub async fn mark_aborted_if_active(db: &Db, id: &str, message: &str) -> sqlx::R
     Ok(res.rows_affected() == 1)
 }
 
-/// Unguarded: mark a single run `failed` with a message and stamp `ended_at`,
-/// whatever its current status (it overwrites `aborted`/`completed`). Production
-/// paths use [`mark_failed_if_active`]; this one is for test fixtures. Unlike
-/// `set_status`, it records a `message`.
-pub async fn mark_failed(db: &Db, id: &str, message: &str) -> sqlx::Result<()> {
-    let now = super::now_ms();
-    sqlx::query("UPDATE runs SET status = 'failed', ended_at = ?, message = ? WHERE id = ?")
-        .bind(now)
-        .bind(message)
-        .bind(id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// Like [`mark_failed`] but only transitions a run that is still active
+/// Mark a run `failed` with a message and stamp `ended_at`, but only if it is still active
 /// (`pending`/`running`). Returns `true` if it changed the row. Used by the
 /// subprocess reaper to fail a run whose worker process died without reporting
 /// a terminal phase — WITHOUT clobbering a run already finalized by the gRPC

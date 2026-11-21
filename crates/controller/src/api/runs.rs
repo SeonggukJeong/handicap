@@ -708,8 +708,8 @@ fn strip_steps_think(steps: &mut [Step], root_default: Option<&ThinkTime>, keep:
 }
 
 /// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
-/// dispatch 실패 시 run을 failed로 마크하고 Err 반환(cancel_dispatch_failed +
-/// mark_failed 수행 후). REST `create`(권위 게이트 통과 후 호출)와 스케줄러
+/// 풀 사전 실패·dispatch 실패 시 코디네이터 항목을 정리(cancel_dispatch_failed)하고
+/// 활성 run만 failed로 마크한 뒤(`mark_failed_if_active` — 이미 aborted면 그대로) Err 반환. REST `create`(권위 게이트 통과 후 호출)와 스케줄러
 /// 루프(34b)가 공유한다. `validated_metas`는 `validate_run_config`가 돌려준
 /// 검증된 dataset meta(TOCTOU 회피 재사용) — `profile.data_bindings()`와 같은
 /// 순서. binding 없으면 빈 vec.
@@ -1403,7 +1403,8 @@ async fn fail_pool_assignment(
 
 /// `enqueue` 뒤·디스패치 앞에서 부른다. 행이 더는 `pending`이 아니면 풀 예약을 풀고(`reserved`가
 /// 비어 있지 않으면) 코디네이터 항목을 정리하고(`aborted`면 시작 전 사유를 남기고) 다시 읽은 행을
-/// 돌려준다. `pending`이면 None. 행 읽기가 실패해도 같은 정리를 한 뒤 오류를 돌려준다.
+/// 돌려준다. `pending`이면 None. 행 읽기가 실패해도 같은 정리를 하고, 가드 UPDATE로 `failed` 표시를
+/// 시도한 뒤(결과 무시) 오류를 돌려준다.
 async fn row_if_no_longer_pending(
     state: &AppState,
     run_id: &str,
@@ -3294,8 +3295,9 @@ steps:
             .fetch_one(&state.db)
             .await
             .unwrap();
-        let (status, _) = abort_msg(&state, &id).await;
+        let (status, message) = abort_msg(&state, &id).await;
         assert_eq!(status, runs::RunStatus::Aborted, "failed로 덮지 않는다");
+        assert_eq!(message, None, "실패 사유를 쓰지 않는다");
     }
 
     #[tokio::test]

@@ -252,7 +252,7 @@ pub enum PoolReservation {
     },
     /// idle > 0 but Σ capacity < total_vus. Reached only via the rare
     /// pre-insert-check → reserve TOCTOU (the precheck normally 409s first);
-    /// caller maps to mark_failed.
+    /// caller marks the run failed (`mark_failed_if_active`).
     Insufficient { achievable: u32 },
 }
 
