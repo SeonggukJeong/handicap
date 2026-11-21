@@ -884,9 +884,15 @@ pub(crate) async fn spawn_run(
                         "풀 용량 부족 (가용 {achievable} VU < 요청 {} VU)",
                         profile.concurrency_demand()
                     );
-                    state.coord.cancel_dispatch_failed(&row.id).await;
-                    runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
-                    return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+                    return fail_run_start(
+                        &state.coord,
+                        &state.db,
+                        &row.id,
+                        &msg,
+                        ApiError::Internal(anyhow::anyhow!(msg.clone())),
+                        StartFailedAt::BeforeEnqueue,
+                    )
+                    .await;
                 }
                 crate::grpc::coordinator::PoolReservation::Reserved { workers, counts } => {
                     let n_pool = workers.len() as u32;
@@ -3254,6 +3260,7 @@ steps:
 
     struct CountingDispatcher {
         dispatches: Arc<std::sync::atomic::AtomicUsize>,
+        cleanups: Arc<std::sync::atomic::AtomicUsize>,
     }
     #[async_trait::async_trait]
     impl crate::dispatcher::WorkerDispatcher for CountingDispatcher {
@@ -3263,6 +3270,8 @@ steps:
             Ok(())
         }
         async fn cleanup(&self, _run_id: &str) -> anyhow::Result<()> {
+            self.cleanups
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(())
         }
     }
@@ -3275,6 +3284,7 @@ steps:
         let mut state = state_with(db, capacity).await;
         state.dispatcher = Arc::new(CountingDispatcher {
             dispatches: dispatches.clone(),
+            cleanups: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         });
         (state, dispatches)
     }
@@ -3548,6 +3558,66 @@ steps:
             rxs.push(rx);
         }
         (state, rxs)
+    }
+
+    /// 사전 검사(부하기 2대·각 100 VU, 요청 150 VU)를 통과한 뒤 예약 전에 w1이 빠지게 한다.
+    /// 다른 연결이 쓰기 잠금을 쥐는 동안 `spawn_run`이 사전 검사에서 `runs::insert`로 넘어가
+    /// 잠금에서 대기하고, 그 사이 `pool_exclude`로 풀을 줄인다. current-thread 런타임 전제.
+    async fn spawn_run_with_pool_shrunk_before_reserve(
+        state: &AppState,
+        scenario: crate::store::scenarios::ScenarioRow,
+    ) -> Result<runs::RunRow, ApiError> {
+        let mut holder = state.db.acquire().await.unwrap();
+        let spare = state.db.acquire().await.unwrap();
+        drop(spare);
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *holder)
+            .await
+            .unwrap();
+        let task_state = state.clone();
+        let task =
+            tokio::spawn(async move { call_spawn_run(&task_state, &scenario, 150, false).await });
+        tokio::task::yield_now().await;
+        state.coord.pool_exclude("w1", "test").await;
+        sqlx::query("ROLLBACK").execute(&mut *holder).await.unwrap();
+        drop(holder);
+        task.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn prefail_insufficient_without_abort_fails_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        let (state, _rxs) = pool_state_with_two_workers(db).await;
+        let Err(ApiError::Internal(e)) =
+            spawn_run_with_pool_shrunk_before_reserve(&state, scenario).await
+        else {
+            panic!("Internal이어야 한다");
+        };
+        let msg = "풀 용량 부족 (가용 100 VU < 요청 150 VU)";
+        assert_eq!(e.to_string(), msg);
+        let row = only_run(&state).await;
+        assert_eq!(row.status, runs::RunStatus::Failed);
+        assert_eq!(row.message.as_deref(), Some(msg));
+        let snap = state.coord.pool_snapshot(tokio::time::Instant::now()).await;
+        let w0 = snap.iter().find(|w| w.worker_id == "w0").unwrap();
+        assert!(w0.assigned_run.is_none());
+    }
+
+    #[tokio::test]
+    async fn prefail_insufficient_returns_aborted_row() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let (state, _rxs) = pool_state_with_two_workers(db).await;
+        let cleanups = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        state.coord.set_dispatcher(Arc::new(CountingDispatcher {
+            dispatches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            cleanups: cleanups.clone(),
+        }));
+        let got = spawn_run_with_pool_shrunk_before_reserve(&state, scenario).await;
+        assert_prefail_aborted(&state, got).await;
+        assert_eq!(cleanups.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     async fn assert_pool_released(state: &AppState, rxs: &mut [WorkerRx], row: &runs::RunRow) {
