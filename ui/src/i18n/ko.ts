@@ -1215,6 +1215,17 @@ export const ko = {
         "워커 시작 시각 차이가 커서 공통 유지 구간이 없습니다 — 전체 구간만 볼 수 있습니다",
       otherLine: (label: string, rps: string, p95: number, errPct: string) =>
         `${label}: 초당 요청 ${rps} · p95 ${p95} ms · 오류 ${errPct}`,
+      chartLegend: (hasRamp: boolean, hasDiscard: boolean) => {
+        const bands =
+          hasRamp && hasDiscard
+            ? "회색 띠는 상승 구간, 노란 띠는 앞부분 버림 구간입니다. "
+            : hasRamp
+              ? "회색 띠는 상승 구간입니다. "
+              : hasDiscard
+                ? "노란 띠는 앞부분 버림 구간입니다. "
+                : "";
+        return `${bands}점선 사이가 유지 구간입니다.`;
+      },
       wholeBadge: "전체 구간",
       wholeBadgeHelp:
         "이 값은 초 단위로 저장되지 않아 유지 구간만 따로 셀 수 없습니다. run 전체 값입니다.",

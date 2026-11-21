@@ -38,6 +38,7 @@ import { bySecond } from "../../report/bySecond";
 import { Callout } from "../ui/Callout";
 import { PageSection } from "../ui/PageSection";
 import { BasisBar } from "./BasisBar";
+import { steadyMarks } from "./steadyMarks";
 import { deriveLoadMode } from "../run/loadModel";
 
 type Props = {
@@ -49,6 +50,10 @@ type Props = {
 
 export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
+  const marks = useMemo(
+    () => steadyMarks(report.basis, seconds[0]?.ts_second ?? null),
+    [report.basis, seconds],
+  );
   const wholeRunBadge = report.basis?.selected === "steady";
   const rampLoad = deriveLoadMode(profile);
   const showRampOnlyLine =
@@ -253,20 +258,31 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
             report.basis,
           )}
         />
+        {marks ? (
+          <p className="text-sm text-slate-500">
+            {ko.report.basis.chartLegend(
+              marks.bands.some((b) => b.kind === "ramp"),
+              marks.bands.some((b) => b.kind === "discard"),
+            )}
+          </p>
+        ) : null}
         <TimeSeriesChart
           title={ko.report.timeSeriesRequests}
           yLabel="req/s"
           data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
+          marks={marks}
         />
         <TimeSeriesChart
           title={ko.report.timeSeriesP95}
           yLabel="ms"
           data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
+          marks={marks}
         />
         <TimeSeriesChart
           title={ko.report.timeSeriesErrors}
           yLabel="errors"
           data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
+          marks={marks}
         />
         {report.active_vu_series && report.active_vu_series.length > 0 ? (
           <ActiveVuChart

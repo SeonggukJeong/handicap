@@ -110,6 +110,54 @@ function render(ui: ReactElement) {
   return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 }
 
+const WIN = (ts: number) => ({
+  ts_second: ts,
+  step_id: STEP_ID,
+  count: 5,
+  error_count: 0,
+  status_counts: { "200": 5 },
+  p50_ms: 1,
+  p95_ms: 2,
+  p99_ms: 3,
+});
+
+describe("ReportView — 시계열 띠 범례", () => {
+  const withWindows = { ...FIXTURE, windows: [WIN(1000), WIN(1001), WIN(1002)] };
+
+  it("basis.window가 있으면 범례가 한 번만 보인다", () => {
+    const basis = basisOf({
+      window: { start_ms: 1_005_000, end_ms: 1_060_000, measured_seconds: 55 },
+    });
+    render(<ReportView report={{ ...withWindows, basis }} profile={PROFILE} />);
+    expect(screen.getAllByText(/점선 사이가 유지 구간입니다/)).toHaveLength(1);
+  });
+
+  it("basis가 없으면 범례가 없다", () => {
+    render(<ReportView report={withWindows} profile={PROFILE} />);
+    expect(screen.queryByText(/점선 사이가 유지 구간입니다/)).toBeNull();
+  });
+
+  it("window가 없는 basis면 범례가 없다", () => {
+    render(
+      <ReportView
+        report={{ ...withWindows, basis: basisOf({ window: null, state: "not_reached" }) }}
+        profile={PROFILE}
+      />,
+    );
+    expect(screen.queryByText(/점선 사이가 유지 구간입니다/)).toBeNull();
+  });
+
+  it("버림만 있으면(상승 0) 회색 띠 문장이 빠진다", () => {
+    const basis = basisOf({
+      window: { start_ms: 1_005_000, end_ms: 1_060_000, measured_seconds: 55 },
+    });
+    render(<ReportView report={{ ...withWindows, basis }} profile={PROFILE} />);
+    const text = screen.getByText(/점선 사이가 유지 구간입니다/).textContent ?? "";
+    expect(text).toContain("노란 띠는 앞부분 버림 구간입니다.");
+    expect(text).not.toContain("회색 띠");
+  });
+});
+
 describe("ReportView — 집계 기준", () => {
   it("basis 없는 리포트에는 전환이 없다", () => {
     render(<ReportView report={FIXTURE} profile={PROFILE} />);
