@@ -6,6 +6,7 @@ import {
   countsAsError,
   hasStar,
   remainingIssues,
+  remainingStepIds,
   starFootnote,
   stepPairs,
   type StepPair,
@@ -521,5 +522,29 @@ describe("실행되지 않은 단계", () => {
     const { after, pairs } = notRunAfter();
     const list = remainingIssues(after, pairs);
     expect(list.join("\n")).not.toContain("첨부 업로드");
+  });
+});
+
+describe("remainingStepIds", () => {
+  it("remainingIssues가 가리키는 단계와 같다(문제 1 + 줄지 않은 오류 1 + 깨끗한 1)", () => {
+    const steps = [S("s1", "가"), S("s2", "나"), S("s3", "다")];
+    const before = model("b", steps, [
+      R("s1", { "200": 100 }),
+      R("s2", { "429": 360 }),
+      R("s3", { "200": 100 }),
+    ]);
+    const after = model("a", steps, [
+      { id: "s1", counts: { "200": 99, "500": 1 }, errors: 1 },
+      R("s2", { "429": 360 }),
+      R("s3", { "200": 100 }),
+    ]);
+    const pairs = stepPairs(before, after);
+    const ids = remainingStepIds(after, pairs);
+    expect(ids.size).toBe(2);
+    expect([...ids].sort()).toEqual(["s1", "s2"]);
+    const list = remainingIssues(after, pairs);
+    expect(list).toHaveLength(2);
+    expect(list[0]).toContain("가");
+    expect(list[1]).toContain("나");
   });
 });

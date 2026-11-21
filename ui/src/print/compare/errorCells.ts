@@ -187,7 +187,14 @@ const isTargetClass = (cls: CellClass | null): boolean =>
 
 const notReduced = (before: number, after: number): boolean => after * 100 >= before * 95;
 
-export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
+// sentence는 단계 이름 없는 문장 — 문제 단계 항목 뒤에 붙일 땐 그대로, 홀로 설 땐 단계 이름을 앞에 둔다.
+type Extra = { stepId: string; label: string; n: number; sentence: string; fresh: boolean };
+
+/** 「남은 문제」 항목의 재료: 문제 단계(heads/order)와 줄지 않은 코드 문장(extras). */
+function collectRemaining(
+  after: RunModel,
+  pairs: StepPair[],
+): { heads: Map<string, string>; order: string[]; extras: Extra[] } {
   const heads = new Map<string, string>();
   const order: string[] = [];
 
@@ -202,8 +209,6 @@ export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
     order.push(r.stepId);
   }
 
-  // sentence는 단계 이름 없는 문장 — 문제 단계 항목 뒤에 붙일 땐 그대로, 홀로 설 땐 단계 이름을 앞에 둔다.
-  type Extra = { stepId: string; label: string; n: number; sentence: string; fresh: boolean };
   const extras: Extra[] = [];
   for (const p of pairs) {
     for (const x of p.codes) {
@@ -222,7 +227,17 @@ export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
     }
   }
   extras.sort((x, y) => Number(x.fresh) - Number(y.fresh) || y.n - x.n);
+  return { heads, order, extras };
+}
 
+/** 「남은 문제」 항목에 걸린 단계 id — remainingIssues와 같은 선택 규칙을 공유한다. */
+export function remainingStepIds(after: RunModel, pairs: StepPair[]): Set<string> {
+  const { order, extras } = collectRemaining(after, pairs);
+  return new Set([...order, ...extras.map((e) => e.stepId)]);
+}
+
+export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
+  const { heads, order, extras } = collectRemaining(after, pairs);
   const out: string[] = [];
   for (const id of order) {
     const head = heads.get(id) ?? id;

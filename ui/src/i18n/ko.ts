@@ -2619,6 +2619,13 @@ export const ko = {
         pct: (sign: string, n: number) => `(${sign}${n}%)`,
         ariaLabel: (value: string, word: string) => (word ? `${value} ${word}` : value),
       },
+      err: {
+        residual: "응답 받은 뒤 실패",
+        other: "그 밖의 코드",
+        otherPart: (code: number, before: string, after: string) =>
+          `${code} ${before}건 → ${after}건`,
+        otherNote: (parts: string[]) => `그 밖의 코드: ${parts.join(", ")}`,
+      },
       star: {
         before: "이전",
         after: "이후",

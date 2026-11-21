@@ -130,7 +130,7 @@ const SPECS: Spec[] = [
   },
 ];
 
-function valueTexts(kind: Spec["kind"], before: number, after: number, distinct: boolean) {
+export function valueTexts(kind: Spec["kind"], before: number, after: number, distinct: boolean) {
   const base = (v: number) => {
     if (kind === "pct") return fmtPct(v);
     if (kind === "ms") return fmtMs(v);
