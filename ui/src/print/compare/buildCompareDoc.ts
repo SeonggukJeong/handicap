@@ -8,6 +8,7 @@ import type { Block } from "../paginate";
 import type { BoxState } from "../verdict";
 import type { Heights } from "../buildPrintDoc";
 import { buildDumbbell, type DumbbellModel } from "./dumbbell";
+import { buildOverlay, type OverlayModel } from "./overlay";
 import { buildErrorTable, type ErrorTableModel } from "./errorTable";
 import { metricRows, type MetricRow } from "./change";
 import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } from "./errorCells";
@@ -48,6 +49,7 @@ export type CompareDoc = {
   incomparable: boolean;
   dumbbell: DumbbellModel;
   errors: ErrorTableModel;
+  overlay: OverlayModel;
   /** stepPairs가 1개 이상 */
   hasSteps: boolean;
 };
@@ -122,6 +124,7 @@ export function buildCompareDoc(a: {
     incomparable,
     dumbbell: buildDumbbell(before, after),
     errors: buildErrorTable({ before, after, pairs, incomparable }),
+    overlay: buildOverlay(before, after, incomparable),
     hasSteps: pairs.length > 0,
   };
 }
@@ -178,6 +181,7 @@ export function compareStandardBlocks(doc: CompareDoc, h: Heights): Block[] {
           ...(doc.errors.notes.length > 0 ? [atom(h, "cmp:err:notes")] : []),
         ]
       : []),
+    atom(h, "cmp:overlay"),
     tableBlock("cmp:cond", doc.fairness.condRows.length, h),
     atom(h, "cmp:issues:8"),
     atom(h, "signature"),
@@ -214,7 +218,7 @@ export type SectionNos = {
 type SectionKey = keyof SectionNos;
 
 /** 표준판 절 순서. 뒤 task가 제 키를 끼운다. */
-const STANDARD_SECTIONS: SectionKey[] = ["overview", "kpi", "dumbbell", "errors", "cond", "issues"];
+const STANDARD_SECTIONS: SectionKey[] = ["overview", "kpi", "dumbbell", "errors", "overlay", "cond", "issues"];
 
 /** 절 번호 — 그 판에 있는 절만 차례로 센다. */
 export function sectionNo(

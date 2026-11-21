@@ -1,5 +1,6 @@
 // 비교 보고서 문서 렌더: 공용 쪽 나누기 틀(PagedDocument) 위에 블록 목록(buildCompareDoc)을 그린다. spec §8·§10.
 import { useMemo, type ReactNode } from "react";
+import { ko } from "../../i18n/ko";
 import type { Heights } from "../buildPrintDoc";
 import { PAGE_BODY_MM, chooseSummaryLevel, paginate, type PageItem } from "../paginate";
 import { PagedDocument } from "../PagedDocument";
@@ -18,6 +19,8 @@ import { FairCards } from "./components/FairCards";
 import { HeadlineHeading, VerdictRow } from "./components/HeadlineBox";
 import { IssuesBox } from "./components/IssuesBox";
 import { KpiCompareTable, KpiNote } from "./components/KpiCompareTable";
+import { OverlayChart } from "./components/OverlayChart";
+import { SectionHeading } from "./components/SectionHeading";
 import { DumbbellLegend } from "./components/DumbbellTable";
 import { ErrorNotes } from "./components/ErrorChangeTable";
 import { cmpTable } from "./tables";
@@ -57,6 +60,13 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
       return <DumbbellLegend model={doc.dumbbell} />;
     case "cmp:err:notes":
       return <ErrorNotes notes={doc.errors.notes} />;
+    case "cmp:overlay":
+      return (
+        <>
+          <SectionHeading no={no.overlay ?? ""} title={ko.print.cmp.view.titles.overlay} />
+          <OverlayChart model={doc.overlay} />
+        </>
+      );
     case "signature":
       return <SignatureBlock />;
     default:
@@ -72,7 +82,7 @@ function blockClass(id: string): string {
     return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";
   const name = id.split(":")[1];
-  return name === "headline" || name === "kpi"
+  return name === "headline" || name === "kpi" || name === "overlay"
     ? "p-block p-cmp-b--section"
     : `p-block p-cmp-b--${name}`;
 }

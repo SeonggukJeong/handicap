@@ -966,6 +966,30 @@
   border-radius: 50%;
 }
 
+/* 겹쳐 보기 상자·범례 — 견본 규칙은 덤벨 범례(.p-cmp-db-legend/.p-cmp-db-sw)를 같이 쓴다 */
+.p-root .p-cmp-ov-box {
+  padding: 1.5mm 3mm;
+}
+.p-root .p-cmp-ov-legend {
+  margin-top: 1.5mm;
+}
+.p-root .p-cmp-ov-reading {
+  margin-top: 0.5mm;
+}
+.p-root .p-cmp-ov-sw--box {
+  border-radius: 0;
+}
+.p-root .p-cmp-ov-sw--hatch {
+  background: repeating-linear-gradient(45deg, #f0a49b 0 0.5mm, #b42318 0.5mm 0.75mm);
+}
+.p-root .p-cmp-ov-sw--line {
+  height: 0;
+  border-top: 0.5mm solid;
+}
+.p-root .p-cmp-ov-sw--dash {
+  border-top-style: dashed;
+}
+
 /* 비교 보고서: 단계별 오류 변화 표 — compare-report-v2.html 시안 값 */
 .p-root .p-cmp-err th,
 .p-root .p-cmp-err td {

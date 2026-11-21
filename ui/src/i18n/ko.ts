@@ -2629,6 +2629,23 @@ export const ko = {
           `${code} ${before}건 → ${after}건`,
         otherNote: (parts: string[]) => `그 밖의 코드: ${parts.join(", ")}`,
       },
+      overlay: {
+        aria: "이전·이후 처리량과 오류를 시간 순서로 겹쳐 그린 그래프",
+        legendBeforeRps: "이전 처리량",
+        legendAfterRps: "이후 처리량",
+        legendBeforeErr: "이전 오류(건/초)",
+        legendAfterErr: "이후 오류(건/초)",
+        legendNoErrors: "두 측정 모두 오류 없음",
+        readingPrefix: "읽는 법: ",
+        readingDropped: (before: string) =>
+          `이전에는 ${before} 지점부터 오류가 쌓였지만, 이후에는 거의 없습니다.`,
+        readingBoth: (before: string, after: string) =>
+          `두 측정 모두 오류가 있습니다(이전 ${before}부터, 이후 ${after}부터).`,
+        readingAfterOnly: (after: string) => `이후 측정에서 ${after} 지점부터 오류가 생겼습니다.`,
+        readingNone: "두 측정 모두 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다.",
+        durationNote: (before: string, after: string) =>
+          `(측정 시간이 다릅니다: 이전 ${before}, 이후 ${after})`,
+      },
       star: {
         before: "이전",
         after: "이후",
@@ -2768,6 +2785,7 @@ export const ko = {
           kpi: "핵심 지표 비교",
           dumbbell: "단계별 95% 응답시간 변화",
           errors: "단계별 오류 변화",
+          overlay: "시간에 따른 변화 — 겹쳐 보기",
           cond: "측정 조건 대조",
           issues: "남은 문제",
         },

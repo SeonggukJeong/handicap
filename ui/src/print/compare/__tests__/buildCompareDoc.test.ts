@@ -166,10 +166,28 @@ describe("블록", () => {
       "cmp:db",
       "cmp:db:legend",
       "cmp:err",
+      "cmp:overlay",
       "cmp:cond",
       "cmp:issues:8",
       "signature",
     ]);
+  });
+
+  it("겹쳐 보기 블록은 오류 표(·각주) 다음, 조건 대조 앞 — 단계가 없는 문서에도 있다", () => {
+    const d = doc();
+    const list = ids(d);
+    expect(list.indexOf("cmp:overlay")).toBe(list.indexOf("cmp:err") + 1);
+    expect(list.indexOf("cmp:cond")).toBe(list.indexOf("cmp:overlay") + 1);
+    const withNote = { ...d, errors: { ...d.errors, notes: ["각주"] } };
+    const l2 = ids(withNote);
+    expect(l2.indexOf("cmp:overlay")).toBe(l2.indexOf("cmp:err:notes") + 1);
+    const none = doc({ steps: [], rep: [] }, { steps: [], rep: [] });
+    expect(ids(none)).toContain("cmp:overlay");
+    expect(ids(none).indexOf("cmp:overlay")).toBe(ids(none).indexOf("cmp:kpi:note") + 1);
+    const lv = [0, 1, 2, 3, 4, 5].flatMap((l) =>
+      compareSummaryBlocks(d, new Map(), l).map((b) => b.id),
+    );
+    expect(lv).not.toContain("cmp:overlay");
   });
 
   it("단계가 없으면 덤벨 표·범례 블록이 없다", () => {
@@ -333,20 +351,20 @@ describe("블록", () => {
       kpi: "2",
       dumbbell: "3",
       errors: "4",
-      overlay: null,
+      overlay: "5",
       speed: null,
-      cond: "5",
-      issues: "6",
+      cond: "6",
+      issues: "7",
     });
     expect(sectionNo("standard", { steps: false, speed: false })).toEqual({
       overview: "1",
       kpi: "2",
       dumbbell: null,
       errors: null,
-      overlay: null,
+      overlay: "3",
       speed: null,
-      cond: "3",
-      issues: "4",
+      cond: "4",
+      issues: "5",
     });
     expect(sectionNo("summary", withSteps)).toEqual({
       overview: "1",
