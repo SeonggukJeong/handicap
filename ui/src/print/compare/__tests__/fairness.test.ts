@@ -298,6 +298,23 @@ describe("부하 조건", () => {
     expect(card(f, "env").same).toBe(true);
     expect(f.condRows.length).toBeGreaterThan(0);
   });
+
+  it("양쪽 profile을 모두 읽지 못하면 그 행에 다름이라고 적지 않고 카드는 읽을 수 없음으로 둔다", () => {
+    const f = fair({ profile: { vus: "x" } }, { profile: { vus: "x" } });
+    expect(card(f, "load")).toMatchObject({ same: false, line: "설정을 읽을 수 없음" });
+    expect(card(f, "criteria")).toMatchObject({ same: false, line: "설정을 읽을 수 없음" });
+    expect(f.anyDiff).toBe(true);
+    for (const r of f.condRows) {
+      expect(r.before.endsWith("다름"), r.label).toBe(false);
+      expect(r.after.endsWith("다름"), r.label).toBe(false);
+      expect(r.after.includes("· 다름"), r.label).toBe(false);
+    }
+    const unread = f.condRows.filter(
+      (r) => r.before === "읽을 수 없음" && r.after === "읽을 수 없음",
+    );
+    expect(unread).toHaveLength(1);
+    expect(unread[0].differs).toBe(false);
+  });
 });
 
 describe("환경 변수 — 값은 어디에도 찍지 않는다", () => {

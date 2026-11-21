@@ -460,7 +460,7 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
       ko.print.conditions.title,
       pa ? C.none : C.unreadable,
       pb ? C.none : C.unreadable,
-      true,
+      !(pa === null && pb === null),
       false,
     );
   }
