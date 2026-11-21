@@ -320,7 +320,12 @@ describe("remainingIssues", () => {
 
   it("순서: 문제 단계(✕ → ▲) → 그대로·늘었습니다(큰 순) → 새로 생겼습니다", () => {
     const profile = { ...baseProfile, criteria: { max_error_rate: 0.01 } };
-    const st = [S("s1", "가"), S("s2", "나"), S("s3", "다", { assert: [200] }), S("s4", "라", { assert: [200] })];
+    const st = [
+      S("s1", "가"),
+      S("s2", "나"),
+      S("s3", "다", { assert: [200] }),
+      S("s4", "라", { assert: [200] }),
+    ];
     const mk = (id: string, rep: ReportStepSpec[]) =>
       buildRunModel(mkMeta(id), mkReport({ id, steps: rep, yaml: scenarioYaml(st), profile }));
     const before = mk("b", [

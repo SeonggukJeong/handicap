@@ -362,11 +362,7 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     same: envSame,
     line: envSame
       ? F.envSame(Object.keys(after.env).length)
-      : F.envDiff(
-          envKeys.length,
-          envKeys.slice(0, 2).join(", "),
-          Math.max(0, envKeys.length - 2),
-        ),
+      : F.envDiff(envKeys.length, envKeys.slice(0, 2).join(", "), Math.max(0, envKeys.length - 2)),
   };
 
   const sc = compareScenario(before, after);
