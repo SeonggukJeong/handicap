@@ -2,6 +2,7 @@
 
 export const PAGE_BODY_MM = 259;
 export const EPS_MM = 1e-6;
+export const KEEP_ROWS = 2;
 export const PX_PER_MM = 96 / 25.4;
 export const pxToMm = (px: number): number => px / PX_PER_MM;
 
@@ -67,19 +68,40 @@ export function paginate(
       }
       continue;
     }
+    const n = b.rowsMm.length;
     let from = 0;
-    while (from < b.rowsMm.length) {
+    let moved = false;
+    while (from < n) {
       const first = b.rowsMm[from]!;
       ensureRoom(head + first);
+      // 앞선 항목이 있는 쪽에서 막 시작한 표만 새 쪽으로 옮길 수 있다(표마다 최대 한 번).
+      const canMove = from === 0 && !moved && current().length > 0;
       let to = from + 1;
       let sliceUsed = used + head + first;
       if (head + first > bodyMm + EPS_MM) {
         oversized.push(b.id);
         // 최소 1행만 단독 조각
       } else {
-        while (to < b.rowsMm.length && sliceUsed + b.rowsMm[to]! <= bodyMm + EPS_MM) {
+        while (to < n && sliceUsed + b.rowsMm[to]! <= bodyMm + EPS_MM) {
           sliceUsed += b.rowsMm[to]!;
           to++;
+        }
+        const rest = n - to;
+        if (rest > 0 && rest < KEEP_ROWS) {
+          const to2 = n - KEEP_ROWS;
+          if (to2 - from >= KEEP_ROWS) {
+            to = to2;
+            sliceUsed = used + head;
+            for (let i = from; i < to; i++) sliceUsed += b.rowsMm[i]!;
+          } else if (canMove) {
+            moved = true;
+            newPage();
+            continue;
+          }
+        } else if (to < n && to - from < KEEP_ROWS && canMove) {
+          moved = true;
+          newPage();
+          continue;
         }
       }
       current().push({ kind: "tableSlice", id: b.id, from, to, continued: from > 0 });

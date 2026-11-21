@@ -98,7 +98,7 @@ describe("paginate", () => {
   it("float_noise_fits", () => {
     expect(EPS_MM).toBe(1e-6);
     // rows sum to 259 + 1e-9 incl. head: 200 + 14 + 45.000000001
-    const r = paginate([atom("a", 200), table("t", 8, 6, [15, 15, 15.000000001, 15])], 259);
+    const r = paginate([atom("a", 200), table("t", 8, 6, [15, 15, 15.000000001, 15, 15])], 259);
     expect(r.pages[0]![1]).toEqual({
       kind: "tableSlice",
       id: "t",
