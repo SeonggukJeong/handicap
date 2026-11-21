@@ -403,8 +403,28 @@ describe("special_lines", () => {
     expect(l[0].text).toBe("측정이 도중에 중단되었습니다(4분 10초까지 측정).");
   });
   it("aborted before start", () => {
+    const l = summaryLines(
+      base({ status: "aborted", startedMs: null, endedMs: null, summary: summary({ count: 0 }) }),
+    );
+    expect(l.map((x) => x.text)).toContain("측정이 시작되기 전에 중단되었습니다.");
+  });
+  it("aborted before start with a reason: says it once", () => {
+    const l = summaryLines(
+      base({
+        status: "aborted",
+        startedMs: null,
+        endedMs: null,
+        summary: summary({ count: 0 }),
+        message: "부하를 시작하기 전에 중단했습니다",
+      }),
+    );
+    const texts = l.map((x) => x.text);
+    expect(texts).toContain("요청이 하나도 실행되지 않았습니다. 사유: 부하를 시작하기 전에 중단했습니다");
+    expect(texts).not.toContain("측정이 시작되기 전에 중단되었습니다.");
+  });
+  it("aborted with requests but no start time: not 'before start'", () => {
     const l = summaryLines(base({ status: "aborted", startedMs: null, endedMs: null }));
-    expect(l[0].text).toBe("측정이 시작되기 전에 중단되었습니다.");
+    expect(l[0].text).toBe("측정이 도중에 중단되었습니다.");
   });
   it("failed with reason", () => {
     const l = summaryLines(base({ status: "failed", message: "worker crashed" }));
