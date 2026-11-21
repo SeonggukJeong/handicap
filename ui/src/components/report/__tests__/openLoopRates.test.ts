@@ -36,6 +36,61 @@ describe("openLoopRates", () => {
     expect(openLoopRates({ target_rps: 1 }, 1000, 15, [])?.achieved).toBe(0);
     expect(openLoopRates({ target_rps: 20 }, 10, 0, [])?.achieved).toBeNull();
   });
+  describe("steady_run_reads_as_fixed_everywhere", () => {
+    const STEADY_OPEN = {
+      stages: [{ target: 80 }, { target: 80 }],
+      steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+    };
+    const basis = (selected: "steady" | "whole", droppedWhole = false) =>
+      ({
+        selected,
+        default: "steady",
+        state: "measured",
+        config: STEADY_OPEN.steady,
+        window: null,
+        t0_estimated: false,
+        dropped_whole_run: droppedWhole,
+        other: null,
+      }) as const;
+    it("상승 run + 유지 구간 기준 → 고정, 달성 = 80 − dropped/duration", () => {
+      expect(openLoopRates(STEADY_OPEN, 100, 20, [], basis("steady"))).toEqual({
+        target: 80,
+        curve: false,
+        achieved: 75,
+      });
+    });
+    it("상승 run + 전체 구간 기준 또는 basis 없음 → 곡선 가지", () => {
+      const curve = { target: 80, curve: true, achieved: null };
+      expect(openLoopRates(STEADY_OPEN, 100, 20, [], basis("whole"))).toEqual(curve);
+      expect(openLoopRates(STEADY_OPEN, 100, 20, [])).toEqual(curve);
+    });
+    it("상승 run + 유지 구간 기준 + 버림이 전체 값이면 식을 쓰지 않는다(인사이트만)", () => {
+      expect(openLoopRates(STEADY_OPEN, 100, 20, [], basis("steady", true))).toEqual({
+        target: 80,
+        curve: false,
+        achieved: null,
+      });
+      expect(openLoopRates(STEADY_OPEN, 100, 20, sat(7.5), basis("steady", true))?.achieved).toBe(
+        7.5,
+      );
+    });
+    it("버림만 쓰는 steady run(target_rps 있음)은 두 기준 모두 고정", () => {
+      const p = {
+        target_rps: 80,
+        steady: { ramp_seconds: 0, hold_seconds: 300, discard_seconds: 5 },
+      };
+      expect(openLoopRates(p, 100, 20, [], basis("steady"))).toEqual({
+        target: 80,
+        curve: false,
+        achieved: 75,
+      });
+      expect(openLoopRates(p, 100, 20, [], basis("whole"))).toEqual({
+        target: 80,
+        curve: false,
+        achieved: 75,
+      });
+    });
+  });
   it("profile null/unknown 형태 관대 처리 → null", () => {
     expect(openLoopRates(null, 0, 15, [])).toBeNull();
   });

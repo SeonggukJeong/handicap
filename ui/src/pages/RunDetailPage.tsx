@@ -33,7 +33,7 @@ import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/run/RunVuCell";
-import { deriveLoadMode } from "../components/run/loadModel";
+import { deriveLoadMode, fixedTarget } from "../components/run/loadModel";
 import { StairLivePanel } from "../components/run/StairLivePanel";
 import { Callout } from "../components/ui/Callout";
 import { PageSection } from "../components/ui/PageSection";
@@ -502,6 +502,11 @@ function ProfileLoadLines({
 }) {
   const { loadModel, rateMode } = deriveLoadMode(profile);
   const duration = <li>duration = {durationSeconds}s</li>;
+  const steadyLine = profile.steady ? (
+    <li>
+      {ko.runDetail.profileSteady(profile.steady.ramp_seconds, profile.steady.discard_seconds)}
+    </li>
+  ) : null;
   if (loadModel === "open") {
     return (
       <>
@@ -524,10 +529,11 @@ function ProfileLoadLines({
             )}
           </li>
         ) : (
-          <li>target_rps = {profile.target_rps ?? 0}/s</li>
+          <li>target_rps = {fixedTarget(profile) ?? 0}/s</li>
         )}
         {duration}
         {profile.max_in_flight != null && <li>max_in_flight = {profile.max_in_flight}</li>}
+        {steadyLine}
       </>
     );
   }
@@ -548,6 +554,7 @@ function ProfileLoadLines({
       <li>vus = {profile.vus}</li>
       {duration}
       <li>ramp_up = {profile.ramp_up_seconds ?? 0}s</li>
+      {steadyLine}
     </>
   );
 }

@@ -459,4 +459,21 @@ describe("pickLatestFixedOpenRun (R10 — 곡선 prior 제외)", () => {
     ] as never[];
     expect(pickLatestFixedOpenRun(runs)?.id).toBe("1"); // 곡선(2)은 제외
   });
+  it("steady_run_reads_as_fixed_everywhere: 도착률 고정 + 상승 run도 고정으로 받는다", () => {
+    const steadyRun = {
+      id: "S",
+      status: "completed",
+      created_at: 3,
+      profile: {
+        vus: 0,
+        target_rps: null,
+        stages: [
+          { target: 80, duration_seconds: 30 },
+          { target: 80, duration_seconds: 270 },
+        ],
+        steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+      },
+    } as never;
+    expect(pickLatestFixedOpenRun([steadyRun])?.id).toBe("S");
+  });
 });

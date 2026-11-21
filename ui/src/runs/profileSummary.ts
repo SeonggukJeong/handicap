@@ -1,5 +1,5 @@
 import type { Profile } from "../api/schemas";
-import { deriveLoadMode } from "../components/run/loadModel";
+import { deriveLoadMode, fixedTarget } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
 import { ko } from "../i18n/ko";
 
@@ -9,7 +9,17 @@ import { ko } from "../i18n/ko";
  *  :179-180 — vuSortValue와 같은 불변식). */
 export function profileSummary(
   p: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages" | "duration_seconds"> &
-    Partial<Pick<Profile, "stair">>,
+    Partial<Pick<Profile, "stair" | "steady">>,
+): string {
+  const base = baseSummary(p);
+  if (!p.steady) return base;
+  const suffix = ko.runSummary.steadySuffix(p.steady.ramp_seconds, p.steady.discard_seconds);
+  return suffix === "" ? base : `${base} · ${suffix}`;
+}
+
+function baseSummary(
+  p: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages" | "duration_seconds"> &
+    Partial<Pick<Profile, "stair" | "steady">>,
 ): string {
   const { loadModel, rateMode } = deriveLoadMode(p);
   const dur = profileDurationSeconds(p);
@@ -18,7 +28,7 @@ export function profileSummary(
       return ko.runSummary.openStair(p.stair.targets.length, Math.max(...p.stair.targets));
     if (rateMode === "curve")
       return ko.runSummary.openCurve(Math.max(...(p.stages ?? []).map((s) => s.target)), dur);
-    return ko.runSummary.openFixed(p.target_rps ?? 0, dur);
+    return ko.runSummary.openFixed(fixedTarget(p) ?? 0, dur);
   }
   if (rateMode === "curve")
     return ko.runSummary.closedCurve(Math.max(...(p.vu_stages ?? []).map((s) => s.target)), dur);

@@ -2,6 +2,7 @@ import type { Run } from "../../api/schemas";
 import { loopPassesForEstimate, type Step, type ThinkTime } from "../../scenario/model";
 import { formatDurationKo } from "../../i18n/duration";
 import { ko } from "../../i18n/ko";
+import { fixedTarget } from "./loadModel";
 
 /** RunDialog 닫힌 루프 사이징 헬퍼의 순수 계산. React 의존 없음 — 단위 테스트 대상.
  *  Little's Law: closed-loop에서 목표 RPS를 내려면 VU ≈ 목표RPS ÷ (VU당 RPS). */
@@ -102,7 +103,9 @@ export function iterationHoldMs(
       const think = tt ? (tt.min_ms + tt.max_ms) / 2 : 0;
       total += lat + think;
     } else if (s.type === "loop") {
-      total += loopPassesForEstimate(s, "lower") * iterationHoldMs(s.do, perStepP50, fallbackMs, defaultThink);
+      total +=
+        loopPassesForEstimate(s, "lower") *
+        iterationHoldMs(s.do, perStepP50, fallbackMs, defaultThink);
     } else if (s.type === "parallel") {
       // 시나리오 기본값은 분기 서브트리에 적용되지 않는다(엔진 runner/trace의 Parallel arm이
       // 분기 재귀에 None을 넘김 — spec R4). 분기 스텝의 명시 think_time은 위 http arm이 반영.
@@ -188,7 +191,7 @@ export function pickLatestOpenRun(runs: Run[]): Run | null {
   for (const r of runs) {
     if (r.status !== "completed") continue;
     const p = r.profile;
-    const isOpen = p.target_rps != null || (p.stages != null && p.stages.length > 0);
+    const isOpen = fixedTarget(p) != null || (p.stages != null && p.stages.length > 0);
     if (!isOpen) continue;
     if (best === null || r.created_at > best.created_at) best = r;
   }
@@ -201,7 +204,7 @@ export function pickLatestFixedOpenRun(runs: Run[]): Run | null {
   let best: Run | null = null;
   for (const r of runs) {
     if (r.status !== "completed") continue;
-    if (r.profile.target_rps == null) continue;
+    if (fixedTarget(r.profile) == null) continue;
     if (best === null || r.created_at > best.created_at) best = r;
   }
   return best;

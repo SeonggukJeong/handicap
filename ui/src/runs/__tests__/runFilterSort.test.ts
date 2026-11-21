@@ -393,6 +393,26 @@ describe("modeKey stair", () => {
     expect(modeKey(stairProfile as never)).toBe("open_stair");
     expect(MODE_KEYS).toContain("open_stair");
   });
+  it("steady_run_reads_as_fixed_everywhere: 도착률 고정 + 상승 run은 open_fixed에 걸린다", () => {
+    const steadyRun = {
+      vus: 0,
+      duration_seconds: 0,
+      target_rps: null,
+      max_in_flight: 50,
+      stages: [
+        { target: 80, duration_seconds: 30 },
+        { target: 80, duration_seconds: 270 },
+      ],
+      steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+    };
+    expect(modeKey(steadyRun as never)).toBe("open_fixed");
+    const runs = [
+      mkRun({ id: "S", profile: steadyRun as never }),
+      mkRun({ id: "C", profile: closedFixed(5) as never }),
+    ];
+    const f: RunFilter = { ...EMPTY_FILTER, modes: ["open_fixed"] };
+    expect(filterRuns(runs, f, Date.now()).map((r) => r.id)).toEqual(["S"]);
+  });
   it("open_stair 필터는 계단 run만 남긴다", () => {
     const runs = [
       mkRun({ id: "R", profile: stairProfile as never }),

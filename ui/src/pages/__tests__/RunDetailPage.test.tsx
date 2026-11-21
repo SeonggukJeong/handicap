@@ -1857,6 +1857,34 @@ describe("RunDetailPage — 프로필 줄은 부하 모드에 맞는 값만 (run
     expect(lines).toEqual(["target_rps = 25/s", "duration = 40s", "max_in_flight = 80"]);
   });
 
+  it("steady_run_reads_as_fixed_everywhere: 도착률 고정 + 상승 run은 target_rps 줄과 상승·버림 줄", async () => {
+    const run = makeStairRunningRun();
+    mockOneRun("SO1", {
+      ...run,
+      id: "SO1",
+      profile: {
+        vus: 0,
+        ramp_up_seconds: 0,
+        duration_seconds: 0,
+        target_rps: null,
+        max_in_flight: 50,
+        stages: [
+          { target: 80, duration_seconds: 30 },
+          { target: 80, duration_seconds: 270 },
+        ],
+        steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+      },
+    });
+    renderWithRouter("SO1");
+    const profile = await screen.findByRole("region", { name: "프로필" });
+    const lines = within(profile)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(lines).toContain("target_rps = 80/s");
+    expect(lines).toContain("상승 30초 · 앞부분 버림 5초");
+    expect(lines.some((l) => l?.startsWith("stages ="))).toBe(false);
+  });
+
   it("닫힌 고정 run: 기존 세 줄 그대로", async () => {
     mockRunningApi(Date.now() - 1_000, 1);
     renderWithRouter("SR1");

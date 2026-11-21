@@ -148,6 +148,29 @@ describe("conditionsBox", () => {
   });
 });
 
+describe("steady_run_reads_as_fixed_everywhere", () => {
+  const steadyProf = () =>
+    prof({
+      stages: [
+        { target: 80, duration_seconds: 30 },
+        { target: 80, duration_seconds: 270 },
+      ],
+      steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+    });
+  it("조건 줄에 초당 80회, 초당 0회 없음", () => {
+    const line = loadConditionLine(steadyProf());
+    expect(line).toContain("초당 80회");
+    expect(line).not.toContain("초당 0회");
+  });
+  it("conditionsBox 크기 행도 초당 80회", () => {
+    const r = conditionsBox({ profileRaw: steadyProf(), workerBreakdownLen: 0, envCount: 0 });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows.find((x) => x.label === "크기")?.value).toBe("초당 80회");
+    }
+  });
+});
+
 describe("계단 run", () => {
   const stairProf = () =>
     prof({

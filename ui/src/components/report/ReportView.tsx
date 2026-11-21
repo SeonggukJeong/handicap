@@ -42,6 +42,10 @@ type Props = { report: Report; profile: Profile };
 
 export function ReportView({ report, profile }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
+  const dropOther =
+    report.basis?.selected === "steady" && report.basis.dropped_whole_run
+      ? report.basis.other
+      : null;
   const envMap = useMemo<Record<string, string>>(() => {
     const env = report.run.env;
     if (env && typeof env === "object" && !Array.isArray(env)) {
@@ -216,11 +220,13 @@ export function ReportView({ report, profile }: Props) {
       <Summary
         summary={report.summary}
         dropped={report.dropped}
+        dropBase={dropOther ? { count: dropOther.count } : undefined}
         openLoop={openLoopRates(
           report.run.profile,
           report.dropped,
-          report.summary.duration_seconds,
+          dropOther ? dropOther.duration_seconds : report.summary.duration_seconds,
           report.insights ?? [],
+          report.basis,
         )}
       />
       <TimeSeriesChart

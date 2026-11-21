@@ -122,6 +122,36 @@ describe("ReportView", () => {
     );
   });
 
+  it("steady_run_reads_as_fixed_everywhere: 버림이 전체 값이면 버림 비율 분모는 other.count", () => {
+    const steady = { ramp_seconds: 0, hold_seconds: 300, discard_seconds: 5 };
+    const report: Report = {
+      ...FIXTURE,
+      summary: { ...FIXTURE.summary, count: 400 },
+      dropped: 100,
+      run: { ...FIXTURE.run, profile: { vus: 0, duration_seconds: 300, target_rps: 80, steady } },
+      basis: {
+        selected: "steady",
+        default: "steady",
+        state: "measured",
+        config: steady,
+        window: { start_ms: 1000, end_ms: 2000, measured_seconds: 295 },
+        t0_estimated: false,
+        dropped_whole_run: true,
+        other: {
+          rps: 3,
+          p50_ms: 1,
+          p95_ms: 2,
+          p99_ms: 3,
+          error_rate: 0,
+          count: 1000,
+          duration_seconds: 300,
+        },
+      },
+    };
+    render(<ReportView report={report} profile={TEST_PROFILE} />);
+    expect(screen.getByRole("region", { name: /리포트 요약/ })).toHaveTextContent(/100 \(9\.1%\)/);
+  });
+
   it("renders summary, charts, status distribution, step table, and download", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.getByRole("region", { name: /리포트 요약/ })).toBeInTheDocument();

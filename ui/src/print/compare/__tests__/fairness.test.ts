@@ -289,6 +289,25 @@ describe("부하 조건", () => {
     expect(card(open, "load").line).toBe("초당 목표 다름");
   });
 
+  it("steady_run_reads_as_fixed_everywhere: steady만 다르면 그 밖의 설정 줄이 없고 크기 칸에 80", () => {
+    const steadyOpen = (discard: number) =>
+      prof({
+        vus: 0,
+        duration_seconds: 0,
+        max_in_flight: 50,
+        stages: [
+          { target: 80, duration_seconds: 30 },
+          { target: 80, duration_seconds: 270 },
+        ],
+        steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: discard },
+      });
+    const f = fair({ profile: steadyOpen(5) }, { profile: steadyOpen(10) });
+    expect(f.condRows.some((r) => r.label === "그 밖의 설정")).toBe(false);
+    const size = f.condRows.find((r) => r.label === "초당 목표");
+    expect(size?.before).toBe("초당 80회");
+    expect(size?.after).toBe("초당 80회");
+  });
+
   it("한쪽 profile을 읽지 못하면 부하 조건·판정 기준 카드 모두 읽을 수 없음이고 던지지 않는다", () => {
     const f = fair({}, { profile: { vus: "x" } });
     expect(card(f, "load")).toMatchObject({ same: false, line: "설정을 읽을 수 없음" });

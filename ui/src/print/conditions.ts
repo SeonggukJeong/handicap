@@ -1,7 +1,7 @@
 import { ko } from "../i18n/ko";
 import { formatDurationKo } from "../i18n/duration";
 import { ProfileSchema, type Profile } from "../api/schemas";
-import { deriveLoadMode } from "../components/run/loadModel";
+import { deriveLoadMode, fixedTarget } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
 import { fmtDate, fmtDateTime, fmtMs, fmtTime } from "./format";
 
@@ -43,7 +43,7 @@ export function loadConditionLine(profile: Profile): string {
   }
   return rateMode === "curve"
     ? c.lineOpenCurve(peak(profile.stages), d)
-    : c.lineOpenFixed(profile.target_rps ?? 0, d);
+    : c.lineOpenFixed(fixedTarget(profile) ?? 0, d);
 }
 
 /** 워커 2개 이상이면 그 수, 아니면 0(표시 안 함). 워커별 내역 길이가 우선, 없으면 open-loop의 worker_count. */
@@ -88,7 +88,7 @@ export function conditionsBox(a: {
         L.size,
         rateMode === "curve"
           ? c.sizeOpenCurve(peak(p.stages), p.stages?.length ?? 0)
-          : c.sizeOpenFixed(p.target_rps ?? 0),
+          : c.sizeOpenFixed(fixedTarget(p) ?? 0),
       );
     }
   }

@@ -147,6 +147,27 @@ describe("Summary", () => {
     expect(screen.getByRole("button", { name: "드롭 설명" })).toBeInTheDocument();
   });
 
+  it("steady_run_reads_as_fixed_everywhere: dropBase가 있으면 버림 비율 분모가 전체 구간 요청 수", () => {
+    const { unmount } = render(
+      <Summary
+        summary={{ ...baseSummary, count: 400 }}
+        dropped={100}
+        dropBase={{ count: 1000 }}
+        openLoop={{ target: 80, curve: false, achieved: 80 }}
+      />,
+    );
+    expect(screen.getByRole("region", { name: /리포트 요약/ })).toHaveTextContent(/100 \(9\.1%\)/);
+    unmount();
+    render(
+      <Summary
+        summary={{ ...baseSummary, count: 400 }}
+        dropped={100}
+        openLoop={{ target: 80, curve: false, achieved: 80 }}
+      />,
+    );
+    expect(screen.getByRole("region", { name: /리포트 요약/ })).toHaveTextContent(/100 \(20\.0%\)/);
+  });
+
   it("nonzero<0.05% 드롭율은 '<0.1%'로 floor, 이중 %% 없음 (R6)", () => {
     // dropped=1, count=3000 → dropRate = 1/(1+3000) ≈ 0.033% (<0.05%)
     render(

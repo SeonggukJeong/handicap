@@ -217,6 +217,12 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     expect(num("앞부분 버림(초)")).toHaveValue(5);
   });
 
+  it("steady_prefill_draws_fixed_shape: steady 저장본 프리필은 곡선이 아니라 고정 모양", () => {
+    renderDialog({ profile: ProfileSchema.parse(openRampStored), env: {} });
+    expect(screen.getByRole("img", { name: "부하 모양 미리보기" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /레이트 곡선 미리보기/ })).toBeNull();
+  });
+
   it("VU 상승만 있는 다시 실행은 지금처럼 간단 모드", () => {
     renderDialog({
       profile: ProfileSchema.parse({

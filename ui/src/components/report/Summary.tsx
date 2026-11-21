@@ -9,9 +9,11 @@ type Props = {
   summary: ReportSummary;
   dropped?: number;
   openLoop?: OpenLoopRates | null;
+  /** dropped가 run 전체 값일 때 버림 비율의 분모에 쓰는 전체 구간 요청 수. */
+  dropBase?: { count: number };
 };
 
-export function Summary({ summary, dropped, openLoop }: Props) {
+export function Summary({ summary, dropped, openLoop, dropBase }: Props) {
   const cards: Array<{ label: string; value: string; help?: string }> = [
     { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },
     { label: ko.report.cardErrors, value: summary.errors.toLocaleString() },
@@ -24,7 +26,7 @@ export function Summary({ summary, dropped, openLoop }: Props) {
 
   if (openLoop != null) {
     const droppedCount = dropped ?? 0;
-    const total = droppedCount + summary.count;
+    const total = droppedCount + (dropBase?.count ?? summary.count);
     const dropRate = total === 0 ? 0 : droppedCount / total;
     const dropPct = floorPct(dropRate * 100);
     cards.push(

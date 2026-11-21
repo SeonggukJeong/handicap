@@ -1674,6 +1674,7 @@ export const ko = {
     profileTitle: "프로필",
     profileVuStages: (peak: number, count: number) => `최대 ${peak} · ${count}단계`,
     profileRateStages: (peak: number, count: number) => `최대 ${peak}/s · ${count}단계`,
+    profileSteady: (ramp: number, discard: number) => `상승 ${ramp}초 · 앞부분 버림 ${discard}초`,
     profileStair: (steps: number, peak: number, hold: number, ramp: number) =>
       `계단 ${steps}개 · 최대 ${peak}/s · 유지 ${hold}s · 상승 ${ramp}s`,
     stepsLabel: "스텝",
@@ -1717,6 +1718,10 @@ export const ko = {
     openFixed: (rps: number, s: number) => `열린 ${rps}/s · ${s}s`,
     openCurve: (peak: number, s: number) => `열린 곡선 최대 ${peak}/s · ${s}s`,
     openStair: (steps: number, peak: number) => `계단 ${steps}개 · 최대 ${peak}/s`,
+    steadySuffix: (ramp: number, discard: number) =>
+      [ramp > 0 ? `상승 ${ramp}초` : "", discard > 0 ? `버림 ${discard}초` : ""]
+        .filter((x) => x !== "")
+        .join(" · "),
   },
   runFilter: {
     // run-identity Task 8: 목록 라벨 열 + 인라인 편집(US4/US2·US5 관찰). aria는 WCAG 2.5.3

@@ -94,6 +94,67 @@ describe("WorkerSizingHelper", () => {
     expect(screen.queryByRole("button", { name: "적용" })).toBeNull();
   });
 
+  describe("steady_run_reads_as_fixed_everywhere", () => {
+    const RAMP_PROFILE = {
+      vus: 0,
+      target_rps: null,
+      worker_count: 1,
+      stages: [
+        { target: 80, duration_seconds: 30 },
+        { target: 80, duration_seconds: 270 },
+      ],
+      steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+    };
+    const DISCARD_PROFILE = {
+      vus: 0,
+      target_rps: 80,
+      worker_count: 1,
+      steady: { ramp_seconds: 0, hold_seconds: 300, discard_seconds: 5 },
+    };
+    const wholeBasis = {
+      selected: "steady",
+      dropped_whole_run: true,
+      other: { count: 1000, duration_seconds: 100 },
+    };
+    function setSteady(profile: unknown, report: unknown) {
+      (useScenarioRuns as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        data: { runs: [{ id: "r1", status: "completed", created_at: 1, profile }] },
+      });
+      (useRunReport as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ data: report });
+    }
+    const renderHelper = () =>
+      render(
+        <WorkerSizingHelper scenarioId="s1" targetRps="800" maxInFlight="1000" onApply={vi.fn()} />,
+      );
+
+    it("지난 실행 목표 80이 계산에 들어간다(0이 아님)", () => {
+      setSteady(RAMP_PROFILE, { dropped: 500, summary: { duration_seconds: 10 } });
+      renderHelper();
+      expect(screen.getByText(/초당 ~30회 반복까지만 시작했어요/)).toBeInTheDocument();
+    });
+
+    it("버림만 쓰는 run + dropped_whole_run → 분모는 other.duration_seconds", () => {
+      setSteady(DISCARD_PROFILE, {
+        dropped: 500,
+        summary: { duration_seconds: 10 },
+        basis: wholeBasis,
+      });
+      renderHelper();
+      expect(screen.getByText(/초당 ~75회 반복까지만 시작했어요/)).toBeInTheDocument();
+    });
+
+    it("도착률 고정 + 상승 run + dropped_whole_run → 앵커 없음", () => {
+      setSteady(RAMP_PROFILE, {
+        dropped: 500,
+        summary: { duration_seconds: 10 },
+        basis: wholeBasis,
+      });
+      renderHelper();
+      expect(screen.getByText(/1대로 시작하고/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "적용" })).toBeNull();
+    });
+  });
+
   it("cross-field: 적용값 > max_in_flight → needMaxInFlight 경고", () => {
     // priorTarget 150, dropped 500, duration 10 → achieved = 150 - 50 = 100
     setHooks({ dropped: 500, priorTarget: 150, duration: 10, priorWorkerCount: 1 });

@@ -2,6 +2,7 @@ import type { Profile, ReportSummary, Validity, Verdict } from "../../api/schema
 import { ko } from "../../i18n/ko";
 import { formatDurationKo, formatSecondsKo } from "../../i18n/duration";
 import { floorPct } from "./format";
+import { fixedTarget } from "../run/loadModel";
 
 type Props = {
   summary: ReportSummary;
@@ -21,11 +22,12 @@ export function ReportHeadline({ summary, profile, verdict, validity }: Props) {
   };
   const isCurve = (profile.stages?.length ?? 0) > 0;
   const isVuCurve = (profile.vu_stages?.length ?? 0) > 0;
+  const fixed = fixedTarget(profile);
   const sentence =
     summary.count === 0
       ? ko.report.headlineNoRequests
-      : profile.target_rps != null
-        ? ko.report.headlineOpenFixed({ ...common, targetRps: profile.target_rps })
+      : fixed != null
+        ? ko.report.headlineOpenFixed({ ...common, targetRps: fixed })
         : isCurve
           ? ko.report.headlineOpenCurve(common)
           : isVuCurve
@@ -34,7 +36,9 @@ export function ReportHeadline({ summary, profile, verdict, validity }: Props) {
 
   return (
     <section aria-label={ko.report.headlineAria} className="mb-6">
-      {verdict ? <VerdictCallout verdict={verdict} validity={validity} /> : (
+      {verdict ? (
+        <VerdictCallout verdict={verdict} validity={validity} />
+      ) : (
         <p className="mb-1 text-sm text-slate-500">{ko.report.sloHint}</p>
       )}
       <p className="text-base text-slate-800">{sentence}</p>
@@ -42,18 +46,10 @@ export function ReportHeadline({ summary, profile, verdict, validity }: Props) {
   );
 }
 
-function VerdictCallout({
-  verdict,
-  validity,
-}: {
-  verdict: Verdict;
-  validity?: Validity | null;
-}) {
+function VerdictCallout({ verdict, validity }: { verdict: Verdict; validity?: Validity | null }) {
   // Fail always red. Pass with limited/suspect validity: neutral + coupled copy (no emerald).
   if (!verdict.passed) {
-    return (
-      <div className="mb-1 text-2xl font-bold text-red-700">{ko.report.verdictFail}</div>
-    );
+    return <div className="mb-1 text-2xl font-bold text-red-700">{ko.report.verdictFail}</div>;
   }
   const level = validity?.level;
   if (level === "suspect") {
@@ -71,7 +67,5 @@ function VerdictCallout({
     );
   }
   // level ok or validity absent (old report): keep existing emerald 합격 emphasis
-  return (
-    <div className="mb-1 text-2xl font-bold text-emerald-700">{ko.report.verdictPass}</div>
-  );
+  return <div className="mb-1 text-2xl font-bold text-emerald-700">{ko.report.verdictPass}</div>;
 }

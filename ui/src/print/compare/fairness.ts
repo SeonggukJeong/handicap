@@ -2,7 +2,7 @@ import { ko } from "../../i18n/ko";
 import { formatDurationKo } from "../../i18n/duration";
 import type { Profile } from "../../api/schemas";
 import { profileDurationSeconds, seedBindingsFrom } from "../../api/runPrefill";
-import { deriveLoadMode } from "../../components/run/loadModel";
+import { deriveLoadMode, fixedTarget } from "../../components/run/loadModel";
 import { conditionsBox } from "../conditions";
 import { stepNo } from "../format";
 import type { StepFacts } from "../scenarioFacts";
@@ -120,6 +120,7 @@ const NAMED_PROFILE_KEYS = [
   "max_in_flight",
   "worker_count",
   "stair",
+  "steady",
   "criteria",
   "think_seed",
   "data_binding",
@@ -130,7 +131,7 @@ function sizeValue(p: Profile): unknown {
   const { loadModel, rateMode } = deriveLoadMode(p);
   if (rateMode === "stair") return p.stair?.targets;
   if (loadModel === "closed") return rateMode === "curve" ? p.vu_stages : p.vus;
-  return rateMode === "curve" ? p.stages : p.target_rps;
+  return rateMode === "curve" ? p.stages : fixedTarget(p);
 }
 
 function itemValues(p: Profile, workers: number): Record<ItemKey, unknown> {

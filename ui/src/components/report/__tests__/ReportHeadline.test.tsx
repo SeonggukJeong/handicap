@@ -42,6 +42,28 @@ describe("ReportHeadline", () => {
     );
   });
 
+  it("steady_run_reads_as_fixed_everywhere: 도착률 고정 + 상승은 고정 문장", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={{
+          ...CLOSED,
+          vus: 0,
+          duration_seconds: 0,
+          stages: [
+            { target: 80, duration_seconds: 30 },
+            { target: 80, duration_seconds: 270 },
+          ],
+          steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+        }}
+        verdict={null}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent("목표 도착률 초당 80회로 12,345회 요청");
+    expect(region).not.toHaveTextContent("곡선");
+  });
+
   it("open-loop(stages 곡선) 문장은 곡선 변형", () => {
     render(
       <ReportHeadline

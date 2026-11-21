@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useScenarioRuns, useRunReport } from "../../api/hooks";
 import type { Run } from "../../api/schemas";
 import { pickLatestFixedOpenRun, recommendWorkers } from "./sizing";
+import { fixedTarget } from "./loadModel";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 
@@ -28,15 +29,21 @@ function usePriorOpenRunWorkerAnchor(scenarioId: string | undefined): WorkerAnch
   );
   const report = useRunReport(latest?.id, Boolean(latest));
   const dropped = report.data?.dropped ?? 0;
-  const duration = report.data?.summary.duration_seconds ?? 0;
-  const priorTarget = latest?.profile.target_rps ?? 0;
+  const basis = report.data?.basis;
+  const wholeDropped = basis?.selected === "steady" && basis.dropped_whole_run;
+  const duration =
+    wholeDropped && basis.other
+      ? basis.other.duration_seconds
+      : (report.data?.summary.duration_seconds ?? 0);
+  const priorTarget = latest ? (fixedTarget(latest.profile) ?? 0) : 0;
+  const rampWholeDropped = wholeDropped && latest?.profile.target_rps == null;
   const priorWorkerCount = latest?.profile.worker_count ?? 1;
   return useMemo(() => {
-    if (duration <= 0 || priorTarget <= 0) return null;
+    if (duration <= 0 || priorTarget <= 0 || rampWholeDropped) return null;
     const achievedPerSec = Math.max(0, priorTarget - dropped / duration);
     if (achievedPerSec <= 0) return null;
     return { achievedPerSec, priorTarget, dropped, priorWorkerCount };
-  }, [duration, priorTarget, dropped, priorWorkerCount]);
+  }, [duration, priorTarget, dropped, priorWorkerCount, rampWholeDropped]);
 }
 
 type Props = {
