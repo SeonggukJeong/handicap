@@ -7,6 +7,10 @@ export function ReportHeader({ doc }: { doc: PrintDoc }) {
   const meta: Array<[string, string]> = [
     [D.metaTargets, doc.meta.targets],
     [D.metaWindow, doc.meta.window],
+    ...(doc.meta.basis ? ([[D.metaBasis, doc.meta.basis]] as Array<[string, string]>) : []),
+    ...(doc.meta.basisOther
+      ? ([[D.metaBasisOther, doc.meta.basisOther]] as Array<[string, string]>)
+      : []),
     [D.metaLoad, doc.meta.load],
     [D.metaIdent, doc.meta.ident],
   ];

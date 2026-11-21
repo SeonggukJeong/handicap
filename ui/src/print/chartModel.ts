@@ -58,7 +58,7 @@ export function fmtElapsed(sec: number): string {
   return sec === 0 ? "0" : formatDurationKo(sec);
 }
 
-const elapsedText = (sec: number): string => (sec === 0 ? K.zeroSec : fmtElapsed(sec));
+export const elapsedText = (sec: number): string => (sec === 0 ? K.zeroSec : fmtElapsed(sec));
 
 export type ChartBin = {
   startSec: number;
@@ -85,6 +85,8 @@ export type ChartModel = {
   errTicks: number[];
   timeTicks: number[];
   markers: ChartMarker[];
+  /** 유지 구간의 첫 초와 마지막 초(경과 초). 창이 없으면 없다. */
+  steady?: { startSec: number; endSec: number };
 };
 
 export function runT0(startedMs: number | null, windows: Report["windows"]): number | null {
@@ -116,6 +118,7 @@ export function buildChartModel(
   windows: Report["windows"],
   t0: number | null,
   rows: StepRow[],
+  steady?: { startSec: number; endSec: number },
 ): ChartModel {
   if (windows.length === 0 || t0 === null) {
     return {
@@ -131,7 +134,7 @@ export function buildChartModel(
     };
   }
   const maxTs = windows.reduce((a, w) => Math.max(a, w.ts_second), t0);
-  const durationSec = Math.max(1, maxTs - t0 + 1);
+  const durationSec = Math.max(1, maxTs - t0 + 1, steady ? steady.endSec + 1 : 0);
   const binSeconds = pickBinSeconds(durationSec);
   const nBins = Math.ceil(durationSec / binSeconds);
 
@@ -214,6 +217,7 @@ export function buildChartModel(
     errTicks: hasErrors ? niceTicks(maxErr, 5) : [],
     timeTicks: timeTicks(durationSec),
     markers,
+    ...(steady ? { steady } : {}),
   };
 }
 

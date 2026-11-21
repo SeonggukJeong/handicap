@@ -11,7 +11,9 @@ import {
 } from "../buildPrintDoc";
 import { totalHeight, type Block, type LadderLevel } from "../paginate";
 import { shortSummary } from "../sentences";
-import type { Report, Run } from "../../api/schemas";
+import { PLOT_X1_MM, chartReadingLine, markerX } from "../chartModel";
+import { basisLine } from "../../components/report/basisText";
+import type { Report, ReportBasis, Run } from "../../api/schemas";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
 
@@ -398,5 +400,155 @@ describe("standard blocks", () => {
       "glossary",
       "signature",
     ]);
+  });
+});
+
+describe("buildPrintDoc — 집계 기준", () => {
+  const T0S = 1_700_000_000;
+  const mkBasis = (
+    selected: "steady" | "whole",
+    over: Partial<ReportBasis> = {},
+    from = 25,
+    to = 60,
+  ): ReportBasis => ({
+    selected,
+    default: "steady",
+    state: "measured",
+    config: { ramp_seconds: 20, hold_seconds: 45, discard_seconds: 5 },
+    window: {
+      start_ms: (T0S + from) * 1000,
+      end_ms: (T0S + to) * 1000,
+      measured_seconds: to - from,
+    },
+    t0_estimated: false,
+    dropped_whole_run: false,
+    other: {
+      rps: 40.5,
+      p50_ms: 15,
+      p95_ms: 90,
+      p99_ms: 130,
+      error_rate: 0.01,
+      count: 900,
+      duration_seconds: 60,
+    },
+    ...over,
+  });
+
+  // 1초 칸마다 s1 요청 10건. errSecs(실행 시작 기준 초)에는 status 0(전송 실패) 오류 1건.
+  const wins = (total: number, errSecs: number[]): Report["windows"] =>
+    Array.from({ length: total }, (_, i) => {
+      const err = errSecs.includes(i) ? 1 : 0;
+      return {
+        ts_second: T0S + i,
+        step_id: "s1",
+        count: 10,
+        error_count: err,
+        status_counts: (err ? { "200": 9, "0": 1 } : { "200": 10 }) as Record<string, number>,
+        p50_ms: 1,
+        p95_ms: 1,
+        p99_ms: 1,
+      };
+    });
+
+  const withErrors = (basis: ReportBasis, total: number, errSecs: number[]): Report => {
+    const base = mkReport(2);
+    return mkReport(2, {
+      basis,
+      windows: wins(total, errSecs),
+      summary: { ...base.summary, errors: errSecs.length },
+      steps: base.steps.map((st) =>
+        st.step_id === "s1"
+          ? {
+              ...st,
+              error_count: errSecs.length,
+              status_counts: { "200": 100 - errSecs.length, "0": errSecs.length } as Record<
+                string,
+                number
+              >,
+            }
+          : { ...st, error_count: 0, status_counts: { "200": 100 } as Record<string, number> },
+      ),
+    });
+  };
+
+  const range = (a: number, b: number): number[] => Array.from({ length: b - a }, (_, i) => a + i);
+
+  it("basis 없는 리포트의 meta는 네 키 그대로", () => {
+    const doc = build(mkRun(), mkReport());
+    expect(Object.keys(doc.meta).sort()).toEqual(["ident", "load", "targets", "window"]);
+  });
+
+  it("steady 기준 리포트: meta.basis가 화면 기준 줄과 같은 글자, meta.basisOther가 참고 줄", () => {
+    const report = mkReport(2, { basis: mkBasis("steady") });
+    const doc = build(mkRun(), report);
+    expect(doc.meta.basis).toBe(basisLine(report.basis!));
+    expect(doc.meta.basis).toContain("유지 구간");
+    expect(doc.meta.basisOther).toContain("전체 구간");
+    expect(doc.meta.basisOther).toBe("전체 구간: 초당 요청 40.5 · p95 90 ms · 오류 1.0%");
+  });
+
+  it("print_basis_line_follows_selected_not_requested: selected whole(not_reached)이면 기준 줄이 '전체 구간'으로 시작하고 basisOther가 없다", () => {
+    const report = mkReport(2, {
+      basis: mkBasis("whole", { state: "not_reached", window: null, other: null }),
+    });
+    const doc = build(mkRun(), report);
+    expect(doc.meta.basis).toBe("전체 구간 · 상승 20초 포함");
+    expect(doc.meta.basis).not.toContain("유지 구간");
+    expect("basisOther" in doc.meta).toBe(false);
+  });
+
+  it("창이 있는 리포트: chart.steady가 경과 초이고 readingLine이 '긴 점선 사이'를 담는다", () => {
+    const steady = build(mkRun(), withErrors(mkBasis("steady"), 90, []));
+    expect(steady.chart.steady).toEqual({ startSec: 25, endSec: 59 });
+    expect(steady.readingLine).toBe(
+      `${chartReadingLine(steady.chart)} 긴 점선 사이(25초–1분)가 유지 구간입니다. 표와 판정은 이 구간의 값입니다.`,
+    );
+    expect(steady.readingLine).toContain("긴 점선 사이(25초–1분)가 유지 구간입니다.");
+
+    const whole = build(mkRun(), withErrors(mkBasis("whole"), 90, []));
+    expect(whole.chart.steady).toEqual({ startSec: 25, endSec: 59 });
+    expect(whole.readingLine).toBe(
+      "측정 내내 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다. 긴 점선 사이(25초–1분)가 유지 구간입니다.",
+    );
+    expect(whole.readingLine).not.toContain("표와 판정은");
+  });
+
+  it("오류가 있는 리포트: 앞 문장과 유지 구간 문장 사이에 마침표가 있다", () => {
+    const doc = build(mkRun(), withErrors(mkBasis("steady"), 90, range(30, 40)));
+    expect(doc.readingLine).toContain("생깁니다. 긴 점선 사이(");
+  });
+
+  it("창의 마지막 초들에 메트릭이 없어도 끝 점선이 그림 안에 있다", () => {
+    const doc = build(mkRun(), withErrors(mkBasis("steady"), 51, []));
+    expect(doc.chart.steady?.endSec).toBe(59);
+    expect(doc.chart.durationSec).toBe(60);
+    expect(markerX(doc.chart.steady!.endSec, doc.chart.durationSec)).toBeLessThanOrEqual(
+      PLOT_X1_MM,
+    );
+  });
+
+  it("basis 없는 리포트: chart.steady가 없고 readingLine이 chartReadingLine(chart)와 같다", () => {
+    const base = mkReport(2);
+    const doc = build(mkRun(), { ...base, windows: wins(30, [5]) });
+    expect(doc.chart.steady).toBeUndefined();
+    expect(doc.readingLine).toBe(chartReadingLine(doc.chart));
+    expect(doc.readingLine).not.toContain("긴 점선");
+  });
+
+  it("유지 구간 기준에서 창 안 내내 난 오류는 창 뒤에 칸이 더 있어도 '계속 났습니다'다", () => {
+    const doc = build(mkRun(), withErrors(mkBasis("steady"), 120, range(25, 60)));
+    const line = doc.lines.find((l) => l.kind === "errorIdentity");
+    expect(line?.text).toContain("시작 25초 뒤부터 계속 났습니다.");
+  });
+
+  it("유지 구간 기준에서 '처음 보인 시각'은 창 안의 초만 본다", () => {
+    const steady = build(mkRun(), withErrors(mkBasis("steady"), 60, [3, 40]));
+    const steadyText = steady.lines.find((l) => l.kind === "errorIdentity")?.text ?? "";
+    expect(steadyText).toContain("시작 40초 뒤");
+    expect(steadyText).not.toContain("시작 3초 뒤");
+
+    const whole = build(mkRun(), withErrors(mkBasis("whole"), 60, [3, 40]));
+    const wholeText = whole.lines.find((l) => l.kind === "errorIdentity")?.text ?? "";
+    expect(wholeText).toContain("시작 3초 뒤");
   });
 });

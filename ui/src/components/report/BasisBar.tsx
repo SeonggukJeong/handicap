@@ -2,40 +2,9 @@ import type { ReportBasis } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { Segmented } from "../ui/Segmented";
-import { floorPct } from "./format";
+import { basisLine, basisOtherLine } from "./basisText";
 
 type Basis = "steady" | "whole";
-
-const pad = (n: number) => String(n).padStart(2, "0");
-const clock = (ms: number) => {
-  const d = new Date(ms);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-};
-
-function basisLine(basis: ReportBasis): string {
-  const t = ko.report.basis;
-  const { config } = basis;
-  const parts: string[] = [];
-  if (basis.selected === "steady" && basis.window) {
-    const w = basis.window;
-    parts.push(
-      t.lineSteady(
-        clock(w.start_ms),
-        clock(w.end_ms),
-        w.measured_seconds,
-        config.ramp_seconds,
-        config.discard_seconds,
-      ),
-    );
-    if (basis.state === "partial") {
-      parts.push(t.partial(config.hold_seconds - config.discard_seconds, w.measured_seconds));
-    }
-  } else {
-    parts.push(t.lineWhole(config.ramp_seconds));
-  }
-  if (basis.t0_estimated) parts.push(t.estimated);
-  return parts.join(" · ");
-}
 
 export function BasisBar({
   basis,
@@ -48,7 +17,7 @@ export function BasisBar({
 }) {
   const t = ko.report.basis;
   const steadyOff = basis.state === "not_reached" || basis.state === "no_common_window";
-  const other = basis.other;
+  const otherText = basisOtherLine(basis);
   return (
     <div className="mb-4">
       <Segmented<Basis>
@@ -71,16 +40,7 @@ export function BasisBar({
           {basisLine(basis)}
           <HelpTip label={t.helpLabel}>{t.latencyNote}</HelpTip>
         </p>
-        {other && (
-          <p className="text-sm text-slate-500">
-            {t.otherLine(
-              basis.selected === "steady" ? t.whole : t.steady,
-              other.rps.toFixed(1),
-              other.p95_ms,
-              floorPct(other.error_rate * 100),
-            )}
-          </p>
-        )}
+        {otherText !== null && <p className="text-sm text-slate-500">{otherText}</p>}
       </div>
     </div>
   );

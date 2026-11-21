@@ -3157,6 +3157,9 @@ export const ko = {
       readingErrors: (elapsed: string) => `${elapsed}부터 빨간 막대(오류)가 생깁니다`,
       readingDrop: ", 같은 시점에 처리량 선이 내려갑니다",
       readingNone: "측정 내내 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다.",
+      readingSteady: (from: string, to: string, selected: "steady" | "whole") =>
+        `긴 점선 사이(${from}–${to})가 유지 구간입니다.` +
+        (selected === "steady" ? " 표와 판정은 이 구간의 값입니다." : ""),
     },
     doc: {
       title: (name: string) => `${name} 부하 측정`,
@@ -3169,6 +3172,8 @@ export const ko = {
       metaWindow: "측정 일시",
       metaLoad: "부하 조건",
       metaIdent: "측정 식별",
+      metaBasis: "집계 기준",
+      metaBasisOther: "참고",
       footerTitle: (title: string, id: string) => `${title} · ${id}`,
       footerTool: "Handicap 부하 테스트 도구로 생성",
       footerPage: (n: number, total: number) => `${n} / ${total}`,

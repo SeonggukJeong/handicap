@@ -27,6 +27,8 @@ export type SummaryInput = {
   rows: StepRow[];
   windows: Report["windows"];
   t0: number | null;
+  /** 유지 구간 기준일 때 창의 끝(경과 초, 그 초 자체는 창 밖). 없으면 run 전체. */
+  scopeEndSec?: number;
   chart: ChartModel;
   stepName: (id: string) => string;
   /** 느림 줄의 "기준 Y" 출처(`stepThresholds`). */
@@ -138,9 +140,13 @@ function identityLine(i: SummaryInput): string | null {
   const bin = i.chart.binSeconds;
   const i0 = Math.floor(first / bin);
   const hitBins = new Set(hits.map((w) => Math.floor(rel(w) / bin)));
-  const span = i.chart.bins.length - i0;
+  const binEnd =
+    i.scopeEndSec === undefined
+      ? i.chart.bins.length
+      : i.chart.bins.filter((b) => b.startSec < i.scopeEndSec!).length;
+  const span = binEnd - i0;
   let n = 0;
-  for (let b = i0; b < i.chart.bins.length; b++) if (hitBins.has(b)) n++;
+  for (let b = i0; b < binEnd; b++) if (hitBins.has(b)) n++;
   const continuing = span > 0 && n / span >= 0.5;
   return head + (continuing ? S.continuing(elapsed(first)) : S.firstSeen(elapsed(first)));
 }

@@ -18,10 +18,12 @@ export function RunPrintPage() {
   const { id } = useParams<{ id: string }>();
   const run = useRun(id);
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
-  const report = useRunReport(id, terminal);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const basisParam = searchParams.get("basis");
+  const basis = basisParam === "steady" || basisParam === "whole" ? basisParam : undefined;
+  const report = useRunReport(id, terminal, basis);
   const scenario = useScenario(run.data?.scenario_id);
   const [now] = useState(() => Date.now());
-  const [searchParams, setSearchParams] = useSearchParams();
   const [ladder, setLadder] = useState(0);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
@@ -70,7 +72,7 @@ export function RunPrintPage() {
 
   const setKind = (k: PrintKind) => {
     setLadder(0);
-    setSearchParams({ kind: k }, { replace: true });
+    setSearchParams(basis ? { kind: k, basis } : { kind: k }, { replace: true });
   };
 
   return (
@@ -98,7 +100,7 @@ export function RunPrintPage() {
         <button type="button" className={BTN} onClick={() => window.print()}>
           {ko.print.page.print}
         </button>
-        <Link to={`/runs/${id ?? ""}`} className={BTN}>
+        <Link to={`/runs/${id ?? ""}${basis ? `?basis=${basis}` : ""}`} className={BTN}>
           {ko.print.page.back}
         </Link>
         <span className="text-xs text-slate-600">

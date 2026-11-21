@@ -108,6 +108,23 @@ function ChartSvg({ doc }: { doc: PrintDoc }) {
         stroke={COLOR_SUB}
         strokeWidth={0.2}
       />
+      {c.steady &&
+        [c.steady.startSec, c.steady.endSec].map((sec) => {
+          const x = r2(markerX(sec, d));
+          return (
+            <line
+              key={`s${sec}`}
+              data-steady-line=""
+              x1={x}
+              x2={x}
+              y1={PLOT_TOP}
+              y2={PLOT_BOTTOM}
+              stroke="#475569"
+              strokeWidth={0.3}
+              strokeDasharray="3 1.5"
+            />
+          );
+        })}
       {c.markers.map((m) => {
         const x = r2(markerX(m.sec, d));
         return (

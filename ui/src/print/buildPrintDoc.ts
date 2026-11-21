@@ -38,7 +38,14 @@ import {
   type KpiCard,
   type OtherRow,
 } from "./verdict";
-import { buildChartModel, chartReadingLine, runT0, type ChartModel } from "./chartModel";
+import {
+  buildChartModel,
+  chartReadingLine,
+  elapsedText,
+  runT0,
+  type ChartModel,
+} from "./chartModel";
+import { basisLine, basisOtherLine } from "../components/report/basisText";
 import { summaryLines, type SummaryLine } from "./sentences";
 import { buildSpeedModel, type SpeedModel } from "./speedBands";
 import type { Block, LadderLevel } from "./paginate";
@@ -52,7 +59,14 @@ export type PrintDoc = {
   title: string;
   shortId: string;
   createdDate: string;
-  meta: { targets: string; window: string; load: string; ident: string };
+  meta: {
+    targets: string;
+    window: string;
+    load: string;
+    ident: string;
+    basis?: string;
+    basisOther?: string;
+  };
   box: BoxState;
   boxText: { big: string; sub: string };
   lines: SummaryLine[];
@@ -118,7 +132,29 @@ export function buildPrintDoc(a: {
     verdict: report.verdict,
   });
   const t0 = runT0(run.started_at, report.windows);
-  const chart = buildChartModel(report.windows, t0, table.rows);
+  const basis = report.basis;
+  const bw = basis?.window ?? null;
+  const steadyMarks =
+    basis && bw && t0 !== null
+      ? { startSec: bw.start_ms / 1000 - t0, endSec: bw.end_ms / 1000 - 1 - t0 }
+      : undefined;
+  const chart = buildChartModel(report.windows, t0, table.rows, steadyMarks);
+  const scoped = basis?.selected === "steady" && bw !== null && t0 !== null;
+  const summaryWindows = scoped
+    ? report.windows.filter(
+        (w) => w.ts_second >= bw.start_ms / 1000 && w.ts_second < bw.end_ms / 1000,
+      )
+    : report.windows;
+  const scopeEndSec = scoped ? bw.end_ms / 1000 - t0 : undefined;
+  const basisOther = basis ? basisOtherLine(basis) : null;
+  const readingBase = chartReadingLine(chart);
+  const readingLine = chart.steady
+    ? `${readingBase.endsWith(".") ? readingBase : `${readingBase}.`} ${ko.print.chart.readingSteady(
+        elapsedText(chart.steady.startSec),
+        elapsedText(chart.steady.endSec + 1),
+        basis!.selected,
+      )}`
+    : readingBase;
 
   const speed = report.speed_bands
     ? buildSpeedModel({
@@ -152,6 +188,8 @@ export function buildPrintDoc(a: {
       window: measuredWindow(run.started_at, run.ended_at, run.status),
       load: parsed.success ? loadConditionLine(parsed.data) : ko.print.fmt.noTarget,
       ident: label ? D.identLabeled(shortId, label) : shortId,
+      ...(basis ? { basis: basisLine(basis) } : {}),
+      ...(basisOther !== null ? { basisOther } : {}),
     },
     box,
     boxText: boxText(box),
@@ -165,8 +203,9 @@ export function buildPrintDoc(a: {
       matched,
       ranked,
       rows: table.rows,
-      windows: report.windows,
+      windows: summaryWindows,
       t0,
+      ...(scopeEndSec !== undefined ? { scopeEndSec } : {}),
       chart,
       stepName,
       criteria,
@@ -178,7 +217,7 @@ export function buildPrintDoc(a: {
     legend: legendItems(table, ranked),
     callouts: buildCallouts(ranked, report.summary),
     chart,
-    readingLine: chartReadingLine(chart),
+    readingLine,
     conditions: conditionsBox({
       profileRaw: report.run.profile,
       workerBreakdownLen: report.worker_breakdown?.length ?? 0,
