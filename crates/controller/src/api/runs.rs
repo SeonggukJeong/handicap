@@ -1196,6 +1196,7 @@ pub async fn build_report_for_run(
         &loop_exits,
         &stair_inputs,
         &open_loop_totals,
+        None,
     ))
 }
 

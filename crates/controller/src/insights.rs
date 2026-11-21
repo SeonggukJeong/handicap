@@ -191,6 +191,18 @@ pub fn refine_saturation_stall(
     }
 }
 
+/// `whole`의 `load_gen_saturated` 인사이트를 `into`에 넣고(이미 있던 것은 지운다) 기존 발행 순서로 다시 정렬한다.
+pub(crate) fn adopt_whole_saturation(into: &mut Vec<Insight>, whole: &[Insight]) {
+    into.retain(|i| i.kind != "load_gen_saturated");
+    into.extend(
+        whole
+            .iter()
+            .filter(|i| i.kind == "load_gen_saturated")
+            .cloned(),
+    );
+    into.sort_by_key(order_rank);
+}
+
 /// Global emit order = the spec §5 table row index (already severity-sorted).
 /// status_class is split: 5xx (critical) sorts with slo_failure, 4xx (warning)
 /// with the warnings. Lower rank first.
@@ -2239,6 +2251,29 @@ steps:
         i.cause = Some("slots".to_string());
         i.recommended = Some(2507.0);
         i
+    }
+
+    #[test]
+    fn adopt_whole_saturation_replaces_and_reorders() {
+        let mut mine = vec![
+            Insight::new("slowest_step", "info"),
+            slots_insight(),
+            Insight::new("slo_pass", "info"),
+        ];
+        let mut whole_sat = slots_insight();
+        whole_sat.count = Some(7);
+        let whole = vec![Insight::new("slo_failure", "critical"), whole_sat.clone()];
+        adopt_whole_saturation(&mut mine, &whole);
+        let kinds: Vec<&str> = mine.iter().map(|i| i.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            vec!["load_gen_saturated", "slowest_step", "slo_pass"]
+        );
+        assert_eq!(mine[0], whole_sat);
+
+        let mut none = vec![slots_insight(), Insight::new("slo_pass", "info")];
+        adopt_whole_saturation(&mut none, &[Insight::new("slo_pass", "info")]);
+        assert_eq!(none.len(), 1);
     }
 
     fn refined(totals: &[OpenLoopTotal], m: Option<u32>) -> Insight {

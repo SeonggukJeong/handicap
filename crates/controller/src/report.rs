@@ -190,7 +190,7 @@ pub struct LoopSplit {
     pub retry: LoopSplitStats,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConnectionStats {
     /// DNS resolution distribution across new connections this run.
     pub dns: PhaseStats,
@@ -205,7 +205,7 @@ pub struct ConnectionStats {
     pub reuse_ratio: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PhaseStats {
     pub count: u64,
     pub p50_ms: u64,
@@ -342,6 +342,7 @@ pub fn evaluate_criteria(
     status_dist: &BTreeMap<String, u64>,
     windows: &[ReportWindow],
     steps: &[ReportStep],
+    warmup_override: Option<u32>,
 ) -> Verdict {
     let mut criteria = Vec::new();
 
@@ -431,7 +432,7 @@ pub fn evaluate_criteria(
     }
     // per-window 최소 RPS: 정상상태 윈도의 최소 RPS ≥ threshold. eligible 부족이면 skip(행 미생성).
     if let Some(t) = c.min_window_rps {
-        let warmup = c.rps_warmup_seconds.unwrap_or(0);
+        let warmup = warmup_override.unwrap_or_else(|| c.rps_warmup_seconds.unwrap_or(0));
         if let Some(actual) = min_window_rps(windows, warmup) {
             criteria.push(CriterionResult {
                 metric: "min_window_rps".to_string(),
@@ -508,6 +509,28 @@ pub(crate) fn fresh_hist() -> Histogram<u64> {
         .expect("HDR bounds are valid")
 }
 
+/// 유지 구간 기준 리포트의 입력. `None`이면 지금과 같은 전체 구간 계산.
+pub struct SteadyScope<'a> {
+    /// ts_second 반열린 [lo, hi)
+    pub lo: i64,
+    pub hi: i64,
+    /// run 시작부터 센 warmup에서 (ramp+discard)를 뺀 나머지(0 이상). min_window_rps에 쓴다.
+    pub warmup_seconds: u32,
+    /// open-loop의 창 안 계수. closed-loop면 None.
+    pub open_loop: Option<ScopedOpenLoop<'a>>,
+    /// 같은 run의 전체 구간 리포트 — 나눌 수 없는 값의 출처.
+    pub whole: &'a ReportJson,
+}
+
+pub struct ScopedOpenLoop<'a> {
+    /// 평평한 목표(iter/s). 예정 도착 수 = target × (hi − lo).
+    pub target: u32,
+    /// 창 안 버림 합. None = 초 단위 계수가 없는 워커가 섞여 다시 셀 수 없다(dropped_whole_run).
+    pub dropped: Option<u64>,
+    /// 창 안의 초별 합계(오름차순). dropped가 None이면 빈 슬라이스.
+    pub totals: &'a [crate::store::open_loop::OpenLoopTotal],
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn build_report(
     run: &RunRow,
@@ -523,6 +546,7 @@ pub fn build_report(
     loop_exits: &[crate::store::metrics::LoopExitRow],
     stair_inputs: &crate::stair::StairInputs,
     open_loop_totals: &[crate::store::open_loop::OpenLoopTotal],
+    scope: Option<&SteadyScope<'_>>,
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -672,8 +696,10 @@ pub fn build_report(
         acc.count += r.count as u64;
         acc.error_count += r.error_count as u64;
         add_status(&mut acc.status, &sc);
+        // 그림용 창은 모든 행, 나머지 누적은 범위 안의 행만(범위가 없으면 전부).
+        let counted = scope.is_none_or(|s| r.ts_second >= s.lo && r.ts_second < s.hi);
         // NEW: per-worker count/errors (multi-worker fan-out only; '' legacy excluded)
-        if multi_worker && !r.worker_id.is_empty() {
+        if counted && multi_worker && !r.worker_id.is_empty() {
             let w = worker_acc
                 .entry(r.worker_id.clone())
                 .or_insert_with(|| WorkerAcc {
@@ -685,23 +711,28 @@ pub fn build_report(
             w.errors += r.error_count as u64;
         }
         if let Ok(Some(h)) = decode_hdr(&r.hdr_histogram) {
-            merge_into(&mut overall, &h);
-            let step_h = per_step.entry(r.step_id.clone()).or_insert_with(fresh_hist);
-            merge_into(step_h, &h);
             let win_h = acc.hist.get_or_insert_with(fresh_hist);
             merge_into(win_h, &h);
-            // NEW: per-worker latency (reuse already-decoded `h`; tiny map -> 2nd .entry is cheap)
-            if multi_worker && !r.worker_id.is_empty() {
-                let w = worker_acc
-                    .entry(r.worker_id.clone())
-                    .or_insert_with(|| WorkerAcc {
-                        count: 0,
-                        errors: 0,
-                        hist: None,
-                    });
-                let wh = w.hist.get_or_insert_with(fresh_hist);
-                merge_into(wh, &h);
+            if counted {
+                merge_into(&mut overall, &h);
+                let step_h = per_step.entry(r.step_id.clone()).or_insert_with(fresh_hist);
+                merge_into(step_h, &h);
+                // NEW: per-worker latency (reuse already-decoded `h`; tiny map -> 2nd .entry is cheap)
+                if multi_worker && !r.worker_id.is_empty() {
+                    let w = worker_acc
+                        .entry(r.worker_id.clone())
+                        .or_insert_with(|| WorkerAcc {
+                            count: 0,
+                            errors: 0,
+                            hist: None,
+                        });
+                    let wh = w.hist.get_or_insert_with(fresh_hist);
+                    merge_into(wh, &h);
+                }
             }
+        }
+        if !counted {
+            continue;
         }
         total_count += r.count as u64;
         total_errors += r.error_count as u64;
@@ -761,9 +792,10 @@ pub fn build_report(
     // Convert to seconds for the report; keep ms for rps so sub-second resolution survives.
     // 시작 시각이 없는 run(부하 시작 전 중단 등)은 측정 구간(첫~마지막 창, 양끝 포함)으로,
     // 끝 시각이 없는 실행 중 run은 0으로 둔다 — 0 기준 뺄셈은 epoch 기준 값이나 음수를 낳는다.
-    let duration_ms = match (run.started_at, run.ended_at) {
-        (Some(s), Some(e)) => e.saturating_sub(s).max(0),
-        (None, _) => match (
+    let duration_ms = match (scope, run.started_at, run.ended_at) {
+        (Some(s), _, _) => s.hi.saturating_sub(s.lo).max(0).saturating_mul(1_000),
+        (None, Some(s), Some(e)) => e.saturating_sub(s).max(0),
+        (None, None, _) => match (
             rows.iter().map(|w| w.ts_second).min(),
             rows.iter().map(|w| w.ts_second).max(),
         ) {
@@ -773,7 +805,7 @@ pub fn build_report(
                 .saturating_mul(1_000),
             _ => 0,
         },
-        (Some(_), None) => 0,
+        (None, Some(_), None) => 0,
     };
     let duration_seconds = duration_ms / 1_000;
     let rps = if duration_ms > 0 {
@@ -925,7 +957,9 @@ pub fn build_report(
     let mut dns_count: u64 = 0;
     let mut connect_hist = fresh_hist();
     let mut connect_count: u64 = 0;
-    for p in phases {
+    // 범위가 있으면 전체 구간 리포트의 값을 그대로 쓰므로 다시 모으지 않는다.
+    let connection_phases = if scope.is_some() { &[][..] } else { phases };
+    for p in connection_phases {
         let (h, c) = match p.phase.as_str() {
             "dns" => (&mut dns_hist, &mut dns_count),
             "connect" => (&mut connect_hist, &mut connect_count),
@@ -937,7 +971,9 @@ pub fn build_report(
         *c += p.count as u64;
     }
     // total_count is the Σ step requests already computed for the summary (see ReportSummary).
-    let connection = if connect_count > 0 || dns_count > 0 {
+    let connection = if let Some(s) = scope {
+        s.whole.connection.clone()
+    } else if connect_count > 0 || dns_count > 0 {
         let phase_stats = |h: &Histogram<u64>, count: u64| {
             let pc = percentiles_of(h);
             PhaseStats {
@@ -1007,40 +1043,88 @@ pub fn build_report(
         p99_ms: overall_p.p99_ms,
     };
     // completed + 활성 criteria일 때만 verdict (spec §6). RunStatus는 Copy.
+    // 범위가 있으면 판정·인사이트가 보는 창 목록은 범위 안의 연속 구간(windows는 (ts, step) 오름차순).
+    let scoped_windows: &[ReportWindow] = match scope {
+        Some(s) => {
+            let from = windows.partition_point(|w| w.ts_second < s.lo);
+            let to = windows.partition_point(|w| w.ts_second < s.hi);
+            &windows[from..to]
+        }
+        None => &windows,
+    };
     let verdict = match (run.status, run.profile.criteria.as_ref()) {
         (RunStatus::Completed, Some(c)) if c.has_any() => {
-            let v = evaluate_criteria(c, &summary, &status_dist, &windows, &steps);
+            let v = evaluate_criteria(
+                c,
+                &summary,
+                &status_dist,
+                scoped_windows,
+                &steps,
+                scope.map(|s| s.warmup_seconds),
+            );
             if v.criteria.is_empty() { None } else { Some(v) }
         }
         _ => None,
     };
+    let open = scope.and_then(|s| s.open_loop.as_ref().map(|o| (s, o)));
+    let (insight_dropped, insight_target, insight_scheduled) = match open {
+        Some((s, o)) => (
+            o.dropped.unwrap_or(0),
+            Some(o.target),
+            Some(f64::from(o.target) * s.hi.saturating_sub(s.lo) as f64),
+        ),
+        None => (
+            run.dropped as u64,
+            run.profile.target_rps.or_else(|| {
+                run.profile
+                    .stages
+                    .as_ref()
+                    .and_then(|s| s.iter().map(|st| st.target).max())
+            }),
+            crate::insights::scheduled_arrivals(
+                run.profile.target_rps,
+                run.profile.stages.as_deref(),
+                summary.duration_seconds as f64,
+            ),
+        ),
+    };
     let mut insights = crate::insights::derive_insights(
         &summary,
         &steps,
-        &windows,
+        scoped_windows,
         &status_dist,
         verdict.as_ref(),
         scenario_yaml,
-        run.dropped as u64,
+        insight_dropped,
         run.profile.max_in_flight,
-        run.profile.target_rps.or_else(|| {
-            run.profile
-                .stages
-                .as_ref()
-                .and_then(|s| s.iter().map(|st| st.target).max())
-        }),
-        crate::insights::scheduled_arrivals(
-            run.profile.target_rps,
-            run.profile.stages.as_deref(),
-            summary.duration_seconds as f64,
-        ),
+        insight_target,
+        insight_scheduled,
         &error_kinds_rolled,
     );
     crate::insights::refine_saturation_stall(
         &mut insights,
-        open_loop_totals,
+        open.map_or(open_loop_totals, |(_, o)| o.totals),
         run.profile.max_in_flight,
     );
+    if let (Some(first_scoped), Some(first_all)) = (scoped_windows.first(), windows.first()) {
+        // 인사이트의 시점은 넘겨받은 창의 첫 초부터 센다 — 그림(run 전체)과 같은 축으로 옮긴다.
+        let shift = first_scoped.ts_second - first_all.ts_second;
+        if shift != 0 {
+            for ins in insights.iter_mut() {
+                ins.onset_second = ins.onset_second.map(|n| n + shift);
+            }
+        }
+    }
+    // 초 단위 계수가 없는 워커가 섞여 창 안 버림을 다시 셀 수 없으면 전체 구간의 포화 판정을 가져온다.
+    if let Some((s, o)) = open
+        && o.dropped.is_none()
+    {
+        crate::insights::adopt_whole_saturation(&mut insights, &s.whole.insights);
+    }
+    let report_dropped = match open {
+        Some((s, o)) => o.dropped.unwrap_or(s.whole.dropped),
+        None => run.dropped as u64,
+    };
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
     // branch="" = the page (whole parallel block), else the branch name.
@@ -1196,7 +1280,7 @@ pub fn build_report(
         loop_exits: loop_exits_rolled,
         verdict,
         insights,
-        dropped: run.dropped as u64,
+        dropped: report_dropped,
         latency,
         group_latency,
         active_vu_series,
@@ -1461,6 +1545,7 @@ mod tests {
             &g.loop_exits,
             &crate::stair::StairInputs::default(),
             &g.open_loop_totals,
+            None,
         );
         let got = serde_json::to_string_pretty(&rep).unwrap();
         if std::env::var_os("REPORT_WHOLE_GOLDEN_UPDATE").is_some() {
@@ -1471,6 +1556,477 @@ mod tests {
             got,
             want.trim_end(),
             "전체 구간 리포트가 steady 도입 전과 같아야 한다"
+        );
+    }
+
+    // ---- steady(유지 구간) 범위 계산 ----
+
+    fn steady_row(
+        ts: i64,
+        step: &str,
+        worker: &str,
+        n: i64,
+        err: i64,
+        sc: &str,
+        lat_us: u64,
+    ) -> WindowWithHdr {
+        WindowWithHdr {
+            ts_second: ts,
+            step_id: step.into(),
+            worker_id: worker.into(),
+            count: n,
+            error_count: err,
+            status_counts: sc.into(),
+            hdr_histogram: make_hdr_bytes(&vec![lat_us; n as usize]),
+        }
+    }
+
+    /// 초 100..=109 상승(2건·500ms·오류 1), 110..=129 유지(10건·20ms).
+    fn rows_ramp_then_steady() -> Vec<WindowWithHdr> {
+        let mut v = Vec::new();
+        for ts in 100..=109 {
+            v.push(steady_row(
+                ts,
+                "a",
+                "w",
+                2,
+                1,
+                r#"{"500":1,"200":1}"#,
+                500_000,
+            ));
+        }
+        for ts in 110..=129 {
+            v.push(steady_row(ts, "a", "w", 10, 0, r#"{"200":10}"#, 20_000));
+        }
+        v
+    }
+
+    /// 초 100..=109 초당 100건·20ms, 110..=129 초당 1건·500ms.
+    fn rows_fast_ramp_slow_steady() -> Vec<WindowWithHdr> {
+        let mut v = Vec::new();
+        for ts in 100..=109 {
+            v.push(steady_row(ts, "a", "w", 100, 0, r#"{"200":100}"#, 20_000));
+        }
+        for ts in 110..=129 {
+            v.push(steady_row(ts, "a", "w", 1, 0, r#"{"200":1}"#, 500_000));
+        }
+        v
+    }
+
+    fn steady_run(end_s: i64) -> RunRow {
+        let mut r = run_row();
+        r.started_at = Some(100_000);
+        r.ended_at = Some(end_s * 1_000);
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_steady(
+        run: &RunRow,
+        rows: &[WindowWithHdr],
+        loops: &[LoopMetricRow],
+        phases: &[PhaseMetricRow],
+        error_kinds: &[crate::store::metrics::ErrorKindRow],
+        scope: Option<&SteadyScope<'_>>,
+    ) -> ReportJson {
+        build_report(
+            run,
+            &run.scenario_yaml,
+            rows,
+            loops,
+            &[],
+            &[],
+            phases,
+            &[],
+            &[],
+            error_kinds,
+            &[],
+            &crate::stair::StairInputs::default(),
+            &[],
+            scope,
+        )
+    }
+
+    fn build_whole(run: &RunRow, rows: &[WindowWithHdr]) -> ReportJson {
+        build_steady(run, rows, &[], &[], &[], None)
+    }
+
+    fn closed_scope(whole: &ReportJson, lo: i64, hi: i64, warmup_seconds: u32) -> SteadyScope<'_> {
+        SteadyScope {
+            lo,
+            hi,
+            warmup_seconds,
+            open_loop: None,
+            whole,
+        }
+    }
+
+    fn with_criteria(mut run: RunRow, c: Criteria) -> RunRow {
+        run.profile.criteria = Some(c);
+        run
+    }
+
+    #[test]
+    fn steady_summary_uses_window_only() {
+        let run = steady_run(130);
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert_eq!(rep.summary.count, 200);
+        assert_eq!(rep.summary.duration_seconds, 20);
+        assert_eq!(rep.summary.rps, 10.0);
+        assert_eq!(rep.summary.errors, 0);
+        assert_eq!(rep.summary.p95_ms, 20);
+        assert_eq!(whole.summary.count, 220);
+        assert_eq!(whole.summary.errors, 10);
+        assert!(whole.summary.p95_ms >= 100);
+    }
+
+    #[test]
+    fn steady_steps_and_status_use_window_only() {
+        let run = steady_run(130);
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert_eq!(rep.steps[0].count, 200);
+        assert_eq!(rep.steps[0].error_count, 0);
+        let want: BTreeMap<String, u64> = [("200".to_string(), 200u64)].into();
+        assert_eq!(rep.steps[0].status_counts, want);
+        assert_eq!(rep.status_distribution, want);
+        assert!(rep.latency.is_some());
+        assert!(rep.speed_bands.is_some());
+    }
+
+    #[test]
+    fn steady_windows_keep_whole_run() {
+        let run = steady_run(130);
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert_eq!(rep.windows.len(), 30);
+    }
+
+    #[test]
+    fn steady_verdict_follows_window() {
+        let c = Criteria {
+            max_p95_ms: Some(100),
+            ..Criteria::default()
+        };
+        let run = with_criteria(steady_run(130), c.clone());
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert!(rep.verdict.as_ref().unwrap().passed);
+        assert!(!whole.verdict.as_ref().unwrap().passed);
+
+        let rows = rows_fast_ramp_slow_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert!(!rep.verdict.as_ref().unwrap().passed);
+        assert!(whole.verdict.as_ref().unwrap().passed);
+    }
+
+    #[test]
+    fn steady_step_criterion_follows_window() {
+        let c = Criteria {
+            step_criteria: vec![Criterion {
+                metric: "error_rate".into(),
+                op: "max".into(),
+                threshold: 0.01,
+                target: "a".into(),
+            }],
+            ..Criteria::default()
+        };
+        let run = with_criteria(steady_run(130), c);
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert!(rep.verdict.as_ref().unwrap().passed);
+        assert!(!whole.verdict.as_ref().unwrap().passed);
+    }
+
+    #[test]
+    fn warmup_equal_to_ramp_removes_nothing_extra() {
+        let c = Criteria {
+            min_window_rps: Some(5.0),
+            rps_warmup_seconds: Some(30),
+            ..Criteria::default()
+        };
+        let run = with_criteria(steady_run(150), c);
+        let mut rows = Vec::new();
+        for ts in 100..=129 {
+            rows.push(steady_row(ts, "a", "w", 1, 0, r#"{"200":1}"#, 20_000));
+        }
+        for ts in 130..=149 {
+            rows.push(steady_row(ts, "a", "w", 10, 0, r#"{"200":10}"#, 20_000));
+        }
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 130, 150, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        let row = rep
+            .verdict
+            .as_ref()
+            .unwrap()
+            .criteria
+            .iter()
+            .find(|r| r.metric == "min_window_rps")
+            .expect("min_window_rps 행이 있어야 한다");
+        assert_eq!(row.actual, 10.0);
+    }
+
+    #[test]
+    fn warmup_larger_than_ramp_removes_the_difference() {
+        let c = Criteria {
+            min_window_rps: Some(5.0),
+            ..Criteria::default()
+        };
+        let run = with_criteria(steady_run(130), c);
+        let mut rows = Vec::new();
+        for ts in 100..=109 {
+            rows.push(steady_row(ts, "a", "w", 1, 0, r#"{"200":1}"#, 20_000));
+        }
+        for ts in 110..=113 {
+            rows.push(steady_row(ts, "a", "w", 1, 0, r#"{"200":1}"#, 20_000));
+        }
+        for ts in 114..=129 {
+            rows.push(steady_row(ts, "a", "w", 10, 0, r#"{"200":10}"#, 20_000));
+        }
+        let whole = build_whole(&run, &rows);
+        let actual = |warmup: u32| {
+            let sc = closed_scope(&whole, 110, 130, warmup);
+            let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+            rep.verdict
+                .unwrap()
+                .criteria
+                .iter()
+                .find(|r| r.metric == "min_window_rps")
+                .unwrap()
+                .actual
+        };
+        assert_eq!(actual(4), 10.0);
+        assert_eq!(actual(0), 1.0);
+    }
+
+    fn insight_of<'a>(rep: &'a ReportJson, kind: &str) -> Option<&'a crate::insights::Insight> {
+        rep.insights.iter().find(|i| i.kind == kind)
+    }
+
+    #[test]
+    fn steady_insights_do_not_read_the_ramp_boundary_as_onset() {
+        let run = steady_run(135);
+        let mut rows = Vec::new();
+        for ts in 100..=114 {
+            rows.push(steady_row(ts, "a", "w", 10, 0, r#"{"200":10}"#, 20_000));
+        }
+        for ts in 115..=134 {
+            rows.push(steady_row(
+                ts,
+                "a",
+                "w",
+                10,
+                5,
+                r#"{"500":5,"200":5}"#,
+                20_000,
+            ));
+        }
+        let whole = build_whole(&run, &rows);
+        let on = insight_of(&whole, "midrun_error_onset").expect("전체 리포트는 onset을 낸다");
+        assert_eq!(on.onset_second, Some(15));
+        let sc = closed_scope(&whole, 115, 135, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert!(insight_of(&rep, "midrun_error_onset").is_none());
+    }
+
+    #[test]
+    fn steady_onset_second_counts_from_run_start() {
+        let run = steady_run(140);
+        let mk = |skip: &[i64]| {
+            let mut rows = Vec::new();
+            for ts in 100..=124 {
+                if skip.contains(&ts) {
+                    continue;
+                }
+                rows.push(steady_row(ts, "a", "w", 10, 0, r#"{"200":10}"#, 20_000));
+            }
+            for ts in 125..=139 {
+                rows.push(steady_row(
+                    ts,
+                    "a",
+                    "w",
+                    10,
+                    5,
+                    r#"{"500":5,"200":5}"#,
+                    20_000,
+                ));
+            }
+            rows
+        };
+        for skip in [&[][..], &[110, 111][..]] {
+            let rows = mk(skip);
+            let whole = build_whole(&run, &rows);
+            let sc = closed_scope(&whole, 110, 140, 0);
+            let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+            let on = insight_of(&rep, "midrun_error_onset").expect("창 안 onset");
+            assert_eq!(on.onset_second, Some(25), "skip={skip:?}");
+        }
+    }
+
+    fn open_totals(lo: i64, hi: i64) -> Vec<crate::store::open_loop::OpenLoopTotal> {
+        (lo..hi)
+            .map(|ts| crate::store::open_loop::OpenLoopTotal {
+                ts_second: ts,
+                launched: 10,
+                completed: 10,
+                dropped: 0,
+            })
+            .collect()
+    }
+
+    fn open_run() -> RunRow {
+        let mut run = steady_run(130);
+        run.profile.target_rps = Some(10);
+        run.profile.max_in_flight = Some(5);
+        run.dropped = 50;
+        run
+    }
+
+    #[test]
+    fn steady_open_loop_recounts_dropped() {
+        let run = open_run();
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        assert!(insight_of(&whole, "load_gen_saturated").is_some());
+        let totals = open_totals(110, 130);
+        let sc = SteadyScope {
+            lo: 110,
+            hi: 130,
+            warmup_seconds: 0,
+            open_loop: Some(ScopedOpenLoop {
+                target: 10,
+                dropped: Some(0),
+                totals: &totals,
+            }),
+            whole: &whole,
+        };
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert_eq!(rep.dropped, 0);
+        assert!(insight_of(&rep, "load_gen_saturated").is_none());
+    }
+
+    #[test]
+    fn steady_open_loop_dropped_whole_run_adopts_whole() {
+        let run = open_run();
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sat = insight_of(&whole, "load_gen_saturated").expect("전체 리포트의 포화");
+        let sc = SteadyScope {
+            lo: 110,
+            hi: 130,
+            warmup_seconds: 0,
+            open_loop: Some(ScopedOpenLoop {
+                target: 10,
+                dropped: None,
+                totals: &[],
+            }),
+            whole: &whole,
+        };
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert_eq!(rep.dropped, 50);
+        assert_eq!(insight_of(&rep, "load_gen_saturated"), Some(sat));
+        let reasons = |r: &ReportJson| serde_json::to_value(&r.validity.reasons).unwrap();
+        assert!(
+            rep.validity
+                .reasons
+                .iter()
+                .any(|r| r.kind == "load_not_delivered")
+        );
+        assert_eq!(reasons(&rep), reasons(&whole));
+    }
+
+    fn connect_phase(n: usize) -> PhaseMetricRow {
+        PhaseMetricRow {
+            run_id: "R1".into(),
+            step_id: "a".into(),
+            phase: "connect".into(),
+            hdr_histogram: make_hdr_bytes(&vec![2_000; n]),
+            count: n as i64,
+        }
+    }
+
+    #[test]
+    fn steady_connection_is_copied_from_whole() {
+        let run = steady_run(130);
+        let rows = rows_ramp_then_steady();
+        let phases = [connect_phase(5)];
+        let whole = build_steady(&run, &rows, &[], &phases, &[], None);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &phases, &[], Some(&sc));
+        assert!(whole.connection.is_some());
+        assert_eq!(rep.connection, whole.connection);
+        assert!(rep.connection.as_ref().unwrap().reuse_ratio >= 0.0);
+    }
+
+    #[test]
+    fn steady_unsplittable_step_fields_match_whole() {
+        let run = steady_run(130);
+        let rows = rows_ramp_then_steady();
+        let loops = [LoopMetricRow {
+            run_id: "R1".into(),
+            step_id: "a".into(),
+            loop_index: 0,
+            count: 7,
+            error_count: 1,
+        }];
+        let phases = [PhaseMetricRow {
+            run_id: "R1".into(),
+            step_id: "a".into(),
+            phase: "download".into(),
+            hdr_histogram: make_hdr_bytes(&[3_000, 4_000]),
+            count: 2,
+        }];
+        let kinds = [crate::store::metrics::ErrorKindRow {
+            run_id: "R1".into(),
+            step_id: "a".into(),
+            kind: "blank_var".into(),
+            count: 3,
+        }];
+        let whole = build_steady(&run, &rows, &loops, &phases, &kinds, None);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &loops, &phases, &kinds, Some(&sc));
+        let j = |r: &ReportJson| serde_json::to_value(&r.steps[0]).unwrap();
+        let (a, b) = (j(&rep), j(&whole));
+        assert!(!a["loop_breakdown"].as_array().unwrap().is_empty());
+        for k in ["loop_breakdown", "download", "not_sent"] {
+            assert!(!a[k].is_null(), "{k}");
+            assert_eq!(a[k], b[k], "{k}");
+        }
+    }
+
+    #[test]
+    fn steady_multi_worker_breakdown_uses_window() {
+        let run = steady_run(130);
+        let mut rows = Vec::new();
+        for w in ["w1", "w2"] {
+            for ts in 100..=109 {
+                rows.push(steady_row(ts, "a", w, 1, 0, r#"{"200":1}"#, 500_000));
+            }
+            for ts in 110..=129 {
+                rows.push(steady_row(ts, "a", w, 5, 0, r#"{"200":5}"#, 20_000));
+            }
+        }
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert_eq!(rep.worker_breakdown.len(), 2);
+        assert_eq!(
+            rep.worker_breakdown.iter().map(|w| w.count).sum::<u64>(),
+            200
         );
     }
 
@@ -1514,6 +2070,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
 
         // One collapsed window per (ts_second, step_id), counts summed.
@@ -1576,6 +2133,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
@@ -1615,6 +2173,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
@@ -1638,6 +2197,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         )
     }
 
@@ -1757,6 +2317,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
@@ -1815,6 +2376,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
@@ -1905,6 +2467,7 @@ mod tests {
             &BTreeMap::new(),
             &[],
             &steps,
+            None,
         );
         // fixed-field p95(target None) 먼저, 그 뒤 step 행 입력 순서(A, B) — MISSING은 skip.
         assert_eq!(v.criteria.len(), 3);
@@ -1929,7 +2492,14 @@ mod tests {
             ..Default::default()
         };
         let steps = vec![rstep("A", 4, 0, 1, &[("404", 2), ("200", 2), ("0", 100)])];
-        let v = evaluate_criteria(&c, &summary(4, 0, 4.0, 1, 1), &BTreeMap::new(), &[], &steps);
+        let v = evaluate_criteria(
+            &c,
+            &summary(4, 0, 4.0, 1, 1),
+            &BTreeMap::new(),
+            &[],
+            &steps,
+            None,
+        );
         assert_eq!(v.criteria.len(), 1);
         assert_eq!(v.criteria[0].actual, 0.5); // 2/(2+2), "0"=100 제외
         assert!(v.criteria[0].passed); // 0.5 <= 0.5
@@ -1947,7 +2517,14 @@ mod tests {
             ..Default::default()
         };
         let steps = vec![rstep("A", 0, 0, 0, &[])]; // count==0 → 미실행 → skip
-        let v = evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &steps);
+        let v = evaluate_criteria(
+            &c,
+            &summary(0, 0, 0.0, 0, 0),
+            &BTreeMap::new(),
+            &[],
+            &steps,
+            None,
+        );
         assert!(v.criteria.is_empty()); // 행 0개 → build_report가 verdict None으로
     }
 
@@ -1982,6 +2559,7 @@ mod tests {
             &BTreeMap::new(),
             &[],
             &steps,
+            None,
         );
         assert_eq!(v.criteria.len(), 2);
         // A: min PASS + direction/target 출력 전파
@@ -2010,6 +2588,7 @@ mod tests {
             &BTreeMap::new(),
             &[],
             &[],
+            None,
         );
         assert!(v.passed);
         assert_eq!(v.criteria.len(), 3);
@@ -2027,6 +2606,7 @@ mod tests {
             &BTreeMap::new(),
             &[],
             &[],
+            None,
         );
         assert!(!v.passed);
         assert_eq!(v.criteria[0].metric, "p95_ms");
@@ -2042,7 +2622,15 @@ mod tests {
         };
         // 0 errors / 0 count => 0.0 <= 0.0 → pass
         assert!(
-            evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &[]).passed
+            evaluate_criteria(
+                &c,
+                &summary(0, 0, 0.0, 0, 0),
+                &BTreeMap::new(),
+                &[],
+                &[],
+                None
+            )
+            .passed
         );
     }
 
@@ -2054,7 +2642,15 @@ mod tests {
         };
         // rps 0.0 < 1.0 → fail (degenerate 0-throughput completed run)
         assert!(
-            !evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &[]).passed
+            !evaluate_criteria(
+                &c,
+                &summary(0, 0, 0.0, 0, 0),
+                &BTreeMap::new(),
+                &[],
+                &[],
+                None
+            )
+            .passed
         );
     }
 
@@ -2079,6 +2675,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
@@ -2108,6 +2705,7 @@ mod tests {
                 &[],
                 &crate::stair::StairInputs::default(),
                 &[],
+                None,
             )
             .verdict
             .is_none()
@@ -2133,6 +2731,7 @@ mod tests {
                 &[],
                 &crate::stair::StairInputs::default(),
                 &[],
+                None,
             )
             .verdict
             .is_none()
@@ -2157,6 +2756,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(
             rep.dropped, 7,
@@ -2190,6 +2790,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let v = serde_json::to_value(&rep).unwrap();
         let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
@@ -2243,6 +2844,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
@@ -2280,6 +2882,7 @@ mod tests {
                 &[],
                 &crate::stair::StairInputs::default(),
                 &[],
+                None,
             )
             .latency
             .is_none()
@@ -2320,7 +2923,7 @@ mod tests {
             ..Default::default()
         };
         let d = dist(&[("200", 90), ("500", 10)]);
-        let v = evaluate_criteria(&c, &summary(100, 0, 100.0, 5, 5), &d, &[], &[]);
+        let v = evaluate_criteria(&c, &summary(100, 0, 100.0, 5, 5), &d, &[], &[], None);
         assert_eq!(v.criteria[0].metric, "5xx_rate");
         assert!((v.criteria[0].actual - 0.1).abs() < 1e-9);
         assert!(!v.criteria[0].passed);
@@ -2334,7 +2937,7 @@ mod tests {
             ..Default::default()
         };
         let d = dist(&[("0", 5)]);
-        let v = evaluate_criteria(&c, &summary(5, 5, 5.0, 0, 0), &d, &[], &[]);
+        let v = evaluate_criteria(&c, &summary(5, 5, 5.0, 0, 0), &d, &[], &[], None);
         assert!(v.criteria[0].passed);
         assert_eq!(v.criteria[0].actual, 0.0);
     }
@@ -2346,7 +2949,7 @@ mod tests {
             ..Default::default()
         };
         let d = dist(&[("200", 10), ("500", 1)]);
-        let v = evaluate_criteria(&c, &summary(11, 1, 11.0, 5, 5), &d, &[], &[]);
+        let v = evaluate_criteria(&c, &summary(11, 1, 11.0, 5, 5), &d, &[], &[], None);
         assert_eq!(v.criteria[0].metric, "5xx_count");
         assert_eq!(v.criteria[0].actual, 1.0);
         assert!(!v.criteria[0].passed);
@@ -2393,7 +2996,14 @@ mod tests {
             min_window_rps: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &[]);
+        let v = evaluate_criteria(
+            &c,
+            &summary(0, 0, 0.0, 0, 0),
+            &BTreeMap::new(),
+            &[],
+            &[],
+            None,
+        );
         assert!(v.criteria.is_empty());
     }
 
@@ -2412,7 +3022,7 @@ mod tests {
         };
         let d = dist(&[("200", 30)]);
         let w = vec![rwin(0, 10), rwin(1, 20), rwin(2, 30)]; // eligible {1}=20
-        let v = evaluate_criteria(&c, &summary(30, 0, 30.0, 1, 1), &d, &w, &[]);
+        let v = evaluate_criteria(&c, &summary(30, 0, 30.0, 1, 1), &d, &w, &[], None);
         let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
         assert_eq!(
             metrics,
@@ -2451,6 +3061,7 @@ mod tests {
                 &[],
                 &crate::stair::StairInputs::default(),
                 &[],
+                None,
             )
             .verdict
             .is_none()
@@ -2494,6 +3105,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
@@ -2568,6 +3180,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.active_vu_series.len(), 2);
         assert_eq!(
@@ -2592,6 +3205,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.summary.count, baseline.summary.count);
         assert_eq!(rep.summary.rps, baseline.summary.rps);
@@ -2642,6 +3256,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.active_vu_by_worker.len(), 2);
         assert_eq!(rep.active_vu_by_worker[0].worker_id, "w-0"); // sorted
@@ -2682,6 +3297,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(rep.active_vu_by_worker.is_empty());
         // No rows (non-curve caller passes &[]) -> empty (byte-identical default).
@@ -2699,6 +3315,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(none.active_vu_by_worker.is_empty());
     }
@@ -2720,6 +3337,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(rep.group_latency.is_empty());
     }
@@ -2775,6 +3393,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
 
         assert_eq!(
@@ -2842,6 +3461,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
@@ -2874,6 +3494,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(
             rep.steps.iter().all(|s| s.download.is_none()),
@@ -2917,6 +3538,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         )
     }
 
@@ -3105,6 +3727,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let sat = rep
             .insights
@@ -3133,6 +3756,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
     }
@@ -3162,6 +3786,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let ins = rep
             .insights
@@ -3209,6 +3834,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let ins = rep
             .insights
@@ -3229,7 +3855,7 @@ mod tests {
             max_5xx_rate: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(107, 22, 107.0, 5, 5), &d, &[], &[]);
+        let v = evaluate_criteria(&c, &summary(107, 22, 107.0, 5, 5), &d, &[], &[], None);
         let rate = v
             .criteria
             .iter()
@@ -3271,6 +3897,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.summary.mean_ms, 25);
     }
@@ -3319,6 +3946,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         // wait attaches per-step
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
@@ -3344,6 +3972,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(rep2.connection.is_none());
     }
@@ -3387,6 +4016,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // sorted by worker_id ascending
@@ -3429,6 +4059,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(rep.worker_breakdown.is_empty());
         // skip_serializing_if -> field absent (byte-identical)
@@ -3464,6 +4095,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert!(rep.worker_breakdown.is_empty());
     }
@@ -3506,6 +4138,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // w-0: count counted despite bad blob, latency falls back to 0 (fail-soft)
@@ -3567,6 +4200,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.validity.level, "suspect");
         assert!(
@@ -3610,6 +4244,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.validity.level, "limited");
         assert!(
@@ -3652,6 +4287,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         assert_eq!(rep.validity.level, "ok");
         assert!(
@@ -3686,6 +4322,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         )
     }
 
@@ -3757,6 +4394,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
         let b = rep.steps.iter().find(|s| s.step_id == "b").unwrap();
@@ -3803,6 +4441,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         );
         let c = rep.connection.as_ref().expect("connection present");
         assert_eq!(c.requests_total, 6);
@@ -3826,6 +4465,7 @@ steps:
             rows,
             &crate::stair::StairInputs::default(),
             &[],
+            None,
         )
     }
 
@@ -4076,6 +4716,7 @@ steps:
                     &[],
                     &self.inp,
                     &[],
+                    None,
                 )
             }
         }
@@ -4594,6 +5235,7 @@ steps:
                 &[],
                 &StairInputs::default(),
                 &[],
+                None,
             );
             assert!(rep.stair.is_none());
             let v = serde_json::to_value(&rep).unwrap();
