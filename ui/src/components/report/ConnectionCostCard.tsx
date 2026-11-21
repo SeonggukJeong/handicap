@@ -1,10 +1,11 @@
 import type { ConnectionStats } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { WholeRunBadge } from "./WholeRunBadge";
 
-type Props = { stats: ConnectionStats };
+type Props = { stats: ConnectionStats; wholeRunBadge?: boolean };
 
-export function ConnectionCostCard({ stats }: Props) {
+export function ConnectionCostCard({ stats, wholeRunBadge }: Props) {
   const reusePct = (stats.reuse_ratio * 100).toFixed(1);
   return (
     <section
@@ -15,6 +16,7 @@ export function ConnectionCostCard({ stats }: Props) {
       <div className="mb-1 flex items-center">
         <h3 className="text-base font-semibold">{ko.report.connectionLabel}</h3>
         <HelpTip label={ko.report.connectionLabel}>{ko.report.connectionHelp}</HelpTip>
+        {wholeRunBadge && <WholeRunBadge className="ml-2" />}
       </div>
       <p className="mb-4 text-xs text-slate-500">
         {ko.report.connectionBeginner(stats.connections_opened)}

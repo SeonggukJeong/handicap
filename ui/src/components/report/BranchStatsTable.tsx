@@ -2,9 +2,10 @@ import { Fragment, useState } from "react";
 import type { IfBreakdown } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { PageSection } from "../ui/PageSection";
+import { WholeRunBadge } from "./WholeRunBadge";
 
 type IfMeta = { name: string };
-type Props = { breakdown: IfBreakdown[]; meta: Map<string, IfMeta> };
+type Props = { breakdown: IfBreakdown[]; meta: Map<string, IfMeta>; wholeRunBadge?: boolean };
 
 /** Display order: then (0) < elif_n (1+n) < else < none. SQL returns branches in
  *  lexicographic TEXT order, which is not the authoring order — re-sort here. */
@@ -23,7 +24,7 @@ function branchLabel(branch: string): string {
   return branch === "none" ? "(미매치)" : branch;
 }
 
-export function BranchStatsTable({ breakdown, meta }: Props) {
+export function BranchStatsTable({ breakdown, meta, wholeRunBadge }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   if (breakdown.length === 0) return null;
 
@@ -37,7 +38,11 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
   }
 
   return (
-    <PageSection ariaLabel={ko.report.branchDecisionsLabel} title={ko.report.branchDecisionsTitle}>
+    <PageSection
+      ariaLabel={ko.report.branchDecisionsLabel}
+      title={ko.report.branchDecisionsTitle}
+      titleAside={wholeRunBadge ? <WholeRunBadge /> : undefined}
+    >
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>

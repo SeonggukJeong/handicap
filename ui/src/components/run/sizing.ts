@@ -198,7 +198,8 @@ export function pickLatestOpenRun(runs: Run[]): Run | null {
   return best;
 }
 
-/** 워커 앵커용: 가장 최근 종료된 '고정 rate' open-loop run(target_rps 있음)만.
+/** 워커 앵커용: 가장 최근 종료된 '고정 rate' open-loop run(`fixedTarget(profile) != null` —
+ *  `target_rps` 또는 `steady.target`)만.
  *  곡선 prior는 달성 도착률 산출에 stages 적분이 필요해 제외(ADR-0046 §7 연기). */
 export function pickLatestFixedOpenRun(runs: Run[]): Run | null {
   let best: Run | null = null;

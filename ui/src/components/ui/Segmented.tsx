@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from "react";
 
-type Option<T extends string> = { value: T; label: string };
+type Option<T extends string> = { value: T; label: string; disabled?: boolean };
 
 export function Segmented<T extends string>({
   value,
@@ -16,13 +16,23 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   const idx = options.findIndex((o) => o.value === value);
+  function step(dir: 1 | -1) {
+    const n = options.length;
+    for (let k = 1; k < n; k++) {
+      const next = options[(idx + dir * k + n * k) % n];
+      if (!next.disabled) {
+        onChange(next.value);
+        return;
+      }
+    }
+  }
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
-      onChange(options[(idx + 1) % options.length].value);
+      step(1);
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
-      onChange(options[(idx - 1 + options.length) % options.length].value);
+      step(-1);
     }
   }
   return (
@@ -41,9 +51,15 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={active}
             tabIndex={active ? 0 : -1}
+            disabled={o.disabled}
+            aria-disabled={o.disabled ? true : undefined}
             onClick={() => onChange(o.value)}
             className={`rounded-md px-3.5 py-1 text-sm font-semibold transition-colors ${
-              active ? "bg-accent-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+              active
+                ? "bg-accent-600 text-white shadow-sm"
+                : o.disabled
+                  ? "cursor-not-allowed text-slate-400"
+                  : "text-slate-600 hover:text-slate-900"
             }`}
           >
             {o.label}

@@ -273,8 +273,12 @@ export const api = {
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/metrics`, { method: "GET" }, MetricSummarySchema),
-  getRunReport: (id: string) =>
-    request(`/runs/${encodeURIComponent(id)}/report`, { method: "GET" }, ReportSchema),
+  getRunReport: (id: string, basis?: "steady" | "whole") =>
+    request(
+      `/runs/${encodeURIComponent(id)}/report${basis ? `?basis=${basis}` : ""}`,
+      { method: "GET" },
+      ReportSchema,
+    ),
   abortRun: (id: string) =>
     request(
       `/runs/${encodeURIComponent(id)}/abort`,

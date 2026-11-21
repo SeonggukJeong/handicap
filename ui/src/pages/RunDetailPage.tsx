@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   useAbortRun,
   useCreatePreset,
@@ -62,7 +62,16 @@ export function RunDetailPage() {
   const labelEscapedRef = useRef(false);
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
-  const report = useRunReport(id, terminal);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const basisParam = searchParams.get("basis");
+  const basis = basisParam === "steady" || basisParam === "whole" ? basisParam : undefined;
+  const report = useRunReport(id, terminal, basis);
+  const selectBasis = (b: "steady" | "whole") => {
+    const next = new URLSearchParams(searchParams);
+    if (b === report.data?.basis?.default) next.delete("basis");
+    else next.set("basis", b);
+    setSearchParams(next, { replace: true });
+  };
   const scenario = useScenario(run.data?.scenario_id);
   const now = useNow(run.data?.status === "running" ? 1000 : null);
 
@@ -328,7 +337,11 @@ export function RunDetailPage() {
       )}
 
       {terminal && report.data ? (
-        <ReportView report={report.data} profile={normalizeProfile(r.profile)} />
+        <ReportView
+          report={report.data}
+          profile={normalizeProfile(r.profile)}
+          onSelectBasis={selectBasis}
+        />
       ) : (
         <>
           {terminal && report.error && (

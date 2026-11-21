@@ -2,6 +2,7 @@ import { ko } from "../../i18n/ko";
 import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
 import type { LoopExitRow, LoopExitRowKind, LoopExitView } from "./loopExitView";
+import { WholeRunBadge } from "./WholeRunBadge";
 
 // 막대 바탕(slate-100) 대비 3:1 이상 — 라이브 실측으로 정함(2026-11-14). 바꿀 때는 테스트의 대비 단언을 함께 본다.
 const FILL: Record<LoopExitRowKind, string> = {
@@ -26,13 +27,23 @@ function kindLabel(k: LoopExitRowKind): string {
   return "";
 }
 
-export function LoopExitPanel({ views }: { views: LoopExitView[] }) {
+export function LoopExitPanel({
+  views,
+  wholeRunBadge,
+}: {
+  views: LoopExitView[];
+  wholeRunBadge?: boolean;
+}) {
   if (views.length === 0) return null;
   const t = ko.report.loopExit;
   const n = (v: number) => v.toLocaleString("en-US");
   const kinds = new Set(views.flatMap((v) => v.rows.map((r) => r.kind)));
   return (
-    <PageSection ariaLabel={t.panelLabel} title={t.panelTitle}>
+    <PageSection
+      ariaLabel={t.panelLabel}
+      title={t.panelTitle}
+      titleAside={wholeRunBadge ? <WholeRunBadge /> : undefined}
+    >
       {views.map((v) => (
         <div key={v.stepId} className="mb-4 last:mb-0">
           <h4 className="mb-2 break-words text-sm font-semibold">

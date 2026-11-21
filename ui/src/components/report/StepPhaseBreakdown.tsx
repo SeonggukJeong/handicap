@@ -4,12 +4,15 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { RetryBadge } from "./LoopExitSummary";
 import { StepStatsTable } from "./StepStatsTable";
+import { WholeRunBadge } from "./WholeRunBadge";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
 type Props = {
   steps: ReportStep[];
   meta: Map<string, StepMeta>;
   retriedStepIds?: ReadonlySet<string>;
+  /** 대기·다운로드·반복·응답 분리 줄이 run 전체 값일 때 「전체 구간」 표지를 단다. */
+  wholeRunBadge?: boolean;
 };
 type View = "waterfall" | "chips";
 
@@ -35,12 +38,19 @@ function SplitLine({ label, stats }: { label: string; stats: LoopSplit["final"] 
   );
 }
 
-export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
+export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge }: Props) {
   const [view, setView] = useState<View>("waterfall");
   const anyPhase = steps.some((s) => s.wait != null || s.download != null);
   if (!anyPhase) {
     // no phase data (measure_phases off) → fall back to the plain table
-    return <StepStatsTable steps={steps} meta={meta} retriedStepIds={retriedStepIds} />;
+    return (
+      <StepStatsTable
+        steps={steps}
+        meta={meta}
+        retriedStepIds={retriedStepIds}
+        wholeRunBadge={wholeRunBadge}
+      />
+    );
   }
   return (
     <section aria-label={ko.report.perStepStatsLabel} className="mb-6">
@@ -74,7 +84,12 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
         </div>
       </div>
       {view === "chips" ? (
-        <StepStatsTable steps={steps} meta={meta} retriedStepIds={retriedStepIds} />
+        <StepStatsTable
+          steps={steps}
+          meta={meta}
+          retriedStepIds={retriedStepIds}
+          wholeRunBadge={wholeRunBadge}
+        />
       ) : (
         <div>
           {steps.map((s) => {
@@ -136,6 +151,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds }: Props) {
               />
               {ko.report.phaseDownload}
             </span>
+            {wholeRunBadge && <WholeRunBadge />}
           </div>
         </div>
       )}

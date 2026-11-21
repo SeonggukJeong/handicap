@@ -30,3 +30,59 @@ it("moves selection with arrow keys", async () => {
   await user.keyboard("{ArrowRight}");
   expect(onChange).toHaveBeenCalledWith("detailed");
 });
+
+describe("Segmented — disabled 선택지", () => {
+  const three = [
+    { value: "a", label: "가" },
+    { value: "b", label: "나", disabled: true },
+    { value: "c", label: "다" },
+  ] as const;
+
+  it("꺼진 선택지는 disabled + aria-disabled이고 눌러도 onChange가 안 불린다", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Segmented value="a" onChange={onChange} options={three} ariaLabel="순서" />);
+    const off = screen.getByRole("radio", { name: "나" });
+    expect(off).toBeDisabled();
+    expect(off).toHaveAttribute("aria-disabled", "true");
+    await user.click(off);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("disabled를 안 넘긴 선택지에는 aria-disabled가 없다", () => {
+    render(<Segmented value="a" onChange={() => {}} options={three} ariaLabel="순서" />);
+    expect(screen.getByRole("radio", { name: "가" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("방향키는 꺼진 선택지를 건너뛴다", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Segmented value="a" onChange={onChange} options={three} ariaLabel="순서" />);
+    screen.getByRole("radio", { name: "가" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith("c");
+  });
+
+  it("거꾸로 가도 꺼진 선택지를 건너뛴다", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Segmented value="c" onChange={onChange} options={three} ariaLabel="순서" />);
+    screen.getByRole("radio", { name: "다" }).focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(onChange).toHaveBeenCalledWith("a");
+  });
+
+  it("켜진 선택지가 하나뿐이면 방향키는 아무것도 하지 않는다", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const one = [
+      { value: "a", label: "가" },
+      { value: "b", label: "나", disabled: true },
+    ] as const;
+    render(<Segmented value="a" onChange={onChange} options={one} ariaLabel="순서" />);
+    screen.getByRole("radio", { name: "가" }).focus();
+    await user.keyboard("{ArrowRight}");
+    await user.keyboard("{ArrowLeft}");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});

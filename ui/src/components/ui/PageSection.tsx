@@ -6,20 +6,31 @@ export function PageSection({
   title,
   sub = false,
   className,
+  titleAside,
   children,
 }: {
   ariaLabel: string;
   title: ReactNode;
   sub?: boolean;
   className?: string;
+  /** 제목의 형제로 그린다(제목 접근명에 섞이지 않는다). */
+  titleAside?: ReactNode;
   children?: ReactNode;
 }) {
+  const heading = sub ? (
+    <h4 className={`text-sm font-semibold text-slate-700${titleAside ? "" : " mb-2"}`}>{title}</h4>
+  ) : (
+    <h3 className={`text-lg font-semibold${titleAside ? "" : " mb-2"}`}>{title}</h3>
+  );
   return (
     <section aria-label={ariaLabel} className={className ?? "mb-6"}>
-      {sub ? (
-        <h4 className="text-sm font-semibold text-slate-700 mb-2">{title}</h4>
+      {titleAside ? (
+        <div className="mb-2 flex flex-wrap items-center gap-x-2">
+          {heading}
+          {titleAside}
+        </div>
       ) : (
-        <h3 className="text-lg font-semibold mb-2">{title}</h3>
+        heading
       )}
       {children}
     </section>

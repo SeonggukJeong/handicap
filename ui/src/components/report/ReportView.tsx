@@ -37,11 +37,24 @@ import { openLoopRates } from "./openLoopRates";
 import { bySecond } from "../../report/bySecond";
 import { Callout } from "../ui/Callout";
 import { PageSection } from "../ui/PageSection";
+import { BasisBar } from "./BasisBar";
+import { deriveLoadMode } from "../run/loadModel";
 
-type Props = { report: Report; profile: Profile };
+type Props = {
+  report: Report;
+  profile: Profile;
+  onSelectBasis?: (b: "steady" | "whole") => void;
+};
 
-export function ReportView({ report, profile }: Props) {
+export function ReportView({ report, profile, onSelectBasis }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
+  const wholeRunBadge = report.basis?.selected === "steady";
+  const rampLoad = deriveLoadMode(profile);
+  const showRampOnlyLine =
+    !report.basis &&
+    rampLoad.loadModel === "closed" &&
+    rampLoad.rateMode === "fixed" &&
+    profile.ramp_up_seconds > 0;
   const dropOther =
     report.basis?.selected === "steady" && report.basis.dropped_whole_run
       ? report.basis.other
@@ -120,6 +133,7 @@ export function ReportView({ report, profile }: Props) {
 
   return (
     <div>
+      {report.basis && <BasisBar basis={report.basis} onSelect={(b) => onSelectBasis?.(b)} />}
       <ReportHeadline
         summary={report.summary}
         profile={profile}
@@ -217,10 +231,16 @@ export function ReportView({ report, profile }: Props) {
       {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       <AppliedTimeouts profile={profile} hasStepTimeoutOverride={hasStepTimeoutOverride} />
+      {showRampOnlyLine && (
+        <p className="mb-2 text-sm text-slate-500">
+          {ko.report.basis.rampOnlyLine(profile.ramp_up_seconds)}
+        </p>
+      )}
       <Summary
         summary={report.summary}
         dropped={report.dropped}
         dropBase={dropOther ? { count: dropOther.count } : undefined}
+        wholeRunBadge={dropOther != null}
         openLoop={openLoopRates(
           report.run.profile,
           report.dropped,
@@ -258,13 +278,28 @@ export function ReportView({ report, profile }: Props) {
         </PageSection>
       ) : null}
       <StatusDistribution distribution={report.status_distribution} />
-      <ErrorKindTable kinds={report.error_kinds ?? []} />
-      {report.connection && <ConnectionCostCard stats={report.connection} />}
-      <StepPhaseBreakdown steps={report.steps} meta={stepMeta} retriedStepIds={retriedStepIds} />
-      <LoopExitSummary views={loopExitViews} />
-      <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />
-      <LoopExitPanel views={loopExitViews} />
-      <GroupLatencyTable breakdown={report.group_latency ?? []} meta={groupMeta} />
+      <ErrorKindTable kinds={report.error_kinds ?? []} wholeRunBadge={wholeRunBadge} />
+      {report.connection && (
+        <ConnectionCostCard stats={report.connection} wholeRunBadge={wholeRunBadge} />
+      )}
+      <StepPhaseBreakdown
+        steps={report.steps}
+        meta={stepMeta}
+        retriedStepIds={retriedStepIds}
+        wholeRunBadge={wholeRunBadge}
+      />
+      <LoopExitSummary views={loopExitViews} wholeRunBadge={wholeRunBadge} />
+      <BranchStatsTable
+        breakdown={report.if_breakdown ?? []}
+        meta={ifMeta}
+        wholeRunBadge={wholeRunBadge}
+      />
+      <LoopExitPanel views={loopExitViews} wholeRunBadge={wholeRunBadge} />
+      <GroupLatencyTable
+        breakdown={report.group_latency ?? []}
+        meta={groupMeta}
+        wholeRunBadge={wholeRunBadge}
+      />
       <ScenarioSnapshot yaml={report.scenario_yaml} />
     </div>
   );

@@ -2,6 +2,7 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { floorPct } from "./format";
 import type { LoopExitView } from "./loopExitView";
+import { WholeRunBadge } from "./WholeRunBadge";
 
 export function RetryBadge() {
   return (
@@ -11,7 +12,13 @@ export function RetryBadge() {
   );
 }
 
-export function LoopExitSummary({ views }: { views: LoopExitView[] }) {
+export function LoopExitSummary({
+  views,
+  wholeRunBadge,
+}: {
+  views: LoopExitView[];
+  wholeRunBadge?: boolean;
+}) {
   if (views.length === 0) return null;
   const t = ko.report.loopExit;
   const n = (v: number) => v.toLocaleString("en-US");
@@ -37,6 +44,7 @@ export function LoopExitSummary({ views }: { views: LoopExitView[] }) {
         <span className="block">{t.summaryHelpExhausted}</span>
         <span className="block">{t.summaryHelpTruncated}</span>
       </HelpTip>
+      {wholeRunBadge && <WholeRunBadge className="ml-1" />}
     </div>
   );
 }

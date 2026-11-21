@@ -46,7 +46,8 @@ export const queryKeys = {
   scenarioRuns: (id: string) => ["scenarios", id, "runs"] as const,
   run: (id: string) => ["runs", id] as const,
   runMetrics: (id: string) => ["runs", id, "metrics"] as const,
-  runReport: (id: string) => ["runs", id, "report"] as const,
+  runReport: (id: string, basis?: "steady" | "whole") =>
+    ["runs", id, "report", basis ?? "default"] as const,
   datasets: () => ["datasets"] as const,
   dataset: (id: string) => ["datasets", id] as const,
   datasetRows: (id: string, offset: number, limit: number) =>
@@ -242,10 +243,23 @@ export function useRunMetrics(id: string | undefined, paused: boolean) {
   });
 }
 
-export function useRunReport(id: string | undefined, terminal: boolean) {
+/** 기준 전환 중에는 같은 run의 이전 기준 리포트만 남긴다. run이 바뀌면 비운다. */
+export function sameRunPlaceholder(id: string | undefined) {
+  return <T>(
+    prev: T | undefined,
+    prevQuery: { queryKey: readonly unknown[] } | undefined,
+  ): T | undefined => (prevQuery?.queryKey[1] === id ? prev : undefined);
+}
+
+export function useRunReport(
+  id: string | undefined,
+  terminal: boolean,
+  basis?: "steady" | "whole",
+) {
   return useQuery({
-    queryKey: id ? queryKeys.runReport(id) : ["runs", "missing", "report"],
-    queryFn: () => api.getRunReport(id!),
+    queryKey: id ? queryKeys.runReport(id, basis) : ["runs", "missing", "report"],
+    queryFn: () => api.getRunReport(id!, basis),
+    placeholderData: sameRunPlaceholder(id),
     enabled: terminal && Boolean(id),
     // Report is immutable after terminal — fetch once and cache forever.
     refetchInterval: false,

@@ -36,7 +36,7 @@ function usePriorOpenRunWorkerAnchor(scenarioId: string | undefined): WorkerAnch
       ? basis.other.duration_seconds
       : (report.data?.summary.duration_seconds ?? 0);
   const priorTarget = latest ? (fixedTarget(latest.profile) ?? 0) : 0;
-  const rampWholeDropped = wholeDropped && latest?.profile.target_rps == null;
+  const rampWholeDropped = wholeDropped && latest?.profile.steady?.target != null;
   const priorWorkerCount = latest?.profile.worker_count ?? 1;
   return useMemo(() => {
     if (duration <= 0 || priorTarget <= 0 || rampWholeDropped) return null;

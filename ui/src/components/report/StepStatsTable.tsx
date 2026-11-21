@@ -4,6 +4,7 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { RetryBadge } from "./LoopExitSummary";
+import { WholeRunBadge } from "./WholeRunBadge";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
 
@@ -11,9 +12,11 @@ type Props = {
   steps: ReportStep[];
   meta: Map<string, StepMeta>;
   retriedStepIds?: ReadonlySet<string>;
+  /** 반복 횟수별 집계·응답 분리·대기/다운로드 열이 run 전체 값일 때 「전체 구간」 표지를 단다. */
+  wholeRunBadge?: boolean;
 };
 
-export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
+export function StepStatsTable({ steps, meta, retriedStepIds, wholeRunBadge }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
@@ -60,11 +63,15 @@ export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
               <th className="py-2 pr-4 font-medium">
                 {ko.report.phaseWait} p50
                 <HelpTip label={ko.report.phaseWait}>{ko.report.phaseWaitHelp}</HelpTip>
+                {wholeRunBadge && <WholeRunBadge className="ml-1" />}
               </th>
             )}
             {anyDownload && (
               <>
-                <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p50 ms</th>
+                <th className="py-2 pr-4 font-medium">
+                  {ko.report.phaseDownload} p50 ms
+                  {wholeRunBadge && <WholeRunBadge className="ml-1" />}
+                </th>
                 <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p95 ms</th>
                 <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p99 ms</th>
               </>
@@ -131,6 +138,7 @@ export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
                               <span className="block">{ko.report.loopExit.splitHelpRetry}</span>
                             </HelpTip>
                           )}
+                          {k === "final" && wholeRunBadge && <WholeRunBadge className="ml-1" />}
                         </td>
                         <td className="py-2 pr-4" />
                         <td className="py-2 pr-4" />
@@ -153,6 +161,7 @@ export function StepStatsTable({ steps, meta, retriedStepIds }: Props) {
                 {hasBreakdown && isOpen && (
                   <tr className="bg-slate-50">
                     <td colSpan={colSpan} className="px-6 py-2">
+                      {wholeRunBadge && <WholeRunBadge className="mb-1" />}
                       <table className="text-xs">
                         <thead className="text-slate-500">
                           <tr>

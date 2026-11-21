@@ -34,6 +34,17 @@ describe("PageSection", () => {
     expect(screen.getByRole("region", { name: "레이턴시" }).className).toBe("");
   });
 
+  it("titleAside는 제목의 형제 — 제목 접근명에 안 섞이고, 없으면 제목 직속 구조 그대로", () => {
+    const { rerender } = render(
+      <PageSection ariaLabel="표" title="표" titleAside={<span>곁</span>} />,
+    );
+    const h = screen.getByRole("heading", { level: 3, name: "표" });
+    expect(h).not.toContainElement(screen.getByText("곁"));
+    expect(h.parentElement?.tagName).toBe("DIV");
+    rerender(<PageSection ariaLabel="표" title="표" />);
+    expect(screen.getByRole("heading", { level: 3 }).parentElement?.tagName).toBe("SECTION");
+  });
+
   it("title은 ReactNode 수용 (함수형 ko 키 호출 결과 등)", () => {
     render(<PageSection ariaLabel="워커" title={<>워커별 분해 (2개 워커)</>} />);
     expect(

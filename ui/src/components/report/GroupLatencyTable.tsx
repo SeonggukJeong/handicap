@@ -3,18 +3,23 @@ import type { GroupLatency } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
+import { WholeRunBadge } from "./WholeRunBadge";
 
 type GroupMeta = { name: string };
-type Props = { breakdown: GroupLatency[]; meta: Map<string, GroupMeta> };
+type Props = { breakdown: GroupLatency[]; meta: Map<string, GroupMeta>; wholeRunBadge?: boolean };
 
 /** Page-load latency per `parallel` node = wall-clock of the concurrent block
  *  (≈ max of branches), aggregated run-total, with a sub-row per branch
  *  (branch's own wall-clock) so the bottleneck concurrent call is visible. Separate
  *  from StepStatsTable because the parallel node's id is not an http-leaf metric row. */
-export function GroupLatencyTable({ breakdown, meta }: Props) {
+export function GroupLatencyTable({ breakdown, meta, wholeRunBadge }: Props) {
   if (breakdown.length === 0) return null;
   return (
-    <PageSection ariaLabel={ko.report.pageLoadLatencyLabel} title={ko.report.pageLoadLatencyTitle}>
+    <PageSection
+      ariaLabel={ko.report.pageLoadLatencyLabel}
+      title={ko.report.pageLoadLatencyTitle}
+      titleAside={wholeRunBadge ? <WholeRunBadge /> : undefined}
+    >
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>

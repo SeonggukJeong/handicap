@@ -1192,6 +1192,34 @@ export const ko = {
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   report: {
+    // 집계 기준(유지 구간/전체 구간) 전환·기준 줄·표지 (steady-window)
+    basis: {
+      switchAria: "집계 기준",
+      steady: "유지 구간",
+      whole: "전체 구간",
+      lineSteady: (from: string, to: string, secs: number, ramp: number, discard: number) => {
+        const parts = [
+          ...(ramp > 0 ? [`상승 ${ramp}초`] : []),
+          ...(discard > 0 ? [`버림 ${discard}초`] : []),
+        ];
+        const exclude = parts.length > 0 ? ` · ${parts.join("·")} 제외` : "";
+        return `유지 구간 · ${from}–${to} (${secs}초)${exclude}`;
+      },
+      lineWhole: (ramp: number) => (ramp > 0 ? `전체 구간 · 상승 ${ramp}초 포함` : "전체 구간"),
+      partial: (planned: number, got: number) => `일찍 끝남 — 계획 ${planned}초 중 ${got}초`,
+      estimated: "시작 시각 추정",
+      notReached: "유지 구간에 닿기 전에 끝나 전체 구간만 볼 수 있습니다",
+      noCommonWindow:
+        "워커 시작 시각 차이가 커서 공통 유지 구간이 없습니다 — 전체 구간만 볼 수 있습니다",
+      otherLine: (label: string, rps: string, p95: number, errPct: string) =>
+        `${label}: 초당 요청 ${rps} · p95 ${p95} ms · 오류 ${errPct}`,
+      wholeBadge: "전체 구간",
+      wholeBadgeHelp:
+        "이 값은 초 단위로 저장되지 않아 유지 구간만 따로 셀 수 없습니다. run 전체 값입니다.",
+      rampOnlyLine: (ramp: number) => `상승 ${ramp}초 포함 전체 구간 값`,
+      latencyNote:
+        "응답 시간은 응답이 끝난 초에 기록됩니다. 상승 끝에 보낸 느린 요청은 유지 구간 첫 초들에 들어갈 수 있어 앞부분 버림으로 뺍니다.",
+    },
     // 계단 시험 결과 섹션 (stage-saturation-table) — 보간 인자는 이미 형식화된 문자열.
     // 머리말·사유 문구는 crates/controller/src/export.rs `stair_headline_text`와 같은 뜻(이중 소스).
     stair: {
