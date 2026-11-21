@@ -2815,7 +2815,7 @@ export const ko = {
         errColRate: "오류율",
         errColRateSub: "이전 → 이후",
         errGroup: "응답 코드별 건수",
-        errGroupSub: "(이전 → 이후)",
+        errGroupSub: "(이전 → 이후, 둘 중 한쪽이라도 나온 코드만)",
         errColChange: "변화",
         errRemaining: "남은 문제",
         condColItem: "항목",

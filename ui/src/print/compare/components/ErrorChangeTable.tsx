@@ -38,39 +38,26 @@ export function ErrorTitle({
   );
 }
 
-/** 이전·이후 두 조각은 각각 줄바꿈이 없고, 조각 사이에서만 줄이 바뀐다. */
-function Pair(props: {
-  before: string;
-  after: string;
-  bold: boolean;
-  starB: boolean;
-  starA: boolean;
-}) {
-  const { before, after, bold, starB, starA } = props;
-  const post = `${after}${starA ? "*" : ""}`;
+type Side = { before: string; after: string; starBefore: boolean; starAfter: boolean };
+
+/** 「이전[*] → 이후[*]」 — 오류율 칸과 건수 칸이 같은 글자 조립을 쓴다. */
+function BeforeAfter({ side, split }: { side: Side; split: boolean }) {
+  const pre = `${side.before}${side.starBefore ? "*" : ""} →`;
+  const post = `${side.after}${side.starAfter ? "*" : ""}`;
+  // 오류율: 한 줄 고정. 건수: 두 조각이 각각 줄바꿈 없이, 조각 사이에서만 줄이 바뀌고 이후 값은 굵게.
+  if (!split) return <span className="p-cmp-err-piece">{`${pre} ${post}`}</span>;
   return (
     <>
-      <span className="p-cmp-err-piece">{`${before}${starB ? "*" : ""} →`}</span>{" "}
-      {bold ? (
-        <b className="p-cmp-err-piece">{post}</b>
-      ) : (
-        <span className="p-cmp-err-piece">{post}</span>
-      )}
+      <span className="p-cmp-err-piece">{pre}</span> <b className="p-cmp-err-piece">{post}</b>
     </>
   );
 }
 
 function CodeCell({ cell }: { cell: ErrCell }) {
-  if (!cell) return <td className="p-muted">{NO_VALUE}</td>;
+  if (!cell) return <td>{NO_VALUE}</td>;
   return (
     <td className={cell.tone ? `p-cmp-err-cell--${cell.tone}` : undefined}>
-      <Pair
-        before={cell.before}
-        after={cell.after}
-        bold
-        starB={cell.starBefore}
-        starA={cell.starAfter}
-      />
+      <BeforeAfter side={cell} split />
     </td>
   );
 }
@@ -131,9 +118,7 @@ export function ErrorChangeTable(props: {
               {r.note && <small>{r.note}</small>}
             </td>
             <td>
-              <span className="p-cmp-err-piece">
-                {`${r.rate.before}${r.rate.starBefore ? "*" : ""} → ${r.rate.after}${r.rate.starAfter ? "*" : ""}`}
-              </span>
+              <BeforeAfter side={r.rate} split={false} />
             </td>
             {cols.map((c) => (
               <CodeCell key={c.key} cell={r.cells[c.key] ?? null} />

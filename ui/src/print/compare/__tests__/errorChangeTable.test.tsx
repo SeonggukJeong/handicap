@@ -75,7 +75,7 @@ describe("ErrorChangeTable", () => {
     const spans = heads[0]!.querySelectorAll("th[colspan]");
     expect(spans).toHaveLength(1);
     expect(spans[0]!.getAttribute("colspan")).toBe("5");
-    expect(norm(spans[0]!)).toContain("응답 코드별 건수");
+    expect(norm(spans[0]!)).toBe("응답 코드별 건수 (이전 → 이후, 둘 중 한쪽이라도 나온 코드만)");
     const second = [...heads[1]!.querySelectorAll("th")];
     expect(second).toHaveLength(5);
     expect(second.map(norm).some((t) => t.includes("503") && t.includes("서버가 바쁨"))).toBe(true);
@@ -110,6 +110,7 @@ describe("ErrorChangeTable", () => {
     for (let i = 2; i <= 6; i++) {
       expect(norm(c[i]!)).toBe("–");
       expect(c[i]!.className).not.toMatch(/p-cmp-err-cell--/);
+      expect(c[i]!.className).not.toContain("p-muted");
     }
   });
 
