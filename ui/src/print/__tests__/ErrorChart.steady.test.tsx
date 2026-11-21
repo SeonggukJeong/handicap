@@ -38,6 +38,23 @@ describe("ErrorChart steady 점선", () => {
     }
   });
 
+  it("끝 점선은 창의 마지막 구간(bin) 오른쪽 가장자리에 선다", () => {
+    const c: PrintDoc["chart"] = {
+      ...chart({ startSec: 25, endSec: 60 }),
+      bins: [
+        { startSec: 58, seconds: 1, rps: 10, topErr: 0, otherErr: 0 },
+        { startSec: 59, seconds: 1, rps: 10, topErr: 0, otherErr: 0 },
+      ],
+    };
+    const { container } = render(<ErrorChart doc={doc(c)} />);
+    const lines = [...container.querySelectorAll("line[data-steady-line]")];
+    const last = c.bins[c.bins.length - 1];
+    expect(Number(lines[1].getAttribute("x1"))).toBeCloseTo(
+      markerX(last.startSec + last.seconds, c.durationSec),
+      1,
+    );
+  });
+
   it("chart.steady가 없으면 점선이 없다", () => {
     const { container } = render(<ErrorChart doc={doc(chart())} />);
     expect(container.querySelectorAll("[data-steady-line]")).toHaveLength(0);

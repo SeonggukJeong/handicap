@@ -88,4 +88,23 @@ describe("TimeSeriesChart marks", () => {
     );
     expect(container.querySelectorAll(".recharts-reference-line").length).toBe(2);
   });
+
+  it("marks가 있어도 x축 눈금은 정수 글자다", () => {
+    const marks: SteadyMarks = { bands: [], lines: [{ kind: "start", x: 7 }] };
+    const { container } = render(
+      <TimeSeriesChart
+        title="RPS"
+        yLabel="req/s"
+        data={dataOf([1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009])}
+        marks={marks}
+        width={400}
+        height={200}
+      />,
+    );
+    const ticks = [
+      ...container.querySelectorAll(".recharts-xAxis .recharts-cartesian-axis-tick-value"),
+    ].map((e) => e.textContent ?? "");
+    expect(ticks.length).toBeGreaterThan(0);
+    for (const t of ticks) expect(t).toMatch(/^\d+$/);
+  });
 });

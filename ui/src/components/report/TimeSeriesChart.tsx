@@ -43,6 +43,7 @@ export function TimeSeriesChart({ title, data, yLabel, width, height, marks }: P
           dataKey="x"
           type="number"
           domain={[0, xMax]}
+          allowDecimals={false}
           label={{ value: "seconds", position: "insideBottom", offset: -4 }}
         />
       ) : (

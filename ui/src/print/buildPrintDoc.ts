@@ -136,7 +136,7 @@ export function buildPrintDoc(a: {
   const bw = basis?.window ?? null;
   const steadyMarks =
     basis && bw && t0 !== null
-      ? { startSec: bw.start_ms / 1000 - t0, endSec: bw.end_ms / 1000 - 1 - t0 }
+      ? { startSec: bw.start_ms / 1000 - t0, endSec: bw.end_ms / 1000 - t0 }
       : undefined;
   const chart = buildChartModel(report.windows, t0, table.rows, steadyMarks);
   const scoped = basis?.selected === "steady" && bw !== null && t0 !== null;
@@ -152,7 +152,7 @@ export function buildPrintDoc(a: {
     basis && chart.steady
       ? `${readingBase.endsWith(".") ? readingBase : `${readingBase}.`} ${ko.print.chart.readingSteady(
           elapsedText(chart.steady.startSec),
-          elapsedText(chart.steady.endSec + 1),
+          elapsedText(chart.steady.endSec),
           basis.selected,
         )}`
       : readingBase;

@@ -499,14 +499,14 @@ describe("buildPrintDoc — 집계 기준", () => {
 
   it("창이 있는 리포트: chart.steady가 경과 초이고 readingLine이 '긴 점선 사이'를 담는다", () => {
     const steady = build(mkRun(), withErrors(mkBasis("steady"), 90, []));
-    expect(steady.chart.steady).toEqual({ startSec: 25, endSec: 59 });
+    expect(steady.chart.steady).toEqual({ startSec: 25, endSec: 60 });
     expect(steady.readingLine).toBe(
       `${chartReadingLine(steady.chart)} 긴 점선 사이(25초–1분)가 유지 구간입니다. 표와 판정은 이 구간의 값입니다.`,
     );
     expect(steady.readingLine).toContain("긴 점선 사이(25초–1분)가 유지 구간입니다.");
 
     const whole = build(mkRun(), withErrors(mkBasis("whole"), 90, []));
-    expect(whole.chart.steady).toEqual({ startSec: 25, endSec: 59 });
+    expect(whole.chart.steady).toEqual({ startSec: 25, endSec: 60 });
     expect(whole.readingLine).toBe(
       "측정 내내 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다. 긴 점선 사이(25초–1분)가 유지 구간입니다.",
     );
@@ -520,7 +520,7 @@ describe("buildPrintDoc — 집계 기준", () => {
 
   it("창의 마지막 초들에 메트릭이 없어도 끝 점선이 그림 안에 있다", () => {
     const doc = build(mkRun(), withErrors(mkBasis("steady"), 51, []));
-    expect(doc.chart.steady?.endSec).toBe(59);
+    expect(doc.chart.steady?.endSec).toBe(60);
     expect(doc.chart.durationSec).toBe(60);
     expect(markerX(doc.chart.steady!.endSec, doc.chart.durationSec)).toBeLessThanOrEqual(
       PLOT_X1_MM,

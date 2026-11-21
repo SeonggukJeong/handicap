@@ -85,7 +85,7 @@ export type ChartModel = {
   errTicks: number[];
   timeTicks: number[];
   markers: ChartMarker[];
-  /** 유지 구간의 첫 초와 마지막 초(경과 초). 창이 없으면 없다. */
+  /** 유지 구간 — startSec은 창의 첫 초, endSec은 창의 끝(배타적, 경과 초). 창이 없으면 없다. */
   steady?: { startSec: number; endSec: number };
 };
 
@@ -134,7 +134,7 @@ export function buildChartModel(
     };
   }
   const maxTs = windows.reduce((a, w) => Math.max(a, w.ts_second), t0);
-  const durationSec = Math.max(1, maxTs - t0 + 1, steady ? steady.endSec + 1 : 0);
+  const durationSec = Math.max(1, maxTs - t0 + 1, steady ? steady.endSec : 0);
   const binSeconds = pickBinSeconds(durationSec);
   const nBins = Math.ceil(durationSec / binSeconds);
 
