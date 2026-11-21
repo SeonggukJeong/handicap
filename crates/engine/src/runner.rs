@@ -135,7 +135,7 @@ pub struct MetricFlush {
     /// open-loop 초 단위 시작·완료·버림 계수(계단 시험 a). 주기 flush는 끝난 초만,
     /// 최종 flush는 나머지 전부. closed-loop·VU 곡선 경로는 항상 빈 Vec.
     pub open_loop_seconds: Vec<OpenLoopSecond>,
-    /// open-loop 스케줄 t=0의 epoch ms(모든 open-loop flush에 실림). 다른 경로는 `None`.
+    /// 스케줄 t=0의 epoch ms. open-loop 전 경로와 closed-loop 고정(`run_scenario`)이 모든 flush에 싣는다. VU 곡선 경로는 `None`.
     pub open_loop_started_at_ms: Option<i64>,
 }
 
@@ -174,6 +174,7 @@ pub async fn run_scenario(
 ) -> Result<()> {
     let agg = Arc::new(Mutex::new(Aggregator::new(plan.loop_breakdown_cap)));
     let started_at = Instant::now();
+    let started_at_ms = epoch_millis();
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
     // Sample of the first non-Aborted VU failure cause (Task 2, US3). First
@@ -203,6 +204,77 @@ pub async fn run_scenario(
     } else {
         plan.vus.div_ceil(ramp_secs as u32).max(1)
     };
+
+    // Flusher: drain completed 1s windows until the run ends. Started before the
+    // VU spawn loop so metrics flow during ramp-up.
+    let flush_agg = agg.clone();
+    let flush_out = out.clone();
+    let flusher = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_millis(500));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let now_s = current_second();
+            let (
+                drained,
+                loop_stats,
+                branch_stats,
+                group_stats,
+                phase_stats,
+                error_kind_stats,
+                loop_exit_stats,
+            ) = {
+                let mut g = flush_agg.lock().await;
+                (
+                    g.drain_completed(now_s),
+                    g.drain_loop_deltas(),
+                    g.drain_branch_deltas(),
+                    g.drain_group_deltas(),
+                    g.drain_phase_deltas(),
+                    g.drain_error_kind_deltas(),
+                    g.drain_loop_exit_deltas(),
+                )
+            };
+            if !drained.is_empty()
+                || !loop_stats.is_empty()
+                || !branch_stats.is_empty()
+                || !group_stats.is_empty()
+                || !phase_stats.is_empty()
+                || !error_kind_stats.is_empty()
+                || !loop_exit_stats.is_empty()
+            {
+                debug!(
+                    count = drained.len(),
+                    loops = loop_stats.len(),
+                    branches = branch_stats.len(),
+                    groups = group_stats.len(),
+                    "flushing windows"
+                );
+                if flush_out
+                    .send(MetricFlush {
+                        windows: drained,
+                        loop_stats,
+                        branch_stats,
+                        group_stats,
+                        dropped: 0,
+                        phase_stats,
+                        active_vu_samples: vec![],
+                        error_kind_stats,
+                        loop_exit_stats,
+                        open_loop_seconds: vec![],
+                        open_loop_started_at_ms: Some(started_at_ms),
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            if flush_out.is_closed() {
+                break;
+            }
+        }
+    });
 
     let mut spawned: u32 = 0;
     let mut next_spawn = started_at;
@@ -289,76 +361,6 @@ pub async fn run_scenario(
         next_spawn += Duration::from_secs(1);
     }
 
-    // Flusher: drain completed 1s windows until the run ends.
-    let flush_agg = agg.clone();
-    let flush_out = out.clone();
-    let flusher = tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_millis(500));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            let now_s = current_second();
-            let (
-                drained,
-                loop_stats,
-                branch_stats,
-                group_stats,
-                phase_stats,
-                error_kind_stats,
-                loop_exit_stats,
-            ) = {
-                let mut g = flush_agg.lock().await;
-                (
-                    g.drain_completed(now_s),
-                    g.drain_loop_deltas(),
-                    g.drain_branch_deltas(),
-                    g.drain_group_deltas(),
-                    g.drain_phase_deltas(),
-                    g.drain_error_kind_deltas(),
-                    g.drain_loop_exit_deltas(),
-                )
-            };
-            if !drained.is_empty()
-                || !loop_stats.is_empty()
-                || !branch_stats.is_empty()
-                || !group_stats.is_empty()
-                || !phase_stats.is_empty()
-                || !error_kind_stats.is_empty()
-                || !loop_exit_stats.is_empty()
-            {
-                debug!(
-                    count = drained.len(),
-                    loops = loop_stats.len(),
-                    branches = branch_stats.len(),
-                    groups = group_stats.len(),
-                    "flushing windows"
-                );
-                if flush_out
-                    .send(MetricFlush {
-                        windows: drained,
-                        loop_stats,
-                        branch_stats,
-                        group_stats,
-                        dropped: 0,
-                        phase_stats,
-                        active_vu_samples: vec![],
-                        error_kind_stats,
-                        loop_exit_stats,
-                        open_loop_seconds: vec![],
-                        open_loop_started_at_ms: None,
-                    })
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-            if flush_out.is_closed() {
-                break;
-            }
-        }
-    });
-
     while let Some(res) = set.join_next().await {
         if let Err(e) = res {
             warn!(error = %e, "vu join error");
@@ -406,7 +408,7 @@ pub async fn run_scenario(
                 error_kind_stats: final_error_kinds,
                 loop_exit_stats: final_loop_exits,
                 open_loop_seconds: vec![],
-                open_loop_started_at_ms: None,
+                open_loop_started_at_ms: Some(started_at_ms),
             })
             .await;
     }

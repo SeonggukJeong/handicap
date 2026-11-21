@@ -3300,6 +3300,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn closed_loop_batch_start_time_is_stored() {
+        use hdrhistogram::serialization::{Serializer, V2Serializer};
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+
+        let mut h = hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).unwrap();
+        h.record(2_000).unwrap();
+        let mut blob = Vec::new();
+        V2Serializer::new().serialize(&h, &mut blob).unwrap();
+
+        let now_ms = crate::store::now_ms();
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            windows: vec![pb::MetricWindow {
+                ts_second: now_ms / 1000,
+                step_id: "_all".to_string(),
+                count: 1,
+                error_count: 0,
+                hdr_histogram: blob,
+                status_counts: Default::default(),
+            }],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![],
+            phase_stats: vec![],
+            active_vu_samples: vec![],
+            error_kind_stats: vec![],
+            loop_exit_stats: vec![],
+            open_loop_seconds: vec![],
+            open_loop_started_at_ms: now_ms,
+            dropped: 0,
+        };
+        ingest_metrics(&coord, &batch).await;
+
+        let starts = crate::store::open_loop::worker_starts(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(starts.len(), 1);
+        assert_eq!(starts[0].worker_id, "w0");
+        assert_eq!(starts[0].started_at_ms, now_ms);
+    }
+
+    #[tokio::test]
     async fn ingest_drops_open_loop_times_far_from_clock() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;

@@ -180,13 +180,14 @@ async fn rows_every_second_while_scheduler_runs() {
 }
 
 #[tokio::test]
-async fn closed_loop_flush_has_no_open_loop_fields() {
+async fn closed_loop_flush_carries_start_time_but_no_seconds() {
     let server = delayed_server(Duration::from_millis(10)).await;
     let mut p = plan(1, 1, 1);
     p.vus = 2;
     p.target_rps = None;
     p.max_in_flight = None;
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(256);
+    let before = epoch_ms();
     let h = tokio::spawn(run_scenario(
         scenario(&format!("{}/", server.uri())),
         p,
@@ -194,13 +195,20 @@ async fn closed_loop_flush_has_no_open_loop_fields() {
         CancellationToken::new(),
     ));
     let mut n = 0;
+    let mut starts = std::collections::BTreeSet::new();
     while let Some(f) = rx.recv().await {
         n += 1;
         assert!(f.open_loop_seconds.is_empty());
-        assert!(f.open_loop_started_at_ms.is_none());
+        starts.insert(
+            f.open_loop_started_at_ms
+                .expect("closed-loop 고정도 시작 시각을 싣는다"),
+        );
     }
     h.await.unwrap().unwrap();
     assert!(n > 0);
+    assert_eq!(starts.len(), 1, "한 run의 시작 시각은 하나");
+    let t0 = *starts.iter().next().unwrap();
+    assert!(t0 >= before && t0 <= before + 1_000);
 }
 
 #[tokio::test]
