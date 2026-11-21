@@ -277,8 +277,8 @@ pub struct RunRow {
     /// 계층(`normalize_label`)·스케줄러(`schedule_label`) 책임이며 스토어는 받은
     /// 값을 그대로 저장한다(run-identity spec §3). 유니크 강제 없음.
     pub label: Option<String>,
-    /// 계단 자동 정지 기록. `completed` 행에만 존재한다: `mark_aborted`가 지우고,
-    /// API(`to_response`·`build_report_for_run`)도 completed가 아니면 싣지 않는다(이중 가드).
+    /// 계단 자동 정지 기록. `completed` 행에만 존재한다: `complete_with_auto_stop`이
+    /// `completed`와 한 UPDATE로 쓰고, API(`to_response`·`build_report_for_run`)도 completed가 아니면 싣지 않는다(이중 가드).
     /// 손상 JSON도 None.
     pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
 }
@@ -445,7 +445,7 @@ pub async fn set_status(
 }
 
 /// 자동 정지 기록과 `completed`를 한 UPDATE로 쓴다(활성 run만). 바뀐 행이 1개면 `true` —
-/// 호출자는 `true`일 때만 verdict 배지를 영속한다(경합한 `mark_aborted` 뒤 aborted run 보호).
+/// 호출자는 `true`일 때만 verdict 배지를 영속한다(경합한 중단 뒤 aborted run 보호).
 pub async fn complete_with_auto_stop(
     db: &Db,
     id: &str,
@@ -465,6 +465,8 @@ pub async fn complete_with_auto_stop(
     Ok(res.rows_affected() == 1)
 }
 
+/// 테스트 픽스처 전용: 현재 상태와 무관하게 `aborted`로 만들고 `auto_stop_json`을 지운다.
+/// REST 중단 경로는 활성 run만 건드리는 [`abort_if_active`]를 쓴다.
 pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
     let now = super::now_ms();
     sqlx::query(
@@ -500,6 +502,17 @@ pub async fn abort_if_active(db: &Db, id: &str) -> sqlx::Result<bool> {
     Ok(res.rows_affected() > 0)
 }
 
+/// 상태만 읽는다(기본 키 조회). 행이 없으면 `None`.
+pub async fn status_of(db: &Db, id: &str) -> sqlx::Result<Option<RunStatus>> {
+    let r = sqlx::query("SELECT status FROM runs WHERE id = ?")
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
+    Ok(r.map(|r| {
+        RunStatus::parse(r.get::<String, _>("status").as_str()).unwrap_or(RunStatus::Failed)
+    }))
+}
+
 /// `aborted`이고 message가 비어 있는 행에만 사유를 쓴다. 썼으면 `true`.
 pub async fn set_abort_reason_if_absent(db: &Db, id: &str, message: &str) -> sqlx::Result<bool> {
     let res = sqlx::query(
@@ -528,12 +541,10 @@ pub async fn mark_aborted_if_active(db: &Db, id: &str, message: &str) -> sqlx::R
     Ok(res.rows_affected() == 1)
 }
 
-/// Mark a single run `failed` with a message and stamp `ended_at`. Used when
-/// worker dispatch fails at run-create time so the failure is authoritative and
-/// immediate (with a useful cause) instead of leaving the run `pending` for the
-/// 60s registration watchdog to fail anonymously. Unlike `set_status`, this
-/// records a `message` — the existing fail paths (watchdog/fail-fast) leave it
-/// NULL because `set_status` has no message column.
+/// Unguarded: mark a single run `failed` with a message and stamp `ended_at`,
+/// whatever its current status (it overwrites `aborted`/`completed`). Production
+/// paths use [`mark_failed_if_active`]; this one is for test fixtures. Unlike
+/// `set_status`, it records a `message`.
 pub async fn mark_failed(db: &Db, id: &str, message: &str) -> sqlx::Result<()> {
     let now = super::now_ms();
     sqlx::query("UPDATE runs SET status = 'failed', ended_at = ?, message = ? WHERE id = ?")
@@ -890,8 +901,8 @@ mod tests {
         let updated = get(&db, &run.id).await.unwrap().unwrap();
         assert_eq!(updated.status, RunStatus::Running);
 
-        // Mark aborted via mark_aborted (simulates REST abort path).
-        mark_aborted(&db, &run.id).await.unwrap();
+        // REST 중단 경로(활성 run만 aborted로).
+        assert!(abort_if_active(&db, &run.id).await.unwrap());
         let aborted = get(&db, &run.id).await.unwrap().unwrap();
         assert_eq!(aborted.status, RunStatus::Aborted);
 
@@ -1361,13 +1372,31 @@ mod tests {
         set_status(&db, &running, RunStatus::Running, Some(1), None)
             .await
             .unwrap();
+        sqlx::query("UPDATE runs SET message = '기존 사유' WHERE id = ?")
+            .bind(&running)
+            .execute(&db)
+            .await
+            .unwrap();
         for id in [&pending, &running] {
             assert!(abort_if_active(&db, id).await.unwrap());
             let got = get(&db, id).await.unwrap().unwrap();
             assert_eq!(got.status, RunStatus::Aborted);
             assert!(got.ended_at.is_some());
-            assert_eq!(got.message, None);
+            let want = (id == &running).then(|| "기존 사유".to_string());
+            assert_eq!(got.message, want);
         }
+    }
+
+    #[tokio::test]
+    async fn status_of_reads_status_or_none() {
+        let db = test_db().await;
+        let id = auto_stop_run(&db).await;
+        assert_eq!(status_of(&db, &id).await.unwrap(), Some(RunStatus::Pending));
+        set_status(&db, &id, RunStatus::Running, Some(1), None)
+            .await
+            .unwrap();
+        assert_eq!(status_of(&db, &id).await.unwrap(), Some(RunStatus::Running));
+        assert_eq!(status_of(&db, "missing").await.unwrap(), None);
     }
 
     #[tokio::test]

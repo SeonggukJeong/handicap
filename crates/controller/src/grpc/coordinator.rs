@@ -1376,7 +1376,7 @@ impl CoordinatorState {
             Finalize::Completed {
                 record: Some(record),
             } => {
-                // status·기록을 가드 단일 UPDATE로 — 경합한 `mark_aborted` 뒤엔 행이 안 바뀌고,
+                // status·기록을 가드 단일 UPDATE로 — 경합한 중단 뒤엔 행이 안 바뀌고,
                 // 그 aborted run에 verdict 배지를 붙이지 않는다.
                 match runs::complete_with_auto_stop(
                     &self.db,
@@ -7187,8 +7187,8 @@ mod tests {
         let run_id = seed_run_with_criteria(&db).await;
         let (coord, _stop) = auto_stopped_two_workers(&db, &run_id).await;
         coord.record_phase(&run_id, "w0", ABORTED, "").await;
-        // finalize 전에 경합한 `abort_run`의 무조건 mark_aborted.
-        runs::mark_aborted(&db, &run_id).await.unwrap();
+        // finalize 전에 경합한 REST 중단.
+        assert!(runs::abort_if_active(&db, &run_id).await.unwrap());
         coord.record_phase(&run_id, "w1", ABORTED, "").await;
         assert_eq!(coord.done_cancelled(&run_id).await, None);
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();

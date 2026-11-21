@@ -869,7 +869,7 @@ pub(crate) async fn spawn_run(
                     // empty pool → existing 400 (idle 0).
                     let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
                     state.coord.cancel_dispatch_failed(&row.id).await;
-                    runs::mark_failed(&state.db, &row.id, &msg).await?;
+                    runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
                     return Err(ApiError::BadRequest(msg));
                 }
                 crate::grpc::coordinator::PoolReservation::Insufficient { achievable } => {
@@ -879,7 +879,7 @@ pub(crate) async fn spawn_run(
                         profile.concurrency_demand()
                     );
                     state.coord.cancel_dispatch_failed(&row.id).await;
-                    runs::mark_failed(&state.db, &row.id, &msg).await?;
+                    runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
                     return Err(ApiError::Internal(anyhow::anyhow!(msg)));
                 }
                 crate::grpc::coordinator::PoolReservation::Reserved { workers, counts } => {
@@ -892,7 +892,7 @@ pub(crate) async fn spawn_run(
                         );
                         state.coord.release_pool_reservation(&workers).await;
                         state.coord.cancel_dispatch_failed(&row.id).await;
-                        runs::mark_failed(&state.db, &row.id, &msg).await?;
+                        runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
                         return Err(ApiError::BadRequest(msg));
                     }
                     state
@@ -947,7 +947,7 @@ pub(crate) async fn spawn_run(
             if n_pool == 0 {
                 let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
                 state.coord.cancel_dispatch_failed(&row.id).await;
-                runs::mark_failed(&state.db, &row.id, &msg).await?;
+                runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
                 return Err(ApiError::BadRequest(msg));
             }
             // R14: unique floor — reject before enqueue (assignment moved in).
@@ -958,7 +958,7 @@ pub(crate) async fn spawn_run(
                 );
                 state.coord.release_pool_reservation(&reserved).await;
                 state.coord.cancel_dispatch_failed(&row.id).await;
-                runs::mark_failed(&state.db, &row.id, &msg).await?;
+                runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
                 return Err(ApiError::BadRequest(msg));
             }
             state
@@ -1014,7 +1014,7 @@ pub(crate) async fn spawn_run(
         let message = format!("failed to dispatch workers: {e}");
         tracing::error!(run_id = %row.id, error = %e, "worker dispatch failed; marking run failed");
         state.coord.cancel_dispatch_failed(&row.id).await;
-        runs::mark_failed(&state.db, &row.id, &message).await?;
+        runs::mark_failed_if_active(&state.db, &row.id, &message).await?;
         return Err(ApiError::Internal(anyhow::anyhow!(message)));
     }
 
@@ -1381,6 +1381,7 @@ pub async fn list_for_scenario(
 }
 
 const POOL_ASSIGN_FAILED_MSG: &str = "풀 워커 배정 실패(워커 이탈) — 재시도하세요";
+const RUN_START_READ_FAILED_MSG: &str = "실행 시작 확인 중 저장소 읽기에 실패했습니다";
 
 /// 풀 배정 실패 처리. 행이 `aborted`면 그 행(정상 생성으로 돌려줄 값), 아니면 오류.
 /// 이미 끝난 run은 덮어쓰지 않는다(`mark_failed_if_active`).
@@ -1408,23 +1409,22 @@ async fn row_if_no_longer_pending(
     run_id: &str,
     reserved: &[(String, crate::grpc::coordinator::WorkerTx)],
 ) -> Result<Option<runs::RunRow>, ApiError> {
-    let row = runs::get(&state.db, run_id).await;
-    if let Ok(Some(r)) = &row {
-        if r.status == RunStatus::Pending {
-            return Ok(None);
-        }
+    let status = runs::status_of(&state.db, run_id).await;
+    if let Ok(Some(RunStatus::Pending)) = &status {
+        return Ok(None);
     }
     if !reserved.is_empty() {
         state.coord.release_pool_reservation(reserved).await;
     }
     state.coord.cancel_dispatch_failed(run_id).await;
-    if let Ok(Some(r)) = &row {
-        if r.status == RunStatus::Aborted {
-            runs::set_abort_reason_if_absent(&state.db, run_id, runs::ABORT_MSG_NOT_STARTED)
-                .await?;
-        }
+    if status.is_err() {
+        // 행이 pending으로 남으면 감시견도 없다 — 가드 UPDATE로 실패 처리한다.
+        let _ = runs::mark_failed_if_active(&state.db, run_id, RUN_START_READ_FAILED_MSG).await;
     }
-    row?;
+    if let Ok(Some(RunStatus::Aborted)) = &status {
+        runs::set_abort_reason_if_absent(&state.db, run_id, runs::ABORT_MSG_NOT_STARTED).await?;
+    }
+    status?;
     Ok(Some(
         runs::get(&state.db, run_id)
             .await?
@@ -2975,10 +2975,8 @@ steps:
     }
 
     async fn register_worker(state: &AppState, id: &str, worker: &str) {
-        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
         state.coord.register(id, worker, tx).await;
-        // 수신 쪽을 살려 둬야 Abort 전송이 실패하지 않는다.
-        std::mem::forget(rx);
     }
 
     async fn abort_msg(state: &AppState, id: &str) -> (runs::RunStatus, Option<String>) {
@@ -3276,6 +3274,28 @@ steps:
             state.coord.register(&row.id, "w0", tx).await,
             crate::grpc::coordinator::RegisterOutcome::NoRun
         ));
+    }
+
+    #[tokio::test]
+    async fn spawn_run_pool_empty_failure_keeps_aborted_row() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let state = state_with(db, 100).await;
+        state.coord.set_pool_mode(true);
+        let Err(err) = call_spawn_run(&state, &scenario, 1, true).await else {
+            panic!("풀이 비어 있으면 실패해야 한다");
+        };
+        assert!(
+            matches!(err, ApiError::BadRequest(ref m) if m.contains("LAN 워커가 없습니다")),
+            "응답은 기존과 같다: {err:?}"
+        );
+        let id: String = sqlx::query_scalar("SELECT id FROM runs")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        let (status, _) = abort_msg(&state, &id).await;
+        assert_eq!(status, runs::RunStatus::Aborted, "failed로 덮지 않는다");
     }
 
     #[tokio::test]
