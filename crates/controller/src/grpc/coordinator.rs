@@ -1556,10 +1556,11 @@ impl CoordinatorState {
     /// immediately instead of advancing into the startup phase on an already-failed
     /// run), abort any worker that raced in before dispatch errored (subprocess
     /// N≥2 partial spawn), and release dispatcher resources. Does not touch the
-    /// DB row: `api/runs.rs::fail_run_start` (every run-creation failure path) calls
-    /// it first and then marks the run `failed` with `mark_failed_if_active`, or
-    /// returns the row when it is already `aborted`; `row_if_no_longer_pending`
-    /// calls it for a run aborted during creation and leaves that row `aborted`. Safe to call when the run is unknown (idempotent
+    /// DB row: `api/runs.rs::fail_run_start` (the seven run-creation failure
+    /// sites) calls it first and then marks the run `failed` with
+    /// `mark_failed_if_active`, or returns the row when it is already `aborted`;
+    /// `row_if_no_longer_pending` calls it for a run aborted during creation and
+    /// leaves that row `aborted`. Safe to call when the run is unknown (idempotent
     /// no-op). (codex eval, item 2; G1a §3.1.)
     pub async fn cancel_dispatch_failed(&self, run_id: &str) {
         let siblings = {
