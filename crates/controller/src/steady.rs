@@ -132,6 +132,106 @@ fn fill_duration(p: &mut Profile, total: u32) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BasisState {
+    Measured,
+    Partial,
+    NotReached,
+    NoCommonWindow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SteadyWindow {
+    /// ts_second 반열린 구간 [lo, hi). 창이 비면 None.
+    pub range: Option<(i64, i64)>,
+    pub state: BasisState,
+    pub t0_estimated: bool,
+}
+
+fn ceil_sec(ms: i64) -> i64 {
+    ms.div_euclid(1000) + i64::from(ms.rem_euclid(1000) > 0)
+}
+
+/// 일한 워커(메트릭 행이 있는 워커)마다 시작 시각 기준 [lo, hi) 초를 구해 공통 구간을 낸다.
+/// `ended_at_ms`: completed가 아닐 때의 끝(없으면 마지막 메트릭 초의 끝).
+pub fn steady_window(
+    cfg: &SteadyConfig,
+    completed: bool,
+    ended_at_ms: Option<i64>,
+    rows: &[crate::store::metrics::WindowWithHdr],
+    starts: &[crate::store::open_loop::WorkerStartRow],
+) -> SteadyWindow {
+    let mut span: std::collections::HashMap<&str, (i64, i64)> = std::collections::HashMap::new();
+    for r in rows {
+        let e = span
+            .entry(r.worker_id.as_str())
+            .or_insert((r.ts_second, r.ts_second));
+        e.0 = e.0.min(r.ts_second);
+        e.1 = e.1.max(r.ts_second);
+    }
+    let empty = |t0_estimated| SteadyWindow {
+        range: None,
+        state: if completed {
+            BasisState::NoCommonWindow
+        } else {
+            BasisState::NotReached
+        },
+        t0_estimated,
+    };
+    if span.is_empty() {
+        return empty(false);
+    }
+
+    let last_metric = span.values().map(|s| s.1).max().unwrap_or(0);
+    let end_sec = if completed {
+        None
+    } else {
+        let end_ms =
+            ended_at_ms.unwrap_or_else(|| last_metric.saturating_add(1).saturating_mul(1000));
+        Some(end_ms.div_euclid(1000))
+    };
+    let lead_ms = (i64::from(cfg.ramp_seconds) + i64::from(cfg.discard_seconds)) * 1000;
+    let plan_ms = (i64::from(cfg.ramp_seconds) + i64::from(cfg.hold_seconds)) * 1000;
+
+    let mut estimated = false;
+    let mut lo = i64::MIN;
+    let mut hi = i64::MAX;
+    for (worker, (first, last)) in &span {
+        let known = starts
+            .iter()
+            .find(|s| s.worker_id == *worker)
+            .map(|s| s.started_at_ms);
+        let t0 = known.unwrap_or_else(|| {
+            estimated = true;
+            first.saturating_mul(1000)
+        });
+        let lo_w = ceil_sec(t0.saturating_add(lead_ms));
+        let mut hi_w = t0.saturating_add(plan_ms).div_euclid(1000);
+        if let Some(e) = end_sec {
+            hi_w = hi_w.min(e);
+        }
+        if known.is_none() {
+            hi_w = hi_w.min(last.saturating_add(1));
+        }
+        lo = lo.max(lo_w);
+        hi = hi.min(hi_w);
+    }
+
+    let range = (lo < hi).then_some((lo, hi));
+    let state = match (completed, range.is_some()) {
+        (true, true) => BasisState::Measured,
+        (true, false) => BasisState::NoCommonWindow,
+        (false, true) => BasisState::Partial,
+        (false, false) => BasisState::NotReached,
+    };
+    SteadyWindow {
+        range,
+        state,
+        t0_estimated: estimated,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,5 +487,250 @@ mod tests {
         );
         let bad = r#"{"ramp_seconds":1,"hold_seconds":10,"discard_seconds":0,"x":1}"#;
         assert!(serde_json::from_str::<SteadyConfig>(bad).is_err());
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use crate::store::metrics::WindowWithHdr;
+    use crate::store::open_loop::WorkerStartRow;
+
+    fn row(worker: &str, ts: i64) -> WindowWithHdr {
+        WindowWithHdr {
+            ts_second: ts,
+            step_id: "s".into(),
+            worker_id: worker.into(),
+            count: 1,
+            error_count: 0,
+            status_counts: "{}".into(),
+            hdr_histogram: Vec::new(),
+        }
+    }
+
+    fn rows(worker: &str, range: std::ops::RangeInclusive<i64>) -> Vec<WindowWithHdr> {
+        range.map(|ts| row(worker, ts)).collect()
+    }
+
+    fn start(worker: &str, ms: i64) -> WorkerStartRow {
+        WorkerStartRow {
+            worker_id: worker.into(),
+            started_at_ms: ms,
+        }
+    }
+
+    fn cfg(ramp: u32, hold: u32, discard: u32) -> SteadyConfig {
+        SteadyConfig {
+            ramp_seconds: ramp,
+            hold_seconds: hold,
+            discard_seconds: discard,
+            target: None,
+        }
+    }
+
+    fn default_cfg() -> SteadyConfig {
+        cfg(10, 30, 5)
+    }
+
+    #[test]
+    fn single_worker_on_second_boundary() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            None,
+            &rows("w1", 100..=139),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((115, 140)));
+        assert_eq!(w.state, BasisState::Measured);
+        assert!(!w.t0_estimated);
+    }
+
+    #[test]
+    fn partial_second_at_start_is_dropped() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            None,
+            &rows("w1", 100..=140),
+            &[start("w1", 100_400)],
+        );
+        assert_eq!(w.range, Some((116, 140)));
+    }
+
+    #[test]
+    fn zero_discard() {
+        let w = steady_window(
+            &cfg(10, 30, 0),
+            true,
+            None,
+            &rows("w1", 100..=139),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((110, 140)));
+    }
+
+    #[test]
+    fn zero_ramp() {
+        let w = steady_window(
+            &cfg(0, 30, 5),
+            true,
+            None,
+            &rows("w1", 100..=129),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((105, 130)));
+    }
+
+    fn two_worker_rows() -> Vec<WindowWithHdr> {
+        let mut r = rows("w1", 100..=139);
+        r.extend(rows("w2", 102..=141));
+        r
+    }
+
+    #[test]
+    fn two_workers_use_common_range() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            None,
+            &two_worker_rows(),
+            &[start("w1", 100_000), start("w2", 102_300)],
+        );
+        assert_eq!(w.range, Some((118, 140)));
+        assert_eq!(w.state, BasisState::Measured);
+    }
+
+    #[test]
+    fn idle_worker_is_ignored() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            None,
+            &two_worker_rows(),
+            &[
+                start("w1", 100_000),
+                start("w2", 102_300),
+                start("w3", 500_000),
+            ],
+        );
+        assert_eq!(w.range, Some((118, 140)));
+    }
+
+    #[test]
+    fn start_gap_larger_than_hold_is_no_common_window() {
+        let mut r = rows("w1", 100..=139);
+        r.extend(rows("w2", 130..=159));
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            None,
+            &r,
+            &[start("w1", 100_000), start("w2", 130_000)],
+        );
+        assert_eq!(w.range, None);
+        assert_eq!(w.state, BasisState::NoCommonWindow);
+    }
+
+    #[test]
+    fn completed_run_without_metric_in_last_second_is_measured() {
+        let w = steady_window(
+            &default_cfg(),
+            true,
+            None,
+            &rows("w1", 100..=136),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((115, 140)));
+        assert_eq!(w.state, BasisState::Measured);
+    }
+
+    #[test]
+    fn aborted_mid_window_is_partial() {
+        let w = steady_window(
+            &default_cfg(),
+            false,
+            Some(125_000),
+            &rows("w1", 100..=124),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((115, 125)));
+        assert_eq!(w.state, BasisState::Partial);
+    }
+
+    #[test]
+    fn aborted_before_window_is_not_reached() {
+        let w = steady_window(
+            &default_cfg(),
+            false,
+            Some(112_000),
+            &rows("w1", 100..=111),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, None);
+        assert_eq!(w.state, BasisState::NotReached);
+    }
+
+    #[test]
+    fn aborted_run_with_one_worker_in_window_is_not_no_common_window() {
+        let mut r = rows("w1", 100..=117);
+        r.extend(rows("w2", 111..=117));
+        let w = steady_window(
+            &default_cfg(),
+            false,
+            Some(118_000),
+            &r,
+            &[start("w1", 100_000), start("w2", 111_000)],
+        );
+        assert_eq!(w.range, None);
+        assert_eq!(w.state, BasisState::NotReached);
+    }
+
+    #[test]
+    fn aborted_without_ended_at_uses_last_metric_second() {
+        let w = steady_window(
+            &default_cfg(),
+            false,
+            None,
+            &rows("w1", 100..=124),
+            &[start("w1", 100_000)],
+        );
+        assert_eq!(w.range, Some((115, 125)));
+        assert_eq!(w.state, BasisState::Partial);
+    }
+
+    #[test]
+    fn missing_start_is_estimated_from_first_metric() {
+        let w = steady_window(&default_cfg(), true, None, &rows("w1", 103..=139), &[]);
+        assert!(w.t0_estimated);
+        assert_eq!(w.range, Some((118, 140)));
+        assert_eq!(w.state, BasisState::Measured);
+    }
+
+    #[test]
+    fn estimated_hi_capped_at_last_metric_plus_one() {
+        let w = steady_window(&default_cfg(), true, None, &rows("w1", 103..=130), &[]);
+        assert!(w.t0_estimated);
+        assert_eq!(w.range, Some((118, 131)));
+        assert_eq!(w.state, BasisState::Measured);
+    }
+
+    #[test]
+    fn garbage_start_times_do_not_panic() {
+        let c = default_cfg();
+        let r1 = rows("w1", 100..=110);
+        let _ = steady_window(&c, true, None, &r1, &[start("w1", i64::MAX)]);
+        let _ = steady_window(&c, true, None, &r1, &[start("w1", i64::MIN)]);
+        let _ = steady_window(&c, false, Some(i64::MAX), &r1, &[start("w1", i64::MIN)]);
+        let mut r2 = rows("w1", 100..=110);
+        r2.extend(rows("w2", 100..=110));
+        let w = steady_window(
+            &c,
+            true,
+            None,
+            &r2,
+            &[start("w1", i64::MAX), start("w2", i64::MIN)],
+        );
+        assert_eq!(w.range, None);
     }
 }
