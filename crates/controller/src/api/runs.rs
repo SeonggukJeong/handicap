@@ -868,9 +868,15 @@ pub(crate) async fn spawn_run(
                 {
                     // empty pool → existing 400 (idle 0).
                     let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
-                    state.coord.cancel_dispatch_failed(&row.id).await;
-                    runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
-                    return Err(ApiError::BadRequest(msg));
+                    return fail_run_start(
+                        &state.coord,
+                        &state.db,
+                        &row.id,
+                        &msg,
+                        ApiError::BadRequest(msg.clone()),
+                        StartFailedAt::BeforeEnqueue,
+                    )
+                    .await;
                 }
                 crate::grpc::coordinator::PoolReservation::Insufficient { achievable } => {
                     // Rare TOCTOU (pool shrank after precheck) — mark failed.
@@ -891,9 +897,15 @@ pub(crate) async fn spawn_run(
                             "unique 데이터셋 행 수가 풀 워커 수보다 적습니다: rows={rows} < workers={n}"
                         );
                         state.coord.release_pool_reservation(&workers).await;
-                        state.coord.cancel_dispatch_failed(&row.id).await;
-                        runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
-                        return Err(ApiError::BadRequest(msg));
+                        return fail_run_start(
+                            &state.coord,
+                            &state.db,
+                            &row.id,
+                            &msg,
+                            ApiError::BadRequest(msg.clone()),
+                            StartFailedAt::BeforeEnqueue,
+                        )
+                        .await;
                     }
                     state
                         .coord
@@ -946,9 +958,15 @@ pub(crate) async fn spawn_run(
             let n_pool = reserved.len() as u32;
             if n_pool == 0 {
                 let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
-                state.coord.cancel_dispatch_failed(&row.id).await;
-                runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
-                return Err(ApiError::BadRequest(msg));
+                return fail_run_start(
+                    &state.coord,
+                    &state.db,
+                    &row.id,
+                    &msg,
+                    ApiError::BadRequest(msg.clone()),
+                    StartFailedAt::BeforeEnqueue,
+                )
+                .await;
             }
             // R14: unique floor — reject before enqueue (assignment moved in).
             // Release reservation first so workers return to idle without reconnecting.
@@ -957,9 +975,15 @@ pub(crate) async fn spawn_run(
                     "unique 데이터셋 행 수가 풀 워커 수보다 적습니다: rows={rows} < workers={n}"
                 );
                 state.coord.release_pool_reservation(&reserved).await;
-                state.coord.cancel_dispatch_failed(&row.id).await;
-                runs::mark_failed_if_active(&state.db, &row.id, &msg).await?;
-                return Err(ApiError::BadRequest(msg));
+                return fail_run_start(
+                    &state.coord,
+                    &state.db,
+                    &row.id,
+                    &msg,
+                    ApiError::BadRequest(msg.clone()),
+                    StartFailedAt::BeforeEnqueue,
+                )
+                .await;
             }
             state
                 .coord
@@ -1383,22 +1407,58 @@ pub async fn list_for_scenario(
 const POOL_ASSIGN_FAILED_MSG: &str = "풀 워커 배정 실패(워커 이탈) — 재시도하세요";
 const RUN_START_READ_FAILED_MSG: &str = "실행 시작 확인 중 저장소 읽기에 실패했습니다";
 
-/// 풀 배정 실패 처리. 행이 `aborted`면 그 행(정상 생성으로 돌려줄 값), 아니면 오류.
-/// 이미 끝난 run은 덮어쓰지 않는다(`mark_failed_if_active`).
+/// 생성 실패가 `enqueue` 전인지 후인지.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StartFailedAt {
+    BeforeEnqueue,
+    AfterEnqueue,
+}
+
+/// 생성 실패 처리. 활성 행이면 `failed` + `reason` 뒤 `err`. 이미 `aborted`면 그 행
+/// (`BeforeEnqueue`면 빈 사유에 `ABORT_MSG_NOT_STARTED`를 채운 뒤). 그 밖은 `err`.
+async fn fail_run_start(
+    coord: &crate::grpc::coordinator::CoordinatorState,
+    db: &crate::store::Db,
+    run_id: &str,
+    reason: &str,
+    err: ApiError,
+    at: StartFailedAt,
+) -> Result<runs::RunRow, ApiError> {
+    coord.cancel_dispatch_failed(run_id).await;
+    if runs::mark_failed_if_active(db, run_id, reason).await? {
+        return Err(err);
+    }
+    if at == StartFailedAt::BeforeEnqueue {
+        runs::set_abort_reason_if_absent(db, run_id, runs::ABORT_MSG_NOT_STARTED).await?;
+    }
+    match runs::get(db, run_id).await? {
+        Some(row) if row.status == runs::RunStatus::Aborted => {
+            tracing::info!(
+                run_id,
+                reason,
+                "생성 실패 도중 중단된 run — 중단된 행을 돌려준다"
+            );
+            Ok(row)
+        }
+        _ => Err(err),
+    }
+}
+
+/// 풀 배정 실패 처리(`enqueue` 뒤). 행이 `aborted`면 그 행, 아니면 오류. 이미 끝난 run은 덮어쓰지 않는다.
 async fn fail_pool_assignment(
     coord: &crate::grpc::coordinator::CoordinatorState,
     db: &crate::store::Db,
     run_id: &str,
 ) -> Result<runs::RunRow, ApiError> {
-    coord.cancel_dispatch_failed(run_id).await;
-    if !runs::mark_failed_if_active(db, run_id, POOL_ASSIGN_FAILED_MSG).await? {
-        if let Some(row) = runs::get(db, run_id).await? {
-            if row.status == runs::RunStatus::Aborted {
-                return Ok(row);
-            }
-        }
-    }
-    Err(ApiError::Internal(anyhow::anyhow!(POOL_ASSIGN_FAILED_MSG)))
+    fail_run_start(
+        coord,
+        db,
+        run_id,
+        POOL_ASSIGN_FAILED_MSG,
+        ApiError::Internal(anyhow::anyhow!(POOL_ASSIGN_FAILED_MSG)),
+        StartFailedAt::AfterEnqueue,
+    )
+    .await
 }
 
 /// `enqueue` 뒤·디스패치 앞에서 부른다. 행이 더는 `pending`이 아니면 풀 예약을 풀고(`reserved`가
@@ -3279,27 +3339,186 @@ steps:
         ));
     }
 
+    async fn abort_with_reason_on_insert_trigger(db: &crate::store::Db) {
+        sqlx::query(
+            "CREATE TRIGGER abort_with_reason_on_insert AFTER INSERT ON runs BEGIN \
+             UPDATE runs SET status = 'aborted', message = '앱 종료로 중단' WHERE id = NEW.id; END",
+        )
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    async fn only_run(state: &AppState) -> runs::RunRow {
+        let id: String = sqlx::query_scalar("SELECT id FROM runs")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        runs::get(&state.db, &id).await.unwrap().unwrap()
+    }
+
+    async fn call_spawn_run_unique(
+        state: &AppState,
+        scenario: &crate::store::scenarios::ScenarioRow,
+        vus: u32,
+        rows: i64,
+        force: bool,
+    ) -> Result<runs::RunRow, ApiError> {
+        super::spawn_run(
+            state,
+            scenario,
+            &unique_profile("ds".into(), vus),
+            vec![crate::store::datasets::DatasetMeta {
+                id: "ds".into(),
+                name: "d".into(),
+                columns: vec![],
+                row_count: rows,
+                byte_size: 0,
+                created_at: 0,
+            }],
+            &std::collections::HashMap::new(),
+            force,
+            None,
+        )
+        .await
+    }
+
+    /// 중단이 낀 사전 실패의 공통 단언: Ok(중단된 행), 시작 전 사유, DB도 같다.
+    async fn assert_prefail_aborted(
+        state: &AppState,
+        got: Result<runs::RunRow, ApiError>,
+    ) -> runs::RunRow {
+        let row = got.expect("중단된 행을 돌려준다");
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some(runs::ABORT_MSG_NOT_STARTED));
+        let db_row = only_run(state).await;
+        assert_eq!(db_row.id, row.id);
+        assert_eq!(db_row.status, runs::RunStatus::Aborted);
+        assert_eq!(db_row.message.as_deref(), Some(runs::ABORT_MSG_NOT_STARTED));
+        row
+    }
+
     #[tokio::test]
-    async fn spawn_run_pool_empty_failure_keeps_aborted_row() {
+    async fn prefail_empty_pool_force_returns_aborted_row() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let scenario = plain_scenario(&db).await;
         abort_on_insert_trigger(&db).await;
         let state = state_with(db, 100).await;
         state.coord.set_pool_mode(true);
-        let Err(err) = call_spawn_run(&state, &scenario, 1, true).await else {
-            panic!("풀이 비어 있으면 실패해야 한다");
-        };
-        assert!(
-            matches!(err, ApiError::BadRequest(ref m) if m.contains("LAN 워커가 없습니다")),
-            "응답은 기존과 같다: {err:?}"
-        );
-        let id: String = sqlx::query_scalar("SELECT id FROM runs")
-            .fetch_one(&state.db)
+        let got = call_spawn_run(&state, &scenario, 1, true).await;
+        assert_prefail_aborted(&state, got).await;
+    }
+
+    #[tokio::test]
+    async fn prefail_empty_pool_returns_aborted_row() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let state = state_with(db, 100).await;
+        state.coord.set_pool_mode(true);
+        let got = call_spawn_run(&state, &scenario, 1, false).await;
+        assert_prefail_aborted(&state, got).await;
+    }
+
+    #[tokio::test]
+    async fn prefail_unique_floor_returns_aborted_row() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let (state, mut rxs) = pool_state_with_two_workers(db).await;
+        let got = call_spawn_run_unique(&state, &scenario, 2, 1, false).await;
+        let row = assert_prefail_aborted(&state, got).await;
+        assert_pool_released(&state, &mut rxs, &row).await;
+    }
+
+    #[tokio::test]
+    async fn prefail_unique_floor_force_returns_aborted_row() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let (state, mut rxs) = pool_state_with_two_workers(db).await;
+        let got = call_spawn_run_unique(&state, &scenario, 2, 1, true).await;
+        let row = assert_prefail_aborted(&state, got).await;
+        assert_pool_released(&state, &mut rxs, &row).await;
+    }
+
+    #[tokio::test]
+    async fn prefail_keeps_existing_abort_reason() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_with_reason_on_insert_trigger(&db).await;
+        let state = state_with(db, 100).await;
+        state.coord.set_pool_mode(true);
+        let row = call_spawn_run(&state, &scenario, 1, false)
+            .await
+            .expect("중단된 행을 돌려준다");
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some("앱 종료로 중단"));
+    }
+
+    #[tokio::test]
+    async fn prefail_empty_pool_without_abort_fails_run() {
+        for force in [false, true] {
+            let db = crate::store::connect("sqlite::memory:").await.unwrap();
+            let scenario = plain_scenario(&db).await;
+            let state = state_with(db, 100).await;
+            state.coord.set_pool_mode(true);
+            let Err(ApiError::BadRequest(m)) = call_spawn_run(&state, &scenario, 1, force).await
+            else {
+                panic!("BadRequest여야 한다 (force={force})");
+            };
+            assert_eq!(m, "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요");
+            let row = only_run(&state).await;
+            assert_eq!(row.status, runs::RunStatus::Failed);
+            assert_eq!(row.message.as_deref(), Some(m.as_str()));
+        }
+    }
+
+    #[tokio::test]
+    async fn prefail_unique_floor_without_abort_fails_run() {
+        for force in [false, true] {
+            let db = crate::store::connect("sqlite::memory:").await.unwrap();
+            let scenario = plain_scenario(&db).await;
+            let (state, _rxs) = pool_state_with_two_workers(db).await;
+            let Err(ApiError::BadRequest(m)) =
+                call_spawn_run_unique(&state, &scenario, 2, 1, force).await
+            else {
+                panic!("BadRequest여야 한다 (force={force})");
+            };
+            assert_eq!(
+                m,
+                "unique 데이터셋 행 수가 풀 워커 수보다 적습니다: rows=1 < workers=2"
+            );
+            let row = only_run(&state).await;
+            assert_eq!(row.status, runs::RunStatus::Failed);
+            assert_eq!(row.message.as_deref(), Some(m.as_str()));
+            let snap = state.coord.pool_snapshot(tokio::time::Instant::now()).await;
+            assert_eq!(snap.len(), 2);
+            assert!(snap.iter().all(|w| w.assigned_run.is_none()));
+        }
+    }
+
+    #[tokio::test]
+    async fn fail_run_start_keeps_finished_run_before_enqueue() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        runs::set_status(&db, &id, runs::RunStatus::Completed, None, Some(5))
             .await
             .unwrap();
-        let (status, message) = abort_msg(&state, &id).await;
-        assert_eq!(status, runs::RunStatus::Aborted, "failed로 덮지 않는다");
-        assert_eq!(message, None, "실패 사유를 쓰지 않는다");
+        let coord = CoordinatorState::new(db.clone());
+        let got = super::fail_run_start(
+            &coord,
+            &db,
+            &id,
+            "x",
+            ApiError::BadRequest("x".into()),
+            super::StartFailedAt::BeforeEnqueue,
+        )
+        .await;
+        assert!(matches!(got, Err(ApiError::BadRequest(_))));
+        let row = runs::get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(row.status, runs::RunStatus::Completed);
+        assert_eq!(row.message.as_deref(), None);
     }
 
     #[tokio::test]
