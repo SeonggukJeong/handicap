@@ -179,6 +179,10 @@ Vite + React + TS + Tailwind. 에디터 = `FlowOutline` 아웃라인 + dnd-kit �
 
 - **URL 가림은 `@`를 권한부 안에서만 찾을 것**: 첫 `/?#`(자리표시자 밖) 앞까지가 권한부 — 전체 문자열 `lastIndexOf("@")`는 쿼리 `?email=a@b&password=…`의 `@`를 userinfo 끝으로 오인해 쿼리 텍스트를 "대상 시스템"에 찍는다(1차 보안 수정이 연 누출). WHATWG `new URL`은 `{{h}}`·`${HOST}` 호스트를 통과시키고 소문자화한다 → "파싱 성공 = 해석된 호스트"로 믿지 말 것.
 - **렌더/`useMemo` 경로에서 `normalizeProfile` 금지**(=`ProfileSchema.parse`, throw → 오류 경계 없는 화면 통째 공백). 프로필이 필요하면 `safeParse`, Zod default 누출 타입 에러는 소비 함수 파라미터를 `Pick<Run, …>`로 좁혀 해결(§다단계 ramp UI의 `Pick<Profile,…>` 패턴).
+- **비교 보고서(`ui/src/print/compare/`) 문장의 조사는 `ui/src/i18n/josa.ts`의 `josa()`로** — 값·이름 뒤에 「(으)로」 병기형을 쓰지 않는다(모르는 끝 글자만 병기형으로 떨어짐). 요약 문장은 조각 목록 `parts`가 원천이고 `text`는 그 이어붙임(`ui/src/i18n/lineParts.ts`) — 문장을 통글자로 다시 만들지 말 것. (print-compare-report)
+- **건수 0인 쪽의 칸 분류는 `*`(세는 방식 차이) 판정에만** — 「남은 문제」·「가장 큰 코드 변화」 후보에 쓰면 성공 응답이 오류로 적힌다. 지워졌거나 실행되지 않은 단계(`StepPair.executedBefore/After`)는 「0건이 되었습니다」 후보가 아니다. (print-compare-report)
+- **대조 표 행은 「다름」 표시와 칸 글자가 따로 만들어진다** — 테스트 도우미에 불변식 둘(글자가 다르면 다름 / 다름이면 글자가 다르거나 둘 다 「다름」)을 걸어 모든 픽스처에서 확인한다(`fairness.test.ts` `fair()`). 정확히 5% 같은 경계 비교는 `change.ts`의 허용 오차 함수만. (print-compare-report)
+- **`.p-block`은 `flow-root`** — 제목만 든 블록의 아래 여백은 다음 블록 위 여백과 겹치지 않는다(시안 3mm가 5mm로 실측). 한 블록 안의 flex 행은 높이 측정에 문제없다(시트와 쪽이 같은 마크업). 고정 폭 상자는 `letter-spacing: 0.12em`을 넣고 가장 긴 낱말로 잰다. (print-compare-report)
 - **인쇄 레이아웃은 jsdom이 못 본다**(측정 시트 높이·`line-clamp`·`border-collapse` 행 합·PDF 쪽 수) → 라이브에서 쪽별 rect(본문 한계 273mm) + 헤드리스 Chrome `--print-to-pdf` + `pdfinfo` Pages == 화면 `.p-page` 수. 좁은 표 머리 칸은 `word-break: keep-all`(이름 칸 `break-all` clamp와 분리 — 같은 규칙을 공유하면 둘 중 하나가 깨진다).
 - **판정 쌍 표기(`format.ts` `fmt*Pair`)는 `.actual`만 꺼내 쓰지 말 것 — `tiny`(6자리에서도 같은 글자)를 버리면 「5.00% … 미달」이 찍힌다**(느림 줄·안내 줄·이름 각주에서 세 번 재발). ▲ 판정은 `exceedsAllowance` 정수식만(Rust `exceeds_allowance`와 같은 표 테스트), 새 표 id는 `MeasureSheet`·`PageView` 두 곳 모두 배선(안 하면 2절 표로 그려진다) (print-speed-bands)
 - **인쇄 표에 `notSent`(보내지 않음) 칸이 있으면 개별 코드 열 하한이 3이 아니라 2**(`stepTable.ts` `Math.max(MAX_COLS - fixedCount, hasNotSent ? 2 : 3)`), 요약 문장은 `notSent`가 가장 큰 에러 칸일 때만 보내지 않음 문구 — 차단 없는 run은 열 구성 그대로 (blank-var-url-guard)

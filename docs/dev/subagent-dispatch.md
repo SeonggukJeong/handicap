@@ -88,3 +88,11 @@ task 리뷰(read-only)와 다음 task 구현을 서로 다른 파일에서 병�
 ## 커밋 게이트를 기다리는 subagent의 `pgrep` 대기 (nested-json-cost, 2026-11-20)
 
 implementer가 커밋을 백그라운드로 돌리고 `until ! pgrep -f "pre-commit"; do sleep 5; done`으로 기다리다 끝나지 않았다 — Playwright용 Chrome 프로세스 인자의 `--allow-pre-commit-input`이 그 패턴에 걸린다. 커밋은 이미 들어가 있었고, orchestrator가 `git log -1`·`git status --porcelain`을 직접 보고 깨웠다. brief에는 "커밋은 단일 foreground 호출, 하네스가 백그라운드로 넘기면 완료 알림만 기다린다(`pgrep`·`sleep` 대기 금지)"를 적는다. 하네스는 foreground 호출도 180초 뒤 백그라운드로 넘긴다(이 repo의 cargo 게이트는 늘 넘는다) — 그 자체는 정상이다. subagent가 "게이트 대기 중"으로 여러 번 멈춰 있으면 orchestrator가 git 상태를 직접 확인한다.
+
+## implementer에게 git 되돌리기·포맷터 규칙을 적어 줄 것 (print-compare-report 2026-11-21)
+
+수정 작업자가 포맷터(`prettier`)를 돌리자, 포맷이 어긋난 채 커밋돼 있던 다른 파일 두 개가 함께 바뀌었다. 작업자는 그것을 `git checkout -- <파일>`로 되돌리려 했고 `git-guard`가 사용자 확인 창을 띄웠다(사용자: "왜 또 checkout을 하지"). 앞 라운드에서도 같은 찌꺼기가 남아 orchestrator가 `git restore`로 치웠는데, 원인(어긋난 커밋 파일)을 최종 묶음으로 미뤄 재발했다.
+
+- brief(공통 규칙 파일)에 적는다: `git checkout`/`switch`/`stash` 금지, 추적 파일 되돌리기는 `git restore <경로>`만(자기가 바꾼 파일에 한해), 손대지 않는 파일에 포맷터를 돌리지 말 것.
+- 포맷이 어긋난 커밋 파일을 발견하면 **그 자리에서** orchestrator가 포맷 커밋을 한다 — "나중에 묶어서"는 다음 작업자마다 같은 일을 겪게 한다.
+- 하위 에이전트는 세션 알림에 따라 공동 작성자 줄을 자기 모델 이름으로 적을 수 있다(이 슬라이스에서 세 가지가 섞였다). 통일이 필요하면 brief에 줄을 통째로 적고 "다른 알림보다 이 줄"이라고 못박는다(그래도 따르지 않은 작업자가 있었다).
