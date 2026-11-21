@@ -579,6 +579,308 @@
   margin-top: 1.5mm;
 }
 
+/* 비교 보고서(A4) — compare-report-v2.html 시안 이식. 값은 시안 그대로, 이름만 p-cmp- 접두 */
+.p-root {
+  --cmp-before: #9aa1ad;
+  --cmp-after: #3b4bc8;
+}
+.p-root .p-cmp-b--section {
+  padding-top: 5mm;
+}
+.p-root .p-cmp-b--lines,
+.p-root .p-cmp-b--cards {
+  padding-top: 3mm;
+}
+.p-root .p-cmp-b--note {
+  padding-top: 1.5mm;
+}
+.p-root .p-cmp-no {
+  color: var(--accent);
+  margin-right: 2mm;
+}
+.p-root .p-cmp-ok,
+.p-root .p-cmp-warn,
+.p-root .p-cmp-bad,
+.p-root .p-cmp-same {
+  font-weight: 700;
+}
+.p-root .p-cmp-ok {
+  color: var(--ok);
+}
+.p-root .p-cmp-warn {
+  color: var(--warn);
+}
+.p-root .p-cmp-bad {
+  color: var(--bad);
+}
+.p-root .p-cmp-same {
+  color: var(--sub);
+}
+
+/* 짝 상자 */
+.p-root .p-cmp-pair {
+  display: grid;
+  grid-template-columns: 1fr 8mm 1fr;
+  margin-top: 3mm;
+  align-items: stretch;
+}
+.p-root .p-cmp-run {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  padding: 2mm 3mm;
+  font-size: 8.3pt;
+  border-radius: 2mm;
+}
+.p-root .p-cmp-tag {
+  font-size: 7.5pt;
+  font-weight: 700;
+  color: #fff;
+  background: var(--cmp-before);
+  display: inline-block;
+  padding: 0 2mm;
+  border-radius: 1mm;
+}
+.p-root .p-cmp-run--after {
+  border-color: var(--cmp-after);
+}
+.p-root .p-cmp-run--after .p-cmp-tag {
+  background: var(--cmp-after);
+}
+.p-root .p-cmp-run b {
+  font-size: 9.5pt;
+}
+.p-root .p-cmp-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14pt;
+  color: var(--sub);
+}
+
+/* 비교 결과 상자 */
+.p-root .p-cmp-vbox {
+  margin-top: 3mm;
+  border: 2px solid var(--ok);
+  background: var(--okbg);
+  color: var(--ok);
+  text-align: center;
+  padding: 3mm 2mm;
+  border-radius: 2mm;
+}
+.p-root .p-cmp-vbox--bad {
+  border-color: var(--bad);
+  background: var(--badbg);
+  color: var(--bad);
+}
+.p-root .p-cmp-vbox--warn {
+  border-color: var(--warn);
+  background: var(--warnbg);
+  color: var(--warn);
+}
+.p-root .p-cmp-vbox--ref,
+.p-root .p-cmp-vbox--neutral {
+  border-color: var(--sub);
+  background: var(--faint);
+  color: var(--sub);
+}
+.p-root .p-cmp-vbox-title {
+  font-size: 9pt;
+  font-weight: 700;
+}
+.p-root .p-cmp-vbox-big {
+  font-size: 20pt;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.p-root .p-cmp-vbox-small {
+  font-size: 8pt;
+  margin-top: 1.5mm;
+  color: var(--ink);
+}
+.p-root .p-cmp-vbox-ref {
+  font-size: 8pt;
+  font-weight: 700;
+  margin-top: 1mm;
+}
+.p-root .p-cmp-vbox-big,
+.p-root .p-cmp-vbox-small,
+.p-root .p-cmp-vbox-ref {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* 요약 문장 */
+.p-root .p-cmp-summary {
+  border: 1px solid var(--line);
+  padding: 2.5mm 4mm;
+  border-radius: 2mm;
+}
+.p-root .p-cmp-summary-title {
+  font-weight: 700;
+  font-size: 9pt;
+  margin-bottom: 1mm;
+  color: var(--sub);
+}
+.p-root .p-cmp-summary ol {
+  margin: 0;
+  padding-left: 5mm;
+  list-style: decimal;
+}
+.p-root .p-cmp-summary li {
+  margin: 0.6mm 0;
+  overflow-wrap: anywhere;
+}
+.p-root .p-cmp-reason {
+  font-size: 8pt;
+  color: var(--sub);
+  overflow-wrap: anywhere;
+}
+.p-root .p-cmp-reason-side {
+  font-weight: 700;
+}
+
+/* 공정 비교 카드 */
+.p-root .p-cmp-fair {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2mm;
+  font-size: 7.8pt;
+}
+.p-root .p-cmp-fair > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 1.5mm;
+  padding: 1.3mm 2mm;
+}
+.p-root .p-cmp-fair > div small {
+  display: block;
+  color: var(--sub);
+}
+.p-root .p-cmp-fair .p-cmp-warn-text {
+  color: var(--warn);
+}
+.p-root .p-cmp-fair > .p-cmp-fair--diff {
+  border-color: var(--warn);
+  background: var(--warnbg);
+}
+.p-root .p-cmp-fairline {
+  border: 1px solid var(--line);
+  border-radius: 1.5mm;
+  padding: 1.3mm 2mm;
+  font-size: 7.8pt;
+  overflow-wrap: anywhere;
+}
+.p-root .p-cmp-status {
+  margin-top: 1.5mm;
+  font-size: 7.8pt;
+  font-weight: 700;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
+/* 핵심 지표 표 */
+.p-root .p-cmp-kpi {
+  margin-top: 3mm;
+}
+.p-root .p-cmp-kpi th,
+.p-root .p-cmp-kpi td,
+.p-root .p-cmp-cond th,
+.p-root .p-cmp-cond td {
+  padding: 1.3mm 1.8mm;
+}
+.p-root .p-cmp-chg--better {
+  background: var(--okbg);
+}
+.p-root .p-cmp-chg--worse {
+  background: var(--badbg);
+}
+.p-root .p-cmp-chg--similar,
+.p-root .p-cmp-chg--flat {
+  background: #f4f5f7;
+}
+.p-root .p-cmp-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7mm;
+  min-width: 40mm;
+}
+.p-root .p-cmp-bar {
+  display: block;
+  height: 2.3mm;
+  border-radius: 0.5mm;
+}
+.p-root .p-cmp-bar--before {
+  background: var(--cmp-before);
+}
+.p-root .p-cmp-bar--after {
+  background: var(--cmp-after);
+}
+.p-root .p-cmp-note {
+  font-size: 7.5pt;
+  color: var(--sub);
+  overflow-wrap: anywhere;
+}
+.p-root .p-cmp-note + .p-cmp-note {
+  margin-top: 0.7mm;
+}
+
+/* 측정 조건 대조 표 */
+.p-root .p-cmp-row--diff {
+  background: var(--warnbg);
+}
+
+/* 남은 문제 상자 */
+.p-root .p-cmp-box {
+  border: 1px solid var(--line);
+  border-radius: 2mm;
+  padding: 2mm 3mm;
+  font-size: 8.3pt;
+}
+.p-root .p-cmp-issues--warn {
+  border-color: var(--warn);
+}
+.p-root .p-cmp-box ul {
+  margin: 0;
+  padding-left: 4.5mm;
+  list-style: disc;
+}
+.p-root .p-cmp-box li {
+  margin: 0.5mm 0;
+  overflow-wrap: anywhere;
+}
+.p-root .p-cmp-issues-body {
+  margin: 0;
+}
+.p-root .p-cmp-more {
+  margin-top: 1mm;
+  font-size: 7.5pt;
+  color: var(--sub);
+}
+
+/* 요약판 줄 수 자르기(말줄임) */
+.p-root .p-cmp-clamp1,
+.p-root .p-cmp-clamp2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.p-root .p-cmp-clamp1 {
+  -webkit-line-clamp: 1;
+}
+.p-root .p-cmp-clamp2 {
+  -webkit-line-clamp: 2;
+}
+.p-root .p-cmp-runlabel.p-cmp-clamp1 {
+  display: inline-block;
+  max-width: 50mm;
+  vertical-align: bottom;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 @media print {
   .p-root {
     background: #fff;
