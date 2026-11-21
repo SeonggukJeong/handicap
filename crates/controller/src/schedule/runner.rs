@@ -541,6 +541,61 @@ mod tests {
         );
     }
 
+    async fn pool_empty_cron_schedule(state: &AppState) -> String {
+        state.coord.set_pool_mode(true);
+        let sid = seed_scenario(&state.db).await;
+        let t = Trigger::Cron {
+            expr: "* * * * *".into(),
+        };
+        insert_sched(&state.db, &sid, &profile(), &t, Some(NOW - 1_000)).await
+    }
+
+    #[tokio::test]
+    async fn fire_aborted_during_create_records_fired() {
+        let state = test_state().await;
+        let id = pool_empty_cron_schedule(&state).await;
+        sqlx::query(
+            "CREATE TRIGGER abort_on_insert AFTER INSERT ON runs BEGIN \
+             UPDATE runs SET status = 'aborted' WHERE id = NEW.id; END",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        let sum = process_due_schedules(&state, NOW).await;
+        assert_eq!(sum.fired, 1);
+        assert_eq!(sum.errored, 0);
+
+        let g = schedules::get(&state.db, &id).await.unwrap().unwrap();
+        assert_eq!(g.last_status.as_deref(), Some("fired"));
+        let run_id = g.last_run_id.expect("run id recorded");
+        let run = runs::get(&state.db, &run_id).await.unwrap().unwrap();
+        assert_eq!(run.status, runs::RunStatus::Aborted);
+        assert_eq!(run.message.as_deref(), Some(runs::ABORT_MSG_NOT_STARTED));
+        let evs = schedules::recent_events(&state.db, &id, 10).await.unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].kind, "fired");
+        assert_eq!(evs[0].run_id.as_deref(), Some(run_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn fire_pool_empty_records_error() {
+        let state = test_state().await;
+        let id = pool_empty_cron_schedule(&state).await;
+
+        let sum = process_due_schedules(&state, NOW).await;
+        assert_eq!(sum.errored, 1);
+        assert_eq!(sum.fired, 0);
+
+        let evs = schedules::recent_events(&state.db, &id, 10).await.unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].kind, "error");
+        assert_eq!(evs[0].run_id, None);
+        let detail = evs[0].detail.as_deref().unwrap();
+        assert!(detail.starts_with("발사 실패: "), "{detail}");
+        assert!(detail.contains("연결된 LAN 워커가 없습니다"), "{detail}");
+    }
+
     fn stair_profile() -> Profile {
         let mut p = profile();
         p.duration_seconds = 0;
