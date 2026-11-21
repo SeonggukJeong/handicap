@@ -767,7 +767,10 @@ pub fn build_report(
             rows.iter().map(|w| w.ts_second).min(),
             rows.iter().map(|w| w.ts_second).max(),
         ) {
-            (Some(lo), Some(hi)) => (hi - lo + 1) * 1_000,
+            (Some(lo), Some(hi)) => hi
+                .saturating_sub(lo)
+                .saturating_add(1)
+                .saturating_mul(1_000),
             _ => 0,
         },
         (Some(_), None) => 0,
@@ -1482,6 +1485,29 @@ mod tests {
         let rpt = report_for_duration(&r, &rows);
         assert_eq!(rpt.summary.duration_seconds, 1);
         assert!((rpt.summary.rps - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn duration_end_before_start_is_zero() {
+        let mut r = run_row();
+        r.started_at = Some(102_000);
+        r.ended_at = Some(100_000);
+        let rows = vec![win(100, "s", 50, 0, r#"{"200":50}"#, &[10_000])];
+        let rpt = report_for_duration(&r, &rows);
+        assert_eq!(rpt.summary.duration_seconds, 0);
+        assert_eq!(rpt.summary.rps, 0.0);
+    }
+
+    #[test]
+    fn duration_no_start_extreme_span_does_not_overflow() {
+        let mut r = run_row();
+        r.started_at = None;
+        let rows = vec![
+            win(i64::MIN + 1, "s", 1, 0, r#"{"200":1}"#, &[10_000]),
+            win(i64::MAX - 1, "s", 1, 0, r#"{"200":1}"#, &[10_000]),
+        ];
+        let rpt = report_for_duration(&r, &rows);
+        assert!(rpt.summary.duration_seconds >= 0);
     }
 
     #[test]

@@ -50,6 +50,9 @@ impl RetryPolicy {
 /// Rationale: in K8s mode the worker Job can start before the controller
 /// Service has an endpoint. The 60 s give-up matches spec §4.2.
 ///
+/// 재시도 여부는 `policy`가 정한다: `RetryPolicy::is_fatal`이 true인 오류(`StopOnAbort`이면
+/// `AbortedBeforeAssignment`)는 재시도 없이 즉시 돌려준다.
+///
 /// `cancel` lets a SIGTERM during the backoff sleep abort the retry loop
 /// promptly instead of waiting up to 8 s for the next iteration's check.
 /// When cancelled, returns `WorkerError::Cancelled`.
@@ -107,6 +110,8 @@ pub async fn connect_with_backoff(
 /// aborts within microseconds instead of up to 8 s. On either path the
 /// function returns `WorkerError::Cancelled` so callers can distinguish a
 /// graceful shutdown from a real connect failure.
+///
+/// `retry_with_backoff_policy`의 `RetryPolicy::RetryAll` 형태다(`is_fatal`이 항상 false — 모든 오류를 재시도).
 pub async fn retry_with_backoff<F, Fut, T>(
     attempt_fn: F,
     cancel: CancellationToken,

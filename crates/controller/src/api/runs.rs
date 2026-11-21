@@ -1454,7 +1454,9 @@ pub async fn abort_run(
         _ => None,
     };
     if let Some(reason) = reason {
-        runs::set_abort_reason_if_absent(&state.db, &id, &reason).await?;
+        if let Err(e) = runs::set_abort_reason_if_absent(&state.db, &id, &reason).await {
+            tracing::warn!(run_id = %id, error = %e, "abort reason write failed; run is already aborted");
+        }
     }
     Ok(axum::http::StatusCode::OK)
 }

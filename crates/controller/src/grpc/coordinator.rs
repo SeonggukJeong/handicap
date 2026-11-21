@@ -1555,8 +1555,11 @@ impl CoordinatorState {
     /// drop the in-memory entry, cancel the run watchdog via `done` (so it exits
     /// immediately instead of advancing into the startup phase on an already-failed
     /// run), abort any worker that raced in before dispatch errored (subprocess
-    /// N≥2 partial spawn), and release dispatcher resources. The caller marks the
-    /// run `failed` in the DB. Safe to call when the run is unknown (idempotent
+    /// N≥2 partial spawn), and release dispatcher resources. Does not touch the
+    /// DB row: the dispatch/pool-assignment failure paths in `api/runs.rs` then
+    /// mark the run `failed` with `mark_failed_if_active`, while
+    /// `row_if_no_longer_pending` calls it for a run aborted during creation and
+    /// leaves that row `aborted`. Safe to call when the run is unknown (idempotent
     /// no-op). (codex eval, item 2; G1a §3.1.)
     pub async fn cancel_dispatch_failed(&self, run_id: &str) {
         let siblings = {

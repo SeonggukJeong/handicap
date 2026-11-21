@@ -43,7 +43,7 @@ function specialLines(i: SummaryInput): SummaryLine[] {
   if (i.status === "aborted") {
     let text: string | null = S.abortedNoElapsed;
     if (i.startedMs === null) {
-      // 시작 시각이 없고 요청이 0건이면 0건 줄(사유 포함)이 이미 "시작 전 중단"을 말한다
+      // 시작 시각이 없고 요청이 0건이면 0건 줄에 붙은 사유가 이미 중단 이유를 말하므로 중단 줄을 반복하지 않는다
       if (i.summary.count === 0) text = reason ? null : S.abortedBeforeStart;
     } else if (i.endedMs !== null) text = S.abortedAt(elapsed((i.endedMs - i.startedMs) / 1000));
     if (text !== null) out.push({ kind: "special", text });
