@@ -968,7 +968,7 @@ describe("ScenarioRunsPage — 자동 정지 표지", () => {
     const row = (id: string) => screen.getByLabelText(`실행 ${id} 선택`).closest("tr")!;
     await screen.findByLabelText("실행 A1 선택");
     const badge = within(row("A1")).getByText(ko.runDetail.autoStopBadge);
-    expect(badge).toHaveAttribute("title", "2계단(200 req/s) 측정 중 즉시 정지");
+    expect(badge).toHaveAttribute("title", "2계단(200 iter/s) 측정 중 즉시 정지");
     for (const id of ["A2", "A3", "A4"]) {
       expect(within(row(id)).queryByText(ko.runDetail.autoStopBadge)).toBeNull();
     }

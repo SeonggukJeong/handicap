@@ -49,7 +49,7 @@ describe("floorPct1", () => {
 
 describe("headlineText", () => {
   it("saturated + last", () => {
-    expect(headlineText(mk())[0]).toBe("포화 계단 600 req/s · 마지막 정상 500 req/s");
+    expect(headlineText(mk())[0]).toBe("포화 계단 600 iter/s · 마지막 정상 500 iter/s");
   });
   it("saturated + last 없음 + 힌트", () => {
     const st = mk();
@@ -61,7 +61,7 @@ describe("headlineText", () => {
       first_fail_hint: true,
     };
     const lines = headlineText(st);
-    expect(lines[0]).toBe("포화 계단 100 req/s · 정상 계단 없음 — 첫 계단부터 실패");
+    expect(lines[0]).toBe("포화 계단 100 iter/s · 정상 계단 없음 — 첫 계단부터 실패");
     expect(lines).toContain(ko.report.stair.firstFailHint);
   });
   it("unconfirmed + last", () => {
@@ -74,7 +74,7 @@ describe("headlineText", () => {
       first_fail_hint: false,
     };
     expect(headlineText(st)[0]).toBe(
-      "포화 의심 500 req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 400 req/s",
+      "포화 의심 500 iter/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 400 iter/s",
     );
   });
   it("unconfirmed + last 없음은 「정상 계단 없음」 (undefined 출력 금지)", () => {
@@ -87,7 +87,7 @@ describe("headlineText", () => {
       first_fail_hint: false,
     };
     const first = headlineText(st)[0];
-    expect(first).toBe("포화 의심 100 req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음");
+    expect(first).toBe("포화 의심 100 iter/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음");
     expect(first).not.toMatch(/undefined|null/);
   });
   it("all_ok / ok_then_unmeasured / no_data", () => {
@@ -99,24 +99,24 @@ describe("headlineText", () => {
       through_target: 600,
       first_fail_hint: false,
     };
-    expect(headlineText(st)[0]).toBe("600 req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)");
+    expect(headlineText(st)[0]).toBe("600 iter/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)");
     st.headline = { ...st.headline, kind: "ok_then_unmeasured", last_ok_target: 400 };
-    expect(headlineText(st)[0]).toBe("400 req/s까지 정상 · 이후 계단은 측정 안 됨");
+    expect(headlineText(st)[0]).toBe("400 iter/s까지 정상 · 이후 계단은 측정 안 됨");
     st.headline = { ...st.headline, kind: "no_data" };
     expect(headlineText(st)[0]).toBe("판정할 수 없음 — 측정이 끝난 계단이 없습니다");
   });
   it("둘째 줄: knee · 튄 계단 · dropped_explained", () => {
     const lines = headlineText(mk());
     expect(lines).toContain(
-      "지연 상승 시작 ≈ 300 req/s (p99가 아래 계단의 2.5배 — 판정 기준 안이지만 참고)",
+      "지연 상승 시작 ≈ 300 iter/s (p99가 아래 계단의 2.5배 — 판정 기준 안이지만 참고)",
     );
-    expect(lines).toContain("튄 계단 1개(400 req/s) 넘김");
+    expect(lines).toContain("튄 계단 1개(400 iter/s) 넘김");
     expect(lines.some((l) => l.includes("부하기가 못 보낸 요청 8,500개는 모두"))).toBe(true);
   });
   it("slot_limited 줄은 max_in_flight를 넣는다", () => {
     const st = mk({ dropped_explained: false, slot_limited_targets: [500] });
     const lines = headlineText(st);
-    expect(lines.some((l) => l.includes("max_in_flight = 50") && l.includes("500 req/s"))).toBe(
+    expect(lines.some((l) => l.includes("max_in_flight = 50") && l.includes("500 iter/s"))).toBe(
       true,
     );
     expect(lines.some((l) => l.includes("부하기가 못 보낸"))).toBe(false);
@@ -139,14 +139,14 @@ describe("StairResultSection", () => {
     render(<StairResultSection stair={mk()} />);
     const sec = screen.getByRole("region", { name: "계단 결과" });
     expect(
-      within(sec).getByText("포화 계단 600 req/s · 마지막 정상 500 req/s"),
+      within(sec).getByText("포화 계단 600 iter/s · 마지막 정상 500 iter/s"),
     ).toBeInTheDocument();
     const table = within(sec).getByRole("table", { name: "계단 표" });
     for (const h of [
       "#",
-      "목표(반복/초)",
-      "달성(반복/초)",
-      "처리량(요청/초)",
+      "목표(iter/s)",
+      "달성(iter/s)",
+      "처리량(req/s)",
       "측정 구간",
       "판정",
     ]) {
@@ -253,7 +253,7 @@ describe("StairResultSection", () => {
     render(<StairResultSection stair={st} />);
     expect(screen.getByText(/계단 시작 시각을 첫 데이터로 추정/)).toBeInTheDocument();
     expect(screen.getByText(/예전 버전 부하기라 계단별 달성/)).toBeInTheDocument();
-    expect(screen.getByText(/단위: 반복\/초·요청\/초·ms/)).toBeInTheDocument();
+    expect(screen.getByText(/단위: iter\/s·req\/s·ms/)).toBeInTheDocument();
   });
 });
 

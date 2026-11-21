@@ -17,7 +17,7 @@ describe("AutoStopBadge", () => {
     const { container } = render(
       <AutoStopBadge run={run({ kind: "emergency", decided_step: 1, phase: "ramp" })} />,
     );
-    const detail = "2계단(200 req/s) 상승 중 즉시 정지";
+    const detail = "2계단(200 iter/s) 상승 중 즉시 정지";
     const sr = container.querySelector("span span");
     expect(sr).toHaveClass("sr-only");
     expect(sr).toHaveTextContent(detail);
@@ -41,7 +41,7 @@ describe("AutoStopBadge", () => {
       <AutoStopBadge run={run({ kind: "saturation", decided_step: 0 })} />,
     );
     expect(container.querySelector(".sr-only")).toHaveTextContent(
-      "1계단(100 req/s) 판정 뒤 자동 정지",
+      "1계단(100 iter/s) 판정 뒤 자동 정지",
     );
   });
 

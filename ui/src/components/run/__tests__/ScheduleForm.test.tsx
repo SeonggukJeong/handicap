@@ -434,7 +434,7 @@ describe("ScheduleForm — 계단", () => {
   it("schedule_edit_with_stair_opens_stair_tab: 저장 스케줄 편집 → 계단 선택·목록 채움", () => {
     renderStair();
     expect(screen.getByRole("radio", { name: "계단" })).toBeChecked();
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue("100, 200, 300");
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveValue("100, 200, 300");
   });
 
   it("저장하면 stair가 그대로 가고 stages는 가지 않는다", async () => {
@@ -488,7 +488,7 @@ describe("ScheduleForm — 계단", () => {
   it("잘못된 목록이면 저장이 비활성", async () => {
     const user = userEvent.setup();
     renderStair();
-    const input = screen.getByLabelText("목표 목록 (req/s)");
+    const input = screen.getByLabelText("목표 목록 (iter/s)");
     await user.clear(input);
     await user.type(input, "300, 200");
     expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();

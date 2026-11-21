@@ -207,7 +207,7 @@ describe("정지 줄 ↔ Rust 골든", () => {
     st.steps[8].state = "skipped";
     st.steps[8].partial = undefined;
     expect(stopLineText(st, "T")).toBe(
-      "8계단(800 req/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9–10계단 실행 안 함 · T",
+      "8계단(800 iter/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9–10계단 실행 안 함 · T",
     );
     const e = emergency();
     e.headline.last_ok_target = null;
@@ -228,7 +228,7 @@ describe("정지 줄 ↔ Rust 골든", () => {
       suspended_seconds: 0,
     };
     expect(stopLineText(p, "T")).toContain(
-      "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상",
+      "5계단(500 iter/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상",
     );
     // 기록상 불가능한 (false,false)도 Rust와 같은 글자(p99 꼴).
     const n = emergency();
@@ -247,7 +247,7 @@ describe("정지 줄 ↔ Rust 골든", () => {
       suspended_seconds: 0,
     };
     expect(stopLineText(n, "T")).toContain(
-      "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상",
+      "5계단(500 iter/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상",
     );
   });
 

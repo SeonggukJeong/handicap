@@ -1144,3 +1144,11 @@ A4d 인쇄 보고서 슬라이스 2의 앞부분(비교 보고서는 남김). sp
 **라이브(워크트리 자체 바이너리, `--worker-mode pool`·부하기 0대·`--scheduler-tick-seconds 1`, 포트 8097)** — US3 PROVEN: 빈 풀 `POST /api/runs` → 400 「연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요」, 행 `failed` + 같은 사유. 트리거 없는 1회 스케줄 → 기록 `error` 「발사 실패: bad request: 연결된 LAN 워커가 없습니다…」, run 번호 없음. US2 PROVEN: `sqlite3`로 `abort_on_insert` 트리거를 만든 뒤 `POST /api/runs` → 201 `aborted` + 「부하를 시작하기 전에 중단했습니다」, `?force=true`도 같음. 상세 화면에 「중단 사유: 부하를 시작하기 전에 중단했습니다」, 콘솔 오류 0. US1 PROVEN: 같은 트리거 상태의 1회 스케줄 → 기록 `fired` + run 번호, `last_status: fired`·`last_error: null`, 그 run은 `aborted` + 사유. **못 한 것**: 2·3·5·6·7번 곳(단위 테스트로만), 실행 대화상자로 만드는 길, 실제 앱 종료·모드 전환, K8s — §B80 (3).
 
 **함정**: ① 「사전 검사와 예약 사이」 틈은 다른 연결의 `BEGIN IMMEDIATE`로 `runs::insert`를 붙잡아 결정적으로 만들 수 있다(현재 스레드 런타임 + `yield_now`). ② 그 테스트의 도달 증명(`cleanups == 0`)을 되돌려 확인할 때 「풀 줄이기를 잠금 해제 뒤로 옮기기」는 아무것도 바꾸지 못했다 — 본 태스크가 띄운 태스크보다 먼저 돌아 순서가 그대로다. 풀 줄이기 줄을 빼야 늦은 길이 되고 그때 `cleanups`가 1로 실패한다(구현자의 「구분 못 한다」 우려를 이렇게 해소). ③ 동작을 바꾸면 그 동작을 말하던 **이웃 주석·로그 문구**가 남는다 — spec이 고칠 설명 세 곳을 적었지만 디스패치 호출 위 주석과 「marking run failed」 로그는 최종 리뷰가 찾았다. ④ 「일곱 곳 전부」 같은 전칭 문구는 리뷰에서 두 번 걸렸다(저장소 읽기 실패 길은 헬퍼를 안 지남 · 400을 내는 곳 수).
+
+## stair-iter-unit — 도착률 단위 표기 iter/s 통일 (2026-11-21, 사용자 요청 소형 수정 — spec/plan 없음)
+
+계단 시험이 반복/초 값을 `req/s`로 표기하던 것을 `iter/s`로 고쳤다(ADR-0046이 `target_rps`를 반복/초로 정한 뒤 계단 시험이 `req/s`를 다시 들여왔다). `ko.ts`(계단 입력·머리 줄·실행 중 패널·자동 정지 줄·인쇄 조건 줄·표 머리, 그리고 open-loop 「도착률(초당 반복)」 라벨), `export.rs`(내보내기 계단 문구 — UI와 글자 대조 골든 `testdata/stair_*_golden.json` 둘), 엔진 주석 3줄, README 글자. 동작·저장본·와이어·마이그레이션 변경 없음. 판단·남은 일 roadmap §B81.
+
+**검증**: UI `pnpm lint`·`pnpm test`(4582건)·`pnpm build`, `cargo nextest -p handicap-controller -p handicap-tui --features handicap-controller/in-process`(2088건). **라이브(워크트리 자체 바이너리, 포트 8099, 응답기 20 ms)**: 스텝 2개 시나리오 + 계단 [20, 40] → 계단별 달성 20.0/40.0 iter/s·처리량 40.0/80.0 req/s(표기와 값이 맞음), 리포트 머리 줄 「40 iter/s까지 정상」·표 머리 세 칸 넘침 없음, 실행 대화상자(다시 실행 진입) 「목표 (iter/s)」·「목표 목록 (iter/s)」·「최고 단계 기준 ≈ 초당 요청 80건」, XLSX `sharedStrings`에 같은 머리 줄, 콘솔 오류 0.
+
+**함정**: ① `replace_all`을 여러 번 겹쳐 쓸 때 순서 — 「요청/초 → req/s」를 먼저 넣은 뒤에는 「req/s → iter/s」 전체 교체를 쓸 수 없다(방금 만든 진짜 req/s까지 바뀐다). 줄 단위로 골라 바꿨다. ② 정규식 리터럴 안의 단위(`/도착률\(iter/s\)/`)는 `/`를 이스케이프해야 한다 — sed 일괄 교체가 테스트 파일의 정규식을 깨뜨렸다.

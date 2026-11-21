@@ -69,7 +69,7 @@ export const ko = {
     workerCount:
       "open-loop 부하를 여러 워커에 나눠 더 높은 도착률을 냅니다. 한 워커가 목표를 못 내면 늘리세요 — 리포트가 권장값을 알려줍니다.",
     arrivalRate:
-      "도착률(초당 반복) — 매초 시작하는 시나리오 반복 횟수입니다. 반복 1회 = 시나리오 전체(모든 스텝) 실행이라, 초당 요청 수는 도착률 × 반복당 요청 수가 됩니다.",
+      "도착률(iter/s) — 매초 시작하는 시나리오 반복 횟수(iterations per second)입니다. 반복 1회 = 시나리오 전체(모든 스텝) 실행이라, 초당 요청 수는 도착률 × 반복당 요청 수가 됩니다.",
     slo: "합격 기준(SLO) — 응답시간·에러율 등의 임계값입니다. 설정하면 run 종료 시 합격/불합격을 자동 판정합니다.",
     vuCurve:
       "VU 곡선 — 동시 사용자 수를 시간에 따라 단계별로 늘렸다 줄이는 부하 방식입니다. 점심 피크, 이벤트 오픈처럼 사용자 수가 변하는 상황을 재현합니다.",
@@ -187,7 +187,7 @@ export const ko = {
     curveCardTitle: "곡선 부하 설정됨",
     curveCardHint: "상세 모드에서 편집",
     stairCard: (steps: number, min: number, max: number, total: string) =>
-      `${steps}계단 · ${min.toLocaleString()}–${max.toLocaleString()} req/s · 총 ${total}`,
+      `${steps}계단 · ${min.toLocaleString()}–${max.toLocaleString()} iter/s · 총 ${total}`,
     stairCardTitle: "계단 부하 설정됨",
     stairCardHint: "상세에서 수정",
   },
@@ -217,14 +217,14 @@ export const ko = {
   loadModel: {
     stairTab: "계단",
     stairHelperTitle: "목표 목록 만들기",
-    stairGoalLabel: "목표 (req/s)",
+    stairGoalLabel: "목표 (iter/s)",
     stairGoalHelp:
-      "버텨야 할 요청 수 — 운영 피크 데이터가 있으면 그 값을 넣으세요. 요청 1개짜리 시나리오면 req/s = 반복/초입니다.",
+      "버텨야 할 초당 시나리오 반복 수(iter/s)입니다. 반복 1회 = 시나리오 전체 실행이라, 스텝이 여러 개면 초당 요청 수(req/s)는 iter/s × 반복당 요청 수가 됩니다. 운영 피크가 req/s로 있으면 반복당 요청 수로 나눠 넣으세요.",
     stairMultipleLabel: "최대 배수",
     stairMakeList: "목록 만들기",
     stairHelperNote:
       "목표의 25%·50%·75%·100% 뒤로 25%씩 최대 배수까지 만듭니다. 만든 목록은 고칠 수 있습니다.",
-    stairTargetsLabel: "목표 목록 (req/s)",
+    stairTargetsLabel: "목표 목록 (iter/s)",
     stairTargetsPlaceholder: "100, 200, 300",
     stairHoldLabel: "계단 유지 (초)",
     stairRampLabel: "상승 (초)",
@@ -295,7 +295,7 @@ export const ko = {
     vus: "동시 사용자(VU)",
     duration: "테스트 시간(초)",
     rampUp: "점진 시작(초)",
-    targetRps: "도착률(초당 반복)",
+    targetRps: "도착률(iter/s)",
     maxInFlight: "동시 요청 상한",
     maxInFlightHint: "서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다",
     workerCount: "부하 생성기 워커 수 (수평 확장)",
@@ -314,7 +314,7 @@ export const ko = {
     curveTargetVu: "목표 VU",
     curveTargetRps: "목표 도착률",
     curveHintVu: "각 단계가 끝날 때의 목표 동시 사용자 수 (이전 값에서 선형 변화)",
-    curveHintRps: "각 단계가 끝날 때의 목표 도착률(초당 반복) (이전 값에서 선형 변화)",
+    curveHintRps: "각 단계가 끝날 때의 목표 도착률(iter/s) (이전 값에서 선형 변화)",
     curvePreviewAriaVu: "VU 곡선 미리보기 (x: 누적 초, y: VU)",
     curvePreviewAriaRps: "레이트 곡선 미리보기 (x: 누적 초, y: 도착률)",
     rampDownLabel: "줄이는 방식",
@@ -332,7 +332,7 @@ export const ko = {
     sizePresetsCaptionFromPrior: (vus: number, durationLabel: string) =>
       `직전 run(${vus}명 · ${durationLabel}) 기준입니다`,
     tileClosedTitle: "동시 사용자 (VU)",
-    tileOpenTitle: "도착률 (초당 반복)",
+    tileOpenTitle: "도착률 (iter/s)",
     tileClosedDesc: "N명이 동시에 반복 요청",
     tileOpenDesc: "초당 N회씩 반복 시작",
     reqPerSecApprox: (n: string) => `≈ 초당 요청 ${n}건`,
@@ -350,7 +350,7 @@ export const ko = {
   },
   validation: {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",
-    targetRps: "도착률(초당 반복)은 1 ~ 1,000,000 사이여야 합니다.",
+    targetRps: "도착률(iter/s)은 1 ~ 1,000,000 사이여야 합니다.",
     maxInFlight: "동시 요청 상한은 1 ~ 10,000 사이여야 합니다.",
     workerCount: "워커 수는 1~64 사이 정수여야 합니다.",
     gracefulCap: "느슨한 감축 상한은 1 이상의 정수여야 합니다(비우면 무제한).",
@@ -1174,28 +1174,28 @@ export const ko = {
     stair: {
       title: "계단 결과",
       headlineSaturated: (t: string, last: string) =>
-        `포화 계단 ${t} req/s · 마지막 정상 ${last} req/s`,
+        `포화 계단 ${t} iter/s · 마지막 정상 ${last} iter/s`,
       headlineSaturatedNoLast: (t: string) =>
-        `포화 계단 ${t} req/s · 정상 계단 없음 — 첫 계단부터 실패`,
+        `포화 계단 ${t} iter/s · 정상 계단 없음 — 첫 계단부터 실패`,
       firstFailHint:
         "첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요",
       headlineUnconfirmed: (t: string, last: string) =>
-        `포화 의심 ${t} req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 ${last} req/s`,
+        `포화 의심 ${t} iter/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 ${last} iter/s`,
       headlineUnconfirmedNoLast: (t: string) =>
-        `포화 의심 ${t} req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음`,
-      headlineAllOk: (t: string) => `${t} req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)`,
-      headlineOkThenUnmeasured: (t: string) => `${t} req/s까지 정상 · 이후 계단은 측정 안 됨`,
+        `포화 의심 ${t} iter/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음`,
+      headlineAllOk: (t: string) => `${t} iter/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)`,
+      headlineOkThenUnmeasured: (t: string) => `${t} iter/s까지 정상 · 이후 계단은 측정 안 됨`,
       headlineNoData: "판정할 수 없음 — 측정이 끝난 계단이 없습니다",
       knee: (k: string, x: string) =>
-        `지연 상승 시작 ≈ ${k} req/s (p99가 아래 계단의 ${x}배 — 판정 기준 안이지만 참고)`,
-      kneeNoRatio: (k: string) => `지연 상승 시작 ≈ ${k} req/s (판정 기준 안이지만 참고)`,
-      spikes: (n: number, list: string) => `튄 계단 ${n}개(${list} req/s) 넘김`,
+        `지연 상승 시작 ≈ ${k} iter/s (p99가 아래 계단의 ${x}배 — 판정 기준 안이지만 참고)`,
+      kneeNoRatio: (k: string) => `지연 상승 시작 ≈ ${k} iter/s (판정 기준 안이지만 참고)`,
+      spikes: (n: number, list: string) => `튄 계단 ${n}개(${list} iter/s) 넘김`,
       droppedExplained: (n: string) =>
         `부하기가 못 보낸 요청 ${n}개는 모두 지연·오류로 무너진 계단에서 발생 — 시스템 포화로 판정에 반영됨`,
       slotLimited: (list: string, m: string) =>
-        `계단 ${list} req/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도(max_in_flight = ${m})가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요`,
+        `계단 ${list} iter/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도(max_in_flight = ${m})가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요`,
       slotLimitedNoCap: (list: string) =>
-        `계단 ${list} req/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도(max_in_flight)가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요`,
+        `계단 ${list} iter/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도(max_in_flight)가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요`,
       noteT0:
         "ⓘ 부하기 일부가 예전 버전이라 계단 시작 시각을 첫 데이터로 추정했습니다(±1초). 측정 구간 경계가 조금 어긋날 수 있습니다.",
       noteOpenLoopUnknown:
@@ -1214,7 +1214,7 @@ export const ko = {
         labelUnconfirmed: "확인 못 함",
         labelKnee: "↑시작",
         legendStatesLabel: "점 색 범례",
-        axisTarget: "목표 (req/s)",
+        axisTarget: "목표 (iter/s)",
         axisMs: "지연 (ms, 로그)",
         achievedRow: "달성률",
         achievedHint: "달성/목표 — 95% 미만은 빨강",
@@ -1224,16 +1224,16 @@ export const ko = {
         legendBandRamp: "상승·버림 구간",
         legendBandMeasure: "측정 구간",
         axisSeconds: "경과 (초)",
-        axisRps: "시작 (반복/초)",
+        axisRps: "시작 (iter/s)",
         axisP99: "p99 (ms, 로그)",
       },
       tableLabel: "계단 표",
       tinyErrorRate: "<0.1%",
       cols: {
         index: "#",
-        target: "목표(반복/초)",
-        achieved: "달성(반복/초)",
-        throughput: "처리량(요청/초)",
+        target: "목표(iter/s)",
+        achieved: "달성(iter/s)",
+        throughput: "처리량(req/s)",
         p50: "p50",
         p95: "p95",
         p99: "p99",
@@ -1262,7 +1262,7 @@ export const ko = {
       reasonSlotLimited: "슬롯 부족 의심",
       // 자동 정지 줄·행 문구 — 내보내기(export.rs)와 같은 글자(stairExportParity 테스트가 잠근다)
       stopLabel: (n: number, target?: number) =>
-        target == null ? `${n}계단` : `${n}계단(${target} req/s)`,
+        target == null ? `${n}계단` : `${n}계단(${target} iter/s)`,
       stopSaturationHead: (label: string) => `${label} 판정 뒤 자동 정지`,
       stopEmergencyHead: (label: string, phase: string) => `${label} ${phase} 중 즉시 정지`,
       stopPhaseName: { ramp: "상승", discard: "버림", measure: "측정" },
@@ -1273,7 +1273,7 @@ export const ko = {
       stopP99: (ms: string) => `p99 ${ms} ms`,
       stopConsecutive: (n: number) => `${n}초 연속`,
       stopLastOk: (label: string) => `마지막 정상 ${label}`,
-      stopLastOkTarget: (target: number) => `마지막 정상 ${target} req/s`,
+      stopLastOkTarget: (target: number) => `마지막 정상 ${target} iter/s`,
       stopNoOk: "정상 계단 없음",
       stopPartialClause: (n: number, where: string) => `${n}계단 ${where} 멈춤`,
       stopPartialRamp: (s: number) => `상승 ${s}초 진입 후`,
@@ -1291,7 +1291,7 @@ export const ko = {
       discardWarning: (i: number, r: string, d: number) =>
         `⚠ 계단 ${i}: 측정 구간 첫 10초 p99가 나머지의 ${r}배 — 앞부분 버림(${d}초)이 짧았을 수 있습니다.`,
       unitsNote:
-        "단위: 반복/초·요청/초·ms. 측정 구간은 경계의 부분 초를 뺀 실제 구간입니다. 운영 환경 실사용자 트래픽은 handicap이 모릅니다.",
+        "단위: iter/s·req/s·ms. 측정 구간은 경계의 부분 초를 뺀 실제 구간입니다. 운영 환경 실사용자 트래픽은 handicap이 모릅니다.",
     },
     // 조건 반복 리포트 표시 (loop-while-report) — 보간 인자는 이미 형식화된 문자열
     loopExit: {
@@ -1612,7 +1612,7 @@ export const ko = {
       withReasons: (label: string, reasons: string) => `${label}(${reasons})`,
       unconfirmedPendingWith: (reasons: string) => `실패(${reasons}, 다음 계단 확인 중)`,
       head: (cur: number, n: number, target: number, phase: string) =>
-        `계단 ${cur}/${n} (${target} req/s) ${phase} 중`,
+        `계단 ${cur}/${n} (${target} iter/s) ${phase} 중`,
       waitingFirst: "첫 데이터 대기 중",
       group: (a: number, b: number, label: string) =>
         a === b ? `${a} ${label}` : `${a}–${b} ${label}`,
@@ -3055,7 +3055,7 @@ export const ko = {
       sizeOpenStair: (steps: number, min: number, max: number) =>
         `${steps}계단 · 초당 ${min}–${max}회`,
       lineOpenStair: (steps: number, min: number, max: number) =>
-        `열린 루프 계단 · ${steps}계단 ${min}–${max} req/s`,
+        `열린 루프 계단 · ${steps}계단 ${min}–${max} iter/s`,
       lineOpenCurve: (n: number, d: string) => `초당 목표 곡선 최대 ${n}회 · ${d}`,
     },
     glossary: {

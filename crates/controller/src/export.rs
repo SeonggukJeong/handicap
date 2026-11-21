@@ -659,30 +659,30 @@ fn stair_headline_first(st: &crate::stair::StairReport) -> String {
     match h.kind {
         Saturated => match h.last_ok_target {
             Some(l) => format!(
-                "포화 계단 {} req/s · 마지막 정상 {l} req/s",
+                "포화 계단 {} iter/s · 마지막 정상 {l} iter/s",
                 n(h.saturated_target)
             ),
             None => format!(
-                "포화 계단 {} req/s · 정상 계단 없음 — 첫 계단부터 실패",
+                "포화 계단 {} iter/s · 정상 계단 없음 — 첫 계단부터 실패",
                 n(h.saturated_target)
             ),
         },
         Unconfirmed => match h.last_ok_target {
             Some(l) => format!(
-                "포화 의심 {} req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 {l} req/s",
+                "포화 의심 {} iter/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 {l} iter/s",
                 n(h.saturated_target)
             ),
             None => format!(
-                "포화 의심 {} req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음",
+                "포화 의심 {} iter/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음",
                 n(h.saturated_target)
             ),
         },
         AllOk => format!(
-            "{} req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)",
+            "{} iter/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)",
             n(last_or_through)
         ),
         OkThenUnmeasured => format!(
-            "{} req/s까지 정상 · 이후 계단은 측정 안 됨",
+            "{} iter/s까지 정상 · 이후 계단은 측정 안 됨",
             n(last_or_through)
         ),
         NoData => "판정할 수 없음 — 측정이 끝난 계단이 없습니다".to_string(),
@@ -730,7 +730,7 @@ pub(crate) fn stair_stop_line(st: &crate::stair::StairReport, time_text: &str) -
     use crate::stair::{BandKind, SaturationStopMode, StepState};
     let stop = st.auto_stop.as_ref()?.stop.as_ref()?;
     let label = |i: usize| match st.steps.get(i) {
-        Some(s) => format!("{}계단({} req/s)", i + 1, s.target),
+        Some(s) => format!("{}계단({} iter/s)", i + 1, s.target),
         None => format!("{}계단", i + 1),
     };
     let d = stop.decided_step as usize;
@@ -778,7 +778,7 @@ pub(crate) fn stair_stop_line(st: &crate::stair::StairReport, time_text: &str) -
             parts.push(match st.headline.last_ok_target {
                 Some(t) => match st.steps.iter().position(|s| s.target == t) {
                     Some(i) => format!("마지막 정상 {}", label(i)),
-                    None => format!("마지막 정상 {t} req/s"),
+                    None => format!("마지막 정상 {t} iter/s"),
                 },
                 None => "정상 계단 없음".to_string(),
             });
@@ -849,16 +849,16 @@ pub fn stair_headline_lines(st: &crate::stair::StairReport) -> Vec<String> {
         });
         out.push(match ratio {
             Some(x) => format!(
-                "지연 상승 시작 ≈ {k} req/s (p99가 아래 계단의 {}배 — 판정 기준 안이지만 참고)",
+                "지연 상승 시작 ≈ {k} iter/s (p99가 아래 계단의 {}배 — 판정 기준 안이지만 참고)",
                 js_to_fixed(x, 1)
             ),
-            None => format!("지연 상승 시작 ≈ {k} req/s (판정 기준 안이지만 참고)"),
+            None => format!("지연 상승 시작 ≈ {k} iter/s (판정 기준 안이지만 참고)"),
         });
     }
     if !st.spike_targets.is_empty() {
         let list: Vec<String> = st.spike_targets.iter().map(u32::to_string).collect();
         out.push(format!(
-            "튄 계단 {}개({} req/s) 넘김",
+            "튄 계단 {}개({} iter/s) 넘김",
             st.spike_targets.len(),
             list.join(", ")
         ));
@@ -877,7 +877,7 @@ pub fn stair_headline_lines(st: &crate::stair::StairReport) -> Vec<String> {
             None => "max_in_flight".to_string(),
         };
         out.push(format!(
-            "계단 {} req/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도({cap})가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요",
+            "계단 {} iter/s은(는) 지연·오류는 정상인데 요청을 다 못 보냄 — 동시 실행 한도({cap})가 부족할 수 있어 시스템 한계로 단정할 수 없음. 한도를 늘려 다시 실행하세요",
             list.join(", ")
         ));
     }
@@ -2016,7 +2016,7 @@ mod tests {
         r.stair = Some(saturated_sample());
         let csv = String::from_utf8(report_to_stairs_csv(&r).unwrap()).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
-        assert_eq!(lines[0], "포화 계단 200 req/s · 마지막 정상 100 req/s");
+        assert_eq!(lines[0], "포화 계단 200 iter/s · 마지막 정상 100 iter/s");
         assert_eq!(lines[1], "");
         assert_eq!(
             lines[2],
@@ -2142,35 +2142,37 @@ mod tests {
         };
         assert_eq!(
             h(Saturated, Some(200), Some(100), None, false),
-            vec!["포화 계단 200 req/s · 마지막 정상 100 req/s"]
+            vec!["포화 계단 200 iter/s · 마지막 정상 100 iter/s"]
         );
         assert_eq!(
             h(Saturated, Some(200), None, None, false),
-            vec!["포화 계단 200 req/s · 정상 계단 없음 — 첫 계단부터 실패"]
+            vec!["포화 계단 200 iter/s · 정상 계단 없음 — 첫 계단부터 실패"]
         );
         // 힌트는 화면처럼 따로 한 줄.
         assert_eq!(
             h(Saturated, Some(200), None, None, true),
             vec![
-                "포화 계단 200 req/s · 정상 계단 없음 — 첫 계단부터 실패",
+                "포화 계단 200 iter/s · 정상 계단 없음 — 첫 계단부터 실패",
                 "첫 계단만 일시적으로 튀었을 수 있습니다 — 앞부분 버림을 늘려 다시 실행해 보세요"
             ]
         );
         assert_eq!(
             h(Unconfirmed, Some(200), Some(100), None, false),
-            vec!["포화 의심 200 req/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 100 req/s"]
+            vec![
+                "포화 의심 200 iter/s — 확인할 다음 계단 전에 run이 끝남 · 마지막 정상 100 iter/s"
+            ]
         );
         assert_eq!(
             h(Unconfirmed, Some(200), None, None, false),
-            vec!["포화 의심 200 req/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음"]
+            vec!["포화 의심 200 iter/s — 확인할 다음 계단 전에 run이 끝남 · 정상 계단 없음"]
         );
         assert_eq!(
             h(AllOk, None, Some(300), Some(300), false),
-            vec!["300 req/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)"]
+            vec!["300 iter/s까지 정상 (포화 못 찾음 — 더 높은 목표로 다시)"]
         );
         assert_eq!(
             h(OkThenUnmeasured, None, Some(300), Some(300), false),
-            vec!["300 req/s까지 정상 · 이후 계단은 측정 안 됨"]
+            vec!["300 iter/s까지 정상 · 이후 계단은 측정 안 됨"]
         );
         assert_eq!(
             h(NoData, None, None, None, false),
@@ -2254,7 +2256,7 @@ mod tests {
         assert_eq!(
             ws.get_value((0, 0)),
             Some(&Data::String(
-                "포화 계단 200 req/s · 마지막 정상 100 req/s".into()
+                "포화 계단 200 iter/s · 마지막 정상 100 iter/s".into()
             ))
         );
         assert_eq!(ws.get_value((2, 0)), Some(&Data::String("index".into())));
@@ -2297,7 +2299,7 @@ mod tests {
     use crate::auto_stop::{AutoStopRecord, EmergencyStats, StopInfo, StopKind};
     use crate::stair::{BandKind, HeadlineKind, PartialRun, SaturationStopMode, StepState};
 
-    /// 10계단(100..1000 req/s) 리포트. `states`는 계단별 상태, 정지 기록 = `rec`.
+    /// 10계단(100..1000 iter/s) 리포트. `states`는 계단별 상태, 정지 기록 = `rec`.
     fn auto_report(
         states: [StepState; 10],
         last_ok: Option<u32>,
@@ -2435,7 +2437,7 @@ mod tests {
     fn stop_line_two_fails() {
         assert_eq!(
             stair_stop_line(&two_fails_report(), "TIME").unwrap(),
-            "8계단(800 req/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9계단 상승 2초 진입 후 멈춤 · 10계단 실행 안 함 · TIME"
+            "8계단(800 iter/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9계단 상승 2초 진입 후 멈춤 · 10계단 실행 안 함 · TIME"
         );
     }
 
@@ -2443,7 +2445,7 @@ mod tests {
     fn stop_line_first_fail() {
         assert_eq!(
             stair_stop_line(&first_fail_report(), "TIME").unwrap(),
-            "7계단(700 req/s) 판정 뒤 자동 정지 — 7계단 실패, 첫 실패에서 정지(포화 확인 못 함) · 8계단 상승 1초 진입 후 멈춤 · 9–10계단 실행 안 함 · TIME"
+            "7계단(700 iter/s) 판정 뒤 자동 정지 — 7계단 실패, 첫 실패에서 정지(포화 확인 못 함) · 8계단 상승 1초 진입 후 멈춤 · 9–10계단 실행 안 함 · TIME"
         );
     }
 
@@ -2451,7 +2453,7 @@ mod tests {
     fn stop_line_emergency() {
         assert_eq!(
             stair_stop_line(&emergency_report(), "TIME").unwrap(),
-            "5계단(500 req/s) 상승 중 즉시 정지 — 오류율 12.0% 3초 연속 · 마지막 정상 4계단(400 req/s) · 6–10계단 실행 안 함 · TIME"
+            "5계단(500 iter/s) 상승 중 즉시 정지 — 오류율 12.0% 3초 연속 · 마지막 정상 4계단(400 iter/s) · 6–10계단 실행 안 함 · TIME"
         );
     }
 
@@ -2481,7 +2483,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(
             stair_stop_line(&st, "TIME").unwrap(),
-            "4계단(400 req/s) 판정 뒤 자동 정지 — 3·4계단 연속 실패 · 5계단 시작 4초 뒤(버림 중) 멈춤 · 6계단 실행 안 함 · TIME"
+            "4계단(400 iter/s) 판정 뒤 자동 정지 — 3·4계단 연속 실패 · 5계단 시작 4초 뒤(버림 중) 멈춤 · 6계단 실행 안 함 · TIME"
         );
     }
 
@@ -2544,7 +2546,7 @@ mod tests {
         let line = stair_stop_line(&st, "T").unwrap();
         assert!(
             line.starts_with(
-                "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상"
+                "5계단(500 iter/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상"
             ),
             "{line}"
         );
@@ -2564,7 +2566,7 @@ mod tests {
         let line = stair_stop_line(&st, "T").unwrap();
         assert!(
             line.starts_with(
-                "5계단(500 req/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상"
+                "5계단(500 iter/s) 측정 중 즉시 정지 — p99 2500 ms 3초 연속 · 마지막 정상"
             ),
             "{line}"
         );
@@ -2576,7 +2578,7 @@ mod tests {
         st.auto_stop = rec(emg_info(4, BandKind::Discard, 0.5, 2_500_000, (true, true)));
         let line = stair_stop_line(&st, "T").unwrap();
         assert!(
-            line.starts_with("5계단(500 req/s) 버림 중 즉시 정지 — 오류율 50.0% · p99 2500 ms 3초 연속 · 마지막 정상"),
+            line.starts_with("5계단(500 iter/s) 버림 중 즉시 정지 — 오류율 50.0% · p99 2500 ms 3초 연속 · 마지막 정상"),
             "{line}"
         );
     }
@@ -2621,7 +2623,7 @@ mod tests {
         st.steps[8].partial = None;
         assert_eq!(
             stair_stop_line(&st, "T").unwrap(),
-            "8계단(800 req/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9–10계단 실행 안 함 · T"
+            "8계단(800 iter/s) 판정 뒤 자동 정지 — 7·8계단 연속 실패 · 9–10계단 실행 안 함 · T"
         );
     }
 
@@ -2750,7 +2752,7 @@ mod tests {
         let lines = stair_headline_lines(&st);
         assert_eq!(
             lines,
-            vec!["포화 계단 200 req/s · 마지막 정상 100 req/s".to_string()]
+            vec!["포화 계단 200 iter/s · 마지막 정상 100 iter/s".to_string()]
         );
     }
 }

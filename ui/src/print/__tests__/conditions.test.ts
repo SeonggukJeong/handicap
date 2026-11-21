@@ -161,7 +161,7 @@ describe("계단 run", () => {
       },
     });
   it("loadConditionLine", () => {
-    expect(loadConditionLine(stairProf())).toBe("열린 루프 계단 · 3계단 100–800 req/s");
+    expect(loadConditionLine(stairProf())).toBe("열린 루프 계단 · 3계단 100–800 iter/s");
   });
   it("conditionsBox 모델·크기 행", () => {
     const r = conditionsBox({ profileRaw: stairProf(), workerBreakdownLen: 0, envCount: 0 });

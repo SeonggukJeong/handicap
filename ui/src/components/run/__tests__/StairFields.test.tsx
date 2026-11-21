@@ -15,10 +15,10 @@ describe("StairFields", () => {
   it("도우미: 목표 400 · 최대 배수 2× → 목록 칸이 채워진다", async () => {
     const user = userEvent.setup();
     render(<Harness />);
-    await user.type(screen.getByLabelText("목표 (req/s)"), "400");
+    await user.type(screen.getByLabelText("목표 (iter/s)"), "400");
     await user.selectOptions(screen.getByLabelText("최대 배수"), "2×");
     await user.click(screen.getByRole("button", { name: "목록 만들기" }));
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue(
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveValue(
       "100, 200, 300, 400, 500, 600, 700, 800",
     );
   });
@@ -27,15 +27,15 @@ describe("StairFields", () => {
     const user = userEvent.setup();
     render(<Harness initial={{ targets: "10, 20" }} />);
     await user.click(screen.getByRole("button", { name: "목록 만들기" }));
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue("10, 20");
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveValue("10, 20");
   });
 
   it("도우미: 목표가 0이어도 목록을 바꾸지 않는다", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ targets: "10, 20" }} />);
-    await user.type(screen.getByLabelText("목표 (req/s)"), "0");
+    await user.type(screen.getByLabelText("목표 (iter/s)"), "0");
     await user.click(screen.getByRole("button", { name: "목록 만들기" }));
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue("10, 20");
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveValue("10, 20");
   });
 
   it("요약 줄: 8계단 · 총 8분 40초 · 계단마다 측정 45초", () => {
@@ -88,8 +88,8 @@ describe("StairFields", () => {
     const user = userEvent.setup();
     render(<Harness />);
     expect(screen.queryByText(ko.loadModel.stairTargetsEmpty)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveAttribute("aria-invalid", "false");
-    await user.click(screen.getByLabelText("목표 목록 (req/s)"));
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveAttribute("aria-invalid", "false");
+    await user.click(screen.getByLabelText("목표 목록 (iter/s)"));
     await user.tab();
     expect(screen.getByText(ko.loadModel.stairTargetsEmpty)).toBeInTheDocument();
   });

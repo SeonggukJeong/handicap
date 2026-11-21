@@ -129,13 +129,13 @@ describe("LoadModelFields", () => {
     setup({ loadModel: "closed" });
     expect(screen.getByLabelText(/동시 사용자/)).toBeInTheDocument();
     expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/도착률\(초당 반복\)/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/도착률\(iter\/s\)/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
   });
 
   it("open+fixed 모드: 목표 도착률 + 동시 요청 상한 각 1개, 동시 사용자 없음", () => {
     setup({ loadModel: "open", rateMode: "fixed" });
-    expect(screen.getByLabelText(/도착률\(초당 반복\)/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/도착률\(iter\/s\)/i)).toBeInTheDocument();
     expect(screen.getAllByLabelText(/동시 요청 상한/)).toHaveLength(1);
     expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
   });
@@ -489,7 +489,7 @@ describe("LoadModelFields", () => {
     setup({ loadModelTiles: true, loadModel: "closed" });
     // 정확매치: 설명/HelpTip 라벨이 섞이면 실패
     expect(screen.getByRole("radio", { name: "동시 사용자 (VU)" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "도착률 (초당 반복)" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "도착률 (iter/s)" })).toBeInTheDocument();
   });
 
   it("without new props, renders legacy radios + profile + worker (ScheduleForm parity)", () => {

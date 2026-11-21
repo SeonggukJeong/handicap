@@ -703,7 +703,7 @@ async fn report_stairs_csv_autostop_run() {
     let text = String::from_utf8(body.to_vec()).unwrap();
     let first = text.lines().next().unwrap();
     assert!(
-        first.starts_with("2계단(200 req/s) 판정 뒤 자동 정지 — 1·2계단 연속 실패"),
+        first.starts_with("2계단(200 iter/s) 판정 뒤 자동 정지 — 1·2계단 연속 실패"),
         "{text}"
     );
     assert!(first.contains("2023-11-14T22:13:21Z"), "{text}");

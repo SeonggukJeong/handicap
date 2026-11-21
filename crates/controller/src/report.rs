@@ -4817,7 +4817,7 @@ steps:
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|l| l.as_str().unwrap().starts_with("계단 1000 req/s은(는)"))
+                    .any(|l| l.as_str().unwrap().starts_with("계단 1000 iter/s은(는)"))
             );
 
             // CSV 첫 줄들 = 머리말 줄 전부(슬롯 부족 줄 포함), 그다음 빈 줄.

@@ -114,7 +114,7 @@ describe("StairCurveChart", () => {
     expect(screen.getByText(c.legendP50)).toBeInTheDocument();
   });
 
-  it("가로축 단위 라벨 「목표 (req/s)」", () => {
+  it("가로축 단위 라벨 「목표 (iter/s)」", () => {
     const { container } = render(<StairCurveChart steps={golden.steps} width={600} height={260} />);
     const texts = Array.from(container.querySelectorAll("svg text")).map((e) => e.textContent);
     expect(texts).toContain(c.axisTarget);

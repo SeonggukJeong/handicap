@@ -1663,7 +1663,7 @@ describe("RunDetailPage — 자동 정지 표지", () => {
     mockRun({ auto_stop: { stop, suspended_seconds: 0 } });
     renderWithRouter("R2");
     const badge = await screen.findByText(ko.runDetail.autoStopBadge);
-    expect(badge).toHaveAttribute("title", "3계단(300 req/s) 판정 뒤 자동 정지");
+    expect(badge).toHaveAttribute("title", "3계단(300 iter/s) 판정 뒤 자동 정지");
     expect(badge.closest("h2")).toBeNull();
   });
 

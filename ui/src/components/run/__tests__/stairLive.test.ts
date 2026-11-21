@@ -220,7 +220,7 @@ describe("liveHeadText", () => {
   it("head_waiting_current_and_after_stop", () => {
     expect(liveHeadText(live(), targets)).toBe("첫 데이터 대기 중");
     const cur = live({ current_step: 5, phase: "measure" });
-    expect(liveHeadText(cur, targets)).toBe("계단 6/10 (600 req/s) 측정 중");
+    expect(liveHeadText(cur, targets)).toBe("계단 6/10 (600 iter/s) 측정 중");
     expect(liveHeadText({ ...cur, stop: stopBase }, targets)).toBeNull();
     expect(liveHeadText(live({ step_states: ["ok", "ok"] }), targets)).toBeNull();
     expect(liveHeadText(live({ step_states: ["pending", "pending"] }), targets)).toBe(
@@ -348,7 +348,7 @@ describe("liveStopText", () => {
   it("stopLine_saturation_and_emergency", () => {
     expect(liveStopText(live(), targets)).toBeNull();
     expect(liveStopText(live({ stop: stopBase }), targets)).toBe(
-      `5계단(500 req/s) 판정 뒤 자동 정지 — 4·5계단 연속 실패 · ${clockText(stopBase.stopped_at_ms)}`,
+      `5계단(500 iter/s) 판정 뒤 자동 정지 — 4·5계단 연속 실패 · ${clockText(stopBase.stopped_at_ms)}`,
     );
     const emStop = {
       ...stopBase,
@@ -366,7 +366,7 @@ describe("liveStopText", () => {
       },
     };
     expect(liveStopText(live({ stop: emStop, last_ok_step: 1 }), targets)).toBe(
-      `3계단(300 req/s) 측정 중 즉시 정지 — 오류율 12.0% 3초 연속 · 마지막 정상 2계단(200 req/s) · ${clockText(emStop.stopped_at_ms)}`,
+      `3계단(300 iter/s) 측정 중 즉시 정지 — 오류율 12.0% 3초 연속 · 마지막 정상 2계단(200 iter/s) · ${clockText(emStop.stopped_at_ms)}`,
     );
     expect(liveStopText(live({ stop: emStop }), targets)).toContain("정상 계단 없음");
   });
@@ -394,6 +394,6 @@ describe("stopLineText last_ok_target", () => {
       },
       suspended_seconds: 0,
     };
-    expect(stopLineText(st, "T")).toContain("마지막 정상 12345 req/s");
+    expect(stopLineText(st, "T")).toContain("마지막 정상 12345 iter/s");
   });
 });

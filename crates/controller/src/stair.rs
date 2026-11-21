@@ -483,7 +483,7 @@ pub struct StairHeadline {
     pub kind: HeadlineKind,
     pub saturated_target: Option<u32>,
     pub last_ok_target: Option<u32>,
-    /// 「N req/s까지 정상」의 N (`all_ok`·`ok_then_unmeasured`만).
+    /// 「N iter/s까지 정상」의 N (`all_ok`·`ok_then_unmeasured`만).
     pub through_target: Option<u32>,
     pub first_fail_hint: bool,
 }

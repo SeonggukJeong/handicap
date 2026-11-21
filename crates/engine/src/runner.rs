@@ -29,7 +29,7 @@ use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::scenario::{Scenario, Step};
 use crate::template::TemplateContext;
 
-/// One stage of an open-loop rate curve: ramp the arrival rate to `target` (req/s)
+/// One stage of an open-loop rate curve: ramp the arrival rate to `target` (iterations/s)
 /// over `duration_seconds`, linearly from the previous stage's target (0 for the
 /// first stage). Run-config concept (profile_json) — plain derive, no YAML round-trip
 /// (NOT a scenario.rs manual-serde enum). Reused by the controller store Profile.
@@ -72,7 +72,7 @@ pub struct RunPlan {
     pub think_time: Option<ThinkTime>,
     /// Think time RNG seed. `Some` → reproducible per (seed, vu_id); `None` → entropy.
     pub think_seed: Option<u32>,
-    /// Open-loop target arrival rate (req/s). `Some` → open-loop path
+    /// Open-loop target arrival rate (iterations/s). `Some` → open-loop path
     /// (`run_scenario_open_loop`); `None` → closed-loop `run_scenario` (byte-identical).
     pub target_rps: Option<u32>,
     /// Open-loop concurrent in-flight cap = reusable slot-pool size. Required when
@@ -1118,7 +1118,7 @@ async fn execute_steps(
     Ok(StepFlow::Continue)
 }
 
-/// Instantaneous arrival rate (req/s) at `elapsed_secs` into a piecewise-linear
+/// Instantaneous arrival rate (iterations/s) at `elapsed_secs` into a piecewise-linear
 /// stage curve. Start rate = 0; stage k ramps `target_{k-1} → target_k` over its
 /// duration (target_0 = 0). Past the end → last target (caller's deadline ends the run).
 fn rate_at(stages: &[Stage], elapsed_secs: f64) -> f64 {

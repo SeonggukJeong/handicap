@@ -1326,7 +1326,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.clear(targetRpsInput);
     // Empty value → invalid
     expect(
-      screen.getByText(/도착률\(초당 반복\)은 1 ~ 1,000,000 사이여야 합니다/),
+      screen.getByText(/도착률\(iter\/s\)은 1 ~ 1,000,000 사이여야 합니다/),
     ).toBeInTheDocument();
     expect(targetRpsInput).toHaveAttribute("aria-describedby", "target-rps-error");
     expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
@@ -1518,7 +1518,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /도착률/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
-    expect(screen.getByText(/각 단계가 끝날 때의 목표 도착률\(초당 반복\)/)).toBeInTheDocument();
+    expect(screen.getByText(/각 단계가 끝날 때의 목표 도착률\(iter\/s\)/)).toBeInTheDocument();
     expect(screen.getByText(/이 단계가 지속되는 시간/)).toBeInTheDocument();
     expect(screen.getByText(ko.loadModel.maxInFlightHint)).toBeInTheDocument();
   });
@@ -3833,7 +3833,7 @@ describe("RunDialog — 계단 탭", () => {
   }
 
   async function typeList(user: ReturnType<typeof userEvent.setup>, v: string) {
-    const input = screen.getByLabelText("목표 목록 (req/s)");
+    const input = screen.getByLabelText("목표 목록 (iter/s)");
     await user.clear(input);
     if (v) await user.type(input, v);
   }
@@ -3955,7 +3955,7 @@ describe("RunDialog — 계단 탭", () => {
     renderDialog();
     await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "PS");
     await waitFor(() => expect(screen.getByRole("radio", { name: "계단" })).toBeChecked());
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue(
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveValue(
       "100, 200, 300, 400, 500, 600, 700, 800",
     );
     expect(screen.getByRole("radio", { name: "상세" })).toBeChecked();
@@ -3965,7 +3965,7 @@ describe("RunDialog — 계단 탭", () => {
     renderWithInitial({ profile: STAIR_PROFILE as never, env: {} });
     expect(screen.getByRole("radio", { name: "상세" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "계단" })).toBeChecked();
-    expect(screen.getByLabelText("목표 목록 (req/s)")).toHaveValue(
+    expect(screen.getByLabelText("목표 목록 (iter/s)")).toHaveValue(
       "100, 200, 300, 400, 500, 600, 700, 800",
     );
   });
@@ -3977,8 +3977,8 @@ describe("RunDialog — 계단 탭", () => {
     await openStairTab(user);
     await typeList(user, "100, 200, 300, 400, 500, 600, 700, 800");
     await user.click(screen.getByRole("radio", { name: "간단" }));
-    expect(screen.queryByLabelText("목표 목록 (req/s)")).not.toBeInTheDocument();
-    expect(screen.getByText("8계단 · 100–800 req/s · 총 8분 40초")).toBeInTheDocument();
+    expect(screen.queryByLabelText("목표 목록 (iter/s)")).not.toBeInTheDocument();
+    expect(screen.getByText("8계단 · 100–800 iter/s · 총 8분 40초")).toBeInTheDocument();
     expect(screen.getByText(ko.runDialog.stairCardHint)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "실행하기" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
