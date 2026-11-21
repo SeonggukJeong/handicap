@@ -494,3 +494,53 @@ describe("ScheduleForm — 계단", () => {
     expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
   });
 });
+
+describe("ScheduleForm — steady (상승·버림)", () => {
+  it("steady 저장본으로 열면 칸이 채워지고 그대로 저장하면 같은 steady가 나간다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={{
+          name: "nightly",
+          scenario_id: "s1",
+          profile: {
+            vus: 0,
+            duration_seconds: 0,
+            ramp_up_seconds: 0,
+            target_rps: null,
+            max_in_flight: 200,
+            stages: [
+              { target: 40, duration_seconds: 20 },
+              { target: 40, duration_seconds: 40 },
+            ],
+            steady: { ramp_seconds: 20, hold_seconds: 40, discard_seconds: 5, target: 40 },
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+          } as Profile,
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /도착률/ })).toBeChecked();
+    expect(screen.getByRole("spinbutton", { name: /도착률/ })).toHaveValue(40);
+    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
+    expect(screen.getByRole("spinbutton", { name: "상승 시간(초)" })).toHaveValue(20);
+    expect(screen.getByRole("spinbutton", { name: "앞부분 버림(초)" })).toHaveValue(5);
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const p = onSubmit.mock.calls[0][0].profile;
+    expect(p.steady).toEqual({
+      ramp_seconds: 20,
+      hold_seconds: 40,
+      discard_seconds: 5,
+      target: 40,
+    });
+    expect(p).not.toHaveProperty("target_rps");
+  });
+});

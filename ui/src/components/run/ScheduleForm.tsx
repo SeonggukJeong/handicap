@@ -9,7 +9,13 @@ import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { isLoopStep, flattenHttpSteps } from "../../scenario/model";
 import { LoadModelFields } from "./LoadModelFields";
-import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
+import {
+  loadModelErrors,
+  deriveLoadMode,
+  fixedTarget,
+  steadyFormSeed,
+  type LoadModelState,
+} from "./loadModel";
 import { STAIR_DEFAULTS, stairDraftFromConfig, type StairDraft } from "./stair";
 import { CriteriaFields } from "./CriteriaFields";
 import {
@@ -78,9 +84,9 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const [stair, setStair] = useState<StairDraft>(
     init?.stair ? stairDraftFromConfig(init.stair) : STAIR_DEFAULTS,
   );
-  const [targetRps, setTargetRps] = useState(
-    init?.target_rps != null ? String(init.target_rps) : "100",
-  );
+  const seed = init ? steadyFormSeed(init) : null;
+  const seededTarget = init ? fixedTarget(init) : null;
+  const [targetRps, setTargetRps] = useState(seededTarget != null ? String(seededTarget) : "100");
   const [maxInFlight, setMaxInFlight] = useState(
     init?.max_in_flight != null ? String(init.max_in_flight) : "200",
   );
@@ -98,8 +104,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     })) ?? [{ target: "100", duration_seconds: "30" }],
   );
   const [vus, setVus] = useState(init?.vus ?? 2);
-  const [duration, setDuration] = useState(init?.duration_seconds ?? 5);
-  const [rampUp, setRampUp] = useState(init?.ramp_up_seconds ?? 0);
+  const [duration, setDuration] = useState(seed?.duration ?? 5);
+  const [rampUp, setRampUp] = useState(seed?.rampUp ?? 0);
+  const [rampOpen, setRampOpen] = useState(seed?.rampOpen ?? 0);
+  const [discard, setDiscard] = useState(seed?.discard ?? 0);
   const [loopCap, setLoopCap] = useState(init?.loop_breakdown_cap ?? 256);
   const [httpTimeout, setHttpTimeout] = useState(
     init?.http_timeout_seconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -224,8 +232,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     vus,
     duration,
     rampUp,
-    rampOpen: 0,
-    discard: 0,
+    rampOpen,
+    discard,
     targetRps,
     maxInFlight,
     stages,
@@ -257,10 +265,13 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         ? !loadErrs.stairInvalid && !loadErrs.maxInFlightInvalid && !loadErrs.workerCountInvalid
         : rateMode === "curve"
           ? !loadErrs.maxInFlightInvalid && !loadErrs.stagesInvalid
-          : duration >= 1 && !loadErrs.targetRpsInvalid && !loadErrs.maxInFlightInvalid
+          : duration >= 1 &&
+            !loadErrs.steadyInvalid &&
+            !loadErrs.targetRpsInvalid &&
+            !loadErrs.maxInFlightInvalid
       : rateMode === "curve"
         ? !loadErrs.stagesInvalid && !loadErrs.gracefulCapInvalid
-        : vus >= 1 && duration >= 1 && !loadErrs.rampInvalid) &&
+        : vus >= 1 && duration >= 1 && !loadErrs.rampInvalid && !loadErrs.steadyInvalid) &&
     !submitting;
 
   function buildProfile(): Profile {
@@ -339,6 +350,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         setDuration={setDuration}
         rampUp={rampUp}
         setRampUp={setRampUp}
+        rampOpen={rampOpen}
+        setRampOpen={setRampOpen}
+        discard={discard}
+        setDiscard={setDiscard}
         targetRps={targetRps}
         setTargetRps={setTargetRps}
         maxInFlight={maxInFlight}

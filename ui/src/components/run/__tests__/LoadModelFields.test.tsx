@@ -57,6 +57,10 @@ function baseProps(
     setDuration: vi.fn(),
     rampUp: 0,
     setRampUp: vi.fn(),
+    rampOpen: 0,
+    setRampOpen: vi.fn(),
+    discard: 0,
+    setDiscard: vi.fn(),
     targetRps: "100",
     setTargetRps: vi.fn(),
     maxInFlight: "200",
@@ -854,5 +858,92 @@ describe("LoadModelFields — 계단", () => {
     });
     expect(screen.getByText(ko.openLoopCheck.idleWorkersStair(3, 2))).toBeInTheDocument();
     expect(screen.queryByText(/곡선 최고점/)).not.toBeInTheDocument();
+  });
+
+  describe("steady 칸 (상승·버림)", () => {
+    it("도착률 고정: 상세 모드에 상승·버림 칸", () => {
+      setup({ loadModel: "open", rateMode: "fixed" });
+      expect(screen.getByRole("spinbutton", { name: "상승 시간(초)" })).toBeInTheDocument();
+      expect(screen.getByRole("spinbutton", { name: "앞부분 버림(초)" })).toBeInTheDocument();
+    });
+
+    it("도착률 고정: 간단 모드에는 두 칸이 없다", () => {
+      setup({ loadModel: "open", rateMode: "fixed", simpleMode: true });
+      expect(screen.queryByRole("spinbutton", { name: "상승 시간(초)" })).toBeNull();
+      expect(screen.queryByRole("spinbutton", { name: "앞부분 버림(초)" })).toBeNull();
+    });
+
+    it("VU 고정: 간단 모드에 상승 칸은 있고 버림 칸은 없다", () => {
+      setup({ loadModel: "closed", rateMode: "fixed", simpleMode: true });
+      expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
+      expect(screen.queryByRole("spinbutton", { name: "앞부분 버림(초)" })).toBeNull();
+    });
+
+    it("VU 고정: 상세 모드에 버림 칸", () => {
+      setup({ loadModel: "closed", rateMode: "fixed" });
+      expect(screen.getByRole("spinbutton", { name: "앞부분 버림(초)" })).toBeInTheDocument();
+    });
+
+    it.each([
+      ["open", "curve"],
+      ["open", "stair"],
+      ["closed", "curve"],
+    ] as const)("곡선·계단: 새 칸이 없다 (%s %s)", (loadModel, rateMode) => {
+      setup({ loadModel, rateMode, stair: STAIR_DEFAULTS });
+      expect(screen.queryByRole("spinbutton", { name: "앞부분 버림(초)" })).toBeNull();
+      expect(screen.queryByRole("spinbutton", { name: "상승 시간(초)" })).toBeNull();
+    });
+
+    it("요약 줄", () => {
+      setup({ loadModel: "open", rateMode: "fixed", duration: 300, rampOpen: 30, discard: 5 });
+      expect(
+        screen.getByText("상승 30초 → 유지 270초 · 리포트 기본 기준은 뒤 265초"),
+      ).toBeInTheDocument();
+    });
+
+    it("요약 줄: 상승 0이면 앞부분 없이", () => {
+      setup({ loadModel: "open", rateMode: "fixed", duration: 60, discard: 5 });
+      expect(screen.getByText("유지 60초 · 리포트 기본 기준은 뒤 55초")).toBeInTheDocument();
+    });
+
+    it("fallback 안내는 간단 모드에서도 보인다", () => {
+      setup({ loadModel: "closed", rateMode: "fixed", simpleMode: true, rampUp: 5, duration: 5 });
+      const status = screen.getByRole("status");
+      expect(status).toHaveTextContent("전체 구간 기준");
+      expect(status).toHaveTextContent("상승이 실행 시간과 같거나 깁니다");
+    });
+
+    it("error 안내", () => {
+      setup({
+        loadModel: "closed",
+        rateMode: "fixed",
+        duration: 12,
+        discard: 10,
+        errs: { ...noErrs, steadyInvalid: true },
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("상승 뒤 남는 시간이 5초보다 짧습니다");
+      expect(screen.getByRole("spinbutton", { name: "앞부분 버림(초)" })).toHaveAttribute(
+        "aria-invalid",
+        "true",
+      );
+    });
+
+    it("권장 5초 안내", () => {
+      const setDiscard = vi.fn();
+      const { unmount } = render(
+        <LoadModelFields
+          {...baseProps({ loadModel: "open", rateMode: "fixed", duration: 60, rampOpen: 10, setDiscard })}
+        />,
+      );
+      expect(screen.getByText("권장 5초")).toBeInTheDocument();
+      expect(setDiscard).not.toHaveBeenCalled();
+      unmount();
+      render(
+        <LoadModelFields
+          {...baseProps({ loadModel: "open", rateMode: "fixed", duration: 60, rampOpen: 10, discard: 5 })}
+        />,
+      );
+      expect(screen.queryByText("권장 5초")).toBeNull();
+    });
   });
 });

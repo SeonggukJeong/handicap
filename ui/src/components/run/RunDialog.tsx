@@ -24,7 +24,14 @@ import type { PresetInput } from "../../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { LoadModelFields } from "./LoadModelFields";
-import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
+import {
+  loadModelErrors,
+  deriveLoadMode,
+  fixedTarget,
+  steadyFormSeed,
+  steadyPlan,
+  type LoadModelState,
+} from "./loadModel";
 import {
   STAIR_DEFAULTS,
   draftToStairConfig,
@@ -101,9 +108,9 @@ export function RunDialog({
   const [stair, setStair] = useState<StairDraft>(
     initial?.profile.stair ? stairDraftFromConfig(initial.profile.stair) : STAIR_DEFAULTS,
   );
-  const [targetRps, setTargetRps] = useState(
-    initial?.profile.target_rps != null ? String(initial.profile.target_rps) : "100",
-  );
+  const seed = initial ? steadyFormSeed(initial.profile) : null;
+  const seededTarget = initial ? fixedTarget(initial.profile) : null;
+  const [targetRps, setTargetRps] = useState(seededTarget != null ? String(seededTarget) : "100");
   const [maxInFlight, setMaxInFlight] = useState(
     initial?.profile.max_in_flight != null ? String(initial.profile.max_in_flight) : "200",
   );
@@ -136,8 +143,10 @@ export function RunDialog({
   // run-identity §8: 생성 시 라벨(선택). trim → 빈 = 제출 시 payload에서 키 자체 생략(byte-identical).
   const [label, setLabel] = useState(initial?.label ?? "");
   const [vus, setVus] = useState(initial?.profile.vus ?? 2);
-  const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
-  const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
+  const [duration, setDuration] = useState(seed?.duration ?? 5);
+  const [rampUp, setRampUp] = useState(seed?.rampUp ?? 0);
+  const [rampOpen, setRampOpen] = useState(seed?.rampOpen ?? 0);
+  const [discard, setDiscard] = useState(seed?.discard ?? 0);
   const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
   const [httpTimeout, setHttpTimeout] = useState(
     initial?.profile.http_timeout_seconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -199,6 +208,8 @@ export function RunDialog({
       advancedPrefill({ profile, env }) ||
       deriveLoadMode(profile).rateMode === "curve" ||
       deriveLoadMode(profile).rateMode === "stair" ||
+      (profile.steady?.discard_seconds ?? 0) > 0 ||
+      profile.steady?.target != null ||
       Number(profile.worker_count ?? 1) > 1 ||
       Object.keys(env).length > 0 ||
       seedBindingsFrom(profile).length > 0
@@ -271,8 +282,11 @@ export function RunDialog({
       });
       const prof = normalizeProfile(p.profile);
       setVus(prof.vus);
-      setDuration(prof.duration_seconds);
-      setRampUp(prof.ramp_up_seconds);
+      const pseed = steadyFormSeed(prof);
+      setDuration(pseed.duration);
+      setRampUp(pseed.rampUp);
+      setRampOpen(pseed.rampOpen);
+      setDiscard(pseed.discard);
       setLoopCap(prof.loop_breakdown_cap);
       setHttpTimeout(prof.http_timeout_seconds);
       setConnectTimeout(
@@ -325,7 +339,8 @@ export function RunDialog({
       setLoadModel(mode.loadModel);
       setRateMode(mode.rateMode);
       setStair(prof.stair ? stairDraftFromConfig(prof.stair) : STAIR_DEFAULTS);
-      if (prof.target_rps != null) setTargetRps(String(prof.target_rps));
+      const ptarget = fixedTarget(prof);
+      if (ptarget != null) setTargetRps(String(ptarget));
       if (prof.max_in_flight != null) setMaxInFlight(String(prof.max_in_flight));
       if (prof.worker_count != null) setWorkerCount(String(prof.worker_count));
       else setWorkerCount("1");
@@ -466,8 +481,8 @@ export function RunDialog({
     vus,
     duration,
     rampUp,
-    rampOpen: 0,
-    discard: 0,
+    rampOpen,
+    discard,
     targetRps,
     maxInFlight,
     stages,
@@ -479,6 +494,7 @@ export function RunDialog({
     gracefulCap,
   };
   const loadErrs = loadModelErrors(loadState);
+  const steadyBlock = steadyPlan(loadState);
   // 실시간 요약 footer (R8). loadState가 곧 form 상태라 sum은 항상 라이브.
   const sum = runSummary(loadState);
   // StageCurvePreview용 숫자 변환 (string-draft → Stage[], 유효 행만)
@@ -513,6 +529,7 @@ export function RunDialog({
             bindingBlock.ok &&
             !mutation.isPending
           : duration >= 1 &&
+            !loadErrs.steadyInvalid &&
             !loadErrs.targetRpsInvalid &&
             !loadErrs.maxInFlightInvalid &&
             !loadErrs.workerCountInvalid &&
@@ -533,6 +550,7 @@ export function RunDialog({
         : vus >= 1 &&
           duration >= 1 &&
           !loadErrs.rampInvalid &&
+          !loadErrs.steadyInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
           !connectTimeoutInvalid &&
@@ -754,6 +772,10 @@ export function RunDialog({
           setDuration={setDuration}
           rampUp={rampUp}
           setRampUp={setRampUp}
+          rampOpen={rampOpen}
+          setRampOpen={setRampOpen}
+          discard={discard}
+          setDiscard={setDiscard}
           targetRps={targetRps}
           setTargetRps={setTargetRps}
           maxInFlight={maxInFlight}
@@ -1168,6 +1190,9 @@ export function RunDialog({
             : []),
           ...(mode === "simple" && loadModel === "open" && loadErrs.workerCountInvalid
             ? [ko.validation.workerCount]
+            : []),
+          ...(mode === "simple" && steadyBlock.kind === "error"
+            ? [ko.loadModel.steadyError(ko.loadModel.steadyReason[steadyBlock.reason])]
             : []),
         ];
         return (

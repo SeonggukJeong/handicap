@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import type { LoadModelErrors, LoadModelState } from "./loadModel";
+import { isWholeSeconds, steadyPlan, type LoadModelErrors, type LoadModelState } from "./loadModel";
 import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
 import { ko } from "../../i18n/ko";
@@ -31,6 +31,10 @@ type Props = {
   setDuration: (n: number) => void;
   rampUp: number;
   setRampUp: (n: number) => void;
+  rampOpen: number;
+  setRampOpen: (n: number) => void;
+  discard: number;
+  setDiscard: (n: number) => void;
   targetRps: string;
   setTargetRps: (s: string) => void;
   maxInFlight: string;
@@ -91,6 +95,10 @@ export function LoadModelFields({
   setDuration,
   rampUp,
   setRampUp,
+  rampOpen,
+  setRampOpen,
+  discard,
+  setDiscard,
   targetRps,
   setTargetRps,
   maxInFlight,
@@ -126,6 +134,10 @@ export function LoadModelFields({
     vus: useId(),
     durationClosed: useId(),
     rampUp: useId(),
+    rampOpen: useId(),
+    discardClosed: useId(),
+    discardOpen: useId(),
+    discardHint: useId(),
     targetRps: useId(),
     durationOpen: useId(),
     maxInFlight: useId(),
@@ -153,6 +165,38 @@ export function LoadModelFields({
   }, [stair]);
   const stairPeakStr = stairTargets.length > 0 ? String(Math.max(...stairTargets)) : "";
   const peakOrStairStr = rateMode === "stair" ? stairPeakStr : peakStr;
+
+  // 고정 모드의 상승·버림이 서버 steady로 어떻게 나가는지 한 줄로 알린다(간단 모드에서도 그린다).
+  const plan = steadyPlan({ loadModel, rateMode, duration, rampUp, rampOpen, discard, targetRps });
+  const planError = plan.kind === "error";
+  const discardRamp = loadModel === "open" ? rampOpen : rampUp;
+  const notWhole = plan.kind === "error" && plan.reason === "not_whole_seconds";
+  const rampFlag = planError && (!notWhole || !isWholeSeconds(discardRamp));
+  const discardFlag = planError && (!notWhole || !isWholeSeconds(discard));
+  const discardHint = discardRamp > 0 && discard === 0 ? ko.loadModel.discardRecommend : undefined;
+  const steadyLine = (
+    <>
+      {plan.kind === "send" && (
+        <p className="mb-3 text-sm text-slate-600">
+          {ko.loadModel.steadySummary(
+            plan.steady.ramp_seconds,
+            plan.steady.hold_seconds,
+            plan.steady.hold_seconds - plan.steady.discard_seconds,
+          )}
+        </p>
+      )}
+      {plan.kind === "fallback" && (
+        <p role="status" className="mb-3 text-sm text-amber-800">
+          {ko.loadModel.steadyFallback} — {ko.loadModel.steadyReason[plan.reason]}
+        </p>
+      )}
+      {plan.kind === "error" && (
+        <p role="alert" className="mb-3 text-sm text-red-600">
+          {ko.loadModel.steadyError(ko.loadModel.steadyReason[plan.reason])}
+        </p>
+      )}
+    </>
+  );
 
   // 환산 힌트: 도착률(반복/초) → 초당 요청 수 범위. scenario 없으면(ScheduleForm) 미렌더.
   const reqRange = useMemo(
@@ -669,7 +713,12 @@ export function LoadModelFields({
               <Field
                 label={ko.loadModel.rampUp}
                 htmlFor={ids.rampUp}
-                help={<HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>}
+                help={
+                  <HelpTip label="ramp-up 설명">
+                    {ko.glossary.rampUp}
+                    <span className="block">{ko.loadModel.rampHelpVuMax}</span>
+                  </HelpTip>
+                }
               >
                 <Input
                   id={ids.rampUp}
@@ -677,7 +726,7 @@ export function LoadModelFields({
                   min={0}
                   value={rampUp}
                   onChange={(e) => setRampUp(Number(e.target.value))}
-                  aria-invalid={errs.rampInvalid}
+                  aria-invalid={errs.rampInvalid || rampFlag}
                   aria-describedby={errs.rampInvalid ? "ramp-up-error" : undefined}
                   numeric={numeric}
                 />
@@ -688,6 +737,29 @@ export function LoadModelFields({
                 {ko.validation.rampUp}
               </p>
             )}
+            {!simpleMode && (
+              <div className="grid grid-cols-3 gap-4 mb-3">
+                <Field
+                  label={ko.loadModel.discardSeconds}
+                  htmlFor={ids.discardClosed}
+                  help={<HelpTip label="앞부분 버림 설명">{ko.loadModel.discardHelp}</HelpTip>}
+                  hint={discardHint}
+                  hintId={ids.discardHint}
+                >
+                  <Input
+                    id={ids.discardClosed}
+                    type="number"
+                    min={0}
+                    value={discard}
+                    onChange={(e) => setDiscard(Number(e.target.value))}
+                    aria-invalid={discardFlag}
+                    aria-describedby={discardHint ? ids.discardHint : undefined}
+                    numeric={numeric}
+                  />
+                </Field>
+              </div>
+            )}
+            {steadyLine}
             {onApplyVus && sizingScenarioId !== undefined && (
               <VuSizingHelper
                 scenarioId={sizingScenarioId}
@@ -863,6 +935,44 @@ export function LoadModelFields({
                   />
                 </Field>
               </div>
+              {!simpleMode && (
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                  <Field
+                    label={ko.loadModel.rampSeconds}
+                    htmlFor={ids.rampOpen}
+                    help={<HelpTip label="상승 시간 설명">{ko.loadModel.rampHelpOpen}</HelpTip>}
+                  >
+                    <Input
+                      id={ids.rampOpen}
+                      type="number"
+                      min={0}
+                      value={rampOpen}
+                      onChange={(e) => setRampOpen(Number(e.target.value))}
+                      aria-invalid={rampFlag}
+                      numeric={numeric}
+                    />
+                  </Field>
+                  <Field
+                    label={ko.loadModel.discardSeconds}
+                    htmlFor={ids.discardOpen}
+                    help={<HelpTip label="앞부분 버림 설명">{ko.loadModel.discardHelp}</HelpTip>}
+                    hint={discardHint}
+                    hintId={ids.discardHint}
+                  >
+                    <Input
+                      id={ids.discardOpen}
+                      type="number"
+                      min={0}
+                      value={discard}
+                      onChange={(e) => setDiscard(Number(e.target.value))}
+                      aria-invalid={discardFlag}
+                      aria-describedby={discardHint ? ids.discardHint : undefined}
+                      numeric={numeric}
+                    />
+                  </Field>
+                </div>
+              )}
+              {steadyLine}
               {errs.targetRpsInvalid && (
                 <p id="target-rps-error" className="mb-3 text-red-600 text-sm">
                   {ko.validation.targetRps}

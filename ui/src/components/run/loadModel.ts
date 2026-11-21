@@ -60,7 +60,8 @@ export type SteadyReason =
   | "hold_too_short"
   | "ramp_too_long"
   | "discard_too_long"
-  | "hold_too_long";
+  | "hold_too_long"
+  | "not_whole_seconds";
 
 export type SteadyPlan =
   | { kind: "none" } // 상승 0·버림 0 또는 고정 모드가 아님
@@ -68,11 +69,24 @@ export type SteadyPlan =
   | { kind: "fallback"; reason: SteadyReason } // closed·버림 0: steady 없이 제출
   | { kind: "error"; reason: SteadyReason }; // 제출 막음
 
+/** 0 이상의 정수 초(NaN 포함 거부). 서버 steady의 u32 칸이 받는 값. */
+export function isWholeSeconds(x: number): boolean {
+  return Number.isInteger(x) && x >= 0;
+}
+
 /** 고정 모드의 상승·버림을 서버 `steady`로 보낼지 정한다(spec D8). */
-export function steadyPlan(s: LoadModelState): SteadyPlan {
+export function steadyPlan(
+  s: Pick<
+    LoadModelState,
+    "loadModel" | "rateMode" | "duration" | "rampUp" | "rampOpen" | "discard" | "targetRps"
+  >,
+): SteadyPlan {
   if (s.rateMode !== "fixed") return { kind: "none" };
   const open = s.loadModel === "open";
   const ramp = open ? s.rampOpen : s.rampUp;
+  if (!isWholeSeconds(ramp) || !isWholeSeconds(s.discard)) {
+    return { kind: "error", reason: "not_whole_seconds" };
+  }
   if (ramp === 0 && s.discard === 0) return { kind: "none" };
   const hold = s.duration - ramp;
   let reason: SteadyReason | null = null;

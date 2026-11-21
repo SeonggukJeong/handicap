@@ -295,6 +295,27 @@ export const ko = {
     vus: "동시 사용자(VU)",
     duration: "테스트 시간(초)",
     rampUp: "점진 시작(초)",
+    rampSeconds: "상승 시간(초)",
+    discardSeconds: "앞부분 버림(초)",
+    discardHelp: "목표 부하에 도달한 직후 몇 초는 불안정합니다. 그 초를 유지 구간 집계에서 뺍니다.",
+    rampHelpOpen:
+      "처음부터 목표 도착률로 보내지 않고 0에서 목표까지 이 시간 동안 올립니다. 실행 시간에 포함됩니다.",
+    rampHelpVuMax: "VU 수가 상승 초보다 적으면 더 일찍 다 뜹니다 — 상승 시간은 최대값입니다.",
+    discardRecommend: "권장 5초",
+    steadySummary: (ramp: number, hold: number, measured: number) =>
+      ramp === 0
+        ? `유지 ${hold}초 · 리포트 기본 기준은 뒤 ${measured}초`
+        : `상승 ${ramp}초 → 유지 ${hold}초 · 리포트 기본 기준은 뒤 ${measured}초`,
+    steadyFallback: "이 설정으로는 유지 구간을 잴 수 없어 리포트는 전체 구간 기준입니다",
+    steadyReason: {
+      ramp_ge_duration: "상승이 실행 시간과 같거나 깁니다",
+      hold_too_short: "상승 뒤 남는 시간이 5초보다 짧습니다",
+      ramp_too_long: "상승이 3600초를 넘습니다",
+      discard_too_long: "앞부분 버림이 3600초를 넘습니다",
+      hold_too_long: "상승 뒤 남는 시간이 24시간을 넘습니다",
+      not_whole_seconds: "상승·버림 초는 0 이상의 정수여야 합니다",
+    },
+    steadyError: (reason: string) => `유지 구간을 잴 수 없습니다 — ${reason}`,
     targetRps: "도착률(iter/s)",
     maxInFlight: "동시 요청 상한",
     maxInFlightHint: "서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다",

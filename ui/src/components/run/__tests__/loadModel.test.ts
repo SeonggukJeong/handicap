@@ -543,13 +543,14 @@ describe("steady (상승·버림)", () => {
 
   const openRamp = {
     stages: [
-      { target: 20, duration_seconds: 20 },
+      { target: 40, duration_seconds: 20 },
       { target: 40, duration_seconds: 40 },
     ],
     steady: { ramp_seconds: 20, hold_seconds: 40, discard_seconds: 5, target: 40 },
   };
   it.each([
     ["open-ramp", { target_rps: null, ...openRamp }, "open"],
+    // (서버 정규화 모양: stages 두 칸 + target_rps null)
     [
       "open 버림만",
       { target_rps: 40, steady: { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 } },
@@ -560,11 +561,37 @@ describe("steady (상승·버림)", () => {
     expect(deriveLoadMode(p)).toEqual({ loadModel, rateMode: "fixed" });
   });
 
+  it.each([-3, 2.5, NaN])("steadyPlan: 정수가 아닌 버림·상승 %s는 보내지 않는다", (bad) => {
+    for (const s of [
+      openState({ discard: bad }),
+      openState({ rampOpen: bad }),
+      closedState({ discard: bad }),
+      closedState({ rampUp: bad, discard: 5 }),
+    ]) {
+      expect(steadyPlan(s)).toEqual({ kind: "error", reason: "not_whole_seconds" });
+      expect(buildLoadProfile(s)).not.toHaveProperty("steady");
+    }
+  });
+
+  it.each([-3, 2.5, NaN])("steadyPlan: 고정이 아닌 모드는 %s여도 none", (bad) => {
+    for (const rateMode of ["curve", "stair"] as const) {
+      expect(steadyPlan(openState({ rateMode, discard: bad, rampOpen: bad }))).toEqual({
+        kind: "none",
+      });
+    }
+    expect(steadyPlan(closedState({ rateMode: "curve", discard: bad, rampUp: bad }))).toEqual({
+      kind: "none",
+    });
+  });
+
   it("fixedTarget", () => {
     expect(fixedTarget({ target_rps: 80 })).toBe(80);
     expect(fixedTarget({ steady: openRamp.steady })).toBe(40);
     expect(fixedTarget({})).toBeNull();
     expect(fixedTarget({ target_rps: null })).toBeNull();
+    expect(
+      fixedTarget({ steady: { ramp_seconds: 10, hold_seconds: 50, discard_seconds: 5 } }),
+    ).toBeNull();
   });
 
   it("steadyFormSeed", () => {
