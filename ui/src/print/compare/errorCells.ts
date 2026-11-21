@@ -21,6 +21,8 @@ export type StepPair = {
   stepId: string;
   label: string;
   presence: "both" | "beforeOnly" | "afterOnly";
+  executedBefore: boolean;
+  executedAfter: boolean;
   codes: Array<{
     code: CodeKey;
     before: number;
@@ -41,8 +43,9 @@ function factsOf(facts: ScenarioFacts, stepId: string): StepFacts | null {
 const countOf = (row: StepRow | undefined, code: number): number =>
   row?.perCode.find((p) => p.code === code)?.count ?? 0;
 
+/** 실행되지 않은 쪽(행이 없거나 리포트에 그 단계가 없음)은 분류하지 않는다(spec §9.1). */
 const classOn = (model: RunModel, row: StepRow | undefined, code: number): CellClass | null =>
-  row ? classifyCell(code, factsOf(model.facts, row.stepId)) : null;
+  row?.executed ? classifyCell(code, factsOf(model.facts, row.stepId)) : null;
 
 const toCounts = (cls: CellClass | null): Counts | null => (cls ? countsAsError(cls) : null);
 
@@ -50,6 +53,8 @@ function pairOf(before: RunModel, after: RunModel, stepId: string): StepPair {
   const bRow = before.table.rows.find((r) => r.stepId === stepId);
   const aRow = after.table.rows.find((r) => r.stepId === stepId);
   const presence = bRow && aRow ? "both" : aRow ? "afterOnly" : "beforeOnly";
+  const executedBefore = bRow?.executed ?? false;
+  const executedAfter = aRow?.executed ?? false;
   const label = aRow ? `${aRow.no} ${aRow.name}` : (bRow?.name ?? stepId);
 
   const real = new Set<number>();
@@ -64,7 +69,7 @@ function pairOf(before: RunModel, after: RunModel, stepId: string): StepPair {
     const ca = toCounts(clsA);
     const nb = countOf(bRow, code);
     const na = countOf(aRow, code);
-    const differs = presence === "both" && code !== 0 && cb !== ca;
+    const differs = cb !== null && ca !== null && code !== 0 && cb !== ca;
     codes.push({
       code,
       before: nb,
@@ -87,15 +92,15 @@ function pairOf(before: RunModel, after: RunModel, stepId: string): StepPair {
       after: na,
       starBefore: false,
       starAfter: false,
-      countsBefore: bRow ? "yes" : null,
-      countsAfter: aRow ? "yes" : null,
+      countsBefore: executedBefore ? "yes" : null,
+      countsAfter: executedAfter ? "yes" : null,
       classBefore: null,
       classAfter: null,
     });
   };
   fixed("notSent");
   fixed("residual");
-  return { stepId, label, presence, codes };
+  return { stepId, label, presence, executedBefore, executedAfter, codes };
 }
 
 export function stepPairs(before: RunModel, after: RunModel): StepPair[] {
@@ -251,6 +256,8 @@ export function biggestCodeChange(
   let best: { label: string; code: CodeKey; before: number; after: number } | null = null;
   let bestDiff = 0;
   for (const p of pairs) {
+    // 한쪽에서 없어졌거나(그쪽은 executed가 false) 실행되지 않은 단계의 건수 차이는 오류 변화가 아니다.
+    if (!p.executedBefore || !p.executedAfter) continue;
     for (const x of p.codes) {
       if (!isErrorCell(x)) continue;
       const diff = Math.abs(x.after - x.before);

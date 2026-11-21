@@ -46,7 +46,7 @@ export type MetricRow = {
   afterText: string;
   cls: RowClass;
   major: boolean;
-  /** before가 0이고 after가 0보다 크면 true — cls가 "similar"인 행도 포함하므로 소비자는 cls도 함께 본다. */
+  /** before가 0이고 after가 0보다 크며, 하한·5% 규칙으로 "비슷"이 아닌 변화. */
   isNew: boolean;
   pct: number | null;
   arrow: "▼" | "▲" | "=" | "–";
@@ -196,7 +196,7 @@ export function metricRows(
       av,
       (cls === "better" || cls === "worse") && bv !== av,
     );
-    const isNew = bv === 0 && av > 0;
+    const isNew = bv === 0 && av > 0 && base !== "similar";
     const pct = bv > 0 ? Math.abs(av - bv) / bv : null;
     const fell = av < bv;
 

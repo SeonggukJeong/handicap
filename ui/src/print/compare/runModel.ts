@@ -19,9 +19,7 @@ export type RunModel = {
   table: StepTableModel;
   ranked: RankedRow[];
   box: BoxState;
-  evaluated: number;
   workers: number;
-  errorRate: number;
 };
 
 function parseYaml(text: string): unknown | null {
@@ -38,7 +36,7 @@ export function buildRunModel(meta: RunMeta, report: Report): RunModel {
   const profile = parsed.success ? parsed.data : null;
   const criteria = profile?.criteria ?? null;
   const table = buildStepTable(report.steps, facts);
-  const { count, errors } = report.summary;
+  const { count } = report.summary;
   return {
     meta,
     report,
@@ -50,8 +48,6 @@ export function buildRunModel(meta: RunMeta, report: Report): RunModel {
     table,
     ranked: table.rows.map((r) => ({ ...r, status: stepStatus(r, criteria) })),
     box: verdictBox({ count, status: meta.status, criteria, verdict: report.verdict }),
-    evaluated: report.verdict?.criteria.length ?? 0,
     workers: workerCount(profile, report.worker_breakdown?.length ?? 0),
-    errorRate: count > 0 ? errors / count : 0,
   };
 }

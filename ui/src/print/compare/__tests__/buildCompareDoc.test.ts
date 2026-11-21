@@ -98,6 +98,24 @@ describe("buildCompareDoc", () => {
     expect(d.headline.countsLine).toContain("4개 중");
   });
 
+  it("별이 있어도 비교 불가면 starNote는 null(오류율 행이 '–'이므로)", () => {
+    const d = doc(
+      {
+        steps: [{ id: "s1", name: "접수" }],
+        rep: [{ id: "s1", counts: { "200": 9400, "502": 600 }, errors: 0 }],
+      },
+      {
+        steps: STEPS,
+        rep: [{ id: "s1", counts: { "200": 10000 }, errors: 0 }],
+        summary: { count: 0, errors: 0, rps: 0 },
+      },
+    );
+    expect(d.incomparable).toBe(true);
+    expect(d.rows[0].cls).toBe("none");
+    expect(d.rows[0].wordText).toBe("–");
+    expect(d.starNote).toBeNull();
+  });
+
   it("별이 없으면 starNote는 null", () => {
     expect(doc().starNote).toBeNull();
   });

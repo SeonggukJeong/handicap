@@ -113,7 +113,7 @@ export function buildCompareDoc(a: {
     lines,
     fairness,
     rows,
-    starNote: star ? starFootnote(pairs) : null,
+    starNote: star && !incomparable ? starFootnote(pairs) : null,
     issues: incomparable ? [] : remainingIssues(after, pairs),
     incomparable,
   };

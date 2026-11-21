@@ -438,4 +438,79 @@ describe("biggestCodeChange", () => {
   it("코드가 없으면 null", () => {
     expect(biggestCodeChange([])).toBeNull();
   });
+
+  it("이후 시나리오에서 지운 단계의 큰 오류는 짚지 않고 다음 후보를 고른다", () => {
+    const before = model(
+      "b",
+      [S("s1", "A"), S("s2", "옛 단계")],
+      [R("s1", { "503": 100 }, 100), R("s2", { "503": 2880 }, 2880)],
+    );
+    const after = model("a", [S("s1", "A")], [R("s1", { "503": 10 }, 10)]);
+    const pairs = stepPairs(before, after);
+    const gone = pairs.find((p) => p.stepId === "s2");
+    expect(gone?.presence).toBe("beforeOnly");
+    expect([gone?.executedBefore, gone?.executedAfter]).toEqual([true, false]);
+    expect(biggestCodeChange(pairs)).toEqual({ label: "① A", code: 503, before: 100, after: 10 });
+  });
+
+  it("지운 단계만 오류가 있었으면 null", () => {
+    const before = model(
+      "b",
+      [S("s1", "A"), S("s2", "옛 단계")],
+      [R("s1", { "200": 10 }), R("s2", { "503": 2880 }, 2880)],
+    );
+    const after = model("a", [S("s1", "A")], [R("s1", { "200": 10 })]);
+    expect(biggestCodeChange(stepPairs(before, after))).toBeNull();
+  });
+});
+
+describe("실행되지 않은 단계", () => {
+  // 이후 시나리오에도 s2가 있지만 이후 리포트에는 s2 행이 없다(조건 분기가 그쪽으로 가지 않은 경우).
+  const notRunAfter = () => {
+    const before = model(
+      "b",
+      [S("s1", "A"), S("s2", "첨부 업로드")],
+      [R("s1", { "503": 100 }, 100), R("s2", { "502": 2880 })],
+    );
+    const after = model(
+      "a",
+      [S("s1", "A"), S("s2", "첨부 업로드", { assert: [200] })],
+      [R("s1", { "503": 10 }, 10)],
+    );
+    return { before, after, pairs: stepPairs(before, after) };
+  };
+
+  it("양쪽 시나리오에 있어도 한쪽에서 실행되지 않았으면 그 쪽은 executed가 false", () => {
+    const { after, pairs } = notRunAfter();
+    expect(after.table.rows.find((r) => r.stepId === "s2")?.executed).toBe(false);
+    const p = pairs.find((x) => x.stepId === "s2");
+    expect(p?.presence).toBe("both");
+    expect([p?.executedBefore, p?.executedAfter]).toEqual([true, false]);
+  });
+
+  it("실행되지 않은 쪽은 분류도 별(*)도 없다", () => {
+    const { pairs } = notRunAfter();
+    const c = codeOf(pairs, "s2", 502);
+    expect([c.before, c.after]).toEqual([2880, 0]);
+    expect(c.countsAfter).toBeNull();
+    expect(c.classAfter).toBeNull();
+    expect([c.starBefore, c.starAfter]).toEqual([false, false]);
+    expect(hasStar(pairs)).toBe(false);
+    expect(starFootnote(pairs)).toBeNull();
+  });
+
+  it("가장 크게 달라진 코드로 짚지 않는다", () => {
+    expect(biggestCodeChange(notRunAfter().pairs)).toEqual({
+      label: "① A",
+      code: 503,
+      before: 100,
+      after: 10,
+    });
+  });
+
+  it("남은 문제 항목을 만들지 않는다", () => {
+    const { after, pairs } = notRunAfter();
+    const list = remainingIssues(after, pairs);
+    expect(list.join("\n")).not.toContain("첨부 업로드");
+  });
 });

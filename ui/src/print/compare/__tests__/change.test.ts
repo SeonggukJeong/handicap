@@ -187,6 +187,23 @@ describe("metricRows", () => {
     }
   });
 
+  it("이전 0에서 하한 안쪽으로만 늘면 비슷이고 새로 생김이 아니다", () => {
+    const r = row(metricRows({ ...BEFORE, p95_ms: 0 }, { ...AFTER, p95_ms: 3 }, OPTS), "p95_ms");
+    expect(r.cls).toBe("similar");
+    expect(r.isNew).toBe(false);
+    expect(r.changeText).toBe("차이 작음");
+    const er = row(
+      metricRows(
+        { ...BEFORE, count: 100000, errors: 0 },
+        { ...BEFORE, count: 100000, errors: 4 },
+        OPTS,
+      ),
+      "error_rate",
+    );
+    expect(er.cls).toBe("similar");
+    expect(er.isNew).toBe(false);
+  });
+
   it("완전히 같은 요약", () => {
     for (const r of metricRows(BEFORE, BEFORE, OPTS)) {
       expect(r.cls).toBe("similar");
