@@ -40,6 +40,10 @@ const TOMBSTONE_MIN_LIFETIME: Duration = Duration::from_secs(60);
 
 /// Abort reason for an idle (empty run_id) register on a controller that is not in pool mode.
 const NOT_POOL_MODE_REASON: &str = "controller is not in pool mode";
+/// AbortRun reason for a register that arrives after the controller aborted the run.
+const ABORTED_BEFORE_ASSIGNMENT_REASON: &str = "run aborted before assignment";
+/// AbortRun reason for a register naming a run that is not active.
+const RUN_NOT_ACTIVE_REASON: &str = "run is not active";
 
 /// Default per-worker VU capacity used to derive the worker count N. Overridable
 /// via the controller's `--worker-capacity-vus` flag (spec §2.1).
@@ -272,8 +276,22 @@ pub enum RegisterOutcome {
     },
     /// Over-registration: reply AbortRun, give no shard.
     Reject,
-    /// No such run (never enqueued / already removed): break the stream.
+    /// No such run (never enqueued / already removed): reply AbortRun, break the stream.
     NoRun,
+    /// The run was aborted by the controller before this worker was a member:
+    /// reply AbortRun, give no shard.
+    Aborted,
+}
+
+/// `CoordinatorState::abort`의 결과.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbortOutcome {
+    /// 그런 run이 없다(없었거나 이미 끝나 제거됨).
+    NoRun,
+    /// 등록한 부하기가 없어 `abort`가 run을 직접 지우고 정리했다.
+    NotStarted,
+    /// 중단을 표시하고 등록한 부하기에 Abort를 보냈다.
+    Marked { registered: u32, expected: u32 },
 }
 
 /// `assign_pool_workers` 실패(워커 이탈·배정 불가) — 호출부는 `is_err()`만 본다.
@@ -453,8 +471,8 @@ impl CoordinatorState {
                     .await;
                     return Err(PoolAssignFailed);
                 }
-                // `NoRun`·`Reject` — k는 구성원이 아니다.
-                _ => {
+                // `NoRun`·`Reject`·`Aborted` — k는 구성원이 아니다.
+                RegisterOutcome::NoRun | RegisterOutcome::Reject | RegisterOutcome::Aborted => {
                     self.release_unsent_reservations(
                         run_id,
                         &ids[release_start(AssignStep::NotAssigned, i)..],
@@ -1063,6 +1081,9 @@ impl CoordinatorState {
         let Some(rw) = g.get_mut(run_id) else {
             return RegisterOutcome::NoRun;
         };
+        if rw.external_abort {
+            return RegisterOutcome::Aborted;
+        }
         if let Some(e) = rw.workers.get(worker_id) {
             return RegisterOutcome::Resend {
                 shard_index: e.shard_index,
@@ -1556,37 +1577,49 @@ impl CoordinatorState {
         }
     }
 
-    /// Send AbortRun to every worker of `run_id` still running (one that has not
-    /// reported an end phase). Returns true if at least one such worker was
-    /// reached. (Spec §8.5.)
+    /// 사용자 중단. 한 잠금 블록에서 중단 표시(또는 run 제거)를 끝낸 뒤에야 Abort를 보낸다.
     ///
-    /// NOTE: `cleanup_dispatcher` is intentionally NOT called here. Workers reply
-    /// with `Phase::Aborted` → `record_phase` → `Finalize::Aborted` → cleanup; an
-    /// unreachable worker is closed by `worker_disconnected` fail-fast → cleanup;
-    /// a never-registered run is closed by the watchdog's
-    /// `fail_incomplete_registration` → cleanup. Calling cleanup here would risk an
-    /// early/duplicate teardown while workers are still draining. (A3c.)
-    pub async fn abort(&self, run_id: &str) -> bool {
-        let txs = {
+    /// - run 없음 → `NoRun`.
+    /// - 등록한 부하기가 없음 → run을 맵에서 지우고 `done`을 취소한 뒤 잠금 밖에서
+    ///   `cleanup_dispatcher`. 보낼 Abort도, 정리를 맡을 `Aborted` 보고·끊김도 없으므로 여기서
+    ///   정리한다 → `NotStarted`.
+    /// - 그 밖 → `abort_requested`·`external_abort`를 표시하고 구성원에게 Abort. 정리는
+    ///   부하기의 `Aborted` 보고(`record_phase`)나 끊김(`worker_disconnected`)이 맡는다
+    ///   (여기서 하면 부하기가 아직 비우는 중에 조기·중복 정리가 된다). (A3c.)
+    ///
+    /// `external_abort`가 선 run에는 `register`가 새 구성원을 들이지 않는다.
+    pub async fn abort(&self, run_id: &str) -> AbortOutcome {
+        let (txs, outcome) = {
             let mut g = self.runs.lock().await;
-            match g.get_mut(run_id) {
-                Some(rw) => {
-                    // Mark BEFORE releasing the lock / sending any Abort: a worker's
-                    // `Aborted` arriving mid-fan-out must see the controller-requested
-                    // flag (else it takes the R8 self-abort path).
-                    rw.abort_requested = true;
-                    rw.external_abort = true;
-                    rw.workers
-                        .values()
-                        .filter_map(|e| e.tx.clone())
-                        .collect::<Vec<_>>()
+            let Some(rw) = g.get_mut(run_id) else {
+                return AbortOutcome::NoRun;
+            };
+            if rw.workers.is_empty() {
+                if let Some(rw) = g.remove(run_id) {
+                    rw.done.cancel();
                 }
-                None => return false,
+                drop(g);
+                self.cleanup_dispatcher(run_id).await;
+                return AbortOutcome::NotStarted;
             }
+            // Mark BEFORE releasing the lock / sending any Abort: a worker's
+            // `Aborted` arriving mid-fan-out must see the controller-requested
+            // flag (else it takes the R8 self-abort path).
+            rw.abort_requested = true;
+            rw.external_abort = true;
+            let outcome = AbortOutcome::Marked {
+                registered: rw.workers.len() as u32,
+                expected: rw.expected,
+            };
+            let txs = rw
+                .workers
+                .values()
+                .filter_map(|e| e.tx.clone())
+                .collect::<Vec<_>>();
+            (txs, outcome)
         };
-        let any = !txs.is_empty();
         fan_out_abort(run_id, &txs, "user requested abort").await;
-        any
+        outcome
     }
 
     /// 계단 자동 정지 — 정지 실행의 유일한 경로(spec §4.5). 한 잠금 블록에서 표시·기록·송신자
@@ -1981,6 +2014,27 @@ impl Coordinator for CoordinatorService {
                                 }
                                 RegisterOutcome::NoRun => {
                                     warn!(run_id = %reg.run_id, "no pending run for worker");
+                                    let _ = tx
+                                        .send(Ok(ServerMessage {
+                                            payload: Some(ServerPayload::Abort(AbortRun {
+                                                run_id: reg.run_id.clone(),
+                                                reason: RUN_NOT_ACTIVE_REASON.to_string(),
+                                            })),
+                                        }))
+                                        .await;
+                                    break;
+                                }
+                                RegisterOutcome::Aborted => {
+                                    warn!(run_id = %reg.run_id, worker_id = %reg.worker_id, "rejecting registration for aborted run");
+                                    let _ = tx
+                                        .send(Ok(ServerMessage {
+                                            payload: Some(ServerPayload::Abort(AbortRun {
+                                                run_id: reg.run_id.clone(),
+                                                reason: ABORTED_BEFORE_ASSIGNMENT_REASON
+                                                    .to_string(),
+                                            })),
+                                        }))
+                                        .await;
                                     break;
                                 }
                             };
@@ -4659,7 +4713,10 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
         let (run_id, [w0, w1]) = two_pool_workers_in_run(&coord, &db).await;
-        assert!(coord.abort(&run_id).await);
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
         for wid in ["w0", "w1"] {
             coord
                 .record_phase(&run_id, wid, pb::run_status::Phase::Aborted as i32, "")
@@ -4773,7 +4830,10 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         let (run_id, _rxs) = run_with_workers(&coord, &db, 1).await;
         let done = run_done_token(&coord, &run_id).await;
-        assert!(coord.abort(&run_id).await);
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
         assert!(
             run_present(&coord, &run_id).await,
             "abort waits for Aborted"
@@ -4925,7 +4985,10 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db.clone());
         let (run_id, generation, _stx, _rx) = pool_worker_in_run(&coord, &db).await;
-        assert!(coord.abort(&run_id).await);
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
         coord
             .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "")
             .await;
@@ -5734,7 +5797,10 @@ mod tests {
     async fn controller_abort_then_worker_aborted_keeps_null_message() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let (coord, run_id, _r0, mut r1) = two_worker_run(&db).await;
-        assert!(coord.abort(&run_id).await);
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
         coord.record_phase(&run_id, "w0", ABORTED, "").await;
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Aborted);
@@ -6494,13 +6560,233 @@ mod tests {
     async fn auto_stop_after_external_abort_is_noop() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let (coord, run_id, mut r0, mut r1) = two_worker_run(&db).await;
-        assert!(coord.abort(&run_id).await);
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
         assert!(is_abort(r0.try_recv().unwrap()));
         assert!(is_abort(r1.try_recv().unwrap()));
         assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_none());
         assert!(coord.auto_stop_of(&run_id).await.is_none());
         assert!(r0.try_recv().is_err(), "추가 Abort 없음");
         assert!(r1.try_recv().is_err(), "추가 Abort 없음");
+    }
+
+    // ---- 중단된 run의 등록 차단 + 등록자 없는 중단의 즉시 정리 ----
+
+    #[tokio::test]
+    async fn abort_with_no_workers_removes_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        assert_eq!(coord.abort(&run_id).await, AbortOutcome::NotStarted);
+        let (tx, _rx) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w0", tx).await,
+            RegisterOutcome::NoRun
+        ));
+    }
+
+    #[tokio::test]
+    async fn late_worker_after_abort_is_refused() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        let (tx0, mut r0) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w0", tx0).await,
+            RegisterOutcome::Assigned { .. }
+        ));
+        assert_eq!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked {
+                registered: 1,
+                expected: 2
+            }
+        );
+        assert_eq!(abort_reason(r0.try_recv().unwrap()), "user requested abort");
+        let (tx1, _r1) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w1", tx1).await,
+            RegisterOutcome::Aborted
+        ));
+        assert_eq!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked {
+                registered: 1,
+                expected: 2
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn reregister_after_abort_is_refused() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
+        let (tx0b, _r0b) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w0", tx0b).await,
+            RegisterOutcome::Aborted
+        ));
+    }
+
+    #[tokio::test]
+    async fn register_without_abort_is_unchanged() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w0", tx0).await,
+            RegisterOutcome::Assigned { first: true, .. }
+        ));
+        let (tx0b, _r0b) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w0", tx0b).await,
+            RegisterOutcome::Resend { .. }
+        ));
+        let (tx1, _r1) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w1", tx1).await,
+            RegisterOutcome::Reject
+        ));
+    }
+
+    #[tokio::test]
+    async fn auto_stop_does_not_block_register() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_some());
+        let (tx1, _r1) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w1", tx1).await,
+            RegisterOutcome::Assigned { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn assign_pool_workers_on_aborted_run_releases_reservation() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx0, _r0) = fake_tx();
+        let (tx1, _r1) = fake_tx();
+        coord
+            .pool_register_idle("w0", tx0, 100, "h0".into(), false)
+            .await;
+        coord
+            .pool_register_idle("w1", tx1, 100, "h1".into(), false)
+            .await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await;
+        assert_eq!(reserved.len(), 2);
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        assert_eq!(coord.abort(&run_id).await, AbortOutcome::NotStarted);
+        assert!(coord.assign_pool_workers(&run_id, reserved).await.is_err());
+        let snap = coord.pool_snapshot(tokio::time::Instant::now()).await;
+        assert_eq!(snap.len(), 2);
+        assert!(snap.iter().all(|w| w.assigned_run.is_none()), "{snap:?}");
+    }
+
+    /// 실제 gRPC 스트림으로 `run_id`가 채워진 Register를 보낸다(토큰 `t`).
+    async fn run_register_stream(
+        addr: std::net::SocketAddr,
+        run_id: &str,
+        worker_id: &str,
+    ) -> (
+        tokio::sync::mpsc::Sender<WorkerMessage>,
+        tonic::Streaming<ServerMessage>,
+    ) {
+        use pb::coordinator_client::CoordinatorClient;
+        let mut client = CoordinatorClient::connect(format!("http://{addr}"))
+            .await
+            .unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        tx.send(WorkerMessage {
+            payload: Some(WorkerPayload::Register(pb::Register {
+                worker_id: worker_id.into(),
+                run_id: run_id.into(),
+                capacity_vus: 10,
+                hostname: "h".into(),
+                stable_id: false,
+                token: "t".into(),
+            })),
+        })
+        .await
+        .unwrap();
+        let stream = client
+            .channel(ReceiverStream::new(rx))
+            .await
+            .unwrap()
+            .into_inner();
+        (tx, stream)
+    }
+
+    async fn expect_abort_then_end(mut stream: tonic::Streaming<ServerMessage>, reason: &str) {
+        let first = tokio::time::timeout(Duration::from_secs(5), stream.message())
+            .await
+            .expect("no server message")
+            .unwrap()
+            .expect("stream closed before any message");
+        let Some(ServerPayload::Abort(a)) = first.payload else {
+            panic!("expected Abort, got {:?}", first.payload);
+        };
+        assert_eq!(a.reason, reason);
+        let next = tokio::time::timeout(Duration::from_secs(5), stream.message())
+            .await
+            .expect("stream must end after the Abort");
+        assert!(matches!(next, Ok(None)), "got {next:?}");
+    }
+
+    #[tokio::test]
+    async fn register_for_unknown_run_gets_abort() {
+        let (_st, addr) = tombstone_test_server().await;
+        let (req_tx, stream) = run_register_stream(addr, "no-such-run", "w1").await;
+        expect_abort_then_end(stream, "run is not active").await;
+        drop(req_tx);
+    }
+
+    #[tokio::test]
+    async fn register_for_aborted_run_gets_abort() {
+        let (st, addr) = tombstone_test_server().await;
+        let run_id = seed_run(&st.db).await;
+        st.enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        st.register(&run_id, "w0", tx0).await;
+        assert!(matches!(
+            st.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
+        let (req_tx, stream) = run_register_stream(addr, &run_id, "w1").await;
+        expect_abort_then_end(stream, "run aborted before assignment").await;
+        drop(req_tx);
     }
 
     #[tokio::test]
@@ -6787,7 +7073,10 @@ mod tests {
     async fn external_abort_before_auto_stop_aborted() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let (coord, run_id, _r0, _r1) = two_worker_run(&db).await;
-        assert!(coord.abort(&run_id).await);
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
         assert!(coord.auto_stop(&run_id, saturation_stop(3)).await.is_none());
         // 미룸 없음 — 첫 Aborted에서 지금처럼 finalize.
         coord.record_phase(&run_id, "w0", ABORTED, "").await;

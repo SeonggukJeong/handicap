@@ -166,9 +166,9 @@ pub const ABORT_MSG_ROLE_SWITCH: &str = "모드 전환으로 중단";
 pub const ABORT_MSG_APP_EXIT: &str = "앱 종료로 중단";
 
 /// 활성(`pending`/`running`) run에 in-memory Abort를 보낸다(send-only).
-/// `coord.abort(id)`는 in-memory 워커 엔트리가 없으면 `false`를 돌려주는데(아직 미등록 pending 등)
-/// 이는 **no-op이지 에러가 아니다** — 그런 run은 워커 self-cancel(R4b)·다음 startup
-/// `mark_orphans_failed`(R4c)가 커버한다. 반환값은 활성 run 개수.
+/// `coord.abort(id)`는 등록한 부하기가 있으면 Abort를 보내고(`Marked`), 없으면 run을 지우고 정리한다
+/// (`NotStarted`). 맵에 run이 없으면(`NoRun`) no-op이지 에러가 아니다 — 그런 run은 워커
+/// self-cancel(R4b)·다음 startup `mark_orphans_failed`(R4c)가 커버한다. 반환값은 활성 run 개수.
 pub async fn abort_all(coord: &CoordinatorState, db: &Db) -> anyhow::Result<usize> {
     let ids: Vec<String> =
         sqlx::query_scalar("SELECT id FROM runs WHERE status IN ('pending','running')")
@@ -600,7 +600,7 @@ mod tests {
         insert_active_run(&db, "run-b", "pending").await;
         insert_active_run(&db, "run-c", "completed").await; // 비활성 → 카운트 제외
         let coord = CoordinatorState::new(db.clone());
-        // 워커 등록 안 함 → 활성 run 모두 in-memory 엔트리 없음 → abort()는 false지만 에러 아님.
+        // 워커 등록 안 함 → in-memory run 없음 → abort()는 NoRun이지만 에러 아님.
         let n = abort_all(&coord, &db).await.unwrap();
         assert_eq!(n, 2);
     }
