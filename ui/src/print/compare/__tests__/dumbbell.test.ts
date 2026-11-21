@@ -156,6 +156,26 @@ describe("buildDumbbell", () => {
     expect(r.cls).toBeNull();
   });
 
+  it("양쪽 모두 실행되지 않은 단계는 점 없는 행(none)", () => {
+    const steps = [
+      { id: "s1", name: "가" },
+      { id: "s2", name: "나" },
+    ];
+    const rep = [{ id: "s1", counts: { "200": 10 }, errors: 0, p95: 1000 }];
+    const m = buildDumbbell(
+      sceneModel({ id: "b", steps, rep }),
+      sceneModel({ id: "a", steps, rep }),
+    );
+    const r = m.rows[1]!;
+    expect(r.shape).toBe("none");
+    expect(r.xBefore).toBeNull();
+    expect(r.xAfter).toBeNull();
+    expect(r.cls).toBeNull();
+    const json = JSON.stringify(r);
+    expect(json).not.toContain("NaN");
+    expect(json).not.toContain("undefined");
+  });
+
   describe("기준선", () => {
     const pairs: Array<[number, number]> = [
       [4800, 2700],
@@ -168,6 +188,14 @@ describe("buildDumbbell", () => {
       expect(m.rows[1]!.crossText).toBe("기준 초과");
       expect(m.legend).toContain("┊ 기준");
       expect(m.legend).toBe("○ 이전 · ● 이후 · ┊ 기준 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐");
+    });
+    it("기준과 같은 값은 기준 안쪽으로 센다 · 기준선 x", () => {
+      const lim = { max_p95_ms: 3000 };
+      const into = build([[3400, 3000]], lim, lim);
+      expect(into.rows[0]!.crossText).toBe("기준 안으로");
+      const over = build([[3000, 3400]], lim, lim);
+      expect(over.rows[0]!.crossText).toBe("기준 초과");
+      expect(over.baseline!.x).toBe(DB.PAD + (DB.PLOT_W * 3000) / over.axisMaxMs);
     });
     const none: Array<[string, Crit | undefined, Crit | undefined]> = [
       ["한쪽만 기준", { max_p95_ms: 3000 }, undefined],

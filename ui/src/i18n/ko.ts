@@ -2617,6 +2617,7 @@ export const ko = {
         legendBaseline: "○ 이전 · ● 이후 · ┊ 기준 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
         value: (before: string, after: string) => `${before} → ${after}`,
         pct: (sign: string, n: number) => `(${sign}${n}%)`,
+        ariaLabel: (value: string, word: string) => (word ? `${value} ${word}` : value),
       },
       star: {
         before: "이전",
@@ -2755,6 +2756,7 @@ export const ko = {
         titles: {
           overview: "종합",
           kpi: "핵심 지표 비교",
+          dumbbell: "단계별 95% 응답시간 변화",
           cond: "측정 조건 대조",
           issues: "남은 문제",
         },
@@ -2778,6 +2780,8 @@ export const ko = {
         kpiBarsLegend: "회색 = 이전 · 파랑 = 이후",
         kpiNote:
           "변화가 5% 이내면 '비슷'으로 표시합니다. 응답시간·오류율은 낮아지면, 처리량은 높아지면 좋아진 것입니다.",
+        dbColStep: "단계",
+        dbColValue: "이전 → 이후",
         condColItem: "항목",
         condColBefore: "이전",
         condColAfter: "이후",

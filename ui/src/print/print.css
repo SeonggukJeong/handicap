@@ -917,6 +917,43 @@
   text-overflow: ellipsis;
 }
 
+/* 비교 보고서: 단계별 95% 응답시간 변화(덤벨 표) — compare-report-v2.html 시안 값 */
+.p-root .p-cmp-db th,
+.p-root .p-cmp-db td {
+  padding: 1.3mm 1.8mm;
+}
+.p-root .p-cmp-db th.p-cmp-db-axis,
+.p-root .p-cmp-db td.p-cmp-db-plot {
+  position: relative;
+  padding: 0;
+}
+.p-root .p-cmp-db-plot svg {
+  position: relative;
+}
+.p-root .p-cmp-db-grid,
+.p-root .p-cmp-db-base {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+}
+.p-root .p-cmp-db-grid {
+  border-left: 1px solid #eceef1;
+}
+.p-root .p-cmp-db-base {
+  border-left: 1px dashed #b42318;
+}
+.p-root .p-cmp-db-text {
+  color: var(--sub);
+}
+.p-root .p-cmp-db-text > div {
+  white-space: nowrap;
+}
+.p-root .p-cmp-db-legend {
+  font-size: 7.5pt;
+  color: var(--sub);
+}
+
 @media print {
   .p-root {
     background: #fff;

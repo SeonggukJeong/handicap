@@ -7,6 +7,7 @@ import { fmtDate } from "../format";
 import type { Block } from "../paginate";
 import type { BoxState } from "../verdict";
 import type { Heights } from "../buildPrintDoc";
+import { buildDumbbell, type DumbbellModel } from "./dumbbell";
 import { metricRows, type MetricRow } from "./change";
 import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } from "./errorCells";
 import { buildFairness, type Fairness } from "./fairness";
@@ -44,6 +45,9 @@ export type CompareDoc = {
   starNote: string | null;
   issues: string[];
   incomparable: boolean;
+  dumbbell: DumbbellModel;
+  /** stepPairs가 1개 이상 */
+  hasSteps: boolean;
 };
 
 function scenarioName(run: RunModel): string | null {
@@ -114,6 +118,8 @@ export function buildCompareDoc(a: {
     starNote: star && !incomparable ? starFootnote(pairs) : null,
     issues: incomparable ? [] : remainingIssues(after, pairs),
     incomparable,
+    dumbbell: buildDumbbell(before, after),
+    hasSteps: pairs.length > 0,
   };
 }
 
@@ -121,10 +127,19 @@ export function buildCompareDoc(a: {
 
 export const CMP_LAST_LEVEL = 5;
 
+export type CmpTableId = "cmp:cond" | "cmp:db" | "cmp:err";
+
+export const tableIds = (id: CmpTableId) => ({
+  title: `${id}:title`,
+  header: `${id}:header`,
+  row: (i: number): string => `${id}:row:${i}`,
+});
+
+const CMP_COND_IDS = tableIds("cmp:cond");
 export const CMP_IDS = {
-  condTitle: "cmp:cond:title",
-  condHeader: "cmp:cond:header",
-  condRowId: (i: number): string => `cmp:cond:row:${i}`,
+  condTitle: CMP_COND_IDS.title,
+  condHeader: CMP_COND_IDS.header,
+  condRowId: CMP_COND_IDS.row,
 } as const;
 
 const atom = (h: Heights, id: string): Block => ({
@@ -133,13 +148,14 @@ const atom = (h: Heights, id: string): Block => ({
   heightMm: h.get(id) ?? 0,
 });
 
-function condTable(doc: CompareDoc, h: Heights): Block {
+function tableBlock(id: CmpTableId, rowCount: number, h: Heights): Block {
+  const ids = tableIds(id);
   return {
     kind: "table",
-    id: "cmp:cond",
-    titleMm: h.get(CMP_IDS.condTitle) ?? 0,
-    headerMm: h.get(CMP_IDS.condHeader) ?? 0,
-    rowsMm: doc.fairness.condRows.map((_, i) => h.get(CMP_IDS.condRowId(i)) ?? 0),
+    id,
+    titleMm: h.get(ids.title) ?? 0,
+    headerMm: h.get(ids.header) ?? 0,
+    rowsMm: Array.from({ length: rowCount }, (_, i) => h.get(ids.row(i)) ?? 0),
   };
 }
 
@@ -151,7 +167,10 @@ export function compareStandardBlocks(doc: CompareDoc, h: Heights): Block[] {
     atom(h, "cmp:cards"),
     atom(h, "cmp:kpi:bars"),
     atom(h, "cmp:kpi:note"),
-    condTable(doc, h),
+    ...(doc.hasSteps
+      ? [tableBlock("cmp:db", doc.dumbbell.rows.length, h), atom(h, "cmp:db:legend")]
+      : []),
+    tableBlock("cmp:cond", doc.fairness.condRows.length, h),
     atom(h, "cmp:issues:8"),
     atom(h, "signature"),
   ];
@@ -174,17 +193,58 @@ export function issuesShown(doc: CompareDoc, max: number): { shown: string[]; mo
   return { shown: doc.issues.slice(0, max), more: Math.max(0, doc.issues.length - max) };
 }
 
-/** 절 번호 — 그 판에 있는 절만 차례로. 슬라이스 B가 절을 끼우면 이 함수만 고친다. */
-export function sectionNo(kind: "standard" | "summary"): {
+export type SectionNos = {
   overview: string;
   kpi: string;
+  dumbbell: string | null;
+  errors: string | null;
+  overlay: string | null;
+  speed: string | null;
   cond: string | null;
   issues: string;
-} {
-  return kind === "standard"
-    ? { overview: "1", kpi: "2", cond: "3", issues: "4" }
-    : { overview: "1", kpi: "2", cond: null, issues: "3" };
+};
+type SectionKey = keyof SectionNos;
+
+/** 표준판 절 순서. 뒤 task가 제 키를 끼운다. */
+const STANDARD_SECTIONS: SectionKey[] = ["overview", "kpi", "dumbbell", "cond", "issues"];
+
+/** 절 번호 — 그 판에 있는 절만 차례로 센다. */
+export function sectionNo(
+  kind: "standard" | "summary",
+  present: { steps: boolean; speed: boolean },
+): SectionNos {
+  const out: SectionNos = {
+    overview: "1",
+    kpi: "2",
+    dumbbell: null,
+    errors: null,
+    overlay: null,
+    speed: null,
+    cond: null,
+    issues: "3",
+  };
+  if (kind === "summary") return out;
+  const has: Record<SectionKey, boolean> = {
+    overview: true,
+    kpi: true,
+    dumbbell: present.steps,
+    errors: present.steps,
+    overlay: true,
+    speed: present.speed,
+    cond: true,
+    issues: true,
+  };
+  let n = 0;
+  for (const k of STANDARD_SECTIONS) {
+    if (!has[k]) continue;
+    n += 1;
+    out[k] = String(n);
+  }
+  return out;
 }
+
+export const sectionNoFor = (doc: CompareDoc, kind: "standard" | "summary"): SectionNos =>
+  sectionNo(kind, { steps: doc.hasSteps, speed: false });
 
 /** 측정 시트에 그릴 블록. summary는 칸 0..CMP_LAST_LEVEL에서 나오는 블록의 합집합(id 중복 제거). */
 export function compareSheetBlocks(doc: CompareDoc, kind: "standard" | "summary"): Block[] {

@@ -10,6 +10,7 @@ import {
   compareSummaryBlocks,
   issuesShown,
   sectionNo,
+  tableIds,
   type CompareDoc,
 } from "../buildCompareDoc";
 import { baseProfile, scenarioYaml } from "./fixtures";
@@ -162,10 +163,37 @@ describe("블록", () => {
       "cmp:cards",
       "cmp:kpi:bars",
       "cmp:kpi:note",
+      "cmp:db",
+      "cmp:db:legend",
       "cmp:cond",
       "cmp:issues:8",
       "signature",
     ]);
+  });
+
+  it("단계가 없으면 덤벨 표·범례 블록이 없다", () => {
+    const d = doc({ steps: [], rep: [] }, { steps: [], rep: [] });
+    expect(d.hasSteps).toBe(false);
+    expect(ids(d)).not.toContain("cmp:db");
+    expect(ids(d)).not.toContain("cmp:db:legend");
+  });
+
+  it("덤벨 표 블록의 행 수는 모델 행 수와 같고, 요약판에는 없다", () => {
+    const d = doc();
+    const t = compareStandardBlocks(d, new Map()).find((b) => b.id === "cmp:db");
+    if (!t || t.kind !== "table") throw new Error("no db table");
+    expect(t.rowsMm.length).toBe(d.dumbbell.rows.length);
+    expect(t.rowsMm.length).toBeGreaterThan(0);
+    const lv = [0, 1, 2, 3, 4, 5].flatMap((l) =>
+      compareSummaryBlocks(d, new Map(), l).map((b) => b.id),
+    );
+    expect(lv.some((x) => x.startsWith("cmp:db"))).toBe(false);
+  });
+
+  it("tableIds는 표 id에서 제목·머리·행 측정 id를 만든다", () => {
+    expect(tableIds("cmp:db")).toMatchObject({ title: "cmp:db:title", header: "cmp:db:header" });
+    expect(tableIds("cmp:db").row(3)).toBe("cmp:db:row:3");
+    expect(CMP_IDS.condRowId(2)).toBe("cmp:cond:row:2");
   });
 
   it("조건 대조 표는 행마다 높이를 가진 표 블록", () => {
@@ -276,8 +304,37 @@ describe("블록", () => {
   });
 
   it("절 번호는 그 판에 있는 절만", () => {
-    expect(sectionNo("standard")).toEqual({ overview: "1", kpi: "2", cond: "3", issues: "4" });
-    expect(sectionNo("summary")).toEqual({ overview: "1", kpi: "2", cond: null, issues: "3" });
+    const withSteps = { steps: true, speed: false };
+    expect(sectionNo("standard", withSteps)).toEqual({
+      overview: "1",
+      kpi: "2",
+      dumbbell: "3",
+      errors: null,
+      overlay: null,
+      speed: null,
+      cond: "4",
+      issues: "5",
+    });
+    expect(sectionNo("standard", { steps: false, speed: false })).toEqual({
+      overview: "1",
+      kpi: "2",
+      dumbbell: null,
+      errors: null,
+      overlay: null,
+      speed: null,
+      cond: "3",
+      issues: "4",
+    });
+    expect(sectionNo("summary", withSteps)).toEqual({
+      overview: "1",
+      kpi: "2",
+      dumbbell: null,
+      errors: null,
+      overlay: null,
+      speed: null,
+      cond: null,
+      issues: "3",
+    });
   });
 
   it("issuesShown", () => {

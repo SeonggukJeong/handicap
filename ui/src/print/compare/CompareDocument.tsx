@@ -9,16 +9,17 @@ import {
   compareSheetBlocks,
   compareStandardBlocks,
   compareSummaryBlocks,
-  sectionNo,
+  sectionNoFor,
+  type CmpTableId,
   type CompareDoc,
 } from "./buildCompareDoc";
 import { CompareFooter } from "./components/CompareFooter";
 import { CompareHeader } from "./components/CompareHeader";
-import { CondTable, CondTitle } from "./components/CondTable";
 import { FairCards } from "./components/FairCards";
 import { HeadlineHeading, VerdictRow } from "./components/HeadlineBox";
 import { IssuesBox } from "./components/IssuesBox";
 import { KpiCompareTable, KpiNote } from "./components/KpiCompareTable";
+import { CMP_TABLES } from "./tables";
 
 type Kind = "standard" | "summary";
 type Props = { doc: CompareDoc; kind: Kind; onLadder?: (level: number) => void };
@@ -26,7 +27,7 @@ type Props = { doc: CompareDoc; kind: Kind; onLadder?: (level: number) => void }
 const ISSUES_PREFIX = "cmp:issues:";
 
 function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: Kind }): ReactNode {
-  const no = sectionNo(kind);
+  const no = sectionNoFor(doc, kind);
   const clamp = kind === "summary";
   if (id.startsWith(ISSUES_PREFIX)) {
     const max = Number(id.slice(ISSUES_PREFIX.length));
@@ -51,6 +52,8 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
       return <KpiCompareTable doc={doc} no={no.kpi} bars={false} />;
     case "cmp:kpi:note":
       return <KpiNote doc={doc} clamp={clamp} />;
+    case "cmp:db:legend":
+      return <div className="p-cmp-db-legend">{doc.dumbbell.legend}</div>;
     case "signature":
       return <SignatureBlock />;
     default:
@@ -62,7 +65,7 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
 function blockClass(id: string): string {
   if (id === "signature") return "p-block";
   if (id === "cmp:header") return "p-block p-block--header";
-  if (id === "cmp:kpi:note") return "p-block p-cmp-b--note";
+  if (id === "cmp:kpi:note" || id === "cmp:db:legend") return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";
   const name = id.split(":")[1];
   return name === "headline" || name === "kpi"
@@ -80,21 +83,18 @@ function Atomic(props: { id: string; doc: CompareDoc; kind: Kind; measure?: bool
 }
 
 function MeasureSheet({ doc, kind }: { doc: CompareDoc; kind: Kind }) {
-  const no = sectionNo(kind);
+  const no = sectionNoFor(doc, kind);
   return (
     <>
       {compareSheetBlocks(doc, kind).map((b) => {
         if (b.kind === "atomic")
           return <Atomic key={b.id} id={b.id} doc={doc} kind={kind} measure />;
+        const def = CMP_TABLES[b.id as CmpTableId];
+        if (!def) return null;
         return (
           <div key={b.id}>
-            <CondTitle no={no.cond ?? ""} continued={false} measure />
-            <CondTable
-              rows={doc.fairness.condRows}
-              from={0}
-              to={doc.fairness.condRows.length}
-              measure
-            />
+            <def.Title no={def.no(no)} continued={false} measure />
+            <def.Table doc={doc} from={0} to={def.rowCount(doc)} measure />
           </div>
         );
       })}
@@ -131,15 +131,17 @@ function PageBody(props: {
   total: number;
 }) {
   const { doc, kind, items, n, total } = props;
-  const cond = sectionNo(kind).cond ?? "";
+  const no = sectionNoFor(doc, kind);
   return (
     <>
       {items.map((it) => {
         if (it.kind === "atomic") return <Atomic key={it.id} id={it.id} doc={doc} kind={kind} />;
+        const def = CMP_TABLES[it.id as CmpTableId];
+        if (!def) return null;
         return (
           <div key={`${it.id}:${it.from}`}>
-            <CondTitle no={cond} continued={it.continued} />
-            <CondTable rows={doc.fairness.condRows} from={it.from} to={it.to} />
+            <def.Title no={def.no(no)} continued={it.continued} />
+            <def.Table doc={doc} from={it.from} to={it.to} />
           </div>
         );
       })}

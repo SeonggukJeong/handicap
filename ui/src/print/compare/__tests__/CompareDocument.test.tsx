@@ -265,10 +265,16 @@ describe("CompareDocument 표준판", () => {
     expect(runs[1].querySelector(".p-cmp-ok")?.textContent).toBe("라마바");
   });
 
-  it("절 번호는 1·2·3·4", async () => {
+  it("절 번호는 1·2·3·4·5", async () => {
     const { root } = renderDoc(makeDoc());
     await ready(root);
-    for (const t of ["1. 종합", "2. 핵심 지표 비교", "3. 측정 조건 대조", "4. 남은 문제"]) {
+    for (const t of [
+      "1. 종합",
+      "2. 핵심 지표 비교",
+      "3. 단계별 95% 응답시간 변화",
+      "4. 측정 조건 대조",
+      "5. 남은 문제",
+    ]) {
       expect(screen.getByRole("heading", { name: t })).toBeInTheDocument();
     }
   });
@@ -458,7 +464,7 @@ describe("CompareDocument 표준판", () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     expect(container.querySelectorAll(".p-page").length).toBeGreaterThan(1);
-    expect(screen.getByRole("heading", { name: "3. 측정 조건 대조 (이어짐)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "4. 측정 조건 대조 (이어짐)" })).toBeInTheDocument();
     expect(container.querySelectorAll(".p-sign").length).toBe(1);
   });
 
@@ -480,6 +486,42 @@ describe("CompareDocument 표준판", () => {
     expect(doc.fairness.condRows.length).toBeGreaterThan(0);
     doc.fairness.condRows.forEach((_, i) => expect(measured.has(CMP_IDS.condRowId(i))).toBe(true));
     await ready(root);
+  });
+});
+
+describe("CompareDocument 덤벨 절", () => {
+  it("측정 시트에 덤벨 표의 제목·머리·행·범례가 있다", async () => {
+    const { container, root } = renderDoc(makeDoc());
+    for (const id of ["cmp:db:title", "cmp:db:header", "cmp:db:row:0", "cmp:db:legend"]) {
+      expect(container.querySelector(`.p-sheet [data-measure="${id}"]`), id).not.toBeNull();
+    }
+    await ready(root);
+  });
+
+  it("쪽에 3절 제목·덤벨 표·범례(p-cmp-b--note)가 있고 조건 대조는 4절", async () => {
+    const { root, container } = renderDoc(makeDoc());
+    await ready(root);
+    expect(
+      screen.getByRole("heading", { name: "3. 단계별 95% 응답시간 변화" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "4. 측정 조건 대조" })).toBeInTheDocument();
+    expect(container.querySelector(".p-page table.p-cmp-db")).not.toBeNull();
+    const legend = container.querySelector(".p-page .p-cmp-db-legend") as HTMLElement;
+    expect(legend.closest(".p-block")).toHaveClass("p-cmp-b--note");
+  });
+
+  it("단계가 없으면 덤벨 절이 없고 번호를 당긴다", async () => {
+    const { root } = renderDoc(makeDoc({ steps: [], rep: [] }, { steps: [], rep: [] }));
+    await ready(root);
+    expect(screen.queryByText(/단계별 95% 응답시간 변화/)).toBeNull();
+    expect(screen.getByRole("heading", { name: "3. 측정 조건 대조" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "4. 남은 문제" })).toBeInTheDocument();
+  });
+
+  it("요약판에는 덤벨 절이 없다", async () => {
+    const { root } = renderDoc(makeDoc(), "summary");
+    await ready(root);
+    expect(screen.queryByText(/단계별 95% 응답시간 변화/)).toBeNull();
   });
 });
 
