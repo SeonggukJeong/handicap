@@ -122,7 +122,7 @@ subprocess 워커가 비정상 종료하면 reaper가 `mark_failed_if_active`를
 
 `abort_run`을 **DB 먼저, 가드 UPDATE**로 바꾼다.
 
-1. 활성(`pending`/`running`) 행만 `aborted`로 바꾸는 가드 UPDATE(사유 없음). **새 store 함수**로 만들고 행이 바뀌었는지를 돌려준다. 기존 `mark_aborted`(가드 없음)는 고치지 않는다 — `abort_run`이 유일한 운영 호출부라 이 변경 뒤에는 테스트 픽스처만 쓰고, 그중 둘(`tests/api_test.rs` 1113, `store/runs.rs` 1315)은 끝난 행을 `aborted`로 덮는 동작에 기대고 있다. 바뀐 행이 없으면 409를 돌려주고 끝낸다 — 문구의 상태는 처음 읽은 값이 아니라 다시 읽은 값으로 쓴다(막 끝난 run을 `running`이라고 적지 않게). 지금의 `runs::get` 상태 확인은 404 판정과 빠른 409용으로 남는다.
+1. 활성(`pending`/`running`) 행만 `aborted`로 바꾸는 가드 UPDATE(사유 없음). **새 store 함수**로 만들고 행이 바뀌었는지를 돌려준다. 기존 `mark_aborted`(가드 없음)는 고치지 않는다 — `abort_run`이 유일한 운영 호출부라 이 변경 뒤에는 테스트 픽스처만 쓰고, 그중 둘(`tests/api_test.rs` 1113, `store/runs.rs` 1315)은 끝난 행을 `aborted`로 덮는 동작에 기대고 있다. 가드 UPDATE가 **맨 먼저**다(지금의 `runs::get` 선확인은 없앤다 — 조회 한 번이 줄고, 끝난 run 보호가 가드 UPDATE 하나에 달려 테스트로 잠글 수 있다). 바뀐 행이 없을 때만 행을 읽는다: 없으면 404, 있으면 그 상태로 409(「run is {상태} and cannot be aborted」 — 지금과 같은 문구).
 2. 행이 바뀌었으면 `coord.abort`.
 3. 결과에 따라 사유를 쓴다: `NotStarted` → 「부하를 시작하기 전에 중단했습니다」, `Marked`이고 `registered < expected` → 「부하기 N대 중 M대만 접속한 상태에서 중단했습니다」, 그 밖(`Marked` 전원 등록, `NoRun`) → 쓰지 않는다.
 
