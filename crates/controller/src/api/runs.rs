@@ -708,8 +708,8 @@ fn strip_steps_think(steps: &mut [Step], root_default: Option<&ThinkTime>, keep:
 }
 
 /// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
-/// 풀 사전 실패·dispatch 실패 시 코디네이터 항목을 정리(cancel_dispatch_failed)하고
-/// 활성 run만 failed로 마크한 뒤(`mark_failed_if_active` — 이미 aborted면 그대로) Err 반환. REST `create`(권위 게이트 통과 후 호출)와 스케줄러
+/// 풀 사전 실패·배정 실패·dispatch 실패(생성 실패)는 `fail_run_start` 하나를 지난다: 코디네이터 항목을
+/// 정리하고 활성 run만 failed로 마크한 뒤 Err, 행이 이미 aborted면 그 행을 Ok로 돌려준다. REST `create`(권위 게이트 통과 후 호출)와 스케줄러
 /// 루프(34b)가 공유한다. `validated_metas`는 `validate_run_config`가 돌려준
 /// 검증된 dataset meta(TOCTOU 회피 재사용) — `profile.data_bindings()`와 같은
 /// 순서. binding 없으면 빈 vec.
@@ -879,7 +879,7 @@ pub(crate) async fn spawn_run(
                     .await;
                 }
                 crate::grpc::coordinator::PoolReservation::Insufficient { achievable } => {
-                    // Rare TOCTOU (pool shrank after precheck) — mark failed.
+                    // 사전 검사 뒤 풀이 줄어든 드문 경합.
                     let msg = format!(
                         "풀 용량 부족 (가용 {achievable} VU < 요청 {} VU)",
                         profile.concurrency_demand()
@@ -1043,9 +1043,15 @@ pub(crate) async fn spawn_run(
     if let Err(e) = state.dispatcher.dispatch(&row.id, n).await {
         let message = format!("failed to dispatch workers: {e}");
         tracing::error!(run_id = %row.id, error = %e, "worker dispatch failed; marking run failed");
-        state.coord.cancel_dispatch_failed(&row.id).await;
-        runs::mark_failed_if_active(&state.db, &row.id, &message).await?;
-        return Err(ApiError::Internal(anyhow::anyhow!(message)));
+        return fail_run_start(
+            &state.coord,
+            &state.db,
+            &row.id,
+            &message,
+            ApiError::Internal(anyhow::anyhow!(message.clone())),
+            StartFailedAt::AfterEnqueue,
+        )
+        .await;
     }
 
     Ok(row)
@@ -3365,6 +3371,85 @@ steps:
             .await
             .unwrap();
         runs::get(&state.db, &id).await.unwrap().unwrap()
+    }
+
+    enum BeforeFail {
+        Nothing,
+        AbortInDb(crate::store::Db),
+        AbortViaApi(AppState),
+    }
+
+    struct FailingDispatcher {
+        before_fail: BeforeFail,
+    }
+    #[async_trait::async_trait]
+    impl crate::dispatcher::WorkerDispatcher for FailingDispatcher {
+        async fn dispatch(&self, run_id: &str, _worker_count: u32) -> anyhow::Result<()> {
+            match &self.before_fail {
+                BeforeFail::Nothing => {}
+                BeforeFail::AbortInDb(db) => {
+                    assert!(runs::abort_if_active(db, run_id).await.unwrap());
+                }
+                BeforeFail::AbortViaApi(state) => {
+                    super::abort_run(State(state.clone()), Path(run_id.to_string()))
+                        .await
+                        .unwrap();
+                }
+            }
+            Err(anyhow::anyhow!("simulated dispatch failure"))
+        }
+        async fn cleanup(&self, _run_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    async fn state_with_failing_dispatcher(
+        db: crate::store::Db,
+        make: impl FnOnce(AppState) -> BeforeFail,
+    ) -> AppState {
+        let mut state = state_with(db, 100).await;
+        let before_fail = make(state.clone());
+        state.dispatcher = Arc::new(FailingDispatcher { before_fail });
+        state
+    }
+
+    #[tokio::test]
+    async fn dispatch_failure_returns_aborted_row() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        let state = state_with_failing_dispatcher(db.clone(), |_| BeforeFail::AbortInDb(db)).await;
+        let row = call_spawn_run(&state, &scenario, 1, false).await.unwrap();
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(row.message, None);
+        assert_eq!(only_run(&state).await.message, None);
+    }
+
+    #[tokio::test]
+    async fn dispatch_failure_after_abort_api_keeps_api_reason() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        let state = state_with_failing_dispatcher(db, BeforeFail::AbortViaApi).await;
+        let row = call_spawn_run(&state, &scenario, 1, false).await.unwrap();
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(
+            only_run(&state).await.message.as_deref(),
+            Some(runs::ABORT_MSG_NOT_STARTED)
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_failure_without_abort_fails_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        let state = state_with_failing_dispatcher(db, |_| BeforeFail::Nothing).await;
+        let msg = "failed to dispatch workers: simulated dispatch failure";
+        match call_spawn_run(&state, &scenario, 1, false).await {
+            Err(ApiError::Internal(e)) => assert_eq!(e.to_string(), msg),
+            _ => panic!("expected Internal error"),
+        }
+        let row = only_run(&state).await;
+        assert_eq!(row.status, runs::RunStatus::Failed);
+        assert_eq!(row.message.as_deref(), Some(msg));
     }
 
     async fn call_spawn_run_unique(
