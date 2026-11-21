@@ -3,6 +3,7 @@ import { ReportSchema } from "../../../api/schemas";
 import { buildErrorTable, ERR_MAX_COLS } from "../errorTable";
 import { stepPairs } from "../errorCells";
 import { buildRunModel, type RunModel } from "../runModel";
+import { expectClean } from "./expectClean";
 import { mkMeta, mkReport, scenarioYaml, type ReportStepSpec, type StepSpec } from "./fixtures";
 
 function model(id: string, steps: StepSpec[], rep: ReportStepSpec[]): RunModel {
@@ -22,19 +23,6 @@ const R = (
   errors = 0,
   notSent?: number,
 ): ReportStepSpec => ({ id, counts, errors, ...(notSent ? { notSent } : {}) });
-
-/** NaN·undefined 값과 그 글자가 든 문자열이 어디에도 없다(JSON.stringify는 NaN을 null로 바꿔 못 잡는다). */
-function expectClean(v: unknown, path = "$"): void {
-  if (typeof v === "number") expect(Number.isNaN(v), path).toBe(false);
-  else if (v === undefined) throw new Error(`undefined at ${path}`);
-  else if (typeof v === "string") {
-    expect(v.includes("NaN"), path).toBe(false);
-    expect(v.includes("undefined"), path).toBe(false);
-  } else if (Array.isArray(v)) v.forEach((x, i) => expectClean(x, `${path}[${i}]`));
-  else if (v !== null && typeof v === "object") {
-    for (const [k, x] of Object.entries(v)) expectClean(x, `${path}.${k}`);
-  }
-}
 
 function table(before: RunModel, after: RunModel, incomparable = false) {
   return buildErrorTable({ before, after, pairs: stepPairs(before, after), incomparable });

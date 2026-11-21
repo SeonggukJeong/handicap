@@ -136,6 +136,9 @@ describe("ErrorChangeTable", () => {
     expect(cell.querySelector("b")!.textContent).toBe("0");
     expect(cell.querySelectorAll(".p-cmp-err-piece")).toHaveLength(2);
     expect(norm(cells(4)[1]!)).toBe("31.9% → 0.2%");
+    // 오류율 칸도 두 조각(이전+화살표 / 이후)이고 이후 값은 굵지 않다
+    expect(cells(4)[1]!.querySelectorAll(".p-cmp-err-piece")).toHaveLength(2);
+    expect(cells(4)[1]!.querySelector("b")).toBeNull();
   });
 
   it("변화 칸: ⑤ '▼ 좋아짐', ② '남은 문제', ④ 참고용", () => {

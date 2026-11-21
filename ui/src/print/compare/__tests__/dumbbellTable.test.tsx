@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { buildDumbbell } from "../dumbbell";
+import { buildDumbbell as buildDumbbellFromPairs } from "../dumbbell";
+import { stepPairs } from "../errorCells";
 import { DumbbellLegend, DumbbellTable } from "../components/DumbbellTable";
+import type { RunModel } from "../runModel";
 import { sceneModel } from "./scene";
+
+const buildDumbbell = (before: RunModel, after: RunModel) =>
+  buildDumbbellFromPairs(before, after, stepPairs(before, after));
 
 const prof = (criteria?: Record<string, unknown>) => ({
   vus: 10,
@@ -234,6 +239,10 @@ describe("DumbbellLegend", () => {
     const { container } = render(<DumbbellLegend model={m} />);
     const root = container.querySelector(".p-cmp-db-legend") as HTMLElement;
     expect(root.getAttribute("aria-label")).toBe(m.legend);
+    expect(root.getAttribute("role")).toBe("img");
+    expect(m.legend).toBe(
+      "회색 점 = 이전 · 파란 점 = 이후 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
+    );
     expect(dots(root).map((e) => e.style.background)).toEqual([
       "rgb(154, 161, 173)",
       "rgb(59, 75, 200)",

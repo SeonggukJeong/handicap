@@ -80,7 +80,7 @@ const cell = (
 });
 const dash = (): SpeedCell => cell(K.dash, { muted: true });
 
-const rowTotal = (r: BandRow): number => (r.fast ?? 0) + r.within + r.over;
+export const rowTotal = (r: BandRow): number => (r.fast ?? 0) + r.within + r.over;
 const share = (n: number, tot: number): number => (n * 100) / tot;
 const pctCell = (n: number, tot: number): SpeedCell => cell(fmtPct(n / tot), { muted: n === 0 });
 

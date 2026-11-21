@@ -83,7 +83,7 @@ function RowSvg({ row }: { row: DumbbellRow }) {
         <>
           <line
             x1={xBefore + dir * DB.RAD}
-            x2={tip - dir * DB.TIP_GAP}
+            x2={tip - dir * DB.LINE_GAP}
             y1={y}
             y2={y}
             stroke={color}
@@ -119,13 +119,12 @@ function RowSvg({ row }: { row: DumbbellRow }) {
 
 const WORD_CLASS = { better: "p-cmp-ok", worse: "p-cmp-bad", similar: "p-cmp-same" } as const;
 
-/** `model.rows`는 전체, [from, to)만 그린다(측정 id = 전체 인덱스). */
 const SWATCH = { before: GRAY, after: BLUE } as const;
 
 /** 범례: 그림의 점과 같은 색 견본. 접근명은 모델의 범례 글. */
 export function DumbbellLegend({ model }: { model: DumbbellModel }) {
   return (
-    <div className="p-cmp-db-legend" aria-label={model.legend}>
+    <div className="p-cmp-db-legend" role="img" aria-label={model.legend}>
       <span aria-hidden="true">
         <i className="p-cmp-db-sw" style={{ background: SWATCH.before }} />
         {T.legendBefore}
@@ -144,6 +143,7 @@ export function DumbbellLegend({ model }: { model: DumbbellModel }) {
   );
 }
 
+/** `model.rows`는 전체, [from, to)만 그린다(측정 id = 전체 인덱스). */
 export function DumbbellTable(props: {
   model: DumbbellModel;
   from: number;

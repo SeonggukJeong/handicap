@@ -156,8 +156,8 @@ function cellFor(col: ErrCol, pair: StepPair): ErrCell {
   // 없는 쪽(실행되지 않은 단계)은 0이 아니라 측정하지 않은 것이다.
   const missing = !pair.executedBefore || !pair.executedAfter;
   return {
-    before: pair.executedBefore ? fmtCount(before) : c.db.none,
-    after: pair.executedAfter ? fmtCount(after) : c.db.none,
+    before: pair.executedBefore ? fmtCount(before) : c.none,
+    after: pair.executedAfter ? fmtCount(after) : c.none,
     starBefore,
     starAfter,
     tone: missing ? null : tone(before, after, starBefore || starAfter),
@@ -169,7 +169,7 @@ type Args = { before: RunModel; after: RunModel; pairs: StepPair[]; incomparable
 export function buildErrorTable(a: Args): ErrorTableModel {
   const cols = buildCols(a.pairs);
   const remainingIds = a.incomparable ? new Set<string>() : remainingStepIds(a.after, a.pairs);
-  const none = c.db.none;
+  const none = c.none;
 
   const rows: ErrRow[] = a.pairs.map((p) => {
     const bRow = a.before.table.rows.find((r) => r.stepId === p.stepId);

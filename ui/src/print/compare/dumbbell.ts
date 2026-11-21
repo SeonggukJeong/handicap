@@ -2,7 +2,7 @@ import { ko } from "../../i18n/ko";
 import { niceTicks } from "../chartModel";
 import { fmtBoundary, fmtMs, fmtMsExact } from "../format";
 import { classifyChange, FLOOR } from "./change";
-import { stepPairs } from "./errorCells";
+import type { StepPair } from "./errorCells";
 import type { RunModel } from "./runModel";
 
 const t = ko.print.cmp.db;
@@ -19,6 +19,7 @@ export const DB = {
   TRI_GAP: 9,
   TRI_LEN: 7,
   TIP_GAP: 6,
+  LINE_GAP: 6,
   HEAD_HALF: 4.5,
 } as const;
 
@@ -59,7 +60,10 @@ const MINUS = "−";
 
 function msOf(model: RunModel, stepId: string): number | null {
   const row = model.table.rows.find((r) => r.stepId === stepId);
-  if (!row || !row.executed || !Number.isFinite(row.p95Ms)) return null;
+  // 보내지 않은 요청은 count에는 있으나 응답 시간 표본이 없어 p95가 0이다
+  if (!row || !row.executed || row.count - row.notSent <= 0 || !Number.isFinite(row.p95Ms)) {
+    return null;
+  }
   return row.p95Ms;
 }
 
@@ -68,8 +72,8 @@ function stepP95Criterion(model: RunModel): boolean {
 }
 
 function valueTexts(b: number | null, a: number | null, cls: DbClass | null) {
-  let bt = b === null ? t.none : fmtMs(b);
-  let at = a === null ? t.none : fmtMs(a);
+  let bt = b === null ? ko.print.cmp.none : fmtMs(b);
+  let at = a === null ? ko.print.cmp.none : fmtMs(a);
   if (b !== null && a !== null && cls !== "similar" && bt === at) {
     bt = fmtMsExact(b);
     at = fmtMsExact(a);
@@ -77,8 +81,7 @@ function valueTexts(b: number | null, a: number | null, cls: DbClass | null) {
   return { bt, at };
 }
 
-export function buildDumbbell(before: RunModel, after: RunModel): DumbbellModel {
-  const pairs = stepPairs(before, after);
+export function buildDumbbell(before: RunModel, after: RunModel, pairs: StepPair[]): DumbbellModel {
   const measured = pairs.map((p) => ({
     p,
     b: msOf(before, p.stepId),
@@ -168,5 +171,11 @@ export function buildDumbbell(before: RunModel, after: RunModel): DumbbellModel 
     };
   });
 
-  return { rows, axisMaxMs, ticks, baseline, legend: baseline ? t.legendBaseline : t.legend };
+  const legend = [
+    t.legendBefore,
+    t.legendAfter,
+    ...(baseline ? [t.legendBase] : []),
+    t.legendArrow,
+  ];
+  return { rows, axisMaxMs, ticks, baseline, legend: legend.join(" · ") };
 }

@@ -5,7 +5,7 @@ import { SectionHeading } from "./SectionHeading";
 
 const V = ko.print.cmp.view;
 const IDS = tableIds("cmp:err");
-const NO_VALUE = ko.print.cmp.db.none;
+const NO_VALUE = ko.print.cmp.none;
 
 // 칸 폭(mm): 단계 · 오류율 · 코드 열들(남는 폭 균등) · 변화
 const STEP_MM = 34;
@@ -40,12 +40,21 @@ export function ErrorTitle({
 
 type Side = { before: string; after: string; starBefore: boolean; starAfter: boolean };
 
-/** 「이전[*] → 이후[*]」 — 오류율 칸과 건수 칸이 같은 글자 조립을 쓴다. */
+/**
+ * 「이전[*] → 이후[*]」 — 두 조각이 각각 줄바꿈 없이, 조각 사이에서만 줄이 바뀐다.
+ * 건수 칸(`split`)만 이후 값을 굵게 한다.
+ */
 function BeforeAfter({ side, split }: { side: Side; split: boolean }) {
   const pre = `${side.before}${side.starBefore ? "*" : ""} →`;
   const post = `${side.after}${side.starAfter ? "*" : ""}`;
-  // 오류율: 한 줄 고정. 건수: 두 조각이 각각 줄바꿈 없이, 조각 사이에서만 줄이 바뀌고 이후 값은 굵게.
-  if (!split) return <span className="p-cmp-err-piece">{`${pre} ${post}`}</span>;
+  if (!split) {
+    return (
+      <>
+        <span className="p-cmp-err-piece">{pre}</span>{" "}
+        <span className="p-cmp-err-piece">{post}</span>
+      </>
+    );
+  }
   return (
     <>
       <span className="p-cmp-err-piece">{pre}</span> <b className="p-cmp-err-piece">{post}</b>

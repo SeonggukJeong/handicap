@@ -76,6 +76,30 @@ describe("OverlayChart", () => {
     );
   });
 
+  it("측정하지 않은 쪽이 있으면 「두 측정 모두 오류 없음」을 적지 않는다", () => {
+    const both = render(
+      <OverlayChart model={buildOverlay(run("b", []), run("a", []), true)} />,
+    ).container;
+    expect(both.textContent).not.toContain("두 측정 모두 오류 없음");
+    const one = render(
+      <OverlayChart model={buildOverlay(run("b", secs(10, 100)), run("a", []), true)} />,
+    ).container;
+    expect(one.textContent).not.toContain("두 측정 모두 오류 없음");
+  });
+
+  it("묶음이 하나뿐이어도 처리량 선분이 그려진다", () => {
+    const m = buildOverlay(run("b", secs(1, 100)), run("a", secs(1, 50)), false);
+    expect(m.before.bins).toHaveLength(1);
+    const { container } = render(<OverlayChart model={m} />);
+    const segs = container.querySelectorAll("line.p-cmp-ov-seg");
+    expect(segs).toHaveLength(2);
+    expect([...segs].filter((l) => l.hasAttribute("stroke-dasharray"))).toHaveLength(1);
+    for (const l of segs) {
+      expect(Number(l.getAttribute("x2"))).toBeGreaterThan(Number(l.getAttribute("x1")));
+    }
+    expect(container.innerHTML).not.toContain("NaN");
+  });
+
   it("한쪽만 빈 모델이면 있는 쪽 선만 그린다", () => {
     const m = buildOverlay(run("b", secs(10, 100, 5, 10)), run("a", []), true);
     const { container } = render(<OverlayChart model={m} />);

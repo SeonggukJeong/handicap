@@ -2490,6 +2490,7 @@ export const ko = {
       loadFailed: (reason: string) => `보고서를 불러오지 못했습니다: ${reason}`,
     },
     cmp: {
+      none: "–",
       metric: {
         errorRate: "오류율",
         errorRateHint: "전체 요청 중 실패한 비율",
@@ -2612,12 +2613,10 @@ export const ko = {
         crossOver: "기준 초과",
         onlyBefore: "(이후 측정에 없음)",
         onlyAfter: "(이전 측정에 없음)",
-        none: "–",
-        legend: "○ 이전 · ● 이후 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
-        legendBefore: "이전",
-        legendAfter: "이후",
+        legendBefore: "회색 점 = 이전",
+        legendAfter: "파란 점 = 이후",
+        legendBase: "┊ 기준",
         legendArrow: "화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
-        legendBaseline: "○ 이전 · ● 이후 · ┊ 기준 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
         value: (before: string, after: string) => `${before} → ${after}`,
         pct: (sign: string, n: number) => `(${sign}${n}%)`,
         ariaLabel: (value: string, word: string) => (word ? `${value} ${word}` : value),

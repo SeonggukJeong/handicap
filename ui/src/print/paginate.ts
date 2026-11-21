@@ -46,34 +46,6 @@ export function paginate(
     if (used + need > bodyMm + EPS_MM && current().length > 0) newPage();
   };
 
-  for (const b of blocks) {
-    if (b.kind === "atomic") {
-      ensureRoom(b.heightMm);
-      current().push({ kind: "atomic", id: b.id });
-      used += b.heightMm;
-      if (b.heightMm > bodyMm + EPS_MM) {
-        oversized.push(b.id);
-        forceBreak = true;
-      }
-      continue;
-    }
-    const head = b.titleMm + b.headerMm;
-    if (b.rowsMm.length === 0) {
-      ensureRoom(head);
-      current().push({ kind: "tableSlice", id: b.id, from: 0, to: 0, continued: false });
-      used += head;
-      if (head > bodyMm + EPS_MM) {
-        oversized.push(b.id);
-        forceBreak = true;
-      }
-      continue;
-    }
-    placeRows(b, head, true);
-  }
-
-  if (pages.length > 1 && current().length === 0) pages.pop();
-  return { pages, oversized: [...new Set(oversized)] };
-
   // 행이 있는 표를 놓고 놓은 조각 [from,to] 목록을 돌려준다. allowMove면 앞선 항목이 있는 쪽에서
   // 막 시작한 표가 한 행 조각을 만들 때 새 쪽 배치를 시험해 보고, 그 배치에 한 행 조각이
   // 없을 때만 채택한다(아니면 원래 자리에 그대로 놓는다).
@@ -115,18 +87,11 @@ export function paginate(
         }
       }
       if (needMove && canMove) {
-        const snap = {
-          pages: pages.length,
-          items: current().length,
-          used,
-          forceBreak,
-          oversized: oversized.length,
-        };
+        const snap = { pages: pages.length, used, forceBreak, oversized: oversized.length };
         newPage();
         const trial = placeRows(b, head, false);
         if (trial.every(([f, t]) => t - f >= Math.min(KEEP_ROWS, n))) return trial;
         pages.length = snap.pages;
-        current().length = snap.items;
         used = snap.used;
         forceBreak = snap.forceBreak;
         oversized.length = snap.oversized;
@@ -144,6 +109,34 @@ export function paginate(
     }
     return placed;
   }
+
+  for (const b of blocks) {
+    if (b.kind === "atomic") {
+      ensureRoom(b.heightMm);
+      current().push({ kind: "atomic", id: b.id });
+      used += b.heightMm;
+      if (b.heightMm > bodyMm + EPS_MM) {
+        oversized.push(b.id);
+        forceBreak = true;
+      }
+      continue;
+    }
+    const head = b.titleMm + b.headerMm;
+    if (b.rowsMm.length === 0) {
+      ensureRoom(head);
+      current().push({ kind: "tableSlice", id: b.id, from: 0, to: 0, continued: false });
+      used += head;
+      if (head > bodyMm + EPS_MM) {
+        oversized.push(b.id);
+        forceBreak = true;
+      }
+      continue;
+    }
+    placeRows(b, head, true);
+  }
+
+  if (pages.length > 1 && current().length === 0) pages.pop();
+  return { pages, oversized: [...new Set(oversized)] };
 }
 
 export function chooseSummaryLevel<L extends number = LadderLevel>(

@@ -1,7 +1,7 @@
 // 응답 속도 구간 비교 모델(순수): 두 측정의 전체 요청 구간을 한 표로. spec §9.4.
 import { ko } from "../../i18n/ko";
 import { fmtBoundary, fmtPct } from "../format";
-import { buildOverallBand, type BandName, type OverallBand } from "../speedBands";
+import { buildOverallBand, rowTotal, type BandName, type OverallBand } from "../speedBands";
 import type { RunModel } from "./runModel";
 
 const K = ko.print.speed;
@@ -34,7 +34,7 @@ function row(
   const band = buildOverallBand(o, run.report.summary);
   const boundary = show.same ? null : C.boundary(fmtBoundary(o.slow_ms));
   const merged = show.threeCols && band.twoBand && band.bar !== null;
-  const total = o.within + o.over;
+  const total = rowTotal(o);
   return {
     role,
     boundary,

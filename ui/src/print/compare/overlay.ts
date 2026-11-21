@@ -21,6 +21,8 @@ export type OverlayModel = {
   before: OverlaySide;
   after: OverlaySide;
   hasErrors: boolean;
+  /** 둘 다 요청이 있고 비교할 수 있는데 오류가 없다 — 측정하지 않은 쪽을 「오류 없음」이라 적지 않는다 */
+  noErrorsNote: boolean;
   rpsTicks: number[];
   errTicks: number[];
   timeTicks: number[];
@@ -28,7 +30,7 @@ export type OverlayModel = {
   durationNote: string | null;
 };
 
-/** 오류가 거의 없다고 읽는 상한: 이전 오류 합의 5% */
+/** 오류가 거의 없다고 읽는 상한: 이전 초당 평균 오류의 5% */
 const NEAR_NONE = 0.05;
 const NOTE_RATIO = 0.05;
 
@@ -69,7 +71,9 @@ function readingLine(before: OverlaySide, after: OverlaySide, incomparable: bool
   // 오류가 있으면(errTotal > 0) 오류 묶음이 있어 firstErrSec는 null이 아니다
   const b = before.firstErrSec;
   const a = after.firstErrSec;
-  if (b !== null && after.errTotal <= before.errTotal * NEAR_NONE) return K.readingDropped(at(b));
+  // 두 측정의 기간이 다를 수 있어 합계가 아니라 초당 평균 오류로 견준다(b가 null이 아니면 둘 다 기간이 있다)
+  const perSec = (s: OverlaySide): number => (s.durationSec > 0 ? s.errTotal / s.durationSec : 0);
+  if (b !== null && perSec(after) <= perSec(before) * NEAR_NONE) return K.readingDropped(at(b));
   if (b !== null && a !== null) return K.readingBoth(at(b), at(a));
   if (a !== null) return K.readingAfterOnly(at(a));
   return K.readingNone;
@@ -98,6 +102,7 @@ export function buildOverlay(
     before: b,
     after: a,
     hasErrors,
+    noErrorsNote: !hasErrors && !incomparable && b.bins.length > 0 && a.bins.length > 0,
     rpsTicks: niceTicks(
       maxOf((x) => x.rps),
       5,

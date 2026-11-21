@@ -125,7 +125,7 @@ export function buildCompareDoc(a: {
     starNote: star && !incomparable ? starFootnote(pairs) : null,
     issues: incomparable ? [] : remainingIssues(after, pairs),
     incomparable,
-    dumbbell: buildDumbbell(before, after),
+    dumbbell: buildDumbbell(before, after, pairs),
     errors: buildErrorTable({ before, after, pairs, incomparable }),
     overlay: buildOverlay(before, after, incomparable),
     speed: buildSpeedCompare(before, after),

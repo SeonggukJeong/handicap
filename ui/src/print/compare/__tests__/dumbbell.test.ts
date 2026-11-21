@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildDumbbell, DB, type DbClass, type DbShape } from "../dumbbell";
+import {
+  buildDumbbell as buildDumbbellFromPairs,
+  DB,
+  type DbClass,
+  type DbShape,
+} from "../dumbbell";
+import { stepPairs } from "../errorCells";
 import type { RunModel } from "../runModel";
+import { expectClean } from "./expectClean";
 import { sceneModel } from "./scene";
+
+const buildDumbbell = (before: RunModel, after: RunModel) =>
+  buildDumbbellFromPairs(before, after, stepPairs(before, after));
 
 type Crit = Record<string, unknown>;
 
@@ -164,6 +174,29 @@ describe("buildDumbbell", () => {
     expect(r.cls).toBeNull();
   });
 
+  it("요청이 전부 보내지 않음인 쪽은 응답 시간이 없어 점·분류·화살표가 없다", () => {
+    const steps = [{ id: "s1", name: "가" }];
+    const before = sceneModel({
+      id: "b",
+      steps,
+      rep: [{ id: "s1", counts: { "200": 10 }, errors: 0, p95: 2100 }],
+    });
+    const after = sceneModel({
+      id: "a",
+      steps,
+      rep: [{ id: "s1", counts: { "0": 10 }, errors: 10, p95: 0, notSent: 10 }],
+    });
+    expect(after.table.rows[0]!.count).toBe(10);
+    const r = buildDumbbell(before, after).rows[0]!;
+    expect(r.shape).toBe("single");
+    expect(r.cls).toBeNull();
+    expect(r.wordText).toBe("");
+    expect(r.afterMs).toBeNull();
+    expect(r.afterText).toBe("–");
+    expect(r.beforeText).toBe("2.1초");
+    expect(r.valueText).toBe("2.1초 → –");
+  });
+
   it("양쪽 모두 실행되지 않은 단계는 점 없는 행(none)", () => {
     const steps = [
       { id: "s1", name: "가" },
@@ -179,9 +212,7 @@ describe("buildDumbbell", () => {
     expect(r.xBefore).toBeNull();
     expect(r.xAfter).toBeNull();
     expect(r.cls).toBeNull();
-    const json = JSON.stringify(r);
-    expect(json).not.toContain("NaN");
-    expect(json).not.toContain("undefined");
+    expectClean(r);
   });
 
   describe("기준선", () => {
@@ -195,7 +226,9 @@ describe("buildDumbbell", () => {
       expect(m.rows[0]!.crossText).toBe("기준 안으로");
       expect(m.rows[1]!.crossText).toBe("기준 초과");
       expect(m.legend).toContain("┊ 기준");
-      expect(m.legend).toBe("○ 이전 · ● 이후 · ┊ 기준 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐");
+      expect(m.legend).toBe(
+        "회색 점 = 이전 · 파란 점 = 이후 · ┊ 기준 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
+      );
     });
     it("기준과 같은 값은 기준 안쪽으로 센다 · 기준선 x", () => {
       const lim = { max_p95_ms: 3000 };
@@ -223,7 +256,9 @@ describe("buildDumbbell", () => {
       expect(m.baseline).toBeNull();
       expect(m.rows.every((r) => r.crossText === null)).toBe(true);
       expect(m.legend).not.toContain("┊");
-      expect(m.legend).toBe("○ 이전 · ● 이후 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐");
+      expect(m.legend).toBe(
+        "회색 점 = 이전 · 파란 점 = 이후 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
+      );
     });
   });
 
@@ -234,9 +269,7 @@ describe("buildDumbbell", () => {
     );
     expect(m.rows).toHaveLength(5);
     expect(m.rows.every((r) => r.shape === "single" && r.cls === null)).toBe(true);
-    const json = JSON.stringify(m);
-    expect(json).not.toContain("NaN");
-    expect(json).not.toContain("undefined");
+    expectClean(m);
     for (const r of m.rows) {
       for (const x of [r.xBefore, r.xAfter]) expect(x === null || Number.isFinite(x)).toBe(true);
     }

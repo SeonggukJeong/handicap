@@ -65,6 +65,37 @@ function Bars(props: {
   );
 }
 
+/** 묶음 중심을 잇는 선. 묶음이 하나뿐이면 점 하나짜리 선은 보이지 않으므로 그 묶음 폭만큼의 가로 선분. */
+function RpsLine(props: {
+  side: OverlaySide;
+  d: number;
+  y: (v: number) => number;
+  color: string;
+  dash?: string;
+}) {
+  const { side, d, y, color, dash } = props;
+  if (side.bins.length === 0) return null;
+  const common = { stroke: color, strokeWidth: 0.5, strokeDasharray: dash };
+  if (side.bins.length === 1) {
+    const b = side.bins[0]!;
+    const yy = y(b.rps);
+    return (
+      <line
+        className="p-cmp-ov-seg"
+        x1={r2(markerX(b.startSec, d))}
+        x2={r2(markerX(b.startSec + b.seconds, d))}
+        y1={yy}
+        y2={yy}
+        {...common}
+      />
+    );
+  }
+  const points = side.bins
+    .map((b) => `${r2(markerX(b.startSec + b.seconds / 2, d))},${y(b.rps)}`)
+    .join(" ");
+  return <polyline points={points} fill="none" {...common} />;
+}
+
 function Svg({ model }: { model: OverlayModel }) {
   const d = model.durationSec;
   const plotH = PLOT_BOTTOM - PLOT_TOP;
@@ -72,8 +103,6 @@ function Svg({ model }: { model: OverlayModel }) {
   const errMax = Math.max(model.errTicks[model.errTicks.length - 1] ?? 1, 1e-9);
   const yRps = (v: number) => r2(PLOT_BOTTOM - (v / rpsMax) * plotH);
   const yErr = (v: number) => r2(PLOT_BOTTOM - (v / errMax) * plotH);
-  const points = (s: OverlaySide) =>
-    s.bins.map((b) => `${r2(markerX(b.startSec + b.seconds / 2, d))},${yRps(b.rps)}`).join(" ");
   return (
     <svg
       className="p-cmp-ov"
@@ -151,18 +180,8 @@ function Svg({ model }: { model: OverlayModel }) {
           />
         </>
       )}
-      {model.before.bins.length > 0 && (
-        <polyline
-          points={points(model.before)}
-          fill="none"
-          stroke={COLOR_BEFORE}
-          strokeWidth={0.5}
-          strokeDasharray="1.5 1"
-        />
-      )}
-      {model.after.bins.length > 0 && (
-        <polyline points={points(model.after)} fill="none" stroke={COLOR_AFTER} strokeWidth={0.5} />
-      )}
+      <RpsLine side={model.before} d={d} y={yRps} color={COLOR_BEFORE} dash="1.5 1" />
+      <RpsLine side={model.after} d={d} y={yRps} color={COLOR_AFTER} />
     </svg>
   );
 }
@@ -202,7 +221,7 @@ function Legend({ model }: { model: OverlayModel }) {
           </span>
         </>
       ) : (
-        <span>{K.legendNoErrors}</span>
+        model.noErrorsNote && <span>{K.legendNoErrors}</span>
       )}
       {model.durationNote && <span>{model.durationNote}</span>}
     </div>

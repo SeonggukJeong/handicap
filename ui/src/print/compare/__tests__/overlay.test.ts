@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ReportSchema, type Report } from "../../../api/schemas";
 import { buildOverlay } from "../overlay";
 import { buildRunModel, type RunModel } from "../runModel";
+import { expectClean } from "./expectClean";
 import { mkMeta, mkReport, scenarioYaml } from "./fixtures";
 
 const T0_SEC = 1_700_000_000;
@@ -34,19 +35,6 @@ function run(id: string, windows: W[]): RunModel {
 /** 초마다 `count`건, `errFrom`초부터 오류 `err`건. */
 const secs = (n: number, count: number, errFrom = Infinity, err = 0): W[] =>
   Array.from({ length: n }, (_, i) => win(i, count, i >= errFrom ? err : 0));
-
-/** NaN·undefined가 어디에도 없다(JSON.stringify는 NaN을 null로 바꿔 못 잡는다). */
-function expectClean(v: unknown, path = "$"): void {
-  if (typeof v === "number") expect(Number.isNaN(v) || !Number.isFinite(v), path).toBe(false);
-  else if (v === undefined) throw new Error(`undefined at ${path}`);
-  else if (typeof v === "string") {
-    expect(v.includes("NaN"), path).toBe(false);
-    expect(v.includes("undefined"), path).toBe(false);
-  } else if (Array.isArray(v)) v.forEach((x, i) => expectClean(x, `${path}[${i}]`));
-  else if (v !== null && typeof v === "object") {
-    for (const [k, x] of Object.entries(v)) expectClean(x, `${path}.${k}`);
-  }
-}
 
 describe("buildOverlay 묶음", () => {
   it("공통 묶음: 이전 60초 · 이후 1,800초 → 15초 묶음, 4개 · 120개, 기간이 다르다는 글", () => {
@@ -114,6 +102,31 @@ describe("buildOverlay 읽는 법", () => {
   it("이후에만 오류 → 셋째 갈래", () => {
     const m = buildOverlay(run("b", secs(10, 100)), run("a", secs(10, 100, 7, 10)), false);
     expect(m.reading).toBe("이후 측정에서 7초 지점부터 오류가 생겼습니다.");
+  });
+
+  it("기간이 다르면 합계가 아니라 초당 평균 오류로 「거의 없음」을 가른다", () => {
+    // 이전 150초·450건(3건/초), 이후 20초·16건(0.8건/초): 합계는 5% 이하지만 초당은 아니다
+    const before = run("b", secs(150, 100, 0, 3));
+    const sixteen = Array.from({ length: 20 }, (_, i) => win(i, 100, i < 16 ? 1 : 0));
+    const notNear = buildOverlay(before, run("a", sixteen), false);
+    expect(notNear.reading).toBe("두 측정 모두 오류가 있습니다(이전 0초부터, 이후 0초부터).");
+    // 이전 150초·450건, 이후 20초·1건: 초당으로도 5% 이하
+    const near = buildOverlay(before, run("a", [win(0, 100, 1), ...secs(19, 100).slice(1)]), false);
+    expect(near.reading).toBe("이전에는 0초 지점부터 오류가 쌓였지만, 이후에는 거의 없습니다.");
+  });
+
+  it("noErrorsNote: 둘 다 요청이 있고 오류가 없을 때만 true", () => {
+    expect(buildOverlay(run("b", secs(10, 5)), run("a", secs(10, 5)), false).noErrorsNote).toBe(
+      true,
+    );
+    expect(buildOverlay(run("b", []), run("a", []), true).noErrorsNote).toBe(false);
+    expect(buildOverlay(run("b", secs(10, 5)), run("a", []), true).noErrorsNote).toBe(false);
+    expect(buildOverlay(run("b", secs(10, 5)), run("a", secs(10, 5)), true).noErrorsNote).toBe(
+      false,
+    );
+    expect(
+      buildOverlay(run("b", secs(10, 5, 5, 2)), run("a", secs(10, 5)), false).noErrorsNote,
+    ).toBe(false);
   });
 
   it("둘 다 없음 → 넷째 갈래", () => {
