@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { buildDumbbell } from "../dumbbell";
-import { DumbbellTable } from "../components/DumbbellTable";
+import { DumbbellLegend, DumbbellTable } from "../components/DumbbellTable";
 import { sceneModel } from "./scene";
 
 const prof = (criteria?: Record<string, unknown>) => ({
@@ -171,12 +171,90 @@ describe("DumbbellTable", () => {
     expect(b.container.querySelector("[data-measure]")).toBeNull();
   });
 
+  it("점·화살촉 색: 이전 회색, 좋아짐 파랑, 나빠짐 빨강", () => {
+    const { rows } = renderTable();
+    const fills = (i: number, sel: string) =>
+      [...rows[i]!.querySelectorAll(sel)].map((e) => e.getAttribute("fill"));
+    // 행 4: 1.2초 → 3.4초(느려짐, 화살표) · 행 5: 4.8초 → 0.4초(빨라짐, 화살표) · 행 3: 좁은 느려짐
+    expect(fills(4, "circle")).toEqual(["#9aa1ad", "#b42318"]);
+    expect(fills(4, "path")).toEqual(["#b42318"]);
+    expect(rows[4]!.querySelector("line")!.getAttribute("stroke")).toBe("#b42318");
+    expect(fills(5, "circle")).toEqual(["#9aa1ad", "#3b4bc8"]);
+    expect(fills(5, "path")).toEqual(["#3b4bc8"]);
+    expect(fills(3, "circle")).toEqual(["#9aa1ad", "#b42318"]);
+    expect(fills(3, "path")).toEqual(["#b42318"]);
+  });
+
+  it("첫 줄: 이전 부분은 회색 그대로, 이후 값(퍼센트 포함)만 굵게 분류 색", () => {
+    const { rows } = renderTable();
+    const first = (i: number) => rows[i]!.querySelector("td:nth-child(3) > div") as HTMLElement;
+    const worse = first(4);
+    expect(worse.textContent).toBe("1.2초 → 3.4초 (+183%)");
+    expect(worse.querySelector("b.p-cmp-bad")!.textContent).toBe("3.4초 (+183%)");
+    expect(worse.firstChild!.textContent).toBe("1.2초 → ");
+    expect(first(2).querySelector("b.p-cmp-ok")!.textContent).toBe("0.95초 (−14%)");
+    expect(first(0).querySelector("b")).toBeNull();
+    expect(first(0).textContent).toBe("1.0초 → 1.0초");
+  });
+
+  it("한쪽에만 있는 행의 첫 줄에는 색 입힌 부분이 없다", () => {
+    const m = buildDumbbell(
+      sceneModel({
+        id: "b",
+        steps: [{ id: "x", name: "가" }],
+        rep: [{ id: "x", counts: { "200": 10 }, errors: 0, p95: 900 }],
+      }),
+      sceneModel({
+        id: "a",
+        steps: [{ id: "y", name: "나" }],
+        rep: [{ id: "y", counts: { "200": 10 }, errors: 0, p95: 800 }],
+      }),
+    );
+    const { rows } = renderTable(m);
+    for (const r of rows) expect(r.querySelector("td:nth-child(3) > div b")).toBeNull();
+  });
+
   it("글자 칸: 첫 줄 이전 → 이후, 둘째 줄 낱말(색 클래스)·기준 교차", () => {
     const { rows } = renderTable(model());
     const last = rows[4]!.querySelectorAll("td")[2]!;
     expect(last.textContent).toContain("1.2초 → 3.4초 (+183%)");
-    expect(last.querySelector("b.p-cmp-bad")?.textContent).toBe("느려짐");
-    expect(rows[2]!.querySelector("td:nth-child(3) b.p-cmp-ok")?.textContent).toBe("빨라짐");
-    expect(rows[0]!.querySelector("td:nth-child(3) b.p-cmp-same")?.textContent).toBe("= 비슷");
+    const word = (i: number, cls: string) =>
+      rows[i]!.querySelector(`td:nth-child(3) > div:nth-child(2) b.${cls}`)?.textContent;
+    expect(word(4, "p-cmp-bad")).toBe("느려짐");
+    expect(word(2, "p-cmp-ok")).toBe("빨라짐");
+    expect(word(0, "p-cmp-same")).toBe("= 비슷");
+  });
+});
+
+describe("DumbbellLegend", () => {
+  const dots = (c: HTMLElement) => [...c.querySelectorAll("i.p-cmp-db-sw")] as HTMLElement[];
+
+  it("기준선이 없으면 점 견본 둘, ┊·기준 글자 없음, 접근명은 모델 범례", () => {
+    const m = model();
+    const { container } = render(<DumbbellLegend model={m} />);
+    const root = container.querySelector(".p-cmp-db-legend") as HTMLElement;
+    expect(root.getAttribute("aria-label")).toBe(m.legend);
+    expect(dots(root).map((e) => e.style.background)).toEqual([
+      "rgb(154, 161, 173)",
+      "rgb(59, 75, 200)",
+    ]);
+    expect(root.textContent).toContain("이전");
+    expect(root.textContent).toContain("이후");
+    expect(root.textContent).toContain("화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐");
+    expect(root.textContent).not.toContain("┊");
+    expect(root.textContent).not.toContain("기준");
+    for (const child of root.children) expect(child.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("기준선이 있으면 빨강 ┊와 기준 글자가 붙는다", () => {
+    const m = model({ max_p95_ms: 3000 });
+    const { container } = render(<DumbbellLegend model={m} />);
+    const root = container.querySelector(".p-cmp-db-legend") as HTMLElement;
+    expect(root.getAttribute("aria-label")).toBe(m.legend);
+    expect(dots(root)).toHaveLength(2);
+    const mark = root.querySelector("b") as HTMLElement;
+    expect(mark.textContent).toBe("┊");
+    expect(mark.style.color).toBe("rgb(180, 35, 24)");
+    expect(root.textContent).toContain("┊ 기준 3초");
   });
 });

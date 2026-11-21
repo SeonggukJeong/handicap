@@ -18,6 +18,8 @@ export const DB = {
   MERGE: 4,
   TRI_GAP: 9,
   TRI_LEN: 7,
+  TIP_GAP: 6,
+  HEAD_HALF: 4.5,
 } as const;
 
 export type DbClass = "better" | "worse" | "similar";
@@ -35,6 +37,11 @@ export type DumbbellRow = {
   cls: DbClass | null;
   shape: DbShape;
   dir: -1 | 0 | 1;
+  /** 이전 값 글자 */
+  beforeText: string;
+  /** 이후 값 글자(있으면 퍼센트 괄호 포함) */
+  afterText: string;
+  /** `beforeText → afterText` */
   valueText: string;
   wordText: string;
   crossText: string | null;
@@ -124,11 +131,12 @@ export function buildDumbbell(before: RunModel, after: RunModel): DumbbellModel 
 
     const dir: -1 | 0 | 1 = both ? (a > b ? 1 : a < b ? -1 : 0) : 0;
     const { bt, at } = valueTexts(b, a, cls);
-    let valueText = t.value(bt, at);
+    let afterText = at;
     if (both && cls !== "similar" && b > 0) {
       const pct = Math.round((Math.abs(a - b) / b) * 100);
-      valueText += ` ${t.pct(a > b ? "+" : MINUS, pct)}`;
+      afterText += ` ${t.pct(a > b ? "+" : MINUS, pct)}`;
     }
+    const valueText = t.value(bt, afterText);
     const wordText =
       cls === "better" ? t.faster : cls === "worse" ? t.slower : cls === "similar" ? t.similar : "";
 
@@ -152,6 +160,8 @@ export function buildDumbbell(before: RunModel, after: RunModel): DumbbellModel 
       cls,
       shape,
       dir,
+      beforeText: bt,
+      afterText,
       valueText,
       wordText,
       crossText,

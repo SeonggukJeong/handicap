@@ -72,6 +72,14 @@ describe("buildDumbbell", () => {
     expect(m.rows[0]!.label).toBe("① 단계1");
   });
 
+  it("valueText는 beforeText → afterText이고 이후 글에 퍼센트 괄호가 든다", () => {
+    const m = build(CASES.map((c) => [c[0], c[1]]));
+    m.rows.forEach((r) => expect(r.valueText).toBe(`${r.beforeText} → ${r.afterText}`));
+    expect([m.rows[2]!.beforeText, m.rows[2]!.afterText]).toEqual(["1.1초", "0.95초 (−14%)"]);
+    expect([m.rows[4]!.beforeText, m.rows[4]!.afterText]).toEqual(["1.2초", "3.4초 (+183%)"]);
+    expect([m.rows[0]!.beforeText, m.rows[0]!.afterText]).toEqual(["1.0초", "1.0초"]);
+  });
+
   it("비슷인데 간격이 넓으면 점 둘(dots)", () => {
     const m = build([[1000, 1040]]);
     expect(m.axisMaxMs).toBe(1200);

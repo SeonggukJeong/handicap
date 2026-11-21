@@ -19,6 +19,7 @@ import { FairCards } from "./components/FairCards";
 import { HeadlineHeading, VerdictRow } from "./components/HeadlineBox";
 import { IssuesBox } from "./components/IssuesBox";
 import { KpiCompareTable, KpiNote } from "./components/KpiCompareTable";
+import { DumbbellLegend } from "./components/DumbbellTable";
 import { CMP_TABLES } from "./tables";
 
 type Kind = "standard" | "summary";
@@ -53,7 +54,7 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
     case "cmp:kpi:note":
       return <KpiNote doc={doc} clamp={clamp} />;
     case "cmp:db:legend":
-      return <div className="p-cmp-db-legend">{doc.dumbbell.legend}</div>;
+      return <DumbbellLegend model={doc.dumbbell} />;
     case "signature":
       return <SignatureBlock />;
     default:

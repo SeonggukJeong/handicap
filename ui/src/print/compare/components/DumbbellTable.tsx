@@ -52,14 +52,14 @@ function AxisSvg({ model }: { model: DumbbellModel }) {
 
 function arrowHead(tip: number, y: number, dir: number, color: string) {
   const base = tip - dir * DB.TRI_LEN;
-  return <path d={`M${tip} ${y}L${base} ${y - 4.5}L${base} ${y + 4.5}z`} fill={color} />;
+  const h = DB.HEAD_HALF;
+  return <path d={`M${tip} ${y}L${base} ${y - h}L${base} ${y + h}z`} fill={color} />;
 }
 
 function RowSvg({ row }: { row: DumbbellRow }) {
   const y = DB.ROW_H / 2;
   const { xBefore, xAfter, dir, shape } = row;
-  const afterColor = row.cls === "worse" ? RED : BLUE;
-  const arrowColor = row.cls === "worse" ? RED : BLUE;
+  const color = row.cls === "worse" ? RED : BLUE;
   const aria = T.ariaLabel(row.valueText, row.wordText);
   let body: React.ReactNode = null;
   if (shape === "single") {
@@ -78,28 +78,28 @@ function RowSvg({ row }: { row: DumbbellRow }) {
         </>
       );
     } else if (shape === "arrow") {
-      const tip = xAfter - dir * (DB.RAD + 1);
+      const tip = xAfter - dir * DB.TIP_GAP;
       body = (
         <>
           <line
             x1={xBefore + dir * DB.RAD}
-            x2={tip - dir * 6}
+            x2={tip - dir * DB.TIP_GAP}
             y1={y}
             y2={y}
-            stroke={arrowColor}
+            stroke={color}
             strokeWidth={2}
           />
-          {arrowHead(tip, y, dir, arrowColor)}
+          {arrowHead(tip, y, dir, color)}
           <circle cx={xBefore} cy={y} r={DB.RAD} fill={GRAY} />
-          <circle cx={xAfter} cy={y} r={DB.RAD} fill={afterColor} />
+          <circle cx={xAfter} cy={y} r={DB.RAD} fill={color} />
         </>
       );
     } else if (shape === "tri") {
       body = (
         <>
           <circle cx={xBefore} cy={y} r={DB.RAD} fill={GRAY} />
-          <circle cx={xAfter} cy={y} r={DB.RAD} fill={afterColor} />
-          {arrowHead(xAfter + dir * (DB.RAD + DB.TRI_GAP), y, dir, arrowColor)}
+          <circle cx={xAfter} cy={y} r={DB.RAD} fill={color} />
+          {arrowHead(xAfter + dir * (DB.RAD + DB.TRI_GAP), y, dir, color)}
         </>
       );
     }
@@ -120,6 +120,30 @@ function RowSvg({ row }: { row: DumbbellRow }) {
 const WORD_CLASS = { better: "p-cmp-ok", worse: "p-cmp-bad", similar: "p-cmp-same" } as const;
 
 /** `model.rows`는 전체, [from, to)만 그린다(측정 id = 전체 인덱스). */
+const SWATCH = { before: GRAY, after: BLUE } as const;
+
+/** 범례: 그림의 점과 같은 색 견본. 접근명은 모델의 범례 글. */
+export function DumbbellLegend({ model }: { model: DumbbellModel }) {
+  return (
+    <div className="p-cmp-db-legend" aria-label={model.legend}>
+      <span aria-hidden="true">
+        <i className="p-cmp-db-sw" style={{ background: SWATCH.before }} />
+        {T.legendBefore}
+      </span>
+      <span aria-hidden="true">
+        <i className="p-cmp-db-sw" style={{ background: SWATCH.after }} />
+        {T.legendAfter}
+      </span>
+      {model.baseline && (
+        <span aria-hidden="true">
+          <b style={{ color: RED }}>┊</b> {model.baseline.label}
+        </span>
+      )}
+      <span aria-hidden="true">{T.legendArrow}</span>
+    </div>
+  );
+}
+
 export function DumbbellTable(props: {
   model: DumbbellModel;
   from: number;
@@ -161,7 +185,14 @@ export function DumbbellTable(props: {
               <RowSvg row={r} />
             </td>
             <td className="p-l p-cmp-db-text">
-              <div>{r.valueText}</div>
+              <div>
+                {`${r.beforeText} → `}
+                {r.cls === "similar" || r.cls === null ? (
+                  r.afterText
+                ) : (
+                  <b className={WORD_CLASS[r.cls]}>{r.afterText}</b>
+                )}
+              </div>
               <div>
                 {r.cls && <b className={WORD_CLASS[r.cls]}>{r.wordText}</b>}
                 {r.crossText && (

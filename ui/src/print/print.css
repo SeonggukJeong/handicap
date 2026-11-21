@@ -950,8 +950,20 @@
   white-space: nowrap;
 }
 .p-root .p-cmp-db-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2mm 5mm;
   font-size: 7.5pt;
   color: var(--sub);
+  align-items: center;
+}
+.p-root .p-cmp-db-sw {
+  display: inline-block;
+  width: 4mm;
+  height: 3mm;
+  vertical-align: middle;
+  margin-right: 1mm;
+  border-radius: 50%;
 }
 
 @media print {
