@@ -1253,6 +1253,7 @@ mod tests {
                 worker_count: None,
                 apply_scenario_think_time: true,
                 stair: None,
+                steady: None,
             },
             env: serde_json::Value::Object(serde_json::Map::new()),
             status: RunStatus::Completed,

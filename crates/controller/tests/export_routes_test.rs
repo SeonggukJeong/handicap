@@ -94,6 +94,7 @@ async fn seed_run_with_stair(
         worker_count: None,
         apply_scenario_think_time: true,
         stair,
+        steady: None,
     };
     let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env, None)
         .await
@@ -236,6 +237,7 @@ async fn export_of_nonterminal_run_is_rejected() {
         worker_count: None,
         apply_scenario_think_time: true,
         stair: None,
+        steady: None,
     };
     let row = store::runs::insert(
         &db,
@@ -321,6 +323,7 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
         worker_count: None,
         apply_scenario_think_time: true,
         stair: None,
+        steady: None,
     };
 
     // Run A

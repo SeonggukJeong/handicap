@@ -47,6 +47,7 @@ fn profile() -> Profile {
         worker_count: None,
         apply_scenario_think_time: true,
         stair: None,
+        steady: None,
     }
 }
 

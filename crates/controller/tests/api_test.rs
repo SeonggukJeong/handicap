@@ -1160,3 +1160,82 @@ async fn non_stair_run_response_bytes_unchanged() {
     expected.sort_unstable();
     assert_eq!(keys, expected);
 }
+
+const STEADY_YAML: &str = "version: 1\nname: steady\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+
+async fn post_run_status(
+    app: &axum::Router,
+    scenario_id: &str,
+    profile: Value,
+) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "scenario_id": scenario_id, "profile": profile, "env": {} }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn run_create_with_steady_open_ramp_stores_stages() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = create_scenario(&app, STEADY_YAML).await;
+    let (status, created) = post_run_status(
+        &app,
+        &sid,
+        json!({
+            "max_in_flight": 50, "duration_seconds": 0,
+            "steady": { "target": 40, "ramp_seconds": 20, "hold_seconds": 40, "discard_seconds": 5 }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    let got = get_run_json(&app, created["id"].as_str().unwrap()).await;
+    assert_eq!(got["profile"]["steady"]["target"], json!(40));
+    assert_eq!(got["profile"]["stages"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn run_create_rejects_open_loop_ramp_up_without_steady() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = create_scenario(&app, STEADY_YAML).await;
+    let (status, body) = post_run_status(
+        &app,
+        &sid,
+        json!({ "target_rps": 40, "max_in_flight": 50, "duration_seconds": 60, "ramp_up_seconds": 20 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+}
+
+#[tokio::test]
+async fn run_create_rejects_steady_with_stair() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = create_scenario(&app, STEADY_YAML).await;
+    let (status, body) = post_run_status(
+        &app,
+        &sid,
+        json!({
+            "max_in_flight": 50, "duration_seconds": 0,
+            "stair": { "targets": [100, 200], "hold_seconds": 60, "ramp_seconds": 5, "discard_seconds": 10 },
+            "steady": { "target": 40, "ramp_seconds": 20, "hold_seconds": 40, "discard_seconds": 5 }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.to_string().contains("steady"), "{body}");
+}

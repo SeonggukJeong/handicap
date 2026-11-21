@@ -146,7 +146,9 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
             }
         };
         let mut profile = sched.profile.clone();
-        if let Err(e) = crate::stair::normalize_stair(&mut profile) {
+        if let Err(e) = crate::stair::normalize_stair(&mut profile)
+            .and_then(|()| crate::steady::normalize_steady(&mut profile))
+        {
             let d = format!("검증 실패: {e}");
             record(
                 state,
@@ -340,6 +342,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         }
     }
 
@@ -662,6 +665,34 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(run.profile.stair.unwrap().auto_stop, Some(auto));
+    }
+
+    #[tokio::test]
+    async fn fire_normalizes_steady_profile() {
+        let state = test_state().await;
+        let sid = seed_scenario(&state.db).await;
+        let t = Trigger::Once {
+            run_at: NOW - 1_000,
+        };
+        let mut p = profile();
+        p.duration_seconds = 0;
+        p.vus = 0;
+        p.max_in_flight = Some(50);
+        p.steady = Some(crate::steady::SteadyConfig {
+            ramp_seconds: 20,
+            hold_seconds: 40,
+            discard_seconds: 5,
+            target: Some(40),
+        });
+        let id = insert_sched(&state.db, &sid, &p, &t, Some(NOW - 1_000)).await;
+        let sum = process_due_schedules(&state, NOW).await;
+        assert_eq!(sum.fired, 1, "{:?}", schedules::get(&state.db, &id).await);
+        let g = schedules::get(&state.db, &id).await.unwrap().unwrap();
+        let run = crate::store::runs::get(&state.db, g.last_run_id.as_deref().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.profile.stages.unwrap().len(), 2);
     }
 
     #[tokio::test]

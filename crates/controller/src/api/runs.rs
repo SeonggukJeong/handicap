@@ -1070,6 +1070,7 @@ pub async fn create(
         .ok_or(ApiError::NotFound)?;
 
     crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
+    crate::steady::normalize_steady(&mut body.profile).map_err(ApiError::BadRequest)?;
     let validated_meta = validate_run_config(&state, &body.profile).await?;
     validate_step_criteria_targets(&body.profile, &scenario.yaml).map_err(ApiError::BadRequest)?;
     let label = normalize_label(body.label).map_err(ApiError::BadRequest)?;
@@ -1753,6 +1754,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         }
     }
 
@@ -1965,6 +1967,7 @@ steps:
                 worker_count: None,
                 apply_scenario_think_time: true,
                 stair: None,
+                steady: None,
             }
         }
         let mk = |target: &str| {
@@ -2039,6 +2042,7 @@ steps:
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -2092,6 +2096,7 @@ steps:
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         }
     }
 
@@ -2148,6 +2153,7 @@ steps:
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         }
     }
 
@@ -2936,6 +2942,7 @@ steps:
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         }
     }
 
@@ -3919,6 +3926,7 @@ steps:
             max_in_flight: Some(50),
             apply_scenario_think_time: apply,
             stair: None,
+            steady: None,
             ..closed_min()
         };
         p.vus = 0;
@@ -3949,6 +3957,7 @@ steps:
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         }
     }
 

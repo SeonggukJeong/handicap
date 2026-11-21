@@ -113,6 +113,7 @@ mod tests {
             worker_count: Some(211),
             apply_scenario_think_time: false,
             stair: None,
+            steady: None,
         }
     }
 
@@ -242,6 +243,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
         let expected = pb::Profile {
             vus: 0,

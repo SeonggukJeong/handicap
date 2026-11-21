@@ -424,3 +424,77 @@ async fn preset_create_and_update_roundtrip_auto_stop() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
     assert!(resp.to_string().contains(msg), "POST: {resp}");
 }
+
+fn steady_profile() -> Value {
+    json!({
+        "max_in_flight": 50,
+        "duration_seconds": 0,
+        "steady": { "target": 40, "ramp_seconds": 20, "hold_seconds": 40, "discard_seconds": 5 }
+    })
+}
+
+#[tokio::test]
+async fn preset_save_and_update_normalize_steady() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = create_scenario(&app, YAML).await;
+    let (s, created) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "steady", "profile": steady_profile(), "env": {} }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{created:?}");
+    assert_eq!(created["profile"]["stages"].as_array().unwrap().len(), 2);
+    let pid = created["id"].as_str().unwrap().to_string();
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri(format!("/api/presets/{pid}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "name": "steady", "profile": steady_profile(), "env": {} }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["profile"]["stages"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn preset_resave_of_normalized_profile_is_accepted() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = create_scenario(&app, YAML).await;
+    let (s, created) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "steady", "profile": steady_profile(), "env": {} }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{created:?}");
+    let pid = created["id"].as_str().unwrap().to_string();
+    let get = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/presets/{pid}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(get).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let got: Value = serde_json::from_slice(&bytes).unwrap();
+    let put = Request::builder()
+        .method(Method::PUT)
+        .uri(format!("/api/presets/{pid}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "name": "steady", "profile": got["profile"], "env": {} }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(put).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}

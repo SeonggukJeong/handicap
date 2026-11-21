@@ -82,6 +82,7 @@ pub async fn create(
         return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
     }
     crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
+    crate::steady::normalize_steady(&mut body.profile).map_err(ApiError::BadRequest)?;
     crate::api::runs::validate_run_config(&state, &body.profile).await?;
     crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
         .map_err(ApiError::BadRequest)?;
@@ -143,6 +144,7 @@ pub async fn update(
         .await?
         .ok_or(ApiError::NotFound)?;
     crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
+    crate::steady::normalize_steady(&mut body.profile).map_err(ApiError::BadRequest)?;
     crate::api::runs::validate_run_config(&state, &body.profile).await?;
     crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
         .map_err(ApiError::BadRequest)?;

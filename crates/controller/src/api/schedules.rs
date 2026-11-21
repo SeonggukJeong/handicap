@@ -183,6 +183,7 @@ async fn gate(
         .ok_or(ApiError::NotFound)?;
     // run/preset과 공유하는 권위 게이트(데이터셋/open-loop 검증).
     crate::stair::normalize_stair(&mut body.profile).map_err(ApiError::BadRequest)?;
+    crate::steady::normalize_steady(&mut body.profile).map_err(ApiError::BadRequest)?;
     crate::api::runs::validate_run_config(state, &body.profile).await?;
     crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
         .map_err(ApiError::BadRequest)?;

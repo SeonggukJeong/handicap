@@ -186,6 +186,9 @@ pub struct Profile {
     /// 계단 시험 설정(controller-only). 있으면 `stages`는 `expand_stair` 결과와 같아야 한다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stair: Option<crate::stair::StairConfig>,
+    /// 유지 구간 설정(controller-only). 있으면 `normalize_steady`가 저장 모양을 맞춘다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steady: Option<crate::steady::SteadyConfig>,
 }
 
 impl Profile {
@@ -660,6 +663,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
         f(&mut p);
         p
@@ -788,6 +792,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
 
         // Labeled insert -> get round-trip.
@@ -873,6 +878,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
             .await
@@ -929,6 +935,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
         insert(db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
             .await
@@ -1145,6 +1152,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
             stair: None,
+            steady: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();

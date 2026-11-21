@@ -21,5 +21,6 @@ pub mod speed_bands;
 pub mod stair;
 pub mod stair_live;
 pub mod stair_monitor;
+pub mod steady;
 pub mod store;
 pub mod validity;

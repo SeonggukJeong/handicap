@@ -387,6 +387,33 @@ async fn schedule_create_and_update_with_stair() {
 }
 
 #[tokio::test]
+async fn schedule_save_normalizes_steady() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = seed_scenario(&app).await;
+    let (status, created) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(json!({
+            "name": "steady",
+            "scenario_id": sid,
+            "profile": {
+                "max_in_flight": 50,
+                "duration_seconds": 0,
+                "steady": { "target": 40, "ramp_seconds": 20, "hold_seconds": 40, "discard_seconds": 5 }
+            },
+            "env": {},
+            "trigger": { "kind": "cron", "cron_expr": "0 3 * * *" },
+            "enabled": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    assert_eq!(created["profile"]["stages"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn schedule_create_and_update_roundtrip_auto_stop() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db);
