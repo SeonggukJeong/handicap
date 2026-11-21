@@ -1288,6 +1288,192 @@ mod tests {
         }
     }
 
+    /// 전체 구간 리포트 골든 입력: 스텝 2·워커 2·초 100..=119, open-loop 프로필, 모든 보조 입력이 비어 있지 않다.
+    struct GoldenInputs {
+        run: RunRow,
+        rows: Vec<WindowWithHdr>,
+        loops: Vec<LoopMetricRow>,
+        branches: Vec<IfBranchRow>,
+        groups: Vec<GroupMetricRow>,
+        phases: Vec<PhaseMetricRow>,
+        error_kinds: Vec<crate::store::metrics::ErrorKindRow>,
+        loop_exits: Vec<crate::store::metrics::LoopExitRow>,
+        open_loop_totals: Vec<crate::store::open_loop::OpenLoopTotal>,
+    }
+
+    fn golden_inputs() -> GoldenInputs {
+        let mut run = run_row();
+        run.profile.target_rps = Some(10);
+        run.profile.max_in_flight = Some(5);
+        run.profile.criteria = Some(Criteria {
+            max_p95_ms: Some(100),
+            ..Criteria::default()
+        });
+        run.started_at = Some(100_000);
+        run.ended_at = Some(120_000);
+        run.dropped = 30;
+        let mut rows = Vec::new();
+        for ts in 100..=119i64 {
+            for (step, base_us) in [("a", 20_000u64), ("b", 60_000u64)] {
+                for (wid, n) in [("w-0", 3i64), ("w-1", 2i64)] {
+                    let late = ts >= 110;
+                    let errors = if late && wid == "w-1" { 1 } else { 0 };
+                    let sc = if errors == 1 {
+                        format!(r#"{{"200":{},"500":1}}"#, n - 1)
+                    } else {
+                        format!(r#"{{"200":{n}}}"#)
+                    };
+                    let lat = base_us + (ts as u64 - 100) * 1_000;
+                    let samples: Vec<u64> = (0..n as u64).map(|i| lat + i * 5_000).collect();
+                    rows.push(WindowWithHdr {
+                        ts_second: ts,
+                        step_id: step.into(),
+                        worker_id: wid.into(),
+                        count: n,
+                        error_count: errors,
+                        status_counts: sc,
+                        hdr_histogram: make_hdr_bytes(&samples),
+                    });
+                }
+            }
+        }
+        let loops = vec![
+            LoopMetricRow {
+                run_id: "R1".into(),
+                step_id: "a".into(),
+                loop_index: 0,
+                count: 40,
+                error_count: 2,
+            },
+            LoopMetricRow {
+                run_id: "R1".into(),
+                step_id: "a".into(),
+                loop_index: 1,
+                count: 30,
+                error_count: 1,
+            },
+        ];
+        let branches = vec![
+            IfBranchRow {
+                run_id: "R1".into(),
+                step_id: "if1".into(),
+                branch: "then".into(),
+                count: 60,
+            },
+            IfBranchRow {
+                run_id: "R1".into(),
+                step_id: "if1".into(),
+                branch: "else".into(),
+                count: 20,
+            },
+        ];
+        let groups = vec![
+            GroupMetricRow {
+                run_id: "R1".into(),
+                step_id: "par".into(),
+                branch: "".into(),
+                hdr_histogram: make_hdr_bytes(&[30_000, 40_000, 50_000]),
+                count: 3,
+            },
+            GroupMetricRow {
+                run_id: "R1".into(),
+                step_id: "par".into(),
+                branch: "left".into(),
+                hdr_histogram: make_hdr_bytes(&[20_000, 25_000, 30_000]),
+                count: 3,
+            },
+        ];
+        let phase = |step: &str, name: &str, samples: &[u64]| PhaseMetricRow {
+            run_id: "R1".into(),
+            step_id: step.into(),
+            phase: name.into(),
+            hdr_histogram: make_hdr_bytes(samples),
+            count: samples.len() as i64,
+        };
+        let phases = vec![
+            phase("a", "download", &[3_000, 4_000, 5_000]),
+            phase("a", "wait", &[15_000, 16_000]),
+            phase("b", "wait", &[50_000]),
+            phase("a", "connect", &[2_000, 3_000]),
+            phase("a", "dns", &[1_000]),
+        ];
+        let error_kinds = vec![
+            crate::store::metrics::ErrorKindRow {
+                run_id: "R1".into(),
+                step_id: "a".into(),
+                kind: "connect_refused".into(),
+                count: 4,
+            },
+            crate::store::metrics::ErrorKindRow {
+                run_id: "R1".into(),
+                step_id: "b".into(),
+                kind: "blank_var".into(),
+                count: 2,
+            },
+        ];
+        let loop_exits = vec![crate::store::metrics::LoopExitRow {
+            run_id: "R1".into(),
+            step_id: "lp".into(),
+            pass_bucket: 2,
+            outcome: 0,
+            count: 5,
+            pass_sum: 10,
+        }];
+        let open_loop_totals = (100..=119i64)
+            .map(|ts| crate::store::open_loop::OpenLoopTotal {
+                ts_second: ts,
+                launched: 10,
+                completed: 9,
+                dropped: if ts < 110 { 3 } else { 0 },
+            })
+            .collect();
+        GoldenInputs {
+            run,
+            rows,
+            loops,
+            branches,
+            groups,
+            phases,
+            error_kinds,
+            loop_exits,
+            open_loop_totals,
+        }
+    }
+
+    #[test]
+    fn whole_report_matches_golden() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/report_whole_golden.json"
+        );
+        let g = golden_inputs();
+        let rep = build_report(
+            &g.run,
+            &g.run.scenario_yaml,
+            &g.rows,
+            &g.loops,
+            &g.branches,
+            &g.groups,
+            &g.phases,
+            &[],
+            &[],
+            &g.error_kinds,
+            &g.loop_exits,
+            &crate::stair::StairInputs::default(),
+            &g.open_loop_totals,
+        );
+        let got = serde_json::to_string_pretty(&rep).unwrap();
+        if std::env::var_os("REPORT_WHOLE_GOLDEN_UPDATE").is_some() {
+            std::fs::write(path, format!("{got}\n")).unwrap();
+        }
+        let want = std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            got,
+            want.trim_end(),
+            "전체 구간 리포트가 steady 도입 전과 같아야 한다"
+        );
+    }
+
     #[test]
     fn build_report_merges_worker_windows() {
         let r = run_row();
