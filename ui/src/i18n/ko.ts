@@ -2647,6 +2647,7 @@ export const ko = {
           mixed: "엇갈림",
           similar: "비슷",
           incomparable: "비교 불가",
+          reference: "참고용",
         },
         counts: (total: number, good: number, similar: number, bad: number) =>
           `주요 지표 ${total}개 중 ${good}개 좋아짐 · ${similar}개 비슷 · ${bad}개 나빠짐`,
@@ -2659,7 +2660,7 @@ export const ko = {
         similarCount: (n: number) => `${n}개 비슷`,
         worseCount: (n: number) => `${n}개 나빠짐`,
         countJoin: " · ",
-        reference: "조건이 달라 참고용",
+        reference: "조건이 달라 단정하지 않음",
         incomparable: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다",
       },
       lines: {

@@ -179,11 +179,35 @@ describe("buildHeadline (spec §6.3 표)", () => {
     expect(h.countsLine).toContain("0개 나빠짐");
   });
 
-  it("anyDiff면 reference true지만 답 낱말은 그대로", () => {
+  it("anyDiff면 방향(answer)은 그대로 두고 큰 글자만 ※ 참고용", () => {
     const h = head(BEFORE, AFTER_GOOD, { anyDiff: true });
     expect(h.reference).toBe(true);
     expect(h.answer).toBe("improved");
-    expect(h.word).toBe("개선");
+    expect(h.glyph).toBe("※");
+    expect(h.word).toBe("참고용");
+  });
+
+  it("anyDiff + 나빠짐도 같은 큰 글자, answer는 worsened", () => {
+    const h = head(
+      BEFORE,
+      { ...BEFORE, errors: 90, p95_ms: 4000, p99_ms: 5000, mean_ms: 1500, rps: 100 },
+      { anyDiff: true },
+    );
+    expect(h.answer).toBe("worsened");
+    expect(h.glyph).toBe("※");
+    expect(h.word).toBe("참고용");
+    expect(h.countsLine).toContain("5개 나빠짐");
+  });
+
+  it("anyDiff가 아니면 기존 기호와 낱말", () => {
+    const h = head(BEFORE, AFTER_GOOD);
+    expect([h.glyph, h.word]).toEqual(["▼", "개선"]);
+  });
+
+  it("비교 불가는 조건이 달라도 – 비교 불가", () => {
+    const h = head(BEFORE, { ...BEFORE, count: 0, errors: 0 }, { incomparable: true, anyDiff: true });
+    expect(h.glyph).toBe("–");
+    expect(h.word).toBe("비교 불가");
   });
 
   it("지표가 모두 비슷해도 판정 ● → ✕(기준 같음)면 악화, 끝에 판정 변화가 붙는다", () => {

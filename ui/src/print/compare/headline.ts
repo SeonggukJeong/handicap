@@ -21,7 +21,7 @@ const V = ko.print.verdict;
 export type Answer = "improved" | "worsened" | "mixed" | "similar" | "incomparable";
 export type Headline = {
   answer: Answer;
-  glyph: "▼" | "▲" | "◆" | "=" | "–";
+  glyph: "▼" | "▲" | "◆" | "=" | "–" | "※";
   word: string;
   countsLine: string;
   counts: { total: number; better: number; similar: number; worse: number } | null;
@@ -91,8 +91,8 @@ export function buildHeadline(a: {
   const counts = { total, better: good, similar, worse: bad };
   return {
     answer,
-    glyph: GLYPH[answer],
-    word: H.words[answer],
+    glyph: a.anyDiff ? "※" : GLYPH[answer],
+    word: a.anyDiff ? H.words.reference : H.words[answer],
     countsLine:
       H.counts(total, good, similar, bad) +
       (verdictChange ? H.verdictTail(verdictChange.before, verdictChange.after) : ""),

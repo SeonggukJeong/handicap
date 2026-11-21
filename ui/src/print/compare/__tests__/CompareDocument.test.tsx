@@ -338,7 +338,11 @@ describe("CompareDocument 표준판", () => {
     await ready(root);
     const vbox = container.querySelector(".p-cmp-vbox") as HTMLElement;
     expect(vbox).toHaveClass("p-cmp-vbox--ref");
-    expect(vbox.textContent).toContain("조건이 달라 참고용");
+    const big = vbox.querySelector(".p-cmp-vbox-big") as HTMLElement;
+    expect(big.textContent).toBe("※ 참고용");
+    expect(vbox.textContent).not.toContain("개선");
+    expect(vbox.textContent).not.toContain("악화");
+    expect(vbox.querySelector(".p-cmp-vbox-ref")?.textContent).toBe("조건이 달라 단정하지 않음");
   });
 
   it("각주와 오류율 행의 참고용", async () => {
