@@ -3,7 +3,7 @@ import type { Report } from "../../../api/schemas";
 import { metricRows } from "../change";
 import { biggestCodeChange, hasStar, stepPairs } from "../errorCells";
 import { buildFairness } from "../fairness";
-import { buildHeadline, cmpSummaryLines } from "../headline";
+import { buildHeadline, cmpSummaryLines, type CmpSummaryLine } from "../headline";
 import type { BoxState } from "../../verdict";
 import { baseProfile } from "./fixtures";
 import { sceneModel, summaryOf, type SceneRun } from "./scene";
@@ -273,8 +273,18 @@ function scene(b: Partial<SceneRun>, a: Partial<SceneRun>) {
     fairness,
     codeChange: biggestCodeChange(pairs),
   });
+  expectTextFromParts(lines);
   const byId = (id: number) => lines.find((l) => l.id === id)?.text;
-  return { lines, byId, headline, rows };
+  const partsOf = (id: number) => lines.find((l) => l.id === id)?.parts;
+  return { lines, byId, partsOf, headline, rows };
+}
+
+/** 모든 줄의 text는 parts를 이어 붙인 글과 같다(문장마다 한 번씩, 이 파일의 모든 장면에서). */
+function expectTextFromParts(lines: CmpSummaryLine[]) {
+  for (const l of lines) {
+    expect(l.parts.length, `line ${l.id}`).toBeGreaterThan(0);
+    expect(l.text, `line ${l.id}`).toBe(l.parts.map((p) => p.text).join(""));
+  }
 }
 
 describe("cmpSummaryLines 1번 줄 (판정)", () => {
@@ -540,7 +550,10 @@ describe("cmpSummaryLines 4번 줄·비교 불가", () => {
       { summary: AFTER_GOOD, profile: critProfile({ criteria: { max_p95_ms: 2000 } }) },
     );
     expect(crit.byId(4)).toBe("두 측정의 판정 기준이 달라 이 비교는 참고용입니다.");
-    const env = scene({ summary: BEFORE, env: { A: "1" } }, { summary: AFTER_GOOD, env: { A: "2" } });
+    const env = scene(
+      { summary: BEFORE, env: { A: "1" } },
+      { summary: AFTER_GOOD, env: { A: "2" } },
+    );
     expect(env.byId(4)).toBe("두 측정의 환경 변수가 달라 이 비교는 참고용입니다.");
   });
 
@@ -603,5 +616,125 @@ describe("cmpSummaryLines 4번 줄·비교 불가", () => {
       { summary: zero, rep: [], meta: { status: "failed", message: "사유" } },
     );
     expect(s.lines[0].reasons).toEqual([{ side: "이후", text: "사유" }]);
+  });
+});
+
+describe("요약 문장의 굵은 부분(시안)", () => {
+  it("판정 변화·오류율과 코드 변화·엇갈림·조건 차이: 1–4번 줄의 parts", () => {
+    const s = scene(
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9000, "503": 2880 }, errors: 2880 }],
+        summary: BEFORE,
+        verdict: failV,
+        env: { A: "1" },
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 10000 }, errors: 0 }],
+        summary: { ...BEFORE, errors: 3, p95_ms: 2800 },
+        verdict: passV,
+        env: { A: "2" },
+      },
+    );
+    expect(s.headline.answer).toBe("mixed");
+    expect(s.partsOf(1)).toEqual([
+      { text: "판정이 " },
+      { text: "✕ 부적합", strong: true, tone: "bad" },
+      { text: " → " },
+      { text: "● 적합", strong: true, tone: "ok" },
+      { text: "으로 바뀌었습니다. 기준 3개를 모두 지켰습니다." },
+    ]);
+    expect(s.partsOf(2)).toEqual([
+      { text: "오류율 2.6% → 0.3%", strong: true },
+      { text: " (88% 감소). '① 접수'의 " },
+      { text: "503 서버가 바쁨 2,880건이 0건", strong: true },
+      { text: "이 되었습니다." },
+    ]);
+    expect(s.partsOf(3)).toEqual([
+      { text: "반면 95% 응답시간은 " },
+      { text: "2.4초 → 2.8초", strong: true },
+      { text: "로 늘었습니다." },
+    ]);
+    expect(s.partsOf(4)).toEqual([
+      { text: "두 측정의 " },
+      { text: "환경 변수", strong: true },
+      { text: "가 달라 이 비교는 참고용입니다." },
+    ]);
+  });
+
+  it("판정 낱말: 판정한 쪽만 색, 판정 안 한 쪽은 굵게만", () => {
+    const words = scene(
+      { summary: BEFORE, profile: { ...baseProfile } },
+      { summary: AFTER_GOOD, verdict: passV },
+    );
+    expect(words.partsOf(1)).toEqual([
+      { text: "판정은 이전 " },
+      { text: "기준 미설정", strong: true },
+      { text: ", 이후 " },
+      { text: "● 적합", strong: true, tone: "ok" },
+      { text: "입니다. 기준 3개를 모두 지켰습니다." },
+    ]);
+    const same = scene(
+      { summary: BEFORE, verdict: failV },
+      { summary: AFTER_GOOD, verdict: failV },
+    );
+    expect(same.partsOf(1)).toEqual([
+      { text: "판정은 두 측정 모두 " },
+      { text: "✕ 부적합", strong: true, tone: "bad" },
+      { text: "입니다." },
+    ]);
+  });
+
+  it("건수 문장: 줄었음·늘었음·새로 생김은 코드와 건수만 굵게", () => {
+    const reduced = scene(
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9000, "502": 312 }, errors: 312 }],
+        summary: BEFORE,
+      },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9900, "502": 24 }, errors: 24 }],
+        summary: AFTER_GOOD,
+      },
+    );
+    expect(reduced.partsOf(2)?.slice(2)).toEqual([
+      { text: "502 중계 서버 오류 312건이 24건", strong: true },
+      { text: "으로 줄었습니다." },
+    ]);
+    const appeared = scene(
+      { steps: CODE_STEPS, summary: { ...BEFORE, count: 10000, errors: 0 } },
+      {
+        steps: CODE_STEPS,
+        rep: [{ id: "s1", counts: { "200": 9800, "502": 200 }, errors: 200 }],
+        summary: { ...BEFORE, count: 10000, errors: 200 },
+      },
+    );
+    expect(appeared.partsOf(2)?.slice(2)).toEqual([
+      { text: "502 중계 서버 오류 200건", strong: true },
+      { text: "이 새로 생겼습니다." },
+    ]);
+  });
+
+  it("비교 불가 문장과 외 N개 꼬리는 굵지 않다", () => {
+    const zero = { ...BEFORE, count: 0, errors: 0 };
+    const inc = scene({ summary: BEFORE }, { summary: zero, rep: [] });
+    expect(inc.partsOf(1)).toEqual([
+      { text: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다." },
+    ]);
+    const many = scene(
+      { summary: BEFORE, env: { A: "1" } },
+      {
+        summary: AFTER_GOOD,
+        env: { A: "2" },
+        profile: critProfile({ vus: 20, criteria: { max_p95_ms: 2000 } }),
+      },
+    );
+    expect(many.partsOf(4)).toEqual([
+      { text: "두 측정의 " },
+      { text: "부하 조건·환경 변수", strong: true },
+      { text: " 외 1개가 달라 이 비교는 참고용입니다." },
+    ]);
   });
 });

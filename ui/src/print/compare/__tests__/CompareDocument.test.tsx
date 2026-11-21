@@ -391,6 +391,7 @@ describe("CompareDocument 표준판", () => {
       {
         id: 1 as const,
         text: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다.",
+        parts: [{ text: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다." }],
         reasons: [
           { side: "이전", text: "<b>worker</b> exit 1" },
           { side: "이후", text: "connection refused" },
@@ -405,6 +406,47 @@ describe("CompareDocument 표준판", () => {
     expect(reasons[1].textContent).toBe("이후 측정 사유 connection refused");
     expect(container.querySelector(".p-cmp-reason b")).toBeNull();
     expect(reasons[0]).not.toHaveClass("p-cmp-clamp1");
+  });
+
+  it("요약 문장: 판정 낱말은 판정 색의 <b>, 값은 굵게, 단계·측정 이름 속 <b>는 글자 그대로", async () => {
+    const steps = [{ id: "s1", name: "<b>접수</b>", assert: [200] }];
+    const { root, container } = renderDoc(
+      makeDoc(
+        {
+          steps,
+          profile: CRIT_PROFILE,
+          verdict: { passed: false, criteria: [crit(false)] },
+          rep: [{ id: "s1", counts: { "200": 900, "503": 100 }, errors: 26 }],
+          meta: { label: "<b>전</b>" },
+        },
+        {
+          steps,
+          profile: CRIT_PROFILE,
+          verdict: { passed: true, criteria: [crit(true)] },
+          rep: [{ id: "s1", counts: { "200": 1000 }, errors: 3 }],
+        },
+      ),
+    );
+    await ready(root);
+    const items = container.querySelectorAll(".p-page .p-cmp-summary li");
+    const first = [...items[0].querySelectorAll("b")];
+    expect(first.map((b) => [b.className, b.textContent])).toEqual([
+      ["p-cmp-bad", "✕ 부적합"],
+      ["p-cmp-ok", "● 적합"],
+    ]);
+    expect(items[0].textContent).toBe(
+      "판정이 ✕ 부적합 → ● 적합으로 바뀌었습니다. 기준 1개를 모두 지켰습니다.",
+    );
+    const second = [...items[1].querySelectorAll("b")];
+    expect(second.map((b) => [b.className, b.textContent])).toEqual([
+      ["", "오류율 2.6% → 0.3%"],
+      ["", "503 서버가 바쁨 100건이 0건"],
+    ]);
+    expect(items[1].textContent).toContain("'① <b>접수</b>'의 ");
+    expect(items[1].querySelectorAll("b")).toHaveLength(2);
+    const run = container.querySelector(".p-page .p-cmp-run") as HTMLElement;
+    expect(run.querySelector(".p-cmp-runlabel")?.textContent).toBe('"<b>전</b>"');
+    expect(run.querySelector(".p-cmp-runlabel b")).toBeNull();
   });
 
   it("조건 대조 표가 쪽을 넘으면 (이어짐) 제목이 붙고 서명란은 한 번", async () => {
@@ -453,7 +495,14 @@ describe("CompareDocument 요약판", () => {
 
   it("남은 문제는 최대 5개 + 외 N개 — 표준판 참조, 항목·사유는 줄 수를 자른다", async () => {
     const issues = Array.from({ length: 7 }, (_, i) => `문제 ${i + 1}`);
-    const lines = [{ id: 1 as const, text: "본문", reasons: [{ side: "이전", text: "사유" }] }];
+    const lines = [
+      {
+        id: 1 as const,
+        text: "본문",
+        parts: [{ text: "본문" }],
+        reasons: [{ side: "이전", text: "사유" }],
+      },
+    ];
     const { root, container } = renderDoc({ ...makeDoc(), issues, lines }, "summary");
     await ready(root);
     const box = container.querySelector(".p-cmp-issues") as HTMLElement;
@@ -488,7 +537,14 @@ describe("CompareDocument 요약판", () => {
 
   it("줄 수 자르기 클래스는 요약판에만 붙는다", async () => {
     const issues = ["문제 하나"];
-    const lines = [{ id: 1 as const, text: "본문", reasons: [{ side: "이전", text: "사유" }] }];
+    const lines = [
+      {
+        id: 1 as const,
+        text: "본문",
+        parts: [{ text: "본문" }],
+        reasons: [{ side: "이전", text: "사유" }],
+      },
+    ];
     const clampSel = [
       ".p-cmp-runlabel",
       ".p-cmp-fairline",

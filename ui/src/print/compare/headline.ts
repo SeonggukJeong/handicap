@@ -4,6 +4,7 @@ import type { BoxState } from "../verdict";
 import type { MetricRow } from "./change";
 import { codeText, type biggestCodeChange } from "./errorCells";
 import type { Fairness } from "./fairness";
+import { joinParts, partsText, plain, strong, type LinePart, type LineTone } from "./lineParts";
 import type { RunModel } from "./runModel";
 
 const H = ko.print.cmp.headline;
@@ -110,11 +111,16 @@ export function verdictWord(box: BoxState): string {
   }
 }
 
-function verdictLine(before: RunModel, after: RunModel): string {
-  const bw = verdictWord(before.box);
-  const aw = verdictWord(after.box);
+const toneOf = (box: BoxState): LineTone | undefined =>
+  box.kind === "pass" ? "ok" : box.kind === "fail" ? "bad" : undefined;
+
+const verdictPart = (box: BoxState): LinePart => strong(verdictWord(box), toneOf(box));
+
+function verdictLine(before: RunModel, after: RunModel): LinePart[] {
+  const bw = verdictPart(before.box);
+  const aw = verdictPart(after.box);
   const judged = (k: BoxState["kind"]) => k === "fail" || k === "pass";
-  if (bw === aw) return L.verdictSame(aw);
+  if (bw.text === aw.text) return L.verdictSame(aw);
   if (judged(before.box.kind) && judged(after.box.kind)) return L.verdictChanged(bw, aw);
   return L.verdictWords(bw, aw);
 }
@@ -141,7 +147,7 @@ function topRow(rows: MetricRow[], cls: "better" | "worse"): MetricRow | null {
   return cands[0]?.r ?? null;
 }
 
-function codeSentence(c: NonNullable<ReturnType<typeof biggestCodeChange>>): string {
+function codeSentence(c: NonNullable<ReturnType<typeof biggestCodeChange>>): LinePart[] {
   const code = codeText(c.code);
   const n = fmtCount(c.before);
   const m = fmtCount(c.after);
@@ -153,7 +159,20 @@ function codeSentence(c: NonNullable<ReturnType<typeof biggestCodeChange>>): str
 }
 
 export type CmpSummaryReason = { side: string; text: string };
-export type CmpSummaryLine = { id: 1 | 2 | 3 | 4; text: string; reasons?: CmpSummaryReason[] };
+/** text는 언제나 parts를 이어 붙인 글이다 — line()으로만 만든다. */
+export type CmpSummaryLine = {
+  id: 1 | 2 | 3 | 4;
+  text: string;
+  parts: LinePart[];
+  reasons?: CmpSummaryReason[];
+};
+
+function line(id: CmpSummaryLine["id"], ...lists: LinePart[][]): CmpSummaryLine {
+  const parts = joinParts(...lists);
+  return { id, text: partsText(parts), parts };
+}
+
+const SEP = [plain(L.sentenceJoin)];
 
 export function cmpSummaryLines(a: {
   headline: Headline;
@@ -167,15 +186,11 @@ export function cmpSummaryLines(a: {
   const { answer } = a.headline;
   if (answer === "incomparable") {
     const reasons = incomparableReasons(a.before, a.after);
-    out.push(
-      reasons.length > 0
-        ? { id: 1, text: L.incomparable, reasons }
-        : { id: 1, text: L.incomparable },
-    );
+    const first = line(1, [plain(L.incomparable)]);
+    out.push(reasons.length > 0 ? { ...first, reasons } : first);
   } else {
-    let text = verdictLine(a.before, a.after);
-    if (a.after.box.kind === "pass") text += ` ${L.allMet(a.after.box.evaluated)}`;
-    out.push({ id: 1, text });
+    const met = a.after.box.kind === "pass" ? [...SEP, plain(L.allMet(a.after.box.evaluated))] : [];
+    out.push(line(1, verdictLine(a.before, a.after), met));
 
     const lead =
       answer === "improved" || answer === "mixed"
@@ -184,24 +199,24 @@ export function cmpSummaryLines(a: {
           ? topRow(a.rows, "worse")
           : null;
     if (lead) {
-      let text2 = L.biggest(lead.name, lead.beforeText, lead.afterText, lead.changeText);
-      if (lead.key === "error_rate" && a.codeChange) text2 += ` ${codeSentence(a.codeChange)}`;
-      out.push({ id: 2, text: text2 });
+      const code =
+        lead.key === "error_rate" && a.codeChange ? [...SEP, ...codeSentence(a.codeChange)] : [];
+      out.push(
+        line(2, L.biggest(lead.name, lead.beforeText, lead.afterText, lead.changeText), code),
+      );
     }
     const down = answer === "mixed" ? topRow(a.rows, "worse") : null;
     if (down) {
-      out.push({
-        id: 3,
-        text: L.opposite(down.name, down.beforeText, down.afterText, down.after > down.before),
-      });
+      out.push(
+        line(3, L.opposite(down.name, down.beforeText, down.afterText, down.after > down.before)),
+      );
     }
   }
   if (a.fairness.anyDiff) {
     const names = a.fairness.diffNames;
-    out.push({
-      id: 4,
-      text: L.reference(names.slice(0, 2).join(L.nameJoin), Math.max(0, names.length - 2)),
-    });
+    out.push(
+      line(4, L.reference(names.slice(0, 2).join(L.nameJoin), Math.max(0, names.length - 2))),
+    );
   }
   return out;
 }

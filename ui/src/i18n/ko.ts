@@ -1,5 +1,6 @@
 import type { BindingPolicy } from "../api/schemas";
 import { josa } from "../print/compare/josa";
+import { plain, strong, type LinePart } from "../print/compare/lineParts";
 
 /**
  * UI 한국어 메시지 카탈로그 (ADR-0035).
@@ -2663,27 +2664,63 @@ export const ko = {
       lines: {
         title: "요약 (자동 작성)",
         incomparable: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다.",
-        verdictChanged: (before: string, after: string) =>
-          `판정이 ${before} → ${after}${josa(after, "으로/로")} 바뀌었습니다.`,
-        verdictSame: (word: string) => `판정은 두 측정 모두 ${word}입니다.`,
-        verdictWords: (before: string, after: string) =>
-          `판정은 이전 ${before}, 이후 ${after}입니다.`,
+        verdictChanged: (before: LinePart, after: LinePart): LinePart[] => [
+          plain("판정이 "),
+          before,
+          plain(" → "),
+          after,
+          plain(`${josa(after.text, "으로/로")} 바뀌었습니다.`),
+        ],
+        verdictSame: (word: LinePart): LinePart[] => [
+          plain("판정은 두 측정 모두 "),
+          word,
+          plain("입니다."),
+        ],
+        verdictWords: (before: LinePart, after: LinePart): LinePart[] => [
+          plain("판정은 이전 "),
+          before,
+          plain(", 이후 "),
+          after,
+          plain("입니다."),
+        ],
         allMet: (n: number) => `기준 ${n}개를 모두 지켰습니다.`,
-        biggest: (name: string, before: string, after: string, change: string) =>
-          `${name} ${before} → ${after} (${change}).`,
-        codeZeroed: (label: string, code: string, n: string) =>
-          `'${label}'의 ${code} ${n}건이 0건이 되었습니다.`,
-        codeReduced: (label: string, code: string, n: string, m: string) =>
-          `'${label}'의 ${code} ${n}건이 ${m}건으로 줄었습니다.`,
-        codeIncreased: (label: string, code: string, n: string, m: string) =>
-          `'${label}'의 ${code} ${n}건이 ${m}건으로 늘었습니다.`,
-        codeAppeared: (label: string, code: string, m: string) =>
-          `'${label}'의 ${code} ${m}건이 새로 생겼습니다.`,
-        opposite: (name: string, before: string, after: string, rose: boolean) =>
-          `반면 ${name}${josa(name, "은/는")} ${before} → ${after}${josa(after, "으로/로")} ${rose ? "늘었습니다" : "줄었습니다"}.`,
-        reference: (names: string, rest: number) => {
-          const subject = `${names}${rest > 0 ? ` 외 ${rest}개` : ""}`;
-          return `두 측정의 ${subject}${josa(subject, "이/가")} 달라 이 비교는 참고용입니다.`;
+        sentenceJoin: " ",
+        biggest: (name: string, before: string, after: string, change: string): LinePart[] => [
+          strong(`${name} ${before} → ${after}`),
+          plain(` (${change}).`),
+        ],
+        codeZeroed: (label: string, code: string, n: string): LinePart[] => [
+          plain(`'${label}'의 `),
+          strong(`${code} ${n}건이 0건`),
+          plain("이 되었습니다."),
+        ],
+        codeReduced: (label: string, code: string, n: string, m: string): LinePart[] => [
+          plain(`'${label}'의 `),
+          strong(`${code} ${n}건이 ${m}건`),
+          plain("으로 줄었습니다."),
+        ],
+        codeIncreased: (label: string, code: string, n: string, m: string): LinePart[] => [
+          plain(`'${label}'의 `),
+          strong(`${code} ${n}건이 ${m}건`),
+          plain("으로 늘었습니다."),
+        ],
+        codeAppeared: (label: string, code: string, m: string): LinePart[] => [
+          plain(`'${label}'의 `),
+          strong(`${code} ${m}건`),
+          plain("이 새로 생겼습니다."),
+        ],
+        opposite: (name: string, before: string, after: string, rose: boolean): LinePart[] => [
+          plain(`반면 ${name}${josa(name, "은/는")} `),
+          strong(`${before} → ${after}`),
+          plain(`${josa(after, "으로/로")} ${rose ? "늘었습니다" : "줄었습니다"}.`),
+        ],
+        reference: (names: string, rest: number): LinePart[] => {
+          const tail = rest > 0 ? ` 외 ${rest}개` : "";
+          return [
+            plain("두 측정의 "),
+            strong(names),
+            plain(`${tail}${josa(names + tail, "이/가")} 달라 이 비교는 참고용입니다.`),
+          ];
         },
         nameJoin: "·",
       },
