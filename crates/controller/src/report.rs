@@ -759,10 +759,19 @@ pub fn build_report(
     let env_val = run.env.clone();
     // runs.started_at / ended_at are wall-clock milliseconds (now_ms in store/runs.rs).
     // Convert to seconds for the report; keep ms for rps so sub-second resolution survives.
-    let duration_ms = run
-        .ended_at
-        .unwrap_or(0)
-        .saturating_sub(run.started_at.unwrap_or(0));
+    // 시작 시각이 없는 run(부하 시작 전 중단 등)은 측정 구간(첫~마지막 창, 양끝 포함)으로,
+    // 끝 시각이 없는 실행 중 run은 0으로 둔다 — 0 기준 뺄셈은 epoch 기준 값이나 음수를 낳는다.
+    let duration_ms = match (run.started_at, run.ended_at) {
+        (Some(s), Some(e)) => e.saturating_sub(s).max(0),
+        (None, _) => match (
+            rows.iter().map(|w| w.ts_second).min(),
+            rows.iter().map(|w| w.ts_second).max(),
+        ) {
+            (Some(lo), Some(hi)) => (hi - lo + 1) * 1_000,
+            _ => 0,
+        },
+        (Some(_), None) => 0,
+    };
     let duration_seconds = duration_ms / 1_000;
     let rps = if duration_ms > 0 {
         total_count as f64 * 1_000.0 / duration_ms as f64
@@ -1421,6 +1430,68 @@ mod tests {
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
         assert_eq!(rpt.summary.p95_ms, 0);
+    }
+
+    fn report_for_duration(r: &RunRow, rows: &[WindowWithHdr]) -> ReportJson {
+        let yaml = r.scenario_yaml.clone();
+        build_report(
+            r,
+            &yaml,
+            rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+            &[],
+        )
+    }
+
+    #[test]
+    fn duration_no_start_no_windows_is_zero() {
+        let mut r = run_row();
+        r.started_at = None;
+        let rpt = report_for_duration(&r, &[]);
+        assert_eq!(rpt.summary.duration_seconds, 0);
+        assert_eq!(rpt.summary.rps, 0.0);
+    }
+
+    #[test]
+    fn duration_no_start_uses_window_span() {
+        let mut r = run_row();
+        r.started_at = None;
+        let rows = vec![
+            win(102, "s", 100, 0, r#"{"200":100}"#, &[10_000]),
+            win(100, "s", 100, 0, r#"{"200":100}"#, &[10_000]),
+            win(101, "s", 100, 0, r#"{"200":100}"#, &[10_000]),
+        ];
+        let rpt = report_for_duration(&r, &rows);
+        assert_eq!(rpt.summary.duration_seconds, 3);
+        assert!((rpt.summary.rps - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn duration_single_window_is_one_second() {
+        let mut r = run_row();
+        r.started_at = None;
+        let rows = vec![win(100, "s", 50, 0, r#"{"200":50}"#, &[10_000])];
+        let rpt = report_for_duration(&r, &rows);
+        assert_eq!(rpt.summary.duration_seconds, 1);
+        assert!((rpt.summary.rps - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn duration_running_run_is_zero_not_negative() {
+        let mut r = run_row();
+        r.ended_at = None;
+        let rows = vec![win(100, "s", 50, 0, r#"{"200":50}"#, &[10_000])];
+        let rpt = report_for_duration(&r, &rows);
+        assert_eq!(rpt.summary.duration_seconds, 0);
+        assert_eq!(rpt.summary.rps, 0.0);
     }
 
     #[test]
