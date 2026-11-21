@@ -111,7 +111,10 @@ describe("ScenarioComparePage", () => {
     );
     renderPage("/scenarios/S1/compare?runs=A,B");
     const link = await screen.findByRole("link", { name: "비교 보고서 인쇄" });
-    expect(link).toHaveAttribute("href", "/scenarios/S1/compare/print?runs=A,B&baseline=A");
+    expect(link).toHaveAttribute("href", "/scenarios/S1/compare/print?runs=A%2CB&baseline=A");
+    const q = new URLSearchParams((link.getAttribute("href") ?? "").split("?")[1]);
+    expect(q.get("runs")).toBe("A,B");
+    expect(q.get("baseline")).toBe("A");
   });
 
   it("calls downloadFile with compareCsvUrl when Export CSV clicked", async () => {

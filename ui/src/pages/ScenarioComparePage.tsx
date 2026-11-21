@@ -203,7 +203,10 @@ function ScenarioCompareInner({
         </div>
         <div className="flex gap-2">
           <Link
-            to={`/scenarios/${scenarioId}/compare/print?runs=${runIds.join(",")}&baseline=${baseline}`}
+            to={`/scenarios/${scenarioId}/compare/print?${new URLSearchParams({
+              runs: runIds.join(","),
+              baseline,
+            }).toString()}`}
             className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             {ko.print.cmp.page.openPrint}

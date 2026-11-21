@@ -226,6 +226,20 @@ describe("ScenarioComparePrintPage", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
+  it("a report request failing (500) is an alert with the reason, no document", async () => {
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string) =>
+      url.endsWith(`/api/runs/${LATE}/report`)
+        ? Promise.resolve(json({ error: "report exploded" }, 500))
+        : base(url),
+    );
+    renderPage(`/scenarios/S1/compare/print?runs=${EARLY},${LATE}`);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/^보고서를 불러오지 못했습니다: /);
+    expect(screen.queryByTestId("doc")).not.toBeInTheDocument();
+    expect(reportCalls()).toHaveLength(2);
+  });
+
   it("run list loading is a status", async () => {
     listMode = "hang";
     renderPage(`/scenarios/S1/compare/print?runs=${EARLY},${LATE}`);
@@ -370,10 +384,22 @@ describe("ScenarioComparePrintPage", () => {
   it("back link returns to the compare page with runs and baseline as received", async () => {
     renderPage(`/scenarios/S1/compare/print?runs=${EARLY},${LATE}&baseline=${LATE}`);
     await screen.findByTestId("doc");
-    expect(screen.getByRole("link", { name: "돌아가기" })).toHaveAttribute(
-      "href",
-      `/scenarios/S1/compare?runs=${EARLY},${LATE}&baseline=${LATE}`,
+    const href = screen.getByRole("link", { name: "돌아가기" }).getAttribute("href") ?? "";
+    expect(href).toBe(`/scenarios/S1/compare?runs=${EARLY}%2C${LATE}&baseline=${LATE}`);
+    const q = new URLSearchParams(href.split("?")[1]);
+    expect(q.get("runs")).toBe(`${EARLY},${LATE}`);
+    expect(q.get("baseline")).toBe(LATE);
+  });
+
+  it("back link without baseline has no baseline key, and special characters stay inside their value", async () => {
+    renderPage(`/scenarios/S1/compare/print?runs=${EARLY},${LATE}%26x%3D1`);
+    await screen.findByText(
+      "이 시나리오의 측정이 아니거나 없는 측정이 있어 비교 보고서를 만들 수 없습니다",
     );
+    const href = screen.getByRole("link", { name: "돌아가기" }).getAttribute("href") ?? "";
+    const q = new URLSearchParams(href.split("?")[1]);
+    expect([...q.keys()]).toEqual(["runs"]);
+    expect(q.get("runs")).toBe(`${EARLY},${LATE}&x=1`);
   });
 
   it("print button calls window.print", async () => {

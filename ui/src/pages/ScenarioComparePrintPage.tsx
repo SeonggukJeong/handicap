@@ -124,9 +124,9 @@ export function ScenarioComparePrintPage() {
     );
   };
 
-  const backTo =
-    `/scenarios/${id ?? ""}/compare?runs=${runsParam}` +
-    (baselineParam !== null ? `&baseline=${baselineParam}` : "");
+  const backQuery = new URLSearchParams({ runs: runsParam });
+  if (baselineParam !== null) backQuery.set("baseline", baselineParam);
+  const backTo = `/scenarios/${id ?? ""}/compare?${backQuery.toString()}`;
 
   let body: JSX.Element;
   if (runs.isLoading) {

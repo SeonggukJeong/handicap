@@ -1,5 +1,5 @@
 // 보고서 문서 렌더: 숨은 측정 시트 → 높이(mm) → 쪽 배치(순수 함수) → A4 쪽. spec §9.
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import {
   standardBlocks,
   summaryBlocks,
@@ -261,16 +261,21 @@ export function PrintDocument({ doc, kind, onLadder }: Props) {
   const layoutKey = useMemo(() => ({ doc, kind }), [doc, kind]);
   // 쪽마다 다시 만들지 않는다: 표준판은 doc당 1번, 요약판은 doc당 단계별 1번.
   const standardItems = useMemo(() => stepItems(doc), [doc]);
-  const summaryCache = useMemo(
-    () => ({ doc, byLevel: new Map<number, TableItem[]>() }),
-    [doc],
-  ).byLevel;
+  const summaryCache = useRef<{ doc: PrintDoc | null; byLevel: Map<number, TableItem[]> }>({
+    doc: null,
+    byLevel: new Map(),
+  });
   const tableItemsFor = (level: number): TableItem[] => {
     if (kind !== "summary") return standardItems;
-    let items = summaryCache.get(level);
+    const cache = summaryCache.current;
+    if (cache.doc !== doc) {
+      cache.doc = doc;
+      cache.byLevel = new Map();
+    }
+    let items = cache.byLevel.get(level);
     if (!items) {
       items = summaryItems(doc, level as LadderLevel);
-      summaryCache.set(level, items);
+      cache.byLevel.set(level, items);
     }
     return items;
   };
