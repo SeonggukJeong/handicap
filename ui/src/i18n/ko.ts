@@ -2048,6 +2048,7 @@ export const ko = {
     colVariables: "변수",
   },
   compare: {
+    basisMismatch: (parts: string) => `집계 기준이 다릅니다 — ${parts}`,
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,

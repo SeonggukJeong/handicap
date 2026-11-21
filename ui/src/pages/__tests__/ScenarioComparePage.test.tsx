@@ -105,6 +105,28 @@ describe("ScenarioComparePage", () => {
     expect(within(bc).getByText("런 비교")).toHaveAttribute("aria-current", "page");
   });
 
+  it("집계 기준이 섞인 run을 비교하면 안내 한 줄이 보인다", async () => {
+    const steadyA = { ...baseReport, basis: { selected: "steady" } };
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
+      Promise.resolve((id === "A" ? steadyA : reportB) as never),
+    );
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+    await screen.findByText("p95_ms");
+    const notice = screen.getByText(/집계 기준이 다릅니다/).closest('[role="status"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain("유지 구간");
+    expect(notice?.textContent).toContain("전체 구간");
+  });
+
+  it("둘 다 basis 없으면 집계 기준 안내가 없다", async () => {
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
+      Promise.resolve(id === "A" ? baseReport : reportB),
+    );
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+    await screen.findByText("p95_ms");
+    expect(screen.queryByText(/집계 기준이 다릅니다/)).not.toBeInTheDocument();
+  });
+
   it("links to the print comparison report with runs and the effective baseline", async () => {
     vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
       Promise.resolve(id === "A" ? baseReport : reportB),

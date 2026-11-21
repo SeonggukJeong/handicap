@@ -10,6 +10,7 @@ import { CompareMatrix } from "../components/compare/CompareMatrix";
 import { CompareOverlaySection } from "../components/compare/CompareOverlaySection";
 import { InsightCompareMatrix } from "../components/compare/InsightCompareMatrix";
 import { runDisplayLabel } from "../compare/runLabel";
+import { basisNotice } from "../compare/basisNotice";
 import { profileSummary } from "../runs/profileSummary";
 import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
@@ -156,6 +157,8 @@ function ScenarioCompareInner({
     return labels;
   }, [runIds, reports]);
 
+  const notice = useMemo(() => basisNotice(reports, runLabels), [reports, runLabels]);
+
   // Run column sublines: created-at timestamp + profile summary (run-identity US1/US6).
   // fail-soft — an unparseable profile still shows the timestamp alone.
   const runSublines = useMemo<Record<string, string>>(() => {
@@ -246,6 +249,12 @@ function ScenarioCompareInner({
           >
             닫기
           </button>
+        </Callout>
+      )}
+
+      {notice && (
+        <Callout variant="info" role="status" className="mb-4">
+          {notice}
         </Callout>
       )}
 
