@@ -466,6 +466,8 @@ export function RunDialog({
     vus,
     duration,
     rampUp,
+    rampOpen: 0,
+    discard: 0,
     targetRps,
     maxInFlight,
     stages,

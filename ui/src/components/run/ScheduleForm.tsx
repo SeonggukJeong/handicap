@@ -224,6 +224,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     vus,
     duration,
     rampUp,
+    rampOpen: 0,
+    discard: 0,
     targetRps,
     maxInFlight,
     stages,

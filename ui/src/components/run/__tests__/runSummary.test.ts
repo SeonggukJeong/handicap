@@ -8,6 +8,8 @@ const base: Omit<LoadModelState, "loadModel"> = {
   vus: 100,
   duration: 300,
   rampUp: 0,
+  rampOpen: 0,
+  discard: 0,
   targetRps: "100",
   maxInFlight: "200",
   stages: [],

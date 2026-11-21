@@ -290,6 +290,17 @@ export const StairReportSchema = z
   .strict();
 export type StairReport = z.infer<typeof StairReportSchema>;
 
+export const SteadyConfigSchema = z
+  .object({
+    ramp_seconds: z.number().int().nonnegative(),
+    hold_seconds: z.number().int().positive(),
+    discard_seconds: z.number().int().nonnegative(),
+    // 서버 skip_serializing_if → absent → .optional()
+    target: z.number().int().positive().optional(),
+  })
+  .strict();
+export type SteadyConfig = z.infer<typeof SteadyConfigSchema>;
+
 export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
   ramp_up_seconds: z.number().int().nonnegative().default(0),
@@ -332,6 +343,8 @@ export const ProfileSchema = z.object({
   apply_scenario_think_time: z.boolean().optional(),
   // 계단 시험 설정. 서버 skip_serializing_if → absent → .optional()
   stair: StairConfigSchema.optional(),
+  // 상승·버림이 있는 고정 부하. 서버 skip_serializing_if → absent → .optional()
+  steady: SteadyConfigSchema.optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -761,6 +774,35 @@ export const SpeedBandsSchema = z
   .strict();
 export type SpeedBands = z.infer<typeof SpeedBandsSchema>;
 
+export const ReportBasisSchema = z
+  .object({
+    selected: z.enum(["steady", "whole"]),
+    default: z.enum(["steady", "whole"]),
+    state: z.enum(["measured", "partial", "not_reached", "no_common_window"]),
+    config: SteadyConfigSchema,
+    // window·other는 서버가 항상 직렬화(없으면 null)
+    window: z
+      .object({ start_ms: z.number(), end_ms: z.number(), measured_seconds: z.number() })
+      .strict()
+      .nullable(),
+    t0_estimated: z.boolean(),
+    dropped_whole_run: z.boolean(),
+    other: z
+      .object({
+        rps: z.number(),
+        p50_ms: z.number(),
+        p95_ms: z.number(),
+        p99_ms: z.number(),
+        error_rate: z.number(),
+        count: z.number(),
+        duration_seconds: z.number(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type ReportBasis = z.infer<typeof ReportBasisSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -790,6 +832,8 @@ export const ReportSchema = z
     stair: StairReportSchema.optional(),
     // 표본이 없으면 서버가 키를 생략 → .optional()
     speed_bands: SpeedBandsSchema.optional(),
+    // steady run만. 서버 skip_serializing_if → absent → .optional()
+    basis: ReportBasisSchema.optional(),
   })
   .strict();
 

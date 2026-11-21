@@ -1,4 +1,4 @@
-import type { Profile, StairConfig } from "../../api/schemas";
+import type { Profile, StairConfig, SteadyConfig } from "../../api/schemas";
 import { draftToStairConfig, stairErrors, type StairDraft } from "./stair";
 
 /** RunDialog가 소유하는 부하-모델 관련 state(정규화 전 — 숫자/문자열 혼재). */
@@ -7,7 +7,9 @@ export type LoadModelState = {
   rateMode: "fixed" | "curve" | "stair";
   vus: number;
   duration: number;
-  rampUp: number;
+  rampUp: number; // closed 고정의 상승
+  rampOpen: number; // open 고정의 상승 — rampUp과 칸이 따로다
+  discard: number; // 두 고정 모드 공용 앞부분 버림(초)
   targetRps: string;
   maxInFlight: string;
   stages: { target: string; duration_seconds: string }[];
@@ -38,6 +40,7 @@ export type LoadProfileFields = Pick<Profile, "vus" | "duration_seconds" | "ramp
       | "ramp_down"
       | "graceful_ramp_down_seconds"
       | "worker_count"
+      | "steady"
     >
   >;
 
@@ -49,7 +52,81 @@ export type LoadModelErrors = {
   workerCountInvalid: boolean; // open (fixed·curve 공통, optional — 빈칸=미설정 허용)
   gracefulCapInvalid: boolean; // closed+curve+graceful (optional — 빈칸=무제한 허용)
   stairInvalid: boolean; // open+stair (목표 목록·유지·상승·버림·상한)
+  steadyInvalid: boolean; // 고정 모드의 상승·버림이 성립하지 않고 제출할 수 없음
 };
+
+export type SteadyReason =
+  | "ramp_ge_duration"
+  | "hold_too_short"
+  | "ramp_too_long"
+  | "discard_too_long"
+  | "hold_too_long";
+
+export type SteadyPlan =
+  | { kind: "none" } // 상승 0·버림 0 또는 고정 모드가 아님
+  | { kind: "send"; steady: SteadyConfig }
+  | { kind: "fallback"; reason: SteadyReason } // closed·버림 0: steady 없이 제출
+  | { kind: "error"; reason: SteadyReason }; // 제출 막음
+
+/** 고정 모드의 상승·버림을 서버 `steady`로 보낼지 정한다(spec D8). */
+export function steadyPlan(s: LoadModelState): SteadyPlan {
+  if (s.rateMode !== "fixed") return { kind: "none" };
+  const open = s.loadModel === "open";
+  const ramp = open ? s.rampOpen : s.rampUp;
+  if (ramp === 0 && s.discard === 0) return { kind: "none" };
+  const hold = s.duration - ramp;
+  let reason: SteadyReason | null = null;
+  if (ramp >= s.duration) reason = "ramp_ge_duration";
+  else if (hold - s.discard < 5) reason = "hold_too_short";
+  else if (ramp > 3600) reason = "ramp_too_long";
+  else if (s.discard > 3600) reason = "discard_too_long";
+  else if (hold > 86400) reason = "hold_too_long";
+  if (reason) {
+    return !open && s.discard === 0 ? { kind: "fallback", reason } : { kind: "error", reason };
+  }
+  return {
+    kind: "send",
+    steady: {
+      ramp_seconds: ramp,
+      hold_seconds: hold,
+      discard_seconds: s.discard,
+      ...(open && ramp > 0 ? { target: Number(s.targetRps) } : {}),
+    },
+  };
+}
+
+/** 고정 모드의 목표 도착률. open-loop가 아니면 null. */
+export function fixedTarget(p: {
+  target_rps?: number | null;
+  steady?: SteadyConfig | null;
+}): number | null {
+  return p.steady?.target ?? p.target_rps ?? null;
+}
+
+/** 저장본 → 폼 칸. steady가 있으면 그 값이 이긴다. */
+export function steadyFormSeed(p: {
+  duration_seconds: number;
+  ramp_up_seconds?: number;
+  target_rps?: number | null;
+  steady?: SteadyConfig | null;
+}): { rampUp: number; rampOpen: number; duration: number; discard: number } {
+  const st = p.steady;
+  if (!st) {
+    return {
+      rampUp: p.ramp_up_seconds ?? 0,
+      rampOpen: 0,
+      duration: p.duration_seconds,
+      discard: 0,
+    };
+  }
+  const open = st.target != null || p.target_rps != null;
+  return {
+    rampUp: open ? 0 : st.ramp_seconds,
+    rampOpen: open ? st.ramp_seconds : 0,
+    duration: st.ramp_seconds + st.hold_seconds,
+    discard: st.discard_seconds,
+  };
+}
 
 /** closed-loop think time. 둘 다 채워야 emit(한 칸만 채우면 undefined = 미설정). */
 function buildThinkTime(s: LoadModelState): { min_ms: number; max_ms: number } | undefined {
@@ -104,13 +181,25 @@ export function buildLoadProfile(s: LoadModelState): LoadProfileFields {
       // NO target_rps, NO think_time
     };
   }
+  const plan = steadyPlan(s);
   if (s.loadModel === "open") {
+    if (plan.kind === "send" && plan.steady.target != null) {
+      return {
+        vus: 0,
+        duration_seconds: 0, // 서버가 steady를 stages로 펼쳐 저장한다 — target_rps는 보내지 않는다
+        ramp_up_seconds: 0,
+        max_in_flight: Number(s.maxInFlight),
+        steady: plan.steady,
+        ...(Number(s.workerCount) > 1 ? { worker_count: Number(s.workerCount) } : {}),
+      };
+    }
     return {
       vus: 0,
       duration_seconds: s.duration,
       ramp_up_seconds: 0,
       target_rps: Number(s.targetRps),
       max_in_flight: Number(s.maxInFlight),
+      ...(plan.kind === "send" ? { steady: plan.steady } : {}),
       ...(Number(s.workerCount) > 1 ? { worker_count: Number(s.workerCount) } : {}),
       // NO think_time — open-loop은 run-level think time 금지
     };
@@ -121,6 +210,7 @@ export function buildLoadProfile(s: LoadModelState): LoadProfileFields {
     ramp_up_seconds: s.rampUp,
     think_time: buildThinkTime(s),
     think_seed: s.thinkSeed.trim() !== "" ? Number(s.thinkSeed) : undefined,
+    ...(plan.kind === "send" ? { steady: plan.steady } : {}),
     // target_rps / max_in_flight 생략 → closed-loop byte-identical
   };
 }
@@ -175,6 +265,7 @@ export function loadModelErrors(s: LoadModelState): LoadModelErrors {
     s.loadModel === "open" &&
     s.rateMode === "stair" &&
     Object.keys(stairErrors(s.stair)).length > 0;
+  const steadyInvalid = steadyPlan(s).kind === "error";
   return {
     rampInvalid,
     targetRpsInvalid,
@@ -183,6 +274,7 @@ export function loadModelErrors(s: LoadModelState): LoadModelErrors {
     workerCountInvalid,
     gracefulCapInvalid,
     stairInvalid,
+    steadyInvalid,
   };
 }
 
@@ -193,12 +285,19 @@ export type LoadMode = { loadModel: "closed" | "open"; rateMode: "fixed" | "curv
  *  closed+fixed로 조용히 로드돼 곡선이 증발한다 (spec §6.3). */
 export function deriveLoadMode(p: {
   stair?: StairConfig | null;
+  steady?: SteadyConfig | null;
   target_rps?: number | null;
   stages?: { target: number; duration_seconds: number }[] | null;
   vu_stages?: { target: number; duration_seconds: number }[] | null;
 }): LoadMode {
   // 저장본엔 stair와 서버가 펼친 stages가 함께 있다 — stair를 가장 먼저 본다.
   if (p.stair) return { loadModel: "open", rateMode: "stair" };
+  if (p.steady) {
+    return {
+      loadModel: p.steady.target != null || p.target_rps != null ? "open" : "closed",
+      rateMode: "fixed",
+    };
+  }
   if (p.vu_stages && p.vu_stages.length > 0) return { loadModel: "closed", rateMode: "curve" };
   if (p.stages && p.stages.length > 0) return { loadModel: "open", rateMode: "curve" };
   if (p.target_rps != null) return { loadModel: "open", rateMode: "fixed" };

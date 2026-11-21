@@ -619,3 +619,94 @@ describe("ReportStepSchema.loop_split", () => {
     expect(ReportStepSchema.safeParse({ ...step, loop_split: null }).success).toBe(false);
   });
 });
+
+describe("steady·basis 스키마", () => {
+  const report = {
+    run: {
+      id: "R1",
+      scenario_id: "S1",
+      status: "completed",
+      profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+      env: {},
+      started_at: 100,
+      ended_at: 102,
+      created_at: 99,
+    },
+    scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+    summary: {
+      count: 10,
+      errors: 1,
+      rps: 5.0,
+      duration_seconds: 2,
+      mean_ms: 30,
+      p50_ms: 10,
+      p95_ms: 50,
+      p99_ms: 90,
+    },
+    windows: [],
+    steps: [],
+    status_distribution: { "200": 9, "500": 1 },
+    dropped: 0,
+  };
+  // 서버가 실제로 직렬화한 모양(controller report_test)
+  const measured = {
+    config: { discard_seconds: 5, hold_seconds: 30, ramp_seconds: 10 },
+    default: "steady",
+    dropped_whole_run: false,
+    other: {
+      count: 280,
+      duration_seconds: 40,
+      error_rate: 0.05357142857142857,
+      p50_ms: 20,
+      p95_ms: 500,
+      p99_ms: 500,
+      rps: 7.0,
+    },
+    selected: "steady",
+    state: "measured",
+    t0_estimated: false,
+    window: { end_ms: 1700000040000, measured_seconds: 25, start_ms: 1700000015000 },
+  };
+  const notReached = {
+    config: { discard_seconds: 5, hold_seconds: 30, ramp_seconds: 10 },
+    default: "whole",
+    dropped_whole_run: false,
+    other: null,
+    selected: "whole",
+    state: "not_reached",
+    t0_estimated: false,
+    window: null,
+  };
+
+  it("basis 블록(값 찬 것·window/other null)을 통과시킨다", () => {
+    expect(ReportSchema.parse({ ...report, basis: measured }).basis?.window?.measured_seconds).toBe(
+      25,
+    );
+    const r = ReportSchema.parse({ ...report, basis: notReached });
+    expect(r.basis?.window).toBeNull();
+    expect(r.basis?.other).toBeNull();
+  });
+
+  it("basis가 없는 리포트도 통과한다", () => {
+    expect(ReportSchema.parse(report).basis).toBeUndefined();
+  });
+
+  it("알 수 없는 state·basis 키는 거부한다", () => {
+    expect(ReportSchema.safeParse({ ...report, basis: { ...measured, state: "x" } }).success).toBe(
+      false,
+    );
+    expect(ReportSchema.safeParse({ ...report, basis: { ...measured, extra: 1 } }).success).toBe(
+      false,
+    );
+  });
+
+  it("ProfileSchema가 steady를 버리지 않고 target은 없어도 된다", () => {
+    const steady = { ramp_seconds: 20, hold_seconds: 40, discard_seconds: 5, target: 40 };
+    expect(ProfileSchema.parse({ vus: 0, duration_seconds: 0, steady }).steady).toEqual(steady);
+    const noTarget = { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 };
+    expect(ProfileSchema.parse({ vus: 0, duration_seconds: 60, steady: noTarget }).steady).toEqual(
+      noTarget,
+    );
+    expect(ProfileSchema.parse({ vus: 1, duration_seconds: 1 }).steady).toBeUndefined();
+  });
+});

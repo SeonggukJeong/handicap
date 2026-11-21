@@ -1,10 +1,14 @@
 import { STAIR_DEFAULTS } from "../stair";
 import { describe, expect, it } from "vitest";
+import { ProfileSchema } from "../../../api/schemas";
 import {
   buildLoadProfile,
   deriveLoadMode,
+  fixedTarget,
   loadModelErrors,
   profileVuDisplay,
+  steadyFormSeed,
+  steadyPlan,
   type LoadModelState,
 } from "../loadModel";
 
@@ -16,6 +20,8 @@ function base(): LoadModelState {
     vus: 5,
     duration: 30,
     rampUp: 0,
+    rampOpen: 0,
+    discard: 0,
     targetRps: "100",
     maxInFlight: "200",
     stages: [{ target: "100", duration_seconds: "30" }],
@@ -396,5 +402,239 @@ describe("stair (계단)", () => {
         stages: [{ target: 100, duration_seconds: 5 }],
       }),
     ).toEqual({ loadModel: "open", rateMode: "stair" });
+  });
+});
+
+describe("steady (상승·버림)", () => {
+  const openState = (over: Partial<LoadModelState> = {}): LoadModelState => ({
+    ...base(),
+    loadModel: "open",
+    rateMode: "fixed",
+    duration: 60,
+    targetRps: "40",
+    maxInFlight: "200",
+    ...over,
+  });
+  const closedState = (over: Partial<LoadModelState> = {}): LoadModelState => ({
+    ...base(),
+    loadModel: "closed",
+    rateMode: "fixed",
+    duration: 60,
+    ...over,
+  });
+
+  it.each([
+    ["open", openState()],
+    ["closed", closedState()],
+  ])("steadyPlan: 상승 0·버림 0 → none (%s)", (_n, s) => {
+    expect(steadyPlan(s)).toEqual({ kind: "none" });
+    expect(buildLoadProfile(s)).not.toHaveProperty("steady");
+  });
+
+  it("steadyPlan: 상승 0·버림 0의 프로필은 이전 모양 그대로", () => {
+    expect(buildLoadProfile(openState())).toEqual({
+      vus: 0,
+      duration_seconds: 60,
+      ramp_up_seconds: 0,
+      target_rps: 40,
+      max_in_flight: 200,
+    });
+    expect(buildLoadProfile(closedState())).toEqual({
+      vus: 5,
+      duration_seconds: 60,
+      ramp_up_seconds: 0,
+    });
+  });
+
+  it("steadyPlan: open 고정 상승 20·버림 5·실행 60·목표 40", () => {
+    const s = openState({ rampOpen: 20, discard: 5 });
+    const steady = { ramp_seconds: 20, hold_seconds: 40, discard_seconds: 5, target: 40 };
+    expect(steadyPlan(s)).toEqual({ kind: "send", steady });
+    const p = buildLoadProfile(s);
+    expect(p).toEqual({
+      vus: 0,
+      duration_seconds: 0,
+      ramp_up_seconds: 0,
+      max_in_flight: 200,
+      steady,
+    });
+    expect(p).not.toHaveProperty("target_rps");
+    expect(p).not.toHaveProperty("stages");
+  });
+
+  it("steadyPlan: open 고정 버림만(상승 0·버림 5·실행 60)", () => {
+    const s = openState({ discard: 5 });
+    const plan = steadyPlan(s);
+    expect(plan).toEqual({
+      kind: "send",
+      steady: { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 },
+    });
+    if (plan.kind === "send") expect(plan.steady).not.toHaveProperty("target");
+    expect(buildLoadProfile(s)).toEqual({
+      vus: 0,
+      duration_seconds: 60,
+      ramp_up_seconds: 0,
+      target_rps: 40,
+      max_in_flight: 200,
+      steady: { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 },
+    });
+  });
+
+  it("steadyPlan: closed 상승 10·버림 5·실행 60", () => {
+    const s = closedState({ rampUp: 10, discard: 5 });
+    expect(buildLoadProfile(s)).toEqual({
+      vus: 5,
+      duration_seconds: 60,
+      ramp_up_seconds: 10,
+      steady: { ramp_seconds: 10, hold_seconds: 50, discard_seconds: 5 },
+    });
+  });
+
+  it.each([
+    ["ramp_ge_duration", 60, 60],
+    ["hold_too_short", 57, 60],
+    ["ramp_too_long", 3601, 4000],
+    ["hold_too_long", 60, 90000],
+  ])("steadyPlan: closed 상승만인데 성립 안 함 → fallback %s", (reason, rampUp, duration) => {
+    const s = closedState({ rampUp, duration });
+    expect(steadyPlan(s)).toEqual({ kind: "fallback", reason });
+    expect(buildLoadProfile(s)).toEqual({
+      vus: 5,
+      duration_seconds: duration,
+      ramp_up_seconds: rampUp,
+    });
+    expect(buildLoadProfile(s)).not.toHaveProperty("steady");
+    expect(loadModelErrors(s).steadyInvalid).toBe(false);
+  });
+
+  it("steadyPlan: 두 상승 칸은 섞이지 않는다", () => {
+    const a = openState({ rampUp: 10, rampOpen: 0, discard: 0 });
+    expect(steadyPlan(a)).toEqual({ kind: "none" });
+    const pa = buildLoadProfile(a);
+    expect(pa).not.toHaveProperty("steady");
+    expect(pa).not.toHaveProperty("stages");
+    const b = closedState({ rampUp: 0, rampOpen: 20, discard: 0 });
+    expect(steadyPlan(b)).toEqual({ kind: "none" });
+    expect(buildLoadProfile(b).ramp_up_seconds).toBe(0);
+  });
+
+  it("steadyPlan: 버림 > 0인데 성립 안 함 (closed) → error", () => {
+    const s = closedState({ rampUp: 0, discard: 58 });
+    expect(steadyPlan(s)).toEqual({ kind: "error", reason: "hold_too_short" });
+    expect(loadModelErrors(s).steadyInvalid).toBe(true);
+  });
+
+  it("steadyPlan: open 상승이 성립 안 함 → error", () => {
+    const s = openState({ rampOpen: 60 });
+    expect(steadyPlan(s)).toEqual({ kind: "error", reason: "ramp_ge_duration" });
+    expect(loadModelErrors(s).steadyInvalid).toBe(true);
+  });
+
+  it("steadyPlan: 곡선·계단 모드는 none", () => {
+    for (const rateMode of ["curve", "stair"] as const) {
+      expect(steadyPlan(openState({ rateMode, rampOpen: 20, discard: 5 }))).toEqual({
+        kind: "none",
+      });
+      expect(steadyPlan(closedState({ rateMode, rampUp: 10, discard: 5 }))).toEqual({
+        kind: "none",
+      });
+    }
+  });
+
+  const openRamp = {
+    stages: [
+      { target: 20, duration_seconds: 20 },
+      { target: 40, duration_seconds: 40 },
+    ],
+    steady: { ramp_seconds: 20, hold_seconds: 40, discard_seconds: 5, target: 40 },
+  };
+  it.each([
+    ["open-ramp", { target_rps: null, ...openRamp }, "open"],
+    [
+      "open 버림만",
+      { target_rps: 40, steady: { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 } },
+      "open",
+    ],
+    ["closed", { steady: { ramp_seconds: 10, hold_seconds: 50, discard_seconds: 5 } }, "closed"],
+  ])("deriveLoadMode: steady 저장본 %s", (_n, p, loadModel) => {
+    expect(deriveLoadMode(p)).toEqual({ loadModel, rateMode: "fixed" });
+  });
+
+  it("fixedTarget", () => {
+    expect(fixedTarget({ target_rps: 80 })).toBe(80);
+    expect(fixedTarget({ steady: openRamp.steady })).toBe(40);
+    expect(fixedTarget({})).toBeNull();
+    expect(fixedTarget({ target_rps: null })).toBeNull();
+  });
+
+  it("steadyFormSeed", () => {
+    expect(steadyFormSeed({ duration_seconds: 0, ...openRamp })).toEqual({
+      rampUp: 0,
+      rampOpen: 20,
+      duration: 60,
+      discard: 5,
+    });
+    expect(
+      steadyFormSeed({
+        duration_seconds: 60,
+        steady: { ramp_seconds: 10, hold_seconds: 50, discard_seconds: 5 },
+      }),
+    ).toEqual({ rampUp: 10, rampOpen: 0, duration: 60, discard: 5 });
+    expect(steadyFormSeed({ duration_seconds: 30, ramp_up_seconds: 7 })).toEqual({
+      rampUp: 7,
+      rampOpen: 0,
+      duration: 30,
+      discard: 0,
+    });
+    expect(steadyFormSeed({ duration_seconds: 30 })).toEqual({
+      rampUp: 0,
+      rampOpen: 0,
+      duration: 30,
+      discard: 0,
+    });
+  });
+
+  // 서버가 정규화한 저장본을 ProfileSchema로 읽어 폼 칸으로 되돌린 뒤 다시 만들면 처음 보낸 모양이다.
+  const roundtrip = (sent: ReturnType<typeof buildLoadProfile>, stored: object) => {
+    const p = ProfileSchema.parse({ vus: 0, duration_seconds: 0, ...stored });
+    expect(p.steady).toBeDefined();
+    const t = fixedTarget(p);
+    const s: LoadModelState = {
+      ...base(),
+      ...deriveLoadMode(p),
+      ...steadyFormSeed(p),
+      vus: p.vus,
+      targetRps: t != null ? String(t) : "",
+      maxInFlight: p.max_in_flight != null ? String(p.max_in_flight) : "",
+    };
+    expect(buildLoadProfile(s)).toEqual(sent);
+  };
+  it("prefill_roundtrip_keeps_steady: open 상승", () => {
+    roundtrip(buildLoadProfile(openState({ rampOpen: 20, discard: 5 })), {
+      vus: 0,
+      duration_seconds: 0,
+      ramp_up_seconds: 0,
+      max_in_flight: 200,
+      stages: openRamp.stages,
+      steady: openRamp.steady,
+    });
+  });
+  it("prefill_roundtrip_keeps_steady: open 버림만", () => {
+    roundtrip(buildLoadProfile(openState({ discard: 5 })), {
+      vus: 0,
+      duration_seconds: 60,
+      ramp_up_seconds: 0,
+      target_rps: 40,
+      max_in_flight: 200,
+      steady: { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 },
+    });
+  });
+  it("prefill_roundtrip_keeps_steady: closed", () => {
+    roundtrip(buildLoadProfile(closedState({ rampUp: 10, discard: 5 })), {
+      vus: 5,
+      duration_seconds: 60,
+      ramp_up_seconds: 10,
+      steady: { ramp_seconds: 10, hold_seconds: 50, discard_seconds: 5 },
+    });
   });
 });
