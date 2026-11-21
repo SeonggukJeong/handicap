@@ -16,6 +16,7 @@ import { MonitorListPage } from "./pages/MonitorListPage";
 import { MonitorEditPage } from "./pages/MonitorEditPage";
 import { MonitorDisplayPage } from "./pages/MonitorDisplayPage";
 import { RunPrintPage } from "./pages/RunPrintPage";
+import { ScenarioComparePrintPage } from "./pages/ScenarioComparePrintPage";
 import { WorkerDashboardPage } from "./pages/WorkerDashboardPage";
 
 const router = createBrowserRouter([
@@ -45,6 +46,7 @@ const router = createBrowserRouter([
   { path: "/monitors/:id/display", element: <MonitorDisplayPage /> },
   // A4 print report: outside Layout (no app chrome) — a4-print-report spec §4.
   { path: "/runs/:id/print", element: <RunPrintPage /> },
+  { path: "/scenarios/:id/compare/print", element: <ScenarioComparePrintPage /> },
 ]);
 
 export function AppRouter() {

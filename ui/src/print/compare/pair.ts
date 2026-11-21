@@ -5,7 +5,9 @@ export type RunMeta = Pick<Run, "id" | "status" | "started_at" | "ended_at" | "c
   message: string | null;
 };
 
-export const toRunMeta = (r: Run): RunMeta => ({
+export const toRunMeta = (
+  r: Pick<Run, "id" | "status" | "started_at" | "ended_at" | "created_at" | "label" | "message">,
+): RunMeta => ({
   id: r.id,
   status: r.status,
   started_at: r.started_at,

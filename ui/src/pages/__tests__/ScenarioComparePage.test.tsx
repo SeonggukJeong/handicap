@@ -105,6 +105,15 @@ describe("ScenarioComparePage", () => {
     expect(within(bc).getByText("런 비교")).toHaveAttribute("aria-current", "page");
   });
 
+  it("links to the print comparison report with runs and the effective baseline", async () => {
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
+      Promise.resolve(id === "A" ? baseReport : reportB),
+    );
+    renderPage("/scenarios/S1/compare?runs=A,B");
+    const link = await screen.findByRole("link", { name: "비교 보고서 인쇄" });
+    expect(link).toHaveAttribute("href", "/scenarios/S1/compare/print?runs=A,B&baseline=A");
+  });
+
   it("calls downloadFile with compareCsvUrl when Export CSV clicked", async () => {
     vi.spyOn(api, "getRunReport").mockImplementation((id: string) => {
       if (id === "A") return Promise.resolve(baseReport);

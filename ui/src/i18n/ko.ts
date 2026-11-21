@@ -2712,6 +2712,14 @@ export const ko = {
         issuesMore: (n: number) => `외 ${n}개`,
         issuesMoreSummary: (n: number) => `외 ${n}개 — 표준판 참조`,
       },
+      page: {
+        openPrint: "비교 보고서 인쇄",
+        tooFew: "비교하려면 측정을 2개 이상 고르세요",
+        foreign: "이 시나리오의 측정이 아니거나 없는 측정이 있어 비교 보고서를 만들 수 없습니다",
+        pairGroup: "비교할 측정",
+        pairSelect: (n: number) => `비교할 측정 ${n}`,
+        noStart: "–",
+      },
     },
     fmt: {
       msUnderOne: "1ms 미만",

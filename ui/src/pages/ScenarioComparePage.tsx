@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useReports, useScenario } from "../api/hooks";
 import { api } from "../api/client";
 import { downloadFile } from "../api/download";
@@ -202,6 +202,12 @@ function ScenarioCompareInner({
           <span className="text-sm text-slate-500">{runIds.length}개 런</span>
         </div>
         <div className="flex gap-2">
+          <Link
+            to={`/scenarios/${scenarioId}/compare/print?runs=${runIds.join(",")}&baseline=${baseline}`}
+            className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
+          >
+            {ko.print.cmp.page.openPrint}
+          </Link>
           <button
             type="button"
             onClick={handleExportCsv}

@@ -8,7 +8,7 @@ import { PrintDocument } from "../print/PrintDocument";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 
-const PAGE_RULE =
+export const PAGE_RULE =
   "@page { size: A4; margin: 0 } @media print { html, body { margin: 0; background: #fff } }";
 
 const BTN = "px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100";
