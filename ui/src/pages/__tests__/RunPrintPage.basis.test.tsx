@@ -211,8 +211,65 @@ describe("RunPrintPage — basis 주소 파라미터", () => {
         reportOf(basisOf("whole", { state: "not_reached", window: null, other: null })),
       )) as never);
     renderPage("/runs/R1/print?basis=steady");
-    await screen.findByText("집계 기준");
-    expect(screen.getByText(/^전체 구간 · 상승 20초 포함/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText(/^전체 구간 · 상승 20초 포함/).length).toBeGreaterThan(0);
+    });
     expect(screen.queryByText(/유지 구간 ·/)).toBeNull();
+  });
+});
+
+describe("RunPrintPage — 머리 격자와 집계 기준 줄", () => {
+  const metaLabels = (meta: Element): string[] =>
+    [...meta.children].map((c) => c.querySelector("span")?.textContent ?? "");
+  const rowLabels = (el: Element): string[] =>
+    [...el.children].map((c) => c.querySelector("span")?.textContent ?? "");
+
+  it("p-meta는 기준 유무와 상관없이 원래 네 칸 그대로", async () => {
+    renderPage("/runs/R1/print?basis=steady");
+    await waitFor(() => {
+      expect(document.querySelectorAll(".p-meta").length).toBeGreaterThan(0);
+    });
+    for (const meta of document.querySelectorAll(".p-meta")) {
+      expect(metaLabels(meta)).toEqual(["대상 시스템", "측정 일시", "부하 조건", "측정 식별"]);
+    }
+  });
+
+  it("steady 기준 리포트: p-meta-basis에 집계 기준, 참고 두 줄", async () => {
+    renderPage("/runs/R1/print?basis=steady");
+    await waitFor(() => {
+      expect(document.querySelectorAll(".p-meta-basis").length).toBeGreaterThan(0);
+    });
+    for (const block of document.querySelectorAll(".p-meta-basis")) {
+      expect(rowLabels(block)).toEqual(["집계 기준", "참고"]);
+      expect(block.children[0].textContent).toMatch(/^집계 기준유지 구간 · /);
+      expect(block.children[1].textContent).toMatch(/^참고전체 구간: 초당 요청 40\.5/);
+    }
+  });
+
+  it("whole(not_reached) 리포트: 참고 줄 없이 한 줄", async () => {
+    getReport.mockImplementation((() =>
+      Promise.resolve(
+        reportOf(basisOf("whole", { state: "not_reached", window: null, other: null })),
+      )) as never);
+    renderPage("/runs/R1/print?basis=steady");
+    await waitFor(() => {
+      expect(document.querySelectorAll(".p-meta-basis").length).toBeGreaterThan(0);
+    });
+    for (const block of document.querySelectorAll(".p-meta-basis")) {
+      expect(rowLabels(block)).toEqual(["집계 기준"]);
+    }
+  });
+
+  it("basis 블록이 없는 리포트: p-meta-basis가 없다", async () => {
+    getReport.mockImplementation((() => {
+      const r: Record<string, unknown> = { ...reportOf(basisOf("steady")) };
+      delete r.basis;
+      return Promise.resolve(r);
+    }) as never);
+    renderPage("/runs/R1/print");
+    await waitFor(() => {
+      expect(document.querySelectorAll(".p-meta").length).toBeGreaterThan(0);
+    });
+    expect(document.querySelectorAll(".p-meta-basis")).toHaveLength(0);
   });
 });

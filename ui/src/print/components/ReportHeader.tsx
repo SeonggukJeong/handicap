@@ -7,10 +7,6 @@ export function ReportHeader({ doc }: { doc: PrintDoc }) {
   const meta: Array<[string, string]> = [
     [D.metaTargets, doc.meta.targets],
     [D.metaWindow, doc.meta.window],
-    ...(doc.meta.basis ? ([[D.metaBasis, doc.meta.basis]] as Array<[string, string]>) : []),
-    ...(doc.meta.basisOther
-      ? ([[D.metaBasisOther, doc.meta.basisOther]] as Array<[string, string]>)
-      : []),
     [D.metaLoad, doc.meta.load],
     [D.metaIdent, doc.meta.ident],
   ];
@@ -34,6 +30,20 @@ export function ReportHeader({ doc }: { doc: PrintDoc }) {
           </div>
         ))}
       </div>
+      {doc.meta.basis && (
+        <div className="p-meta-basis">
+          <div>
+            <span>{D.metaBasis}</span>
+            {doc.meta.basis}
+          </div>
+          {doc.meta.basisOther && (
+            <div>
+              <span>{D.metaBasisOther}</span>
+              {doc.meta.basisOther}
+            </div>
+          )}
+        </div>
+      )}
     </header>
   );
 }

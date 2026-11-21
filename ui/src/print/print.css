@@ -119,6 +119,26 @@
   color: var(--sub);
   font-size: 7.5pt;
 }
+.p-root .p-meta-basis {
+  border: 1px solid var(--line);
+  border-top: 0;
+  font-size: 8.5pt;
+}
+.p-root .p-meta-basis > div {
+  display: flex;
+  gap: 3mm;
+  padding: 1.5mm 2mm;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.p-root .p-meta-basis > div + div {
+  border-top: 1px solid var(--line);
+}
+.p-root .p-meta-basis span {
+  flex-shrink: 0;
+  color: var(--sub);
+  font-size: 7.5pt;
+}
 
 /* 절 제목 */
 .p-root .p-h2 {

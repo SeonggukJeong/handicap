@@ -148,13 +148,14 @@ export function buildPrintDoc(a: {
   const scopeEndSec = scoped ? bw.end_ms / 1000 - t0 : undefined;
   const basisOther = basis ? basisOtherLine(basis) : null;
   const readingBase = chartReadingLine(chart);
-  const readingLine = chart.steady
-    ? `${readingBase.endsWith(".") ? readingBase : `${readingBase}.`} ${ko.print.chart.readingSteady(
-        elapsedText(chart.steady.startSec),
-        elapsedText(chart.steady.endSec + 1),
-        basis!.selected,
-      )}`
-    : readingBase;
+  const readingLine =
+    basis && chart.steady
+      ? `${readingBase.endsWith(".") ? readingBase : `${readingBase}.`} ${ko.print.chart.readingSteady(
+          elapsedText(chart.steady.startSec),
+          elapsedText(chart.steady.endSec + 1),
+          basis.selected,
+        )}`
+      : readingBase;
 
   const speed = report.speed_bands
     ? buildSpeedModel({

@@ -109,11 +109,16 @@ function ChartSvg({ doc }: { doc: PrintDoc }) {
         strokeWidth={0.2}
       />
       {c.steady &&
-        [c.steady.startSec, c.steady.endSec].map((sec) => {
+        (
+          [
+            ["steady-start", c.steady.startSec],
+            ["steady-end", c.steady.endSec],
+          ] as const
+        ).map(([key, sec]) => {
           const x = r2(markerX(sec, d));
           return (
             <line
-              key={`s${sec}`}
+              key={key}
               data-steady-line=""
               x1={x}
               x2={x}
