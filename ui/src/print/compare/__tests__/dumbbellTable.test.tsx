@@ -247,8 +247,10 @@ describe("DumbbellLegend", () => {
       "rgb(154, 161, 173)",
       "rgb(59, 75, 200)",
     ]);
-    expect(root.textContent).toContain("이전");
-    expect(root.textContent).toContain("이후");
+    const spans = [...root.children].map((c) => c.textContent);
+    expect(spans[0]).toBe("이전");
+    expect(spans[1]).toBe("이후");
+    expect(root.textContent).not.toContain("회색 점");
     expect(root.textContent).toContain("화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐");
     expect(root.textContent).not.toContain("┊");
     expect(root.textContent).not.toContain("기준");

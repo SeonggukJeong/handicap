@@ -33,6 +33,8 @@ export type ReportStepSpec = {
   errors: number;
   p95?: number;
   notSent?: number;
+  /** 요청 수. 없으면 counts의 합(보내지 않은 요청은 counts에 없고 count에만 든다). */
+  count?: number;
 };
 
 export type MkReportArgs = {
@@ -88,7 +90,7 @@ export function mkReport(a: MkReportArgs): Report {
     windows: [],
     steps: a.steps.map((s) => ({
       step_id: s.id,
-      count: Object.values(s.counts).reduce((x, y) => x + y, 0),
+      count: s.count ?? Object.values(s.counts).reduce((x, y) => x + y, 0),
       error_count: s.errors,
       status_counts: s.counts,
       p50_ms: 100,

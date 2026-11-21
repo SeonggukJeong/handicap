@@ -184,7 +184,7 @@ describe("buildDumbbell", () => {
     const after = sceneModel({
       id: "a",
       steps,
-      rep: [{ id: "s1", counts: { "0": 10 }, errors: 10, p95: 0, notSent: 10 }],
+      rep: [{ id: "s1", counts: {}, count: 10, errors: 10, p95: 0, notSent: 10 }],
     });
     expect(after.table.rows[0]!.count).toBe(10);
     const r = buildDumbbell(before, after).rows[0]!;
@@ -225,9 +225,9 @@ describe("buildDumbbell", () => {
       expect(m.baseline).toMatchObject({ ms: 3000, label: "기준 3초" });
       expect(m.rows[0]!.crossText).toBe("기준 안으로");
       expect(m.rows[1]!.crossText).toBe("기준 초과");
-      expect(m.legend).toContain("┊ 기준");
+      expect(m.legend).toContain("빨간 점선 = 기준 3초");
       expect(m.legend).toBe(
-        "회색 점 = 이전 · 파란 점 = 이후 · ┊ 기준 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
+        "회색 점 = 이전 · 파란 점 = 이후 · 빨간 점선 = 기준 3초 · 화살표 왼쪽 = 빨라짐, 오른쪽 = 느려짐",
       );
     });
     it("기준과 같은 값은 기준 안쪽으로 센다 · 기준선 x", () => {

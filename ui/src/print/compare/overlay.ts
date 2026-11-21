@@ -71,7 +71,7 @@ function readingLine(before: OverlaySide, after: OverlaySide, incomparable: bool
   // 오류가 있으면(errTotal > 0) 오류 묶음이 있어 firstErrSec는 null이 아니다
   const b = before.firstErrSec;
   const a = after.firstErrSec;
-  // 두 측정의 기간이 다를 수 있어 합계가 아니라 초당 평균 오류로 견준다(b가 null이 아니면 둘 다 기간이 있다)
+  // 두 측정의 기간이 다를 수 있어 합계가 아니라 초당 평균 오류로 견준다(기간이 0인 쪽은 0으로 본다)
   const perSec = (s: OverlaySide): number => (s.durationSec > 0 ? s.errTotal / s.durationSec : 0);
   if (b !== null && perSec(after) <= perSec(before) * NEAR_NONE) return K.readingDropped(at(b));
   if (b !== null && a !== null) return K.readingBoth(at(b), at(a));

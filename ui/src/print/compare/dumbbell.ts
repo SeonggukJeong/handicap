@@ -172,9 +172,9 @@ export function buildDumbbell(before: RunModel, after: RunModel, pairs: StepPair
   });
 
   const legend = [
-    t.legendBefore,
-    t.legendAfter,
-    ...(baseline ? [t.legendBase] : []),
+    t.ariaBefore,
+    t.ariaAfter,
+    ...(baseline ? [t.ariaBase(baseline.label)] : []),
     t.legendArrow,
   ];
   return { rows, axisMaxMs, ticks, baseline, legend: legend.join(" · ") };
