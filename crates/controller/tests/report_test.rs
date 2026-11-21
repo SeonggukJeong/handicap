@@ -1195,3 +1195,37 @@ async fn both_reports_are_consistent() {
     assert!(second.is_none());
     assert!(first.basis.is_none());
 }
+
+#[tokio::test]
+async fn xlsx_route_carries_both_bases() {
+    use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let steady = report_json(&db, &format!("/api/runs/{id}/report?basis=steady")).await;
+    let whole = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
+    let steady_count = steady["steps"][0]["count"].as_u64().unwrap() as f64;
+    let whole_count = whole["steps"][0]["count"].as_u64().unwrap() as f64;
+    assert_ne!(steady_count, whole_count);
+
+    let (st, bytes) = get_report(&db, &format!("/api/runs/{id}/report.xlsx?basis=whole")).await;
+    assert_eq!(st, StatusCode::OK);
+    let mut wb: Xlsx<std::io::Cursor<Vec<u8>>> =
+        open_workbook_from_rs(std::io::Cursor::new(bytes)).unwrap();
+    let summary = wb.worksheet_range("Summary").unwrap();
+    assert_eq!(
+        summary.get_value((9, 0)),
+        Some(&Data::String("basis".into()))
+    );
+    assert_eq!(
+        summary.get_value((9, 1)),
+        Some(&Data::String("whole".into()))
+    );
+    let other = wb.worksheet_range("Other basis").unwrap();
+    assert_eq!(
+        other.get_value((0, 1)),
+        Some(&Data::String("steady".into()))
+    );
+    let steps = wb.worksheet_range("Steps").unwrap();
+    assert_eq!(steps.get_value((1, 1)), Some(&Data::Float(whole_count)));
+    assert_eq!(other.get_value((10, 1)), Some(&Data::Float(steady_count)));
+}

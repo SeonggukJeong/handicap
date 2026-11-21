@@ -1,6 +1,7 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
 use crate::report::ReportJson;
+use crate::steady::{Basis, BasisState};
 use rust_xlsxwriter::{Color, Format, Workbook, Worksheet};
 use serde::Serialize;
 
@@ -241,6 +242,66 @@ pub fn comparison_to_insights_csv(reports: &[ReportJson]) -> Vec<u8> {
     w.into_inner().expect("flush")
 }
 
+/// 비교·내보내기에 찍는 집계 기준 글자. `basis` 블록이 없는 run은 전체 구간이다.
+fn basis_label(r: &ReportJson) -> &'static str {
+    match r.basis.as_ref().map(|b| b.selected) {
+        Some(Basis::Steady) => "steady",
+        _ => "whole",
+    }
+}
+
+fn basis_state_label(s: BasisState) -> &'static str {
+    match s {
+        BasisState::Measured => "measured",
+        BasisState::Partial => "partial",
+        BasisState::NotReached => "not_reached",
+        BasisState::NoCommonWindow => "no_common_window",
+    }
+}
+
+/// Steps 표(머리 + 스텝 행)를 `first_row`부터 쓴다. `Steps`·`Other basis` 시트가 같은 열을 쓴다.
+fn write_steps_table(ws: &mut Worksheet, first_row: u32, steps: &[crate::report::ReportStep]) {
+    for (c, h) in [
+        "step_id",
+        "count",
+        "error_count",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+    ]
+    .iter()
+    .enumerate()
+    {
+        ws.write_string(first_row, c as u16, *h).expect("w");
+    }
+    for (i, st) in steps.iter().enumerate() {
+        let r = first_row + 1 + i as u32;
+        ws.write_string(r, 0, &st.step_id).expect("w");
+        ws.write_number(r, 1, st.count as f64).expect("w");
+        ws.write_number(r, 2, st.error_count as f64).expect("w");
+        ws.write_number(r, 3, st.p50_ms as f64).expect("w");
+        ws.write_number(r, 4, st.p95_ms as f64).expect("w");
+        ws.write_number(r, 5, st.p99_ms as f64).expect("w");
+    }
+}
+
+/// 요약 숫자 일곱 행(count…p99_ms)을 `first_row`부터 쓴다.
+fn write_summary_numbers(ws: &mut Worksheet, first_row: u32, s: &crate::report::ReportSummary) {
+    let rows: [(&str, f64); 7] = [
+        ("count", s.count as f64),
+        ("errors", s.errors as f64),
+        ("rps", s.rps),
+        ("duration_seconds", s.duration_seconds as f64),
+        ("p50_ms", s.p50_ms as f64),
+        ("p95_ms", s.p95_ms as f64),
+        ("p99_ms", s.p99_ms as f64),
+    ];
+    for (i, (k, v)) in rows.iter().enumerate() {
+        ws.write_string(first_row + i as u32, 0, *k).expect("w");
+        ws.write_number(first_row + i as u32, 1, *v).expect("w");
+    }
+}
+
 /// Comparison CSV = summary matrix. Columns: metric, each run's value, each
 /// non-baseline run's delta_pct. Rows in SUMMARY_METRICS order.
 pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8> {
@@ -273,6 +334,12 @@ pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8>
             }
         }
         w.write_record(&rec).expect("row");
+    }
+    if reports.iter().any(|r| r.basis.is_some()) {
+        let mut rec = vec!["basis".to_string()];
+        rec.extend(reports.iter().map(|r| basis_label(r).to_string()));
+        rec.extend((1..reports.len()).map(|_| String::new()));
+        w.write_record(&rec).expect("basis row");
     }
     w.into_inner().expect("flush")
 }
@@ -444,8 +511,15 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     {
         ws.write_string(0, c as u16, *h).expect("w");
     }
+    let mark_basis = reports.iter().any(|r| r.basis.is_some());
+    if mark_basis {
+        ws.write_string(0, 6, "basis").expect("w");
+    }
     for (i, r) in reports.iter().enumerate() {
         let row = (i + 1) as u32;
+        if mark_basis {
+            ws.write_string(row, 6, basis_label(r)).expect("w");
+        }
         ws.write_string(row, 0, &r.run.id).expect("w");
         ws.write_string(row, 1, r.run.label.as_deref().unwrap_or(""))
             .expect("w");
@@ -479,26 +553,13 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
 }
 
 /// Single-run XLSX: Summary + Steps + Windows + Status (+ Branches if any).
-pub fn report_to_xlsx(report: &ReportJson, _other: Option<&ReportJson>) -> Vec<u8> {
+pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8> {
     let mut wb = Workbook::new();
 
     // --- Summary sheet ---
     let ws = wb.add_worksheet();
     ws.set_name("Summary").expect("sheet name");
-    let s = &report.summary;
-    let rows: [(&str, f64); 7] = [
-        ("count", s.count as f64),
-        ("errors", s.errors as f64),
-        ("rps", s.rps),
-        ("duration_seconds", s.duration_seconds as f64),
-        ("p50_ms", s.p50_ms as f64),
-        ("p95_ms", s.p95_ms as f64),
-        ("p99_ms", s.p99_ms as f64),
-    ];
-    for (i, (k, v)) in rows.iter().enumerate() {
-        ws.write_string(i as u32, 0, *k).expect("w");
-        ws.write_number(i as u32, 1, *v).expect("w");
-    }
+    write_summary_numbers(ws, 0, &report.summary);
     // H2: validity is not f64 — separate string writes (rows 7–8).
     let validity_kinds = report
         .validity
@@ -511,32 +572,42 @@ pub fn report_to_xlsx(report: &ReportJson, _other: Option<&ReportJson>) -> Vec<u
     ws.write_string(7, 1, &report.validity.level).expect("w");
     ws.write_string(8, 0, "validity_reason_kinds").expect("w");
     ws.write_string(8, 1, &validity_kinds).expect("w");
+    if let Some(b) = &report.basis {
+        let default = match b.default {
+            Basis::Steady => "steady",
+            Basis::Whole => "whole",
+        };
+        let texts = [
+            ("basis", basis_label(report)),
+            ("basis_default", default),
+            ("basis_state", basis_state_label(b.state)),
+        ];
+        let mut nums = vec![
+            ("basis_ramp_seconds", f64::from(b.config.ramp_seconds)),
+            ("basis_discard_seconds", f64::from(b.config.discard_seconds)),
+        ];
+        if let Some(w) = &b.window {
+            nums.push(("basis_window_start_ms", w.start_ms as f64));
+            nums.push(("basis_window_end_ms", w.end_ms as f64));
+            nums.push(("basis_measured_seconds", w.measured_seconds as f64));
+        }
+        let mut row = 9u32;
+        for (k, v) in texts {
+            ws.write_string(row, 0, k).expect("w");
+            ws.write_string(row, 1, v).expect("w");
+            row += 1;
+        }
+        for (k, v) in nums {
+            ws.write_string(row, 0, k).expect("w");
+            ws.write_number(row, 1, v).expect("w");
+            row += 1;
+        }
+    }
 
     // --- Steps sheet ---
     let ws = wb.add_worksheet();
     ws.set_name("Steps").expect("sheet name");
-    for (c, h) in [
-        "step_id",
-        "count",
-        "error_count",
-        "p50_ms",
-        "p95_ms",
-        "p99_ms",
-    ]
-    .iter()
-    .enumerate()
-    {
-        ws.write_string(0, c as u16, *h).expect("w");
-    }
-    for (i, st) in report.steps.iter().enumerate() {
-        let r = (i + 1) as u32;
-        ws.write_string(r, 0, &st.step_id).expect("w");
-        ws.write_number(r, 1, st.count as f64).expect("w");
-        ws.write_number(r, 2, st.error_count as f64).expect("w");
-        ws.write_number(r, 3, st.p50_ms as f64).expect("w");
-        ws.write_number(r, 4, st.p95_ms as f64).expect("w");
-        ws.write_number(r, 5, st.p99_ms as f64).expect("w");
-    }
+    write_steps_table(ws, 0, &report.steps);
 
     // --- Windows sheet ---
     let ws = wb.add_worksheet();
@@ -609,6 +680,15 @@ pub fn report_to_xlsx(report: &ReportJson, _other: Option<&ReportJson>) -> Vec<u
 
     if let Some(st) = &report.stair {
         write_stairs_sheet(&mut wb, st);
+    }
+
+    if let Some(o) = other {
+        let ws = wb.add_worksheet();
+        ws.set_name("Other basis").expect("sheet name");
+        ws.write_string(0, 0, "basis").expect("w");
+        ws.write_string(0, 1, basis_label(o)).expect("w");
+        write_summary_numbers(ws, 1, &o.summary);
+        write_steps_table(ws, 9, &o.steps);
     }
 
     wb.save_to_buffer().expect("xlsx buffer")
@@ -1575,6 +1655,177 @@ mod tests {
         // (row1 absent=블랭크와 대조: present-but-zero만 "신규").
         assert_eq!(st.get_value((4, 1)), Some(&Data::Float(0.0)));
         assert_eq!(st.get_value((4, 5)), Some(&Data::String("▲ 신규".into())));
+    }
+
+    fn basis_block(
+        selected: crate::steady::Basis,
+        state: crate::steady::BasisState,
+        window: Option<crate::steady::BasisWindow>,
+    ) -> crate::steady::BasisBlock {
+        crate::steady::BasisBlock {
+            selected,
+            default: crate::steady::Basis::Steady,
+            state,
+            config: crate::steady::SteadyConfig {
+                ramp_seconds: 30,
+                hold_seconds: 270,
+                discard_seconds: 5,
+                target: None,
+            },
+            window,
+            t0_estimated: false,
+            dropped_whole_run: false,
+            other: None,
+        }
+    }
+
+    fn read_xlsx(bytes: Vec<u8>) -> calamine::Xlsx<std::io::Cursor<Vec<u8>>> {
+        use calamine::open_workbook_from_rs;
+        open_workbook_from_rs(std::io::Cursor::new(bytes)).unwrap()
+    }
+
+    fn is_blank(v: Option<&calamine::Data>) -> bool {
+        matches!(v, None | Some(calamine::Data::Empty))
+    }
+
+    #[test]
+    fn xlsx_summary_has_basis_rows() {
+        use crate::steady::{Basis, BasisState, BasisWindow};
+        use calamine::{Data, Reader};
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.basis = Some(basis_block(
+            Basis::Steady,
+            BasisState::Measured,
+            Some(BasisWindow {
+                start_ms: 1_000_000,
+                end_ms: 1_265_000,
+                measured_seconds: 265,
+            }),
+        ));
+        let mut wb = read_xlsx(report_to_xlsx(&r, None));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        assert_eq!(ws.get_value((9, 0)), Some(&Data::String("basis".into())));
+        assert_eq!(ws.get_value((9, 1)), Some(&Data::String("steady".into())));
+        assert_eq!(
+            ws.get_value((10, 0)),
+            Some(&Data::String("basis_default".into()))
+        );
+        assert_eq!(ws.get_value((10, 1)), Some(&Data::String("steady".into())));
+        assert_eq!(
+            ws.get_value((11, 0)),
+            Some(&Data::String("basis_state".into()))
+        );
+        assert_eq!(
+            ws.get_value((11, 1)),
+            Some(&Data::String("measured".into()))
+        );
+        let keys = [
+            (12, "basis_ramp_seconds", 30.0),
+            (13, "basis_discard_seconds", 5.0),
+            (14, "basis_window_start_ms", 1_000_000.0),
+            (15, "basis_window_end_ms", 1_265_000.0),
+            (16, "basis_measured_seconds", 265.0),
+        ];
+        for (row, key, v) in keys {
+            assert_eq!(ws.get_value((row, 0)), Some(&Data::String(key.into())));
+            assert_eq!(ws.get_value((row, 1)), Some(&Data::Float(v)), "{key}");
+        }
+        assert!(is_blank(ws.get_value((17, 0))));
+    }
+
+    #[test]
+    fn xlsx_other_basis_sheet_holds_other_summary_and_steps() {
+        use crate::steady::{Basis, BasisState};
+        use calamine::{Data, Reader};
+        let mut first = report_with_steps(vec![step("a", 10, 50)]);
+        first.summary.count = 100;
+        first.basis = Some(basis_block(Basis::Steady, BasisState::Measured, None));
+        let mut other = report_with_steps(vec![step("a", 77, 90)]);
+        other.summary.count = 300;
+        other.summary.p95_ms = 90;
+        other.basis = Some(basis_block(Basis::Whole, BasisState::Measured, None));
+        let mut wb = read_xlsx(report_to_xlsx(&first, Some(&other)));
+        let ob = wb.worksheet_range("Other basis").unwrap();
+        assert_eq!(ob.get_value((0, 0)), Some(&Data::String("basis".into())));
+        assert_eq!(ob.get_value((0, 1)), Some(&Data::String("whole".into())));
+        assert_eq!(ob.get_value((1, 0)), Some(&Data::String("count".into())));
+        assert_eq!(ob.get_value((1, 1)), Some(&Data::Float(300.0)));
+        assert_eq!(ob.get_value((6, 0)), Some(&Data::String("p95_ms".into())));
+        assert_eq!(ob.get_value((6, 1)), Some(&Data::Float(90.0)));
+        assert_eq!(ob.get_value((9, 0)), Some(&Data::String("step_id".into())));
+        assert_eq!(ob.get_value((10, 0)), Some(&Data::String("a".into())));
+        assert_eq!(ob.get_value((10, 1)), Some(&Data::Float(77.0)));
+        let steps = wb.worksheet_range("Steps").unwrap();
+        assert_eq!(steps.get_value((1, 1)), Some(&Data::Float(10.0)));
+        assert_ne!(steps.get_value((1, 1)), ob.get_value((10, 1)));
+        let summary = wb.worksheet_range("Summary").unwrap();
+        assert_eq!(summary.get_value((0, 1)), Some(&Data::Float(100.0)));
+        assert_ne!(summary.get_value((0, 1)), ob.get_value((1, 1)));
+    }
+
+    #[test]
+    fn xlsx_without_other_basis_has_no_other_sheet() {
+        use crate::steady::{Basis, BasisState};
+        use calamine::{Data, Reader};
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.basis = Some(basis_block(Basis::Whole, BasisState::NotReached, None));
+        let mut wb = read_xlsx(report_to_xlsx(&r, None));
+        assert!(!wb.sheet_names().iter().any(|n| n == "Other basis"));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        assert_eq!(ws.get_value((9, 1)), Some(&Data::String("whole".into())));
+        assert_eq!(
+            ws.get_value((11, 1)),
+            Some(&Data::String("not_reached".into()))
+        );
+        assert!(is_blank(ws.get_value((14, 0))));
+    }
+
+    #[test]
+    fn xlsx_without_basis_is_unchanged() {
+        use calamine::Reader;
+        let r = report_with_steps(vec![step("a", 10, 50)]);
+        let mut wb = read_xlsx(report_to_xlsx(&r, None));
+        assert_eq!(
+            wb.sheet_names(),
+            vec!["Summary", "Steps", "Windows", "Status"]
+        );
+        let ws = wb.worksheet_range("Summary").unwrap();
+        assert!(is_blank(ws.get_value((9, 0))));
+    }
+
+    #[test]
+    fn comparison_exports_mark_basis_per_run() {
+        use crate::steady::{Basis, BasisState};
+        use calamine::{Data, Reader};
+        let mut a = report_with_steps(vec![step("a", 1, 10)]);
+        a.run.id = "A".into();
+        a.basis = Some(basis_block(Basis::Steady, BasisState::Measured, None));
+        let mut b = report_with_steps(vec![step("a", 1, 10)]);
+        b.run.id = "B".into();
+        let reports = [a, b];
+        let csv = String::from_utf8(comparison_to_csv(&reports, 0)).unwrap();
+        assert_eq!(csv.lines().last().unwrap(), "basis,steady,whole,");
+        assert_eq!(csv.lines().count(), 2 + SUMMARY_METRICS.len());
+        let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
+        let runs = wb.worksheet_range("Runs").unwrap();
+        assert_eq!(runs.get_value((0, 6)), Some(&Data::String("basis".into())));
+        assert_eq!(runs.get_value((1, 6)), Some(&Data::String("steady".into())));
+        assert_eq!(runs.get_value((2, 6)), Some(&Data::String("whole".into())));
+    }
+
+    #[test]
+    fn comparison_exports_unchanged_without_basis() {
+        use calamine::Reader;
+        let mut a = report_with_steps(vec![step("a", 1, 10)]);
+        a.run.id = "A".into();
+        let mut b = report_with_steps(vec![step("a", 1, 10)]);
+        b.run.id = "B".into();
+        let reports = [a, b];
+        let csv = String::from_utf8(comparison_to_csv(&reports, 0)).unwrap();
+        assert_eq!(csv.lines().count(), 1 + SUMMARY_METRICS.len());
+        let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
+        let runs = wb.worksheet_range("Runs").unwrap();
+        assert!(is_blank(runs.get_value((0, 6))));
     }
 
     #[test]
