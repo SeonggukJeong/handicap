@@ -729,6 +729,54 @@ describe("CompareDocument 요약판", () => {
   });
 });
 
+describe("CompareDocument 응답 속도 구간 비교 절", () => {
+  const OVERALL = {
+    slow_ms: 3000,
+    basis: "p95" as const,
+    own: false,
+    fast: 580,
+    within: 330,
+    over: 90,
+  };
+  const speedDoc = (): CompareDoc => {
+    const d = makeDoc();
+    const before = sceneModel({ id: "01HBEFORE000abc111", summary: BEFORE });
+    const after = sceneModel({ id: "01HAFTER0000def222", summary: AFTER });
+    const sp = (m: typeof before) => ({
+      ...m,
+      report: { ...m.report, speed_bands: { overall: OVERALL, steps: [] } },
+    });
+    expect(d.speed).toBeNull();
+    return buildCompareDoc({
+      before: sp(before),
+      after: sp(after),
+      fallbackScenarioName: null,
+      now: NOON,
+    });
+  };
+
+  it("있으면 6절 제목·표(p-cmp-b--section 블록)가 그려지고 조건 대조는 7절", async () => {
+    const { container, root } = renderDoc(speedDoc());
+    expect(container.querySelector('.p-sheet [data-measure="cmp:speed"]')).not.toBeNull();
+    await ready(root);
+    expect(
+      screen.getByRole("heading", { name: "6. 응답 속도 구간 비교 (전체 요청)" }),
+    ).toBeInTheDocument();
+    const table = container.querySelector(".p-page table.p-cmp-spd") as HTMLElement;
+    expect(table).not.toBeNull();
+    expect(table.closest(".p-block")).toHaveClass("p-cmp-b--section");
+    expect(screen.getByRole("heading", { name: "7. 측정 조건 대조" })).toBeInTheDocument();
+    expect(container.querySelector(".p-page")?.innerHTML).not.toContain("NaN");
+  });
+
+  it("없으면 6절은 측정 조건 대조", async () => {
+    const { root } = renderDoc(makeDoc());
+    await ready(root);
+    expect(screen.getByRole("heading", { name: "6. 측정 조건 대조" })).toBeInTheDocument();
+    expect(screen.queryByText(/응답 속도 구간 비교/)).toBeNull();
+  });
+});
+
 describe("CompareDocument 겹쳐 보기 절", () => {
   it("측정 시트에 cmp:overlay가 있고 쪽에 5절 제목·그림(p-cmp-b--section 블록)이 그려진다", async () => {
     const { container, root } = renderDoc(makeDoc());

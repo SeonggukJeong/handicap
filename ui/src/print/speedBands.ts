@@ -204,6 +204,49 @@ function ownLine(r: BandRow, id: string, ranked: RankedRow[], matched: Matched[]
   };
 }
 
+/** 판정 표시(빨강·✕·▲·별) 없이 전체 요청 한 줄 — 비교 보고서 전용. */
+export type OverallBand = {
+  twoBand: boolean;
+  /** 요청이 0건이면 null */
+  bar: SpeedRow["bar"];
+  /** 두 구간이면 null */
+  fast: SpeedCell | null;
+  within: SpeedCell;
+  over: SpeedCell;
+  /** errors / count, count 0이면 "—" */
+  fail: SpeedCell;
+};
+
+export function buildOverallBand(
+  overall: SpeedBands["overall"],
+  summary: Pick<Report["summary"], "count" | "errors">,
+): OverallBand {
+  const tot = rowTotal(overall);
+  const twoBand = overall.fast === null;
+  const fail =
+    summary.count === 0
+      ? dash()
+      : cell(fmtPct(summary.errors / summary.count), { muted: summary.errors === 0 });
+  if (tot === 0) {
+    return {
+      twoBand,
+      bar: null,
+      fast: twoBand ? null : dash(),
+      within: dash(),
+      over: dash(),
+      fail,
+    };
+  }
+  return {
+    twoBand,
+    bar: barOf(overall, tot),
+    fast: twoBand ? null : pctCell(overall.fast ?? 0, tot),
+    within: pctCell(overall.within, tot),
+    over: pctCell(overall.over, tot),
+    fail,
+  };
+}
+
 export function buildSpeedModel(a: {
   bands: SpeedBands;
   ranked: RankedRow[];

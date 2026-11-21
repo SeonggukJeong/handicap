@@ -62,17 +62,16 @@ function buildSide(run: RunModel, binSeconds: number): OverlaySide {
   return { durationSec, bins, errTotal, firstErrSec: first ? first.startSec : null };
 }
 
-const at = (sec: number | null): string => (sec === null || sec === 0 ? ZERO_SEC : fmtElapsed(sec));
+const at = (sec: number): string => (sec === 0 ? ZERO_SEC : fmtElapsed(sec));
 
 function readingLine(before: OverlaySide, after: OverlaySide, incomparable: boolean): string {
   if (incomparable) return ko.print.cmp.lines.incomparable;
-  if (before.errTotal > 0 && after.errTotal <= before.errTotal * NEAR_NONE) {
-    return K.readingDropped(at(before.firstErrSec));
-  }
-  if (before.errTotal > 0 && after.errTotal > 0) {
-    return K.readingBoth(at(before.firstErrSec), at(after.firstErrSec));
-  }
-  if (after.errTotal > 0) return K.readingAfterOnly(at(after.firstErrSec));
+  // 오류가 있으면(errTotal > 0) 오류 묶음이 있어 firstErrSec는 null이 아니다
+  const b = before.firstErrSec;
+  const a = after.firstErrSec;
+  if (b !== null && after.errTotal <= before.errTotal * NEAR_NONE) return K.readingDropped(at(b));
+  if (b !== null && a !== null) return K.readingBoth(at(b), at(a));
+  if (a !== null) return K.readingAfterOnly(at(a));
   return K.readingNone;
 }
 
@@ -90,6 +89,8 @@ export function buildOverlay(
     Math.max(0, ...b.bins.map(pick), ...a.bins.map(pick));
   const longer = Math.max(b.durationSec, a.durationSec);
   const differs =
+    b.bins.length > 0 &&
+    a.bins.length > 0 &&
     Math.abs(b.durationSec - a.durationSec) > Math.max(binSeconds, longer * NOTE_RATIO);
   return {
     durationSec,

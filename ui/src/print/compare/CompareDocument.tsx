@@ -23,6 +23,7 @@ import { OverlayChart } from "./components/OverlayChart";
 import { SectionHeading } from "./components/SectionHeading";
 import { DumbbellLegend } from "./components/DumbbellTable";
 import { ErrorNotes } from "./components/ErrorChangeTable";
+import { SpeedCompareNotes, SpeedCompareTable } from "./components/SpeedCompareTable";
 import { cmpTable } from "./tables";
 
 type Kind = "standard" | "summary";
@@ -67,6 +68,16 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
           <OverlayChart model={doc.overlay} />
         </>
       );
+    case "cmp:speed":
+      return doc.speed === null ? null : (
+        <>
+          <SectionHeading no={no.speed ?? ""} title={ko.print.cmp.view.titles.speed} />
+          <div className="p-cmp-box p-cmp-spd-box">
+            <SpeedCompareTable model={doc.speed} />
+            <SpeedCompareNotes model={doc.speed} />
+          </div>
+        </>
+      );
     case "signature":
       return <SignatureBlock />;
     default:
@@ -82,7 +93,7 @@ function blockClass(id: string): string {
     return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";
   const name = id.split(":")[1];
-  return name === "headline" || name === "kpi" || name === "overlay"
+  return name === "headline" || name === "kpi" || name === "overlay" || name === "speed"
     ? "p-block p-cmp-b--section"
     : `p-block p-cmp-b--${name}`;
 }

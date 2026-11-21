@@ -9,6 +9,7 @@ import type { BoxState } from "../verdict";
 import type { Heights } from "../buildPrintDoc";
 import { buildDumbbell, type DumbbellModel } from "./dumbbell";
 import { buildOverlay, type OverlayModel } from "./overlay";
+import { buildSpeedCompare, type SpeedCompare } from "./speedCompare";
 import { buildErrorTable, type ErrorTableModel } from "./errorTable";
 import { metricRows, type MetricRow } from "./change";
 import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } from "./errorCells";
@@ -50,6 +51,8 @@ export type CompareDoc = {
   dumbbell: DumbbellModel;
   errors: ErrorTableModel;
   overlay: OverlayModel;
+  /** 양쪽 리포트에 speed_bands가 있을 때만 */
+  speed: SpeedCompare | null;
   /** stepPairs가 1개 이상 */
   hasSteps: boolean;
 };
@@ -125,6 +128,7 @@ export function buildCompareDoc(a: {
     dumbbell: buildDumbbell(before, after),
     errors: buildErrorTable({ before, after, pairs, incomparable }),
     overlay: buildOverlay(before, after, incomparable),
+    speed: buildSpeedCompare(before, after),
     hasSteps: pairs.length > 0,
   };
 }
@@ -182,6 +186,7 @@ export function compareStandardBlocks(doc: CompareDoc, h: Heights): Block[] {
         ]
       : []),
     atom(h, "cmp:overlay"),
+    ...(doc.speed !== null ? [atom(h, "cmp:speed")] : []),
     tableBlock("cmp:cond", doc.fairness.condRows.length, h),
     atom(h, "cmp:issues:8"),
     atom(h, "signature"),
@@ -218,7 +223,16 @@ export type SectionNos = {
 type SectionKey = keyof SectionNos;
 
 /** 표준판 절 순서. 뒤 task가 제 키를 끼운다. */
-const STANDARD_SECTIONS: SectionKey[] = ["overview", "kpi", "dumbbell", "errors", "overlay", "cond", "issues"];
+const STANDARD_SECTIONS: SectionKey[] = [
+  "overview",
+  "kpi",
+  "dumbbell",
+  "errors",
+  "overlay",
+  "speed",
+  "cond",
+  "issues",
+];
 
 /** 절 번호 — 그 판에 있는 절만 차례로 센다. */
 export function sectionNo(
@@ -256,7 +270,7 @@ export function sectionNo(
 }
 
 export const sectionNoFor = (doc: CompareDoc, kind: "standard" | "summary"): SectionNos =>
-  sectionNo(kind, { steps: doc.hasSteps, speed: false });
+  sectionNo(kind, { steps: doc.hasSteps, speed: doc.speed !== null });
 
 /** 측정 시트에 그릴 블록. summary는 칸 0..CMP_LAST_LEVEL에서 나오는 블록의 합집합(id 중복 제거). */
 export function compareSheetBlocks(doc: CompareDoc, kind: "standard" | "summary"): Block[] {

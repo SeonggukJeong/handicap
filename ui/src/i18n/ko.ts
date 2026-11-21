@@ -2646,6 +2646,12 @@ export const ko = {
         durationNote: (before: string, after: string) =>
           `(측정 시간이 다릅니다: 이전 ${before}, 이후 ${after})`,
       },
+      speed: {
+        aria: "이전·이후 전체 요청의 응답 속도 구간 비교",
+        colRun: "측정",
+        boundary: (b: string) => `${b} 기준`,
+        warn: "▲ 두 측정의 응답 시간 기준이 달라 구간을 그대로 비교할 수 없습니다.",
+      },
       star: {
         before: "이전",
         after: "이후",
@@ -2786,6 +2792,7 @@ export const ko = {
           dumbbell: "단계별 95% 응답시간 변화",
           errors: "단계별 오류 변화",
           overlay: "시간에 따른 변화 — 겹쳐 보기",
+          speed: "응답 속도 구간 비교 (전체 요청)",
           cond: "측정 조건 대조",
           issues: "남은 문제",
         },

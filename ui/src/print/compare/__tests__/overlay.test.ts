@@ -145,6 +145,8 @@ describe("buildOverlay 요청 0건인 측정(windows 빔)", () => {
     expect(m.reading).toBe("요청이 실행되지 않은 측정이 있어 비교하지 않았습니다.");
     expect(m.reading).not.toContain("거의 없습니다");
     expect(m.reading).not.toContain("없었습니다");
+    expect(m.durationNote).toBeNull();
+    expect(buildOverlay(run("b", []), run("a", secs(10, 100)), true).durationNote).toBeNull();
     expect(JSON.stringify(m)).not.toContain("NaN");
     expectClean(m);
   });

@@ -14,6 +14,7 @@ import {
   type CompareDoc,
 } from "../buildCompareDoc";
 import { baseProfile, scenarioYaml } from "./fixtures";
+import type { RunModel } from "../runModel";
 import { sceneModel, type SceneRun } from "./scene";
 
 const NOON = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -151,6 +152,54 @@ describe("buildCompareDoc", () => {
   it("이전 profile이 읽히지 않아도 throw 없이 만들어진다", () => {
     const d = doc({ profile: { vus: "x" } }, { profile: baseProfile });
     expect(d.fairness.cards[0].same).toBe(false);
+  });
+});
+
+const OVERALL = {
+  slow_ms: 3000,
+  basis: "p95" as const,
+  own: false,
+  fast: 580,
+  within: 330,
+  over: 90,
+};
+const withSpeed = (m: RunModel): RunModel => ({
+  ...m,
+  report: { ...m.report, speed_bands: { overall: OVERALL, steps: [] } },
+});
+function docSpeed(both: boolean, onlyBefore = false): CompareDoc {
+  const before = sceneModel({ id: "01HBEFORE000abc111", summary: BEFORE });
+  const after = sceneModel({ id: "01HAFTER0000def222", summary: AFTER });
+  return buildCompareDoc({
+    before: both || onlyBefore ? withSpeed(before) : before,
+    after: both ? withSpeed(after) : after,
+    fallbackScenarioName: null,
+    now: NOON,
+  });
+}
+
+describe("블록 — 응답 속도 구간 비교", () => {
+  it("양쪽에 speed_bands가 있으면 cmp:speed가 cmp:overlay 다음·cmp:cond 앞", () => {
+    const d = docSpeed(true);
+    expect(d.speed).not.toBeNull();
+    const list = ids(d);
+    expect(list.indexOf("cmp:speed")).toBe(list.indexOf("cmp:overlay") + 1);
+    expect(list.indexOf("cmp:cond")).toBe(list.indexOf("cmp:speed") + 1);
+    expect(compareSheetBlocks(d, "standard").map((b) => b.id)).toEqual(list);
+  });
+
+  it("한쪽만 있으면 블록이 없다", () => {
+    const d = docSpeed(false, true);
+    expect(d.speed).toBeNull();
+    expect(ids(d)).not.toContain("cmp:speed");
+  });
+
+  it("요약판 어느 칸에도 없다", () => {
+    const d = docSpeed(true);
+    const lv = [0, 1, 2, 3, 4, 5].flatMap((l) =>
+      compareSummaryBlocks(d, new Map(), l).map((b) => b.id),
+    );
+    expect(lv).not.toContain("cmp:speed");
   });
 });
 
@@ -375,6 +424,24 @@ describe("블록", () => {
       speed: null,
       cond: null,
       issues: "3",
+    });
+  });
+
+  it("속도 구간이 있으면 절 번호가 하나씩 밀린다", () => {
+    expect(sectionNo("standard", { steps: true, speed: true })).toEqual({
+      overview: "1",
+      kpi: "2",
+      dumbbell: "3",
+      errors: "4",
+      overlay: "5",
+      speed: "6",
+      cond: "7",
+      issues: "8",
+    });
+    expect(sectionNo("standard", { steps: true, speed: false })).toMatchObject({
+      speed: null,
+      cond: "6",
+      issues: "7",
     });
   });
 

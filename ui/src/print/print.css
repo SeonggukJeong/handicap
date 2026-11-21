@@ -1033,3 +1033,14 @@
     -webkit-print-color-adjust: exact;
   }
 }
+
+/* 비교 보고서: 응답 속도 구간 비교 — 표·막대·색은 측정 보고서 .p-speed 규칙 그대로 */
+.p-root .p-cmp-spd-box {
+  padding: 1.5mm 3mm;
+}
+.p-root .p-cmp-spd-legend {
+  margin-top: 1.5mm;
+}
+.p-root .p-cmp-spd-warn {
+  margin-top: 1mm;
+}
