@@ -278,8 +278,8 @@ pub enum RegisterOutcome {
     Reject,
     /// No such run (never enqueued / already removed): reply AbortRun, break the stream.
     NoRun,
-    /// The run was aborted by the controller before this worker was a member:
-    /// reply AbortRun, give no shard.
+    /// The run carries `external_abort`: reply AbortRun, give no shard — to a new
+    /// worker and to a re-registering member alike.
     Aborted,
 }
 
@@ -290,7 +290,8 @@ pub enum AbortOutcome {
     NoRun,
     /// 등록한 부하기가 없어 `abort`가 run을 직접 지우고 정리했다.
     NotStarted,
-    /// 중단을 표시하고 등록한 부하기에 Abort를 보냈다.
+    /// 중단을 표시하고 등록한 부하기에 Abort를 보냈다. 보낼 부하기가 없었을 수도 있다
+    /// (등록한 부하기가 모두 이미 끝 단계를 보고한 경우).
     Marked { registered: u32, expected: u32 },
 }
 
@@ -6579,15 +6580,49 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
+        let cleanups = Arc::new(AtomicUsize::new(0));
+        coord.set_dispatcher(Arc::new(CountingDispatcher {
+            cleanups: cleanups.clone(),
+        }));
         coord
             .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
+        let done = run_done_token(&coord, &run_id).await;
+        assert!(!done.is_cancelled());
         assert_eq!(coord.abort(&run_id).await, AbortOutcome::NotStarted);
+        assert!(done.is_cancelled(), "감시(done)가 끝나야 한다");
+        assert_eq!(cleanups.load(Ordering::SeqCst), 1, "정리는 정확히 한 번");
         let (tx, _rx) = fake_tx();
         assert!(matches!(
             coord.register(&run_id, "w0", tx).await,
             RegisterOutcome::NoRun
         ));
+    }
+
+    #[tokio::test]
+    async fn abort_with_registered_worker_does_not_clean_up_itself() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let cleanups = Arc::new(AtomicUsize::new(0));
+        coord.set_dispatcher(Arc::new(CountingDispatcher {
+            cleanups: cleanups.clone(),
+        }));
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        assert!(matches!(
+            coord.abort(&run_id).await,
+            AbortOutcome::Marked { .. }
+        ));
+        assert_eq!(
+            cleanups.load(Ordering::SeqCst),
+            0,
+            "정리는 부하기의 Aborted 보고가 맡는다"
+        );
+        assert!(run_present(&coord, &run_id).await);
     }
 
     #[tokio::test]
