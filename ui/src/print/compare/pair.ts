@@ -18,10 +18,16 @@ export const toRunMeta = (
 });
 
 export type PairResult =
-  | { kind: "ok"; before: RunMeta; after: RunMeta; candidates: RunMeta[] }
+  | {
+      kind: "ok";
+      before: RunMeta;
+      after: RunMeta;
+      candidates: RunMeta[];
+      picker: [string, string];
+    }
   | { kind: "tooFew" }
   | { kind: "foreign" }
-  | { kind: "notTerminal" };
+  | { kind: "notTerminal"; candidates: RunMeta[]; picker: [string, string] };
 
 const TERMINAL: ReadonlySet<string> = new Set(["completed", "failed", "aborted"]);
 
@@ -55,12 +61,14 @@ export function resolvePair(a: {
   }
 
   let pair: [RunMeta, RunMeta] | null = null;
+  let named = false;
   if (a.pairParam) {
     const [p, q, ...rest] = a.pairParam.split(",");
     const rp = byId.get(p);
     const rq = byId.get(q);
     if (rest.length === 0 && p !== q && rp && rq && ids.includes(p) && ids.includes(q)) {
       pair = [rp, rq];
+      named = true;
     }
   }
   if (!pair) {
@@ -76,6 +84,9 @@ export function resolvePair(a: {
   }
 
   const [before, after] = orderByMeasured(pair[0], pair[1]);
-  if (!TERMINAL.has(before.status) || !TERMINAL.has(after.status)) return { kind: "notTerminal" };
-  return { kind: "ok", before, after, candidates };
+  const picker: [string, string] = named ? [pair[0].id, pair[1].id] : [before.id, after.id];
+  if (!TERMINAL.has(before.status) || !TERMINAL.has(after.status)) {
+    return { kind: "notTerminal", candidates, picker };
+  }
+  return { kind: "ok", before, after, candidates, picker };
 }

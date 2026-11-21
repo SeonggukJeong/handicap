@@ -257,7 +257,7 @@ describe("환경 변수 — 값은 어디에도 찍지 않는다", () => {
   const A = { BASE_URL: "https://a", TOKEN: "s3cret-A" };
   const B = { BASE_URL: "https://b", TOKEN: "s3cret-A", EXTRA: "zz-extra-val" };
 
-  it("다른 키 이름만 줄에 오르고 값 글자는 출력 어디에도 없다", () => {
+  it("다른 키 이름만 줄에 오른다", () => {
     const f = fair({ env: A }, { env: B });
     const c = card(f, "env");
     expect(c.same).toBe(false);

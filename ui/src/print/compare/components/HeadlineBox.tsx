@@ -27,7 +27,29 @@ function ResultBox({ doc }: { doc: CompareDoc }) {
       <div className="p-cmp-vbox-big">
         {headline.glyph} {headline.word}
       </div>
-      <div className="p-cmp-vbox-small">{headline.countsLine}</div>
+      <div className="p-cmp-vbox-small">
+        {headline.counts ? (
+          <>
+            <span className="p-cmp-vbox-total">{H.total(headline.counts.total)}</span>
+            <br />
+            <b className="p-cmp-ok">{H.betterCount(headline.counts.better)}</b>
+            {H.countJoin}
+            <b className="p-cmp-same">{H.similarCount(headline.counts.similar)}</b>
+            <br />
+            <b className="p-cmp-bad">{H.worseCount(headline.counts.worse)}</b>
+            {headline.verdictChange && (
+              <>
+                <br />
+                <span className="p-cmp-vbox-verdict">
+                  {H.verdictLine(headline.verdictChange.before, headline.verdictChange.after)}
+                </span>
+              </>
+            )}
+          </>
+        ) : (
+          headline.countsLine
+        )}
+      </div>
       {headline.reference && <div className="p-cmp-vbox-ref">{H.reference}</div>}
     </div>
   );

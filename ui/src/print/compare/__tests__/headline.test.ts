@@ -3,7 +3,7 @@ import type { Report } from "../../../api/schemas";
 import { metricRows } from "../change";
 import { biggestCodeChange, hasStar, stepPairs } from "../errorCells";
 import { buildFairness } from "../fairness";
-import { buildHeadline, summaryLines } from "../headline";
+import { buildHeadline, cmpSummaryLines } from "../headline";
 import type { BoxState } from "../../verdict";
 import { baseProfile } from "./fixtures";
 import { sceneModel, summaryOf, type SceneRun } from "./scene";
@@ -56,6 +56,44 @@ function head(
     incomparable: o.incomparable ?? false,
   });
 }
+
+describe("buildHeadline 구조화 개수", () => {
+  const nums = (c: NonNullable<ReturnType<typeof head>["counts"]>) => [
+    c.total,
+    c.better,
+    c.similar,
+    c.worse,
+  ];
+
+  it("counts는 countsLine과 같은 숫자에서 나온다", () => {
+    const h = head(BEFORE, AFTER_GOOD);
+    expect(h.counts).toEqual({ total: 5, better: 4, similar: 1, worse: 0 });
+    expect(h.verdictChange).toBeNull();
+    const c = h.counts!;
+    expect(h.countsLine).toContain(`${c.total}개 중`);
+    expect(h.countsLine).toContain(`${c.better}개 좋아짐`);
+    expect(h.countsLine).toContain(`${c.similar}개 비슷`);
+    expect(h.countsLine).toContain(`${c.worse}개 나빠짐`);
+  });
+
+  it("판정 신호가 있으면 verdictChange에 두 글리프, 없으면 null", () => {
+    const good = head(BEFORE, BEFORE, { beforeBox: fail, afterBox: pass });
+    expect(good.verdictChange).toEqual({ before: "✕", after: "●" });
+    expect(good.countsLine.endsWith("판정 ✕ → ●")).toBe(true);
+    expect(nums(good.counts!)).toEqual([5, 0, 5, 0]);
+    const bad = head(BEFORE, BEFORE, { beforeBox: pass, afterBox: fail });
+    expect(bad.verdictChange).toEqual({ before: "●", after: "✕" });
+    const none = head(BEFORE, BEFORE, { beforeBox: fail, afterBox: pass, criteriaSame: false });
+    expect(none.verdictChange).toBeNull();
+  });
+
+  it("비교 불가면 counts와 verdictChange가 null이고 글은 그대로", () => {
+    const h = head(BEFORE, AFTER_GOOD, { incomparable: true });
+    expect(h.counts).toBeNull();
+    expect(h.verdictChange).toBeNull();
+    expect(h.countsLine).toBe("요청이 실행되지 않은 측정이 있어 비교하지 않았습니다");
+  });
+});
 
 describe("buildHeadline (spec §6.3 표)", () => {
   it("좋음 4·비슷 1·나쁨 0 → 개선", () => {
@@ -227,7 +265,7 @@ function scene(b: Partial<SceneRun>, a: Partial<SceneRun>) {
     anyDiff: fairness.anyDiff,
     incomparable,
   });
-  const lines = summaryLines({
+  const lines = cmpSummaryLines({
     headline,
     rows,
     before,
@@ -239,7 +277,7 @@ function scene(b: Partial<SceneRun>, a: Partial<SceneRun>) {
   return { lines, byId, headline, rows };
 }
 
-describe("summaryLines 1번 줄 (판정)", () => {
+describe("cmpSummaryLines 1번 줄 (판정)", () => {
   it("✕ → ●: 바뀌었고 기준 3개를 모두 지켰다", () => {
     const s = scene({ summary: BEFORE, verdict: failV }, { summary: AFTER_GOOD, verdict: passV });
     const t = s.byId(1) ?? "";
@@ -265,7 +303,7 @@ describe("summaryLines 1번 줄 (판정)", () => {
   });
 });
 
-describe("summaryLines 2·3번 줄", () => {
+describe("cmpSummaryLines 2·3번 줄", () => {
   it("오류율이 최고 순위면 수치와 건수 변화 문장이 이어진다", () => {
     const s = scene(
       {
@@ -382,7 +420,7 @@ describe("summaryLines 2·3번 줄", () => {
   });
 });
 
-describe("summaryLines 악화·조사·줄었음", () => {
+describe("cmpSummaryLines 악화·조사·줄었음", () => {
   it("악화: 2번 줄에 가장 나빠진 지표의 값과 변화율", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, p95_ms: 4000 } });
     expect(s.headline.answer).toBe("worsened");
@@ -479,7 +517,7 @@ describe("주요 지표 이름의 받침", () => {
   });
 });
 
-describe("summaryLines 4번 줄·비교 불가", () => {
+describe("cmpSummaryLines 4번 줄·비교 불가", () => {
   it("조건이 다르면 항목 앞 2개 + 외 N개", () => {
     const s = scene(
       { summary: BEFORE, env: { A: "1" } },

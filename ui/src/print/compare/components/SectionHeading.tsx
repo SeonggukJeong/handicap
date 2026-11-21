@@ -18,7 +18,7 @@ export function SectionHeading({
       <span className="p-cmp-no">{no}. </span>
       {warn && (
         <>
-          <span className="p-cmp-warn">{V.fairDiffGlyph}</span>{" "}
+          <span className="p-cmp-warn">{V.warnGlyph}</span>{" "}
         </>
       )}
       {title}

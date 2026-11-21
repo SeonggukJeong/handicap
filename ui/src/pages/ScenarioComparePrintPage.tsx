@@ -92,14 +92,9 @@ export function ScenarioComparePrintPage() {
     [beforeMeta, afterMeta, beforeReport, afterReport, scenarioName, now],
   );
 
-  const candidates = pair?.kind === "ok" ? pair.candidates : [];
-  const shown: [string, string] | null = (() => {
-    if (pair?.kind !== "ok") return null;
-    const [p, q] = (pairParam ?? "").split(",");
-    const ids = new Set(candidates.map((c) => c.id));
-    if (p && q && p !== q && ids.has(p) && ids.has(q)) return [p, q];
-    return [pair.before.id, pair.after.id];
-  })();
+  const pickable = pair?.kind === "ok" || pair?.kind === "notTerminal" ? pair : null;
+  const candidates = pickable?.candidates ?? [];
+  const shown = pickable?.picker ?? null;
 
   const choose = (slot: 0 | 1, value: string) => {
     if (!shown) return;
@@ -136,7 +131,7 @@ export function ScenarioComparePrintPage() {
   let body: JSX.Element;
   if (runs.isLoading) {
     body = <p role="status">{ko.print.page.loading}</p>;
-  } else if (runs.error) {
+  } else if (runs.error && !runs.data) {
     body = <p role="alert">{ko.print.page.loadFailed((runs.error as Error).message)}</p>;
   } else if (!pair || pair.kind === "tooFew") {
     body = <p>{ko.print.cmp.page.tooFew}</p>;
@@ -144,12 +139,12 @@ export function ScenarioComparePrintPage() {
     body = <p>{ko.print.cmp.page.foreign}</p>;
   } else if (pair.kind === "notTerminal") {
     body = <p>{ko.print.page.notTerminal}</p>;
+  } else if (doc && !scenario.isLoading) {
+    body = <CompareDocument key={kind} doc={doc} kind={kind} onLadder={setLadder} />;
   } else if (reportError) {
     body = <p role="alert">{ko.print.page.loadFailed((reportError as Error).message)}</p>;
-  } else if (!doc || scenario.isLoading) {
-    body = <p role="status">{ko.print.page.loading}</p>;
   } else {
-    body = <CompareDocument key={kind} doc={doc} kind={kind} onLadder={setLadder} />;
+    body = <p role="status">{ko.print.page.loading}</p>;
   }
 
   return (
@@ -181,6 +176,7 @@ export function ScenarioComparePrintPage() {
                 key={slot}
                 aria-label={ko.print.cmp.page.pairSelect(slot + 1)}
                 className="px-2 py-1.5 text-sm border border-slate-300 rounded"
+                style={{ maxWidth: "24rem" }}
                 value={shown[slot]}
                 onChange={(e) => choose(slot, e.target.value)}
               >

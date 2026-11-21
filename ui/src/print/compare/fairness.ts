@@ -226,7 +226,7 @@ function itemText(box: ConditionsBox, p: Profile, key: ItemKey): string | null {
     case "data": {
       const b = seedBindingsFrom(p);
       return b.length > 0
-        ? C.dataLine(b.length, b.map((x) => C.policyNames[x.policy] ?? x.policy).join("·"))
+        ? C.dataLine(b.length, b.map((x) => C.policyNames[x.policy]).join("·"))
         : null;
     }
     case "stair":

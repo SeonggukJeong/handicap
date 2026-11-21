@@ -13,6 +13,7 @@ import {
   compareSummaryBlocks,
   type CompareDoc,
 } from "../buildCompareDoc";
+import { baseProfile } from "./fixtures";
 import { sceneModel, type SceneRun } from "./scene";
 
 const NOON = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -33,6 +34,15 @@ const AFTER: Partial<Report["summary"]> = {
   p99_ms: 1800,
 };
 const STEPS = [{ id: "s1", name: "접수", assert: [200] }];
+
+const CRIT_PROFILE = { ...baseProfile, criteria: { max_p95_ms: 3000 } };
+const crit = (passed: boolean) => ({
+  metric: "p95_ms",
+  direction: "max" as const,
+  threshold: 3000,
+  actual: passed ? 1600 : 3500,
+  passed,
+});
 
 function makeDoc(b: Partial<SceneRun> = {}, a: Partial<SceneRun> = {}): CompareDoc {
   const before = sceneModel({
@@ -118,7 +128,9 @@ describe("CompareDocument 표준판", () => {
 
     const vbox = container.querySelector(".p-cmp-vbox") as HTMLElement;
     expect(vbox.textContent).toContain("개선");
-    expect(vbox.textContent).toContain("주요 지표 5개 중 4개 좋아짐 · 1개 비슷 · 0개 나빠짐");
+    expect(vbox.textContent).toContain("주요 지표 5개 중");
+    expect(vbox.textContent).toContain("4개 좋아짐 · 1개 비슷");
+    expect(vbox.textContent).toContain("0개 나빠짐");
 
     const kpi = container.querySelector(".p-cmp-kpi") as HTMLElement;
     expect(within(kpi).getAllByRole("row").length).toBe(7);
@@ -175,19 +187,53 @@ describe("CompareDocument 표준판", () => {
   it("남은 문제 상자: 항목이 있을 때만 ▲, 없음·비교 불가에는 없다", async () => {
     const a = renderDoc({ ...makeDoc(), issues: ["문제 하나"] });
     await ready(a.root);
-    const heading = within(a.container.querySelector(".p-cmp-issues-wrap") as HTMLElement);
-    expect(heading.getByRole("heading", { name: /남은 문제/ }).textContent).toContain("▲");
+    expect(screen.getByRole("heading", { name: /남은 문제/, level: 2 }).textContent).toContain("▲");
     expect(a.container.querySelector(".p-cmp-issues .p-cmp-warn")).toBeNull();
     a.unmount();
 
     const b = renderDoc(makeDoc());
     await ready(b.root);
-    expect(b.container.querySelector(".p-cmp-issues-wrap h2 .p-cmp-warn")).toBeNull();
+    expect(
+      within(screen.getByRole("heading", { name: /남은 문제/, level: 2 })).queryByText("▲"),
+    ).toBeNull();
     b.unmount();
 
     const c = renderDoc(makeDoc({ summary: { count: 0, errors: 0, rps: 0 } }));
     await ready(c.root);
-    expect(c.container.querySelector(".p-cmp-issues-wrap h2 .p-cmp-warn")).toBeNull();
+    expect(
+      within(screen.getByRole("heading", { name: /남은 문제/, level: 2 })).queryByText("▲"),
+    ).toBeNull();
+  });
+
+  it("결과 상자 개수: 세 부분이 클래스 있는 따로 요소, 판정 변화는 줄바꿈 없는 한 요소", async () => {
+    const { root, container } = renderDoc(
+      makeDoc(
+        { profile: CRIT_PROFILE, verdict: { passed: false, criteria: [crit(false)] } },
+        { profile: CRIT_PROFILE, verdict: { passed: true, criteria: [crit(true)] } },
+      ),
+    );
+    await ready(root);
+    const small = container.querySelector(".p-cmp-vbox-small") as HTMLElement;
+    expect(small.querySelector(".p-cmp-vbox-total")?.textContent).toBe("주요 지표 5개 중");
+    expect(small.querySelector("b.p-cmp-ok")?.textContent).toBe("4개 좋아짐");
+    expect(small.querySelector("b.p-cmp-same")?.textContent).toBe("1개 비슷");
+    expect(small.querySelector("b.p-cmp-bad")?.textContent).toBe("0개 나빠짐");
+    const change = small.querySelector(".p-cmp-vbox-verdict") as HTMLElement;
+    expect(change.textContent).toBe("판정 ✕ → ●");
+    expect(small.querySelectorAll(".p-cmp-vbox-verdict")).toHaveLength(1);
+  });
+
+  it("결과 상자: 판정 신호가 없으면 판정 변화 줄이 없고, 비교 불가는 안내 글 그대로", async () => {
+    const a = renderDoc(makeDoc());
+    await ready(a.root);
+    expect(a.container.querySelector(".p-cmp-vbox-verdict")).toBeNull();
+    expect(a.container.querySelector(".p-cmp-vbox-small b.p-cmp-ok")).not.toBeNull();
+    a.unmount();
+    const b = renderDoc(makeDoc({ summary: { count: 0, errors: 0, rps: 0 } }));
+    await ready(b.root);
+    const small = b.container.querySelector(".p-cmp-vbox-small") as HTMLElement;
+    expect(small.textContent).toBe("요청이 실행되지 않은 측정이 있어 비교하지 않았습니다");
+    expect(small.querySelector("b")).toBeNull();
   });
 
   it("공정 비교 카드 넷의 제목이 글로 있다", async () => {
@@ -441,7 +487,7 @@ describe("CompareDocument 요약판", () => {
     );
   });
 
-  it("요약판 중간 칸: 결과 상자와 요약 문장이 한 .p-cmp-verdict 안에 있다", async () => {
+  it("요약판(높이 미측정, 0칸): 결과 상자와 요약 문장이 한 .p-cmp-verdict 안에 있다", async () => {
     const { root, container } = renderDoc(makeDoc(), "summary");
     await ready(root);
     const verdict = container.querySelector(".p-page .p-cmp-verdict") as HTMLElement;

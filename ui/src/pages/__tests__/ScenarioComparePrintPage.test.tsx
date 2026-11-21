@@ -45,6 +45,7 @@ type RunOpts = {
   started?: number | null;
   created?: number;
   lastMetric?: number | null;
+  label?: string | null;
 };
 
 function runBody(id: string, o: RunOpts = {}) {
@@ -61,7 +62,7 @@ function runBody(id: string, o: RunOpts = {}) {
     message: null,
     verdict: null,
     last_metric_ts: o.lastMetric ?? null,
-    label: null,
+    label: o.label ?? null,
   };
 }
 
@@ -256,6 +257,61 @@ describe("ScenarioComparePrintPage", () => {
     await waitFor(() => expect(screen.getByTestId("before-box")).toHaveTextContent(tail(MID)));
     expect(screen.getByRole("combobox", { name: "비교할 측정 1" })).toHaveValue(LATE);
     expect(screen.getByRole("combobox", { name: "비교할 측정 2" })).toHaveValue(MID);
+  });
+
+  it("pair with three ids: pickers and the document use the same default pair", async () => {
+    renderPage(
+      `/scenarios/S1/compare/print?runs=${EARLY},${MID},${LATE}&pair=${EARLY},${MID},${LATE}`,
+    );
+    await screen.findByTestId("doc");
+    expect(screen.getByRole("combobox", { name: "비교할 측정 1" })).toHaveValue(EARLY);
+    expect(screen.getByRole("combobox", { name: "비교할 측정 2" })).toHaveValue(LATE);
+    expect(screen.getByTestId("before-box")).toHaveTextContent(tail(EARLY));
+    expect(screen.getByTestId("after-box")).toHaveTextContent(tail(LATE));
+  });
+
+  it("a failed background refetch of the run list keeps the built document", async () => {
+    const qc = renderPage(`/scenarios/S1/compare/print?runs=${EARLY},${LATE}`);
+    await screen.findByTestId("doc");
+    listMode = "fail";
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["scenarios", "S1", "runs"] });
+    });
+    await waitFor(() =>
+      expect(qc.getQueryState(["scenarios", "S1", "runs"])?.status).toBe("error"),
+    );
+    expect(screen.getByTestId("doc")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("three runs with a running pair member: pickers stay so the pair can be changed back", async () => {
+    const user = userEvent.setup();
+    runList = [
+      runBody(EARLY),
+      runBody(MID, { started: T0 + 30_000, created: T0 + 30_000 }),
+      runBody(RUNNING, { status: "running", started: T0 + 90_000, created: T0 + 90_000 }),
+    ];
+    renderPage(
+      `/scenarios/S1/compare/print?runs=${EARLY},${MID},${RUNNING}&pair=${EARLY},${RUNNING}`,
+    );
+    expect(await screen.findByText("측정이 끝난 뒤 출력할 수 있습니다")).toBeInTheDocument();
+    const second = screen.getByRole("combobox", { name: "비교할 측정 2" });
+    expect(second).toHaveValue(RUNNING);
+    await user.selectOptions(second, MID);
+    expect(await screen.findByTestId("doc")).toBeInTheDocument();
+    expect(screen.getByTestId("before-box")).toHaveTextContent(tail(EARLY));
+    expect(screen.getByTestId("after-box")).toHaveTextContent(tail(MID));
+  });
+
+  it("long run labels: the picker width is capped", async () => {
+    runList = [EARLY, MID, LATE].map((id, i) =>
+      runBody(id, { started: T0 + i * 30_000, created: T0 + i * 30_000, label: "가".repeat(200) }),
+    );
+    renderPage(`/scenarios/S1/compare/print?runs=${EARLY},${MID},${LATE}`);
+    await screen.findByTestId("doc");
+    expect(screen.getByRole("combobox", { name: "비교할 측정 1" })).toHaveStyle({
+      maxWidth: "24rem",
+    });
   });
 
   it("two runs: no pickers", async () => {

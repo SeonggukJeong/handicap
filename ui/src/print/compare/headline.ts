@@ -16,6 +16,8 @@ export type Headline = {
   glyph: "▼" | "▲" | "◆" | "=" | "–";
   word: string;
   countsLine: string;
+  counts: { total: number; better: number; similar: number; worse: number } | null;
+  verdictChange: { before: string; after: string } | null;
   reference: boolean;
   verdictSignal: "good" | "bad" | null;
 };
@@ -49,6 +51,8 @@ export function buildHeadline(a: {
       glyph: GLYPH.incomparable,
       word: H.words.incomparable,
       countsLine: H.incomparable,
+      counts: null,
+      verdictChange: null,
       reference: a.anyDiff,
       verdictSignal: null,
     };
@@ -70,12 +74,22 @@ export function buildHeadline(a: {
   if (g >= 1 && b >= 1) answer = "mixed";
   else if (g >= 1) answer = "improved";
   else if (b >= 1) answer = "worsened";
-  const tail = signal === "good" ? H.verdictGood : signal === "bad" ? H.verdictBad : "";
+  const verdictChange =
+    signal === "good"
+      ? { before: H.verdictFail, after: H.verdictPass }
+      : signal === "bad"
+        ? { before: H.verdictPass, after: H.verdictFail }
+        : null;
+  const counts = { total, better: good, similar, worse: bad };
   return {
     answer,
     glyph: GLYPH[answer],
     word: H.words[answer],
-    countsLine: H.counts(total, good, similar, bad) + tail,
+    countsLine:
+      H.counts(total, good, similar, bad) +
+      (verdictChange ? H.verdictTail(verdictChange.before, verdictChange.after) : ""),
+    counts,
+    verdictChange,
     reference: a.anyDiff,
     verdictSignal: signal,
   };
@@ -105,8 +119,8 @@ function verdictLine(before: RunModel, after: RunModel): string {
   return L.verdictWords(bw, aw);
 }
 
-function incomparableReasons(before: RunModel, after: RunModel): SummaryReason[] {
-  const out: SummaryReason[] = [];
+function incomparableReasons(before: RunModel, after: RunModel): CmpSummaryReason[] {
+  const out: CmpSummaryReason[] = [];
   for (const [side, run] of [
     [ko.print.cmp.doc.roleBefore, before],
     [ko.print.cmp.doc.roleAfter, after],
@@ -138,18 +152,18 @@ function codeSentence(c: NonNullable<ReturnType<typeof biggestCodeChange>>): str
     : L.codeIncreased(c.label, code, n, m);
 }
 
-export type SummaryReason = { side: string; text: string };
-export type SummaryLine = { id: 1 | 2 | 3 | 4; text: string; reasons?: SummaryReason[] };
+export type CmpSummaryReason = { side: string; text: string };
+export type CmpSummaryLine = { id: 1 | 2 | 3 | 4; text: string; reasons?: CmpSummaryReason[] };
 
-export function summaryLines(a: {
+export function cmpSummaryLines(a: {
   headline: Headline;
   rows: MetricRow[];
   before: RunModel;
   after: RunModel;
   fairness: Fairness;
   codeChange: ReturnType<typeof biggestCodeChange>;
-}): SummaryLine[] {
-  const out: SummaryLine[] = [];
+}): CmpSummaryLine[] {
+  const out: CmpSummaryLine[] = [];
   const { answer } = a.headline;
   if (answer === "incomparable") {
     const reasons = incomparableReasons(a.before, a.after);

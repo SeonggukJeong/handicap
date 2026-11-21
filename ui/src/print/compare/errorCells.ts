@@ -122,39 +122,36 @@ export const codeText = (code: CodeKey): string => {
   return name ? c.issues.codeLine(String(code), name) : String(code);
 };
 
-type StarSide = { side: "before" | "after"; n: number; counts: Counts | null };
+type StarSide = { side: "before" | "after"; n: number; counts: Counts };
 
 type StarPlace = { n: number; text: string };
 
 type StarArgs = { label: string; code: string; n: string; side: string; other: string };
 
-const starSentence: Record<Counts, Record<Counts, (a: StarArgs) => string>> = {
-  no: {
-    yes: (a) => c.star.notCountedOtherCounts(a.label, a.code, a.n, a.side),
-    maybe: (a) => c.star.notCountedOtherUnknown(a.label, a.code, a.n, a.side, a.other),
-    no: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
-  },
-  maybe: {
-    yes: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
-    no: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
-    maybe: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
-  },
-  yes: {
-    no: (a) => c.star.countedOnly(a.label, a.code, a.n, a.side),
-    maybe: (a) => c.star.countedOtherUnknown(a.label, a.code, a.n, a.side, a.other),
-    yes: (a) => c.star.unknown(a.label, a.code, a.n, a.side),
-  },
+/** 짚는 쪽 상태/상대 쪽 상태. 두 상태가 같은 짝은 별이 붙지 않으므로 키 자체가 없다. */
+type Differing = { [P in Counts]: `${P}/${Exclude<Counts, P>}` }[Counts];
+
+const starSentence: Record<Differing, (a: StarArgs) => string> = {
+  "no/yes": (a) => c.star.notCountedOtherCounts(a.label, a.code, a.n, a.side),
+  "no/maybe": (a) => c.star.notCountedOtherUnknown(a.label, a.code, a.n, a.side, a.other),
+  "maybe/yes": (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+  "maybe/no": (a) => c.star.unknown(a.label, a.code, a.n, a.side),
+  "yes/no": (a) => c.star.countedOnly(a.label, a.code, a.n, a.side),
+  "yes/maybe": (a) => c.star.countedOtherUnknown(a.label, a.code, a.n, a.side, a.other),
 };
 
-function starPlace(label: string, x: StepPair["codes"][number], code: number): StarPlace {
+function starPlace(label: string, x: StepPair["codes"][number], code: number): StarPlace | null {
+  const { countsBefore, countsAfter } = x;
+  if (!countsBefore || !countsAfter || countsBefore === countsAfter) return null;
   const sides: StarSide[] = [];
-  if (x.starBefore) sides.push({ side: "before", n: x.before, counts: x.countsBefore });
-  if (x.starAfter) sides.push({ side: "after", n: x.after, counts: x.countsAfter });
+  if (x.starBefore) sides.push({ side: "before", n: x.before, counts: countsBefore });
+  if (x.starAfter) sides.push({ side: "after", n: x.after, counts: countsAfter });
   const pick =
     sides.find((s) => s.counts === "no") ?? sides.find((s) => s.counts === "maybe") ?? sides[0];
+  if (!pick) return null;
   const otherSide = pick.side === "before" ? "after" : "before";
-  const otherCounts = (pick.side === "before" ? x.countsAfter : x.countsBefore) ?? "maybe";
-  const text = starSentence[pick.counts ?? "maybe"][otherCounts]({
+  const otherCounts = pick.side === "before" ? countsAfter : countsBefore;
+  const text = starSentence[`${pick.counts}/${otherCounts}` as Differing]({
     label,
     code: String(code),
     n: fmtCount(pick.n),
@@ -169,7 +166,8 @@ export function starFootnote(pairs: StepPair[]): string | null {
   for (const p of pairs) {
     for (const x of p.codes) {
       if ((!x.starBefore && !x.starAfter) || typeof x.code !== "number") continue;
-      places.push(starPlace(p.label, x, x.code));
+      const place = starPlace(p.label, x, x.code);
+      if (place) places.push(place);
     }
   }
   if (places.length === 0) return null;

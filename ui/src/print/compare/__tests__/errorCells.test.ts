@@ -101,18 +101,6 @@ describe("stepPairs 별(*)", () => {
     expect(starFootnote(pairs)).toBeNull();
   });
 
-  it("센다 ↔ 알 수 없음: 양쪽 별, 각주는 확정할 수 없습니다", () => {
-    const before = model("b", [S("s1", "조회", { assert: [200] })], [R("s1", { "503": 10 }, 10)]);
-    const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "503": 10 })]);
-    const pairs = stepPairs(before, after);
-    const c = codeOf(pairs, "s1", 503);
-    expect(c.countsBefore).toBe("yes");
-    expect(c.countsAfter).toBe("maybe");
-    expect(c.starBefore).toBe(true);
-    expect(c.starAfter).toBe(true);
-    expect(starFootnote(pairs)).toContain("확정할 수 없습니다");
-  });
-
   it("센다 ↔ 알 수 없음, 센 쪽만 건수가 있으면 '세었지만 … 확정할 수 없습니다' 문장", () => {
     const before = model("b", [S("s1", "조회", { assert: [200] })], [R("s1", { "503": 10 }, 10)]);
     const after = model("a", [S("s1", "조회", { extract: true })], [R("s1", { "200": 10 })]);
@@ -157,6 +145,28 @@ describe("stepPairs 별(*)", () => {
     const note = starFootnote(pairs) ?? "";
     expect(note).toContain("502 600건은 이전 측정에서 오류율에 포함되지 않았습니다");
     expect(note).toContain("이후 측정에서는 같은 응답을 오류로 세는지 확정할 수 없습니다");
+  });
+
+  it("알 수 없음 ↔ 안 센다, 알 수 없음 쪽만 건수가 있으면 그 쪽을 건수와 함께 짚는다", () => {
+    const before = model("b", [S("s1", "조회", { extract: true })], [R("s1", { "502": 6 })]);
+    const after = model("a", [S("s1", "조회")], [R("s1", { "200": 10 })]);
+    const pairs = stepPairs(before, after);
+    const c = codeOf(pairs, "s1", 502);
+    expect([c.countsBefore, c.countsAfter]).toEqual(["maybe", "no"]);
+    expect([c.starBefore, c.starAfter]).toEqual([true, false]);
+    const note = starFootnote(pairs) ?? "";
+    expect(note).toContain("502 6건이 이전 측정에서 오류로 세었는지 확정할 수 없습니다");
+  });
+
+  it("알 수 없음 ↔ 센다, 알 수 없음 쪽만 건수가 있으면 그 쪽을 건수와 함께 짚는다", () => {
+    const before = model("b", [S("s1", "조회", { extract: true })], [R("s1", { "503": 4 })]);
+    const after = model("a", [S("s1", "조회", { assert: [200] })], [R("s1", { "200": 10 })]);
+    const pairs = stepPairs(before, after);
+    const c = codeOf(pairs, "s1", 503);
+    expect([c.countsBefore, c.countsAfter]).toEqual(["maybe", "yes"]);
+    expect([c.starBefore, c.starAfter]).toEqual([true, false]);
+    const note = starFootnote(pairs) ?? "";
+    expect(note).toContain("503 4건이 이전 측정에서 오류로 세었는지 확정할 수 없습니다");
   });
 
   it("센다 ↔ 안 센다인데 센 쪽만 건수가 있으면 '에서만 오류로 세었습니다' 문장", () => {

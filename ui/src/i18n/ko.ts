@@ -1,3 +1,5 @@
+import type { BindingPolicy } from "../api/schemas";
+
 /**
  * UI 한국어 메시지 카탈로그 (ADR-0035).
  * - 모든 사용자 노출 문구(본문·버튼·표 헤더·placeholder·aria-label·title·배너)는 이 카탈로그 경유다 — 인라인 영어/한국어 금지. (기술 고유명사 VU/RPS/p95/YAML/URL 등은 원어 유지 + 설명 병기.)
@@ -2587,7 +2589,7 @@ export const ko = {
           iter_sequential: "반복마다 순서대로",
           iter_random: "반복마다 무작위",
           unique: "한 번씩만 사용",
-        } as Record<string, string>,
+        } satisfies Record<BindingPolicy, string>,
         dataLine: (n: number, policies: string) => `${n}개 연결(${policies})`,
         stairLine: (steps: number, hold: string) => `${steps}계단 · 계단마다 ${hold} 유지`,
       },
@@ -2641,8 +2643,15 @@ export const ko = {
         },
         counts: (total: number, good: number, similar: number, bad: number) =>
           `주요 지표 ${total}개 중 ${good}개 좋아짐 · ${similar}개 비슷 · ${bad}개 나빠짐`,
-        verdictGood: " · 판정 ✕ → ●",
-        verdictBad: " · 판정 ● → ✕",
+        verdictFail: "✕",
+        verdictPass: "●",
+        verdictTail: (before: string, after: string) => ` · 판정 ${before} → ${after}`,
+        verdictLine: (before: string, after: string) => `판정 ${before} → ${after}`,
+        total: (n: number) => `주요 지표 ${n}개 중`,
+        betterCount: (n: number) => `${n}개 좋아짐`,
+        similarCount: (n: number) => `${n}개 비슷`,
+        worseCount: (n: number) => `${n}개 나빠짐`,
+        countJoin: " · ",
         reference: "조건이 달라 참고용",
         incomparable: "요청이 실행되지 않은 측정이 있어 비교하지 않았습니다",
       },
@@ -2695,6 +2704,7 @@ export const ko = {
         fairDiff: "다름",
         fairSameGlyph: "●",
         fairDiffGlyph: "▲",
+        warnGlyph: "▲",
         kpiColMetric: "지표",
         kpiColBefore: "이전",
         kpiColAfter: "이후",

@@ -70,9 +70,23 @@ describe("resolvePair", () => {
     expect([r.before.id, r.after.id]).toEqual(["a", "b"]);
   });
 
-  it.each(["a,a", "a,zzz", "a", ""])("이상한 pair=%j는 기본 짝으로", (p) => {
+  it.each(["a,a", "a,zzz", "a", "", "a,b,c", "a,b,"])("이상한 pair=%j는 기본 짝으로", (p) => {
     const r = ok(run({ runIds: ["a", "b", "c"], pairParam: p }));
     expect([r.before.id, r.after.id]).toEqual(["a", "c"]);
+  });
+
+  it("picker는 주소에 적힌 순서, 이상한 pair면 문서의 [이전, 이후]", () => {
+    expect(ok(run({ runIds: ["a", "b", "c"], pairParam: "c,a" })).picker).toEqual(["c", "a"]);
+    expect(ok(run({ runIds: ["a", "b", "c"], pairParam: "a,b,c" })).picker).toEqual(["a", "c"]);
+    expect(ok(run({ runIds: ["a", "b", "c"] })).picker).toEqual(["a", "c"]);
+  });
+
+  it("notTerminal에도 candidates와 picker가 있다", () => {
+    const running = [A, m("b", 200, 190, "running"), C];
+    const r = run({ runIds: ["a", "b", "c"], pairParam: "a,b", scenarioRuns: running });
+    if (r.kind !== "notTerminal") throw new Error(r.kind);
+    expect(r.candidates.map((x) => x.id)).toEqual(["a", "b", "c"]);
+    expect(r.picker).toEqual(["a", "b"]);
   });
 
   it("pair의 id가 runs에 없으면(목록엔 있어도) 기본 짝", () => {

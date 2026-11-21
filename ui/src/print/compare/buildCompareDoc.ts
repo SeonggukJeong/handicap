@@ -12,10 +12,10 @@ import { biggestCodeChange, hasStar, remainingIssues, starFootnote, stepPairs } 
 import { buildFairness, type Fairness } from "./fairness";
 import {
   buildHeadline,
-  summaryLines,
+  cmpSummaryLines,
   verdictWord,
   type Headline,
-  type SummaryLine,
+  type CmpSummaryLine,
 } from "./headline";
 import type { RunModel } from "./runModel";
 
@@ -37,7 +37,7 @@ export type CompareDoc = {
   before: SideHead;
   after: SideHead;
   headline: Headline;
-  lines: SummaryLine[];
+  lines: CmpSummaryLine[];
   fairness: Fairness;
   rows: MetricRow[];
   starNote: string | null;
@@ -90,7 +90,7 @@ export function buildCompareDoc(a: {
     anyDiff: fairness.anyDiff,
     incomparable,
   });
-  const lines = summaryLines({
+  const lines = cmpSummaryLines({
     headline,
     rows,
     before,

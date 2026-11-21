@@ -587,7 +587,9 @@
 .p-root .p-cmp-b--section {
   padding-top: 5mm;
 }
-.p-root .p-cmp-b--lines,
+.p-root .p-cmp-b--lines {
+  padding-top: 1mm;
+}
 .p-root .p-cmp-b--cards {
   padding-top: 3mm;
 }
@@ -707,6 +709,9 @@
   font-size: 8pt;
   font-weight: 700;
   margin-top: 1mm;
+}
+.p-root .p-cmp-vbox-verdict {
+  white-space: nowrap;
 }
 .p-root .p-cmp-vbox-big,
 .p-root .p-cmp-vbox-small,
