@@ -9,6 +9,7 @@ use crate::api::scenarios::think_time_in_range;
 use crate::app::AppState;
 use crate::binding::{BindingPolicy, collect_var_names};
 use crate::error::ApiError;
+use crate::grpc::coordinator::AbortOutcome;
 use crate::store::datasets;
 use crate::store::runs::{self, Profile, RunStatus};
 use crate::store::scenarios;
@@ -1388,20 +1389,25 @@ pub async fn abort_run(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<axum::http::StatusCode, ApiError> {
-    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
-    match row.status {
-        runs::RunStatus::Running | runs::RunStatus::Pending => {}
-        _ => {
-            return Err(ApiError::Conflict(format!(
-                "run is {} and cannot be aborted",
-                row.status.as_str()
-            )));
-        }
+    // 가드 UPDATE가 먼저다: 끝난 run의 상태는 덮지 않는다.
+    if !runs::abort_if_active(&state.db, &id).await? {
+        let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+        return Err(ApiError::Conflict(format!(
+            "run is {} and cannot be aborted",
+            row.status.as_str()
+        )));
     }
-    // Best-effort: send AbortRun to the worker if it is already connected.
-    // If the worker hasn't registered yet (still pending), mark_aborted below is sufficient.
-    state.coord.abort(&id).await;
-    runs::mark_aborted(&state.db, &id).await?;
+    let reason = match state.coord.abort(&id).await {
+        AbortOutcome::NotStarted => Some(runs::ABORT_MSG_NOT_STARTED.to_string()),
+        AbortOutcome::Marked {
+            registered,
+            expected,
+        } if registered < expected => Some(runs::abort_msg_partial(registered, expected)),
+        _ => None,
+    };
+    if let Some(reason) = reason {
+        runs::set_abort_reason_if_absent(&state.db, &id, &reason).await?;
+    }
     Ok(axum::http::StatusCode::OK)
 }
 
@@ -2891,6 +2897,146 @@ steps:
         .await
         .unwrap()
         .id
+    }
+
+    fn pending_assignment() -> crate::grpc::coordinator::PendingAssignment {
+        let mut profile = unique_profile("unused".into(), 1);
+        profile.data_binding = None;
+        crate::grpc::coordinator::PendingAssignment {
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n".to_string(),
+            profile: crate::grpc::profile::to_proto_profile(&profile),
+            env: std::collections::HashMap::new(),
+            data_bindings: vec![],
+            stair: None,
+        }
+    }
+
+    async fn enqueue_expecting(state: &AppState, id: &str, expected: u32) {
+        let long = std::time::Duration::from_secs(3600);
+        state
+            .coord
+            .enqueue(
+                id.to_string(),
+                pending_assignment(),
+                expected,
+                4,
+                None,
+                long,
+                long,
+            )
+            .await;
+    }
+
+    async fn register_worker(state: &AppState, id: &str, worker: &str) {
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        state.coord.register(id, worker, tx).await;
+        // 수신 쪽을 살려 둬야 Abort 전송이 실패하지 않는다.
+        std::mem::forget(rx);
+    }
+
+    async fn abort_msg(state: &AppState, id: &str) -> (runs::RunStatus, Option<String>) {
+        let row = runs::get(&state.db, id).await.unwrap().unwrap();
+        (row.status, row.message)
+    }
+
+    #[tokio::test]
+    async fn abort_run_before_any_worker_leaves_not_started_reason() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let state = state_with(db, 0).await;
+        enqueue_expecting(&state, &id, 1).await;
+        let code = super::abort_run(State(state.clone()), Path(id.clone()))
+            .await
+            .unwrap();
+        assert_eq!(code, StatusCode::OK);
+        let (status, message) = abort_msg(&state, &id).await;
+        assert_eq!(status, runs::RunStatus::Aborted);
+        assert_eq!(message.as_deref(), Some(runs::ABORT_MSG_NOT_STARTED));
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        assert!(matches!(
+            state.coord.register(&id, "w0", tx).await,
+            crate::grpc::coordinator::RegisterOutcome::NoRun
+        ));
+    }
+
+    #[tokio::test]
+    async fn abort_run_with_partial_registration_leaves_partial_reason() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let state = state_with(db, 0).await;
+        enqueue_expecting(&state, &id, 2).await;
+        register_worker(&state, &id, "w0").await;
+        super::abort_run(State(state.clone()), Path(id.clone()))
+            .await
+            .unwrap();
+        let (status, message) = abort_msg(&state, &id).await;
+        assert_eq!(status, runs::RunStatus::Aborted);
+        assert_eq!(
+            message.as_deref(),
+            Some("부하기 2대 중 1대만 접속한 상태에서 중단했습니다")
+        );
+    }
+
+    #[tokio::test]
+    async fn abort_run_fully_registered_leaves_no_reason() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let state = state_with(db, 0).await;
+        enqueue_expecting(&state, &id, 1).await;
+        register_worker(&state, &id, "w0").await;
+        super::abort_run(State(state.clone()), Path(id.clone()))
+            .await
+            .unwrap();
+        let (status, message) = abort_msg(&state, &id).await;
+        assert_eq!(status, runs::RunStatus::Aborted);
+        assert_eq!(message, None);
+    }
+
+    #[tokio::test]
+    async fn abort_run_does_not_overwrite_finished_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        runs::set_status(&db, &id, runs::RunStatus::Completed, Some(1), Some(5))
+            .await
+            .unwrap();
+        let state = state_with(db, 0).await;
+        let err = super::abort_run(State(state.clone()), Path(id.clone()))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ApiError::Conflict(_)));
+        let (status, _) = abort_msg(&state, &id).await;
+        assert_eq!(status, runs::RunStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn abort_run_on_already_aborted_run_conflicts() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        assert!(
+            runs::mark_aborted_if_active(&db, &id, "앱 종료로 중단")
+                .await
+                .unwrap()
+        );
+        let state = state_with(db, 0).await;
+        let err = super::abort_run(State(state.clone()), Path(id.clone()))
+            .await
+            .unwrap_err();
+        match err {
+            ApiError::Conflict(m) => assert!(m.contains("aborted"), "{m}"),
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+        let (_, message) = abort_msg(&state, &id).await;
+        assert_eq!(message.as_deref(), Some("앱 종료로 중단"));
+    }
+
+    #[tokio::test]
+    async fn abort_run_unknown_id_is_not_found() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let err = super::abort_run(State(state), Path("nope".to_string()))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ApiError::NotFound));
     }
 
     #[tokio::test]

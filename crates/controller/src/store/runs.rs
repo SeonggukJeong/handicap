@@ -477,6 +477,41 @@ pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
     Ok(())
 }
 
+/// 등록한 부하기가 하나도 없을 때 중단한 run의 사유.
+pub const ABORT_MSG_NOT_STARTED: &str = "부하를 시작하기 전에 중단했습니다";
+
+/// 일부 부하기만 접속한 상태에서 중단한 run의 사유.
+pub fn abort_msg_partial(registered: u32, expected: u32) -> String {
+    format!("부하기 {expected}대 중 {registered}대만 접속한 상태에서 중단했습니다")
+}
+
+/// 활성(`pending`/`running`) run만 `aborted`로 바꾼다(`ended_at` = 지금, message 그대로).
+/// 가드 단일 UPDATE라 이미 끝난 run을 덮지 않는다. 행이 바뀌면 `true`.
+pub async fn abort_if_active(db: &Db, id: &str) -> sqlx::Result<bool> {
+    let now = super::now_ms();
+    let res = sqlx::query(
+        "UPDATE runs SET status = 'aborted', ended_at = ? \
+         WHERE id = ? AND status IN ('pending', 'running')",
+    )
+    .bind(now)
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// `aborted`이고 message가 비어 있는 행에만 사유를 쓴다. 썼으면 `true`.
+pub async fn set_abort_reason_if_absent(db: &Db, id: &str, message: &str) -> sqlx::Result<bool> {
+    let res = sqlx::query(
+        "UPDATE runs SET message = ? WHERE id = ? AND status = 'aborted' AND message IS NULL",
+    )
+    .bind(message)
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
 /// 활성(`pending`/`running`) run만 `aborted`로 바꾸고 사유 message를 남긴다. 행이 바뀌면 `true`.
 /// 가드 단일 UPDATE라 이미 terminal인 run을 클로버하지 않는다(`mark_failed_if_active`와 동형).
 pub async fn mark_aborted_if_active(db: &Db, id: &str, message: &str) -> sqlx::Result<bool> {
@@ -1316,6 +1351,66 @@ mod tests {
         let got = get(&db, &id).await.unwrap().unwrap();
         assert_eq!(got.status, RunStatus::Aborted);
         assert!(got.auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn abort_if_active_marks_pending_and_running() {
+        let db = test_db().await;
+        let pending = auto_stop_run(&db).await;
+        let running = auto_stop_run(&db).await;
+        set_status(&db, &running, RunStatus::Running, Some(1), None)
+            .await
+            .unwrap();
+        for id in [&pending, &running] {
+            assert!(abort_if_active(&db, id).await.unwrap());
+            let got = get(&db, id).await.unwrap().unwrap();
+            assert_eq!(got.status, RunStatus::Aborted);
+            assert!(got.ended_at.is_some());
+            assert_eq!(got.message, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn abort_if_active_skips_finished() {
+        let db = test_db().await;
+        let id = auto_stop_run(&db).await;
+        set_status(&db, &id, RunStatus::Completed, Some(1), Some(5))
+            .await
+            .unwrap();
+        assert!(!abort_if_active(&db, &id).await.unwrap());
+        let got = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(got.status, RunStatus::Completed);
+        assert_eq!(got.ended_at, Some(5));
+    }
+
+    #[tokio::test]
+    async fn set_abort_reason_writes_only_when_absent() {
+        let db = test_db().await;
+        let id = auto_stop_run(&db).await;
+        assert!(abort_if_active(&db, &id).await.unwrap());
+        assert!(set_abort_reason_if_absent(&db, &id, "첫째").await.unwrap());
+        assert!(!set_abort_reason_if_absent(&db, &id, "둘째").await.unwrap());
+        let got = get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(got.message.as_deref(), Some("첫째"));
+    }
+
+    #[tokio::test]
+    async fn set_abort_reason_skips_non_aborted() {
+        let db = test_db().await;
+        let id = auto_stop_run(&db).await;
+        set_status(&db, &id, RunStatus::Running, Some(1), None)
+            .await
+            .unwrap();
+        assert!(!set_abort_reason_if_absent(&db, &id, "사유").await.unwrap());
+        assert_eq!(get(&db, &id).await.unwrap().unwrap().message, None);
+    }
+
+    #[test]
+    fn abort_msg_partial_text() {
+        assert_eq!(
+            abort_msg_partial(1, 2),
+            "부하기 2대 중 1대만 접속한 상태에서 중단했습니다"
+        );
     }
 
     #[tokio::test]
