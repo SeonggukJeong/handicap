@@ -3,7 +3,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use handicap_worker_core::WorkerError;
-use handicap_worker_core::reconnect::{SCHEDULE, TOTAL_CAP, retry_with_backoff};
+use handicap_worker_core::reconnect::{
+    RetryPolicy, SCHEDULE, TOTAL_CAP, retry_with_backoff, retry_with_backoff_policy,
+};
 use tokio_util::sync::CancellationToken;
 
 #[test]
@@ -101,4 +103,61 @@ async fn cancel_during_backoff_returns_cancelled() {
         real_elapsed < Duration::from_secs(5),
         "paused-time cancel path should be near-instant in real time; took {real_elapsed:?}"
     );
+}
+
+/// Runs `retry_with_backoff_policy` with an always-failing attempt and returns
+/// (final result, attempt count, virtual elapsed).
+async fn run_always_failing(
+    policy: RetryPolicy,
+    make_err: fn() -> WorkerError,
+) -> (Result<(), WorkerError>, usize, Duration) {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_clone = attempts.clone();
+    let started = tokio::time::Instant::now();
+    let result = retry_with_backoff_policy(
+        || {
+            let attempts = attempts_clone.clone();
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(make_err())
+            }
+        },
+        CancellationToken::new(),
+        policy,
+    )
+    .await;
+    (result, attempts.load(Ordering::SeqCst), started.elapsed())
+}
+
+fn aborted() -> WorkerError {
+    WorkerError::AbortedBeforeAssignment { reason: "x".into() }
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn stop_on_abort_returns_after_first_attempt() {
+    let (result, attempts, elapsed) = run_always_failing(RetryPolicy::StopOnAbort, aborted).await;
+    assert!(matches!(
+        result,
+        Err(WorkerError::AbortedBeforeAssignment { .. })
+    ));
+    assert_eq!(attempts, 1);
+    assert_eq!(elapsed, Duration::ZERO);
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn stop_on_abort_still_retries_other_errors() {
+    let (result, attempts, _) =
+        run_always_failing(RetryPolicy::StopOnAbort, || WorkerError::NoAssignment).await;
+    assert!(matches!(result, Err(WorkerError::NoAssignment)));
+    assert!(attempts > 1, "got {attempts}");
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn retry_all_policy_still_retries_abort() {
+    let (result, attempts, _) = run_always_failing(RetryPolicy::RetryAll, aborted).await;
+    assert!(matches!(
+        result,
+        Err(WorkerError::AbortedBeforeAssignment { .. })
+    ));
+    assert!(attempts > 1, "got {attempts}");
 }

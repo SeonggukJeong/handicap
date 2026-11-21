@@ -17,8 +17,8 @@ use handicap_worker_core::pool_status::{
     desktop_retry_delay, probe_first, sanitize_clip, tcp_reachable,
 };
 use handicap_worker_core::{
-    RegisterOpts, WorkerError, WorkerLink, connect_and_register_opts, connect_with_backoff,
-    load_datasets,
+    RegisterOpts, RetryPolicy, WorkerError, WorkerLink, connect_and_register_opts,
+    connect_with_backoff, load_datasets,
 };
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
@@ -363,6 +363,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
         &hostname,
         false,
         cancel.clone(),
+        RetryPolicy::StopOnAbort,
     )
     .await
     {
@@ -413,6 +414,7 @@ pub async fn run_pool_until(args: WorkerArgs, cancel: CancellationToken) -> anyh
             &hostname,
             stable,
             cancel.clone(),
+            RetryPolicy::RetryAll,
         )
         .await
         {

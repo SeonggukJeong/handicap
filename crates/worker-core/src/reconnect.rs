@@ -22,6 +22,27 @@ pub const SCHEDULE: &[Duration] = &[
 /// exceeds this. Matches spec §4.2 — workers terminate if disconnected ≥ 60s.
 pub const TOTAL_CAP: Duration = Duration::from_secs(60);
 
+/// 접속 재시도 규칙. 재시도 여부는 `is_fatal` 한 곳에서만 정한다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryPolicy {
+    /// 모든 오류를 재시도한다(풀 워커).
+    RetryAll,
+    /// 배정 전에 컨트롤러가 Abort를 보냈으면 재시도하지 않는다(run 전용 워커).
+    StopOnAbort,
+}
+
+impl RetryPolicy {
+    /// true면 재시도 없이 그 오류로 즉시 끝낸다.
+    pub fn is_fatal(self, e: &WorkerError) -> bool {
+        match self {
+            RetryPolicy::RetryAll => false,
+            RetryPolicy::StopOnAbort => {
+                matches!(e, WorkerError::AbortedBeforeAssignment { .. })
+            }
+        }
+    }
+}
+
 /// Retry `connect_and_register` with an exponential backoff (1·2·4·8 s, then
 /// cap at 8 s) until either it succeeds or the cumulative elapsed time exceeds
 /// `TOTAL_CAP` (60 s). On give-up, returns the last error.
@@ -42,11 +63,12 @@ pub async fn connect_with_backoff(
     hostname: &str,
     stable: bool,
     cancel: CancellationToken,
+    policy: RetryPolicy,
 ) -> Result<WorkerLink, WorkerError> {
     let token = token.to_string();
     let hostname = hostname.to_string();
     let cancel_for_attempt = cancel.clone();
-    retry_with_backoff(
+    retry_with_backoff_policy(
         || {
             connect_and_register(
                 controller_url,
@@ -60,6 +82,7 @@ pub async fn connect_with_backoff(
             )
         },
         cancel,
+        policy,
     )
     .await
 }
@@ -85,8 +108,21 @@ pub async fn connect_with_backoff(
 /// function returns `WorkerError::Cancelled` so callers can distinguish a
 /// graceful shutdown from a real connect failure.
 pub async fn retry_with_backoff<F, Fut, T>(
+    attempt_fn: F,
+    cancel: CancellationToken,
+) -> Result<T, WorkerError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, WorkerError>>,
+{
+    retry_with_backoff_policy(attempt_fn, cancel, RetryPolicy::RetryAll).await
+}
+
+/// `retry_with_backoff`와 같되 `policy.is_fatal`인 오류는 재시도하지 않고 즉시 돌려준다.
+pub async fn retry_with_backoff_policy<F, Fut, T>(
     mut attempt_fn: F,
     cancel: CancellationToken,
+    policy: RetryPolicy,
 ) -> Result<T, WorkerError>
 where
     F: FnMut() -> Fut,
@@ -110,6 +146,9 @@ where
                 return Ok(value);
             }
             Err(e) => {
+                if policy.is_fatal(&e) {
+                    return Err(e);
+                }
                 let delay = SCHEDULE
                     .get(attempt)
                     .copied()
