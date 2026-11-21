@@ -46,6 +46,7 @@ export type MkReportArgs = {
   env?: Record<string, string> | null;
   status?: string;
   verdict?: Report["verdict"];
+  basis?: Report["basis"];
 };
 
 const T0 = 1_700_000_000_000;
@@ -102,6 +103,7 @@ export function mkReport(a: MkReportArgs): Report {
     verdict: a.verdict ?? null,
     dropped: 0,
     latency: null,
+    ...(a.basis ? { basis: a.basis } : {}),
   } as Report;
 }
 

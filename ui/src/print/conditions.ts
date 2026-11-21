@@ -6,6 +6,10 @@ import { profileDurationSeconds } from "../api/runPrefill";
 import { fmtDate, fmtDateTime, fmtMs, fmtTime } from "./format";
 
 const c = ko.print.conditions;
+
+export function rampSeconds(p: Pick<Profile, "ramp_up_seconds" | "steady">): number {
+  return p.steady ? p.steady.ramp_seconds : p.ramp_up_seconds;
+}
 const DASH = ko.print.fmt.noTarget;
 
 export function measuredWindow(
@@ -93,7 +97,8 @@ export function conditionsBox(a: {
     }
   }
   add(L.duration, formatDurationKo(profileDurationSeconds(p)));
-  if (p.ramp_up_seconds > 0) add(L.ramp, c.ramp(formatDurationKo(p.ramp_up_seconds)));
+  const ramp = rampSeconds(p);
+  if (ramp > 0) add(L.ramp, c.ramp(formatDurationKo(ramp)));
   if (p.think_time) add(L.think, c.think(fmtMs(p.think_time.min_ms), fmtMs(p.think_time.max_ms)));
   add(L.timeout, formatDurationKo(p.http_timeout_seconds));
   const workers = workerCount(p, a.workerBreakdownLen);

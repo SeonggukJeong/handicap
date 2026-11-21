@@ -2609,6 +2609,7 @@ export const ko = {
         maxInFlight: "동시 요청 상한",
         data: "데이터 연결",
         stair: "계단 시험 설정",
+        basis: "집계 기준",
         other: "그 밖의 설정",
         itemJoin: " · ",
         keyJoin: ", ",
@@ -2670,6 +2671,14 @@ export const ko = {
         policyJoin: "·",
         dataLine: (n: number, policies: string) => `${n}개 연결(${policies})`,
         stairLine: (steps: number, hold: string) => `${steps}계단 · 계단마다 ${hold} 유지`,
+        basisSteady: (ramp: number, discard: number) => {
+          const parts = [
+            ...(ramp > 0 ? [`상승 ${ramp}초`] : []),
+            ...(discard > 0 ? [`버림 ${discard}초`] : []),
+          ];
+          return parts.length > 0 ? `유지 구간(${parts.join("·")} 제외)` : "유지 구간";
+        },
+        basisWhole: "전체 구간",
       },
       db: {
         tickSec: (n: number) => `${n}초`,

@@ -3,7 +3,7 @@ import { formatDurationKo } from "../../i18n/duration";
 import type { Profile } from "../../api/schemas";
 import { profileDurationSeconds, seedBindingsFrom } from "../../api/runPrefill";
 import { deriveLoadMode, fixedTarget } from "../../components/run/loadModel";
-import { conditionsBox } from "../conditions";
+import { conditionsBox, rampSeconds } from "../conditions";
 import { stepNo } from "../format";
 import type { StepFacts } from "../scenarioFacts";
 import { expandCriteria } from "../verdict";
@@ -85,6 +85,7 @@ type ItemKey =
   | "size"
   | "duration"
   | "ramp"
+  | "basis"
   | "think"
   | "timeout"
   | "connect"
@@ -98,6 +99,7 @@ const ITEM_ORDER: ItemKey[] = [
   "size",
   "duration",
   "ramp",
+  "basis",
   "think",
   "timeout",
   "connect",
@@ -134,13 +136,22 @@ function sizeValue(p: Profile): unknown {
   return rateMode === "curve" ? p.stages : fixedTarget(p);
 }
 
-function itemValues(p: Profile, workers: number): Record<ItemKey, unknown> {
+export function basisCondText(m: RunModel): string | null {
+  const b = m.report.basis;
+  if (!b) return null;
+  return b.selected === "steady"
+    ? C.basisSteady(b.config.ramp_seconds, b.config.discard_seconds)
+    : C.basisWhole;
+}
+
+function itemValues(p: Profile, workers: number, basis: string | null): Record<ItemKey, unknown> {
   const { loadModel, rateMode } = deriveLoadMode(p);
   return {
     model: `${loadModel}/${rateMode}`,
     size: sizeValue(p),
     duration: profileDurationSeconds(p),
-    ramp: p.ramp_up_seconds,
+    ramp: rampSeconds(p),
+    basis: basis ?? C.basisWhole,
     think: p.think_time,
     timeout: p.http_timeout_seconds,
     connect: p.connect_timeout_seconds,
@@ -175,6 +186,8 @@ function itemLabel(key: ItemKey, size: string): string {
       return L.duration;
     case "ramp":
       return L.ramp;
+    case "basis":
+      return F.basis;
     case "think":
       return L.think;
     case "timeout":
@@ -202,7 +215,12 @@ function boxOf(m: RunModel): ConditionsBox {
   });
 }
 
-function itemText(box: ConditionsBox, p: Profile, key: ItemKey): string | null {
+function itemText(
+  box: ConditionsBox,
+  p: Profile,
+  key: ItemKey,
+  basis: string | null,
+): string | null {
   const boxRow = (label: string): string | null =>
     box.ok ? (box.rows.find((r) => r.label === label)?.value ?? null) : null;
   switch (key) {
@@ -214,6 +232,8 @@ function itemText(box: ConditionsBox, p: Profile, key: ItemKey): string | null {
       return boxRow(L.duration);
     case "ramp":
       return boxRow(L.ramp);
+    case "basis":
+      return basis;
     case "think":
       return boxRow(L.think);
     case "timeout":
@@ -326,6 +346,11 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
 
   const boxA = boxOf(before);
   const boxB = boxOf(after);
+  const basisA = basisCondText(before);
+  const basisB = basisCondText(after);
+  const anyBasis = basisA !== null || basisB !== null;
+  const basisTextA = anyBasis ? (basisA ?? C.basisWhole) : null;
+  const basisTextB = anyBasis ? (basisB ?? C.basisWhole) : null;
 
   const load = ((): { card: FairCard; differs: Set<ItemKey>; other: boolean; size: string } => {
     if (!profileReadable) {
@@ -337,8 +362,8 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
       };
     }
     const size = sizeName(pa, pb);
-    const va = itemValues(pa, before.workers);
-    const vb = itemValues(pb, after.workers);
+    const va = itemValues(pa, before.workers, basisA);
+    const vb = itemValues(pb, after.workers, basisB);
     const differs = new Set<ItemKey>();
     for (const k of ITEM_ORDER) if (!deepEqualLoose(va[k], vb[k])) differs.add(k);
     if (va.model !== vb.model) differs.add("size");
@@ -348,7 +373,7 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     const same = names.length === 0;
     const { head, rest } = joinNames(names);
     const line = same
-      ? [itemText(boxB, pb, "model"), itemText(boxB, pb, "size")]
+      ? [itemText(boxB, pb, "model", basisTextB), itemText(boxB, pb, "size", basisTextB)]
           .filter((s): s is string => s !== null)
           .join(F.itemJoin)
       : F.loadDiff(head, rest);
@@ -439,6 +464,7 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
   if (pa && pb) {
     const optional = new Set<ItemKey>([
       "ramp",
+      "basis",
       "think",
       "connect",
       "maxInFlight",
@@ -449,8 +475,8 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     for (const k of ITEM_ORDER) {
       addRow(
         itemLabel(k, load.size),
-        itemText(boxA, pa, k),
-        itemText(boxB, pb, k),
+        itemText(boxA, pa, k, basisTextA),
+        itemText(boxB, pb, k, basisTextB),
         load.differs.has(k),
         optional.has(k),
       );

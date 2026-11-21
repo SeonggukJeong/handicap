@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReportSchema } from "../../../api/schemas";
+import { ReportSchema, type Report } from "../../../api/schemas";
 import { buildRunModel, type RunModel } from "../runModel";
 import { buildFairness, deepEqualLoose, stripScenarioNames, type Fairness } from "../fairness";
 import type { RunMeta } from "../pair";
@@ -16,6 +16,7 @@ type Opts = {
   yaml?: string;
   meta?: Partial<RunMeta>;
   status?: RunMeta["status"];
+  basis?: Report["basis"];
 };
 
 function model(id: string, o: Opts = {}): RunModel {
@@ -29,6 +30,7 @@ function model(id: string, o: Opts = {}): RunModel {
     profile: o.profile,
     env: o.env,
     status: o.status,
+    basis: o.basis,
   });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(id, { status: o.status ?? "completed", ...o.meta }), report);
@@ -523,5 +525,94 @@ describe("측정 상태 줄과 한 줄 요약", () => {
     expect(f.oneLine).toContain("부하 조건·환경 변수 같음");
     expect(f.oneLine).toContain("시나리오 내용·판정 기준 다름");
     expect(fair().oneLine).toBe("부하 조건·환경 변수·시나리오 내용·판정 기준 같음");
+  });
+});
+
+describe("집계 기준 줄", () => {
+  const steadyBasis = (over: Record<string, unknown> = {}, discard = 5): Report["basis"] =>
+    ({
+      selected: "steady",
+      default: "steady",
+      state: "measured",
+      config: { ramp_seconds: 30, hold_seconds: 270, discard_seconds: discard },
+      window: { start_ms: 1_000_000, end_ms: 1_265_000, measured_seconds: 265 },
+      t0_estimated: false,
+      dropped_whole_run: false,
+      other: null,
+      ...over,
+    }) as Report["basis"];
+  const row = (f: Fairness, label: string) => f.condRows.find((r) => r.label === label);
+
+  it("basis 없는 두 run: 집계 기준 줄이 없고 부하 조건 카드는 그대로", () => {
+    const f = fair();
+    expect(row(f, "집계 기준")).toBeUndefined();
+    expect(card(f, "load").same).toBe(true);
+  });
+  it("steady 기준 run과 basis 없는 run: 줄이 다름이고 부하 조건이 같지 않다", () => {
+    const f = fair({ basis: steadyBasis() }, {});
+    expect(row(f, "집계 기준")).toMatchObject({
+      before: "유지 구간(상승 30초·버림 5초 제외)",
+      after: "전체 구간",
+      differs: true,
+    });
+    expect(card(f, "load").same).toBe(false);
+    expect(card(f, "load").line).toContain("집계 기준");
+    expect(f.anyDiff).toBe(true);
+  });
+  it("basis_row_reads_report_not_profile: 프로필이 같은 두 steady run인데 한쪽이 닿기 전에 끝났다", () => {
+    const p = prof({
+      steady: { ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+      ramp_up_seconds: 30,
+    });
+    const f = fair(
+      { profile: p, basis: steadyBasis() },
+      {
+        profile: p,
+        basis: steadyBasis({
+          selected: "whole",
+          default: "whole",
+          state: "not_reached",
+          window: null,
+        }),
+      },
+    );
+    expect(row(f, "집계 기준")).toMatchObject({ after: "전체 구간", differs: true });
+  });
+  it("버림만 다른 두 steady run: 집계 기준 줄이 다르다", () => {
+    const f = fair({ basis: steadyBasis({}, 5) }, { basis: steadyBasis({}, 10) });
+    expect(row(f, "집계 기준")).toMatchObject({
+      before: "유지 구간(상승 30초·버림 5초 제외)",
+      after: "유지 구간(상승 30초·버림 10초 제외)",
+      differs: true,
+    });
+  });
+  it("같은 기준의 두 steady run: 줄이 있고 다름이 아니다", () => {
+    const f = fair({ basis: steadyBasis() }, { basis: steadyBasis() });
+    expect(row(f, "집계 기준")).toMatchObject({
+      before: "유지 구간(상승 30초·버림 5초 제외)",
+      after: "유지 구간(상승 30초·버림 5초 제외)",
+      differs: false,
+    });
+    expect(card(f, "load").same).toBe(true);
+  });
+  it("도착률 고정 + 상승 run: 시작 늘림 줄이 steady.ramp_seconds를 보인다", () => {
+    const p = prof({
+      vus: 0,
+      duration_seconds: 0,
+      ramp_up_seconds: 0,
+      max_in_flight: 50,
+      stages: [
+        { target: 80, duration_seconds: 30 },
+        { target: 80, duration_seconds: 270 },
+      ],
+      steady: { target: 80, ramp_seconds: 30, hold_seconds: 270, discard_seconds: 5 },
+    });
+    const f = fair({ profile: p }, { profile: p });
+    expect(row(f, "시작 늘림")?.before).toContain("30초");
+  });
+  it("상승 0·버림 5: 유지 구간(버림 5초 제외)", () => {
+    const b = steadyBasis({ config: { ramp_seconds: 0, hold_seconds: 270, discard_seconds: 5 } });
+    const f = fair({ basis: b }, { basis: b });
+    expect(row(f, "집계 기준")?.before).toBe("유지 구간(버림 5초 제외)");
   });
 });
