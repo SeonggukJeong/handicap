@@ -144,6 +144,21 @@ describe("BasisBar", () => {
     expect(line.textContent).not.toContain("상승");
   });
 
+  it("pending이면 전환 묶음이 aria-busy, 아니면 속성이 없다", () => {
+    const { rerender } = render(<BasisBar basis={B} onSelect={() => {}} pending />);
+    expect(screen.getByRole("radiogroup", { name: "집계 기준" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    rerender(<BasisBar basis={B} onSelect={() => {}} />);
+    expect(screen.getByRole("radiogroup", { name: "집계 기준" })).not.toHaveAttribute("aria-busy");
+  });
+
+  it("기준 줄의 도움말 단추 접근명", () => {
+    render(<BasisBar basis={B} onSelect={() => {}} />);
+    expect(screen.getByRole("button", { name: "집계 기준 설명" })).toBeInTheDocument();
+  });
+
   it("기준 줄·참고 줄은 줄바꿈을 허용한다", () => {
     render(<BasisBar basis={B} onSelect={() => {}} />);
     const line = screen.getByText(/상승 30초·버림 5초 제외/);

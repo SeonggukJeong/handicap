@@ -8,14 +8,17 @@ export function Segmented<T extends string>({
   options,
   ariaLabel,
   className = "",
+  busy,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: ReadonlyArray<Option<T>>;
   ariaLabel: string;
   className?: string;
+  busy?: boolean;
 }) {
   const idx = options.findIndex((o) => o.value === value);
+  const stopIdx = options[idx]?.disabled ? options.findIndex((o) => !o.disabled) : idx;
   function step(dir: 1 | -1) {
     const n = options.length;
     for (let k = 1; k < n; k++) {
@@ -39,18 +42,20 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
+      aria-busy={busy ? true : undefined}
       onKeyDown={onKeyDown}
       className={`inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 ${className}`}
     >
       {options.map((o) => {
         const active = o.value === value;
+        const tabStop = options.indexOf(o) === stopIdx;
         return (
           <button
             key={o.value}
             type="button"
             role="radio"
             aria-checked={active}
-            tabIndex={active ? 0 : -1}
+            tabIndex={tabStop ? 0 : -1}
             disabled={o.disabled}
             aria-disabled={o.disabled ? true : undefined}
             onClick={() => onChange(o.value)}

@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ErrorKindTable } from "../ErrorKindTable";
 import { ConnectionCostCard } from "../ConnectionCostCard";
@@ -125,6 +126,39 @@ describe("wholeRunBadge — 나눌 수 없는 표의 「전체 구간」 표지"
     expect(screen.getAllByText(BADGE)).toHaveLength(2);
     rerender(<Summary summary={summary} dropped={600} openLoop={openLoop} />);
     expect(screen.queryByText(BADGE)).not.toBeInTheDocument();
+  });
+
+  it("StepPhaseBreakdown 막대 보기: 응답 분리 줄에 표지, prop이 없으면 없다", () => {
+    const step: ReportStep = {
+      ...phased,
+      loop_split: {
+        final: { count: 4, error_count: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
+        retry: { count: 2, error_count: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
+      },
+    };
+    const meta = new Map([["s1", { id: "s1", name: "login", method: "GET", url: "http://x" }]]);
+    const { rerender } = render(<StepPhaseBreakdown steps={[step]} meta={meta} wholeRunBadge />);
+    const finalLine = screen.getByText(/반복을 끝낸 응답/).closest("div")!;
+    expect(within(finalLine).getByText(BADGE)).toBeInTheDocument();
+    rerender(<StepPhaseBreakdown steps={[step]} meta={meta} />);
+    expect(screen.queryByText(BADGE)).not.toBeInTheDocument();
+  });
+
+  it("StepPhaseBreakdown 칩 보기: 표 열 머리로 표지가 내려간다", async () => {
+    const user = userEvent.setup();
+    const meta = new Map([["s1", { id: "s1", name: "login", method: "GET", url: "http://x" }]]);
+    const { rerender } = render(<StepPhaseBreakdown steps={[phased]} meta={meta} wholeRunBadge />);
+    await user.click(screen.getByRole("button", { name: "칩" }));
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByText(BADGE)).toHaveLength(2);
+    rerender(<StepPhaseBreakdown steps={[phased]} meta={meta} />);
+    expect(screen.queryByText(BADGE)).not.toBeInTheDocument();
+  });
+
+  it("표지의 도움말 단추는 표지 글자와 다른 접근명을 가진다", () => {
+    render(<ErrorKindTable kinds={[{ kind: "timeout", count: 3 }]} wholeRunBadge />);
+    expect(screen.getByRole("button", { name: "전체 구간 표지 설명" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "전체 구간" })).not.toBeInTheDocument();
   });
 
   it("StepPhaseBreakdown 막대 보기: 단계 막대 범례에 표지", () => {

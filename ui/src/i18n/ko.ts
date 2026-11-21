@@ -1195,6 +1195,8 @@ export const ko = {
     // 집계 기준(유지 구간/전체 구간) 전환·기준 줄·표지 (steady-window)
     basis: {
       switchAria: "집계 기준",
+      helpLabel: "집계 기준 설명",
+      wholeBadgeHelpLabel: "전체 구간 표지 설명",
       steady: "유지 구간",
       whole: "전체 구간",
       lineSteady: (from: string, to: string, secs: number, ramp: number, discard: number) => {

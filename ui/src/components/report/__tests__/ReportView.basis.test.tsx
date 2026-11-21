@@ -132,6 +132,24 @@ describe("ReportView — 집계 기준", () => {
     expect(onSelectBasis).toHaveBeenCalledWith("whole");
   });
 
+  it("pending이면 리포트 본문이 흐려지고 전환이 aria-busy, 아니면 둘 다 없다", () => {
+    const report = { ...FIXTURE, basis: basisOf() };
+    const { rerender } = render(<ReportView report={report} profile={PROFILE} pending />);
+    expect(screen.getByRole("radiogroup", { name: "집계 기준" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    const body = screen.getByRole("heading", { name: "리포트" }).closest(".opacity-60");
+    expect(body).not.toBeNull();
+    rerender(
+      <MemoryRouter>
+        <ReportView report={report} profile={PROFILE} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("radiogroup", { name: "집계 기준" })).not.toHaveAttribute("aria-busy");
+    expect(document.querySelector(".opacity-60")).toBeNull();
+  });
+
   it("전환은 헤드라인 위에 있다", () => {
     render(<ReportView report={{ ...FIXTURE, basis: basisOf() }} profile={PROFILE} />);
     const group = screen.getByRole("radiogroup", { name: "집계 기준" });
@@ -194,7 +212,7 @@ describe("ReportView — 집계 기준", () => {
     };
     render(<ReportView report={report} profile={PROFILE} />);
     const summary = screen.getByRole("region", { name: /리포트 요약/ });
-    expect(within(summary).getAllByText(BADGE).length).toBeGreaterThan(0);
+    expect(within(summary).getAllByText(BADGE)).toHaveLength(2);
   });
 
   it("dropped_whole_run이 아니면 Summary 구역에 표지가 없다", () => {

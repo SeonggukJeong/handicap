@@ -44,9 +44,10 @@ type Props = {
   report: Report;
   profile: Profile;
   onSelectBasis?: (b: "steady" | "whole") => void;
+  pending?: boolean;
 };
 
-export function ReportView({ report, profile, onSelectBasis }: Props) {
+export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
   const wholeRunBadge = report.basis?.selected === "steady";
   const rampLoad = deriveLoadMode(profile);
@@ -133,174 +134,182 @@ export function ReportView({ report, profile, onSelectBasis }: Props) {
 
   return (
     <div>
-      {report.basis && <BasisBar basis={report.basis} onSelect={(b) => onSelectBasis?.(b)} />}
-      <ReportHeadline
-        summary={report.summary}
-        profile={profile}
-        verdict={report.verdict}
-        validity={report.validity}
-      />
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
-        <div className="flex items-center gap-1">
-          <Link
-            to={`/runs/${report.run.id}/print`}
-            className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
-          >
-            {ko.print.page.openPrint}
-          </Link>
-          <DownloadMenu
-            label={ko.report.downloadMenu}
-            items={[
-              {
-                label: "JSON",
-                onSelect: () => void downloadJson(`run-${report.run.id}.json`, report),
-              },
-              {
-                label: "CSV",
-                onSelect: () =>
-                  downloadFile(
-                    api.reportCsvUrl(report.run.id),
-                    `run-${report.run.id}-report.csv`,
-                    "text/csv",
-                  ).catch((e) => setDlErr((e as Error).message)),
-              },
-              {
-                label: "XLSX",
-                onSelect: () =>
-                  downloadFile(
-                    api.reportXlsxUrl(report.run.id),
-                    `run-${report.run.id}-report.xlsx`,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                  ).catch((e) => setDlErr((e as Error).message)),
-              },
-              {
-                label: ko.report.downloadInsightsCsv,
-                onSelect: () =>
-                  downloadFile(
-                    api.reportInsightsCsvUrl(report.run.id),
-                    `run-${report.run.id}-insights.csv`,
-                    "text/csv",
-                  ).catch((e) => setDlErr((e as Error).message)),
-              },
-              ...(report.stair
-                ? [
-                    {
-                      label: ko.report.downloadStairsCsv,
-                      onSelect: () =>
-                        downloadFile(
-                          api.reportStairsCsvUrl(report.run.id),
-                          `run-${report.run.id}-stairs.csv`,
-                          "text/csv",
-                        ).catch((e) => setDlErr((e as Error).message)),
-                    },
-                  ]
-                : []),
-            ]}
-          />
-          <HelpTip label={ko.report.downloadHelpAria}>
-            <span className="block">
-              <b>JSON</b> — {ko.report.downloadHelp.json}
-            </span>
-            <span className="block">
-              <b>CSV</b> — {ko.report.downloadHelp.csv}
-            </span>
-            <span className="block">
-              <b>XLSX</b> — {ko.report.downloadHelp.xlsx}
-            </span>
-            <span className="block">
-              <b>{ko.report.downloadInsightsCsv}</b> — {ko.report.downloadHelp.insights}
-            </span>
-            {report.stair && (
-              <span className="block">
-                <b>{ko.report.downloadStairsCsv}</b> — {ko.report.downloadHelp.stairs}
-              </span>
-            )}
-          </HelpTip>
-        </div>
-      </div>
-      {dlErr && (
-        <Callout variant="error" role="alert" className="mb-4">
-          다운로드 실패: {dlErr}
-        </Callout>
+      {report.basis && (
+        <BasisBar basis={report.basis} onSelect={(b) => onSelectBasis?.(b)} pending={pending} />
       )}
-      {/* spec §5.1: 유효성+해석 병합 → Verdict → Insight */}
-      <ValidityBanner validity={report.validity} narrative={report.narrative} />
-      <LoopRetryNotice views={loopExitViews} />
-      {report.stair ? <StairResultSection stair={report.stair} /> : null}
-      {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
-      <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
-      <AppliedTimeouts profile={profile} hasStepTimeoutOverride={hasStepTimeoutOverride} />
-      {showRampOnlyLine && (
-        <p className="mb-2 text-sm text-slate-500">
-          {ko.report.basis.rampOnlyLine(profile.ramp_up_seconds)}
-        </p>
-      )}
-      <Summary
-        summary={report.summary}
-        dropped={report.dropped}
-        dropBase={dropOther ? { count: dropOther.count } : undefined}
-        wholeRunBadge={dropOther != null}
-        openLoop={openLoopRates(
-          report.run.profile,
-          report.dropped,
-          dropOther ? dropOther.duration_seconds : report.summary.duration_seconds,
-          report.insights ?? [],
-          report.basis,
-        )}
-      />
-      <TimeSeriesChart
-        title={ko.report.timeSeriesRequests}
-        yLabel="req/s"
-        data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
-      />
-      <TimeSeriesChart
-        title={ko.report.timeSeriesP95}
-        yLabel="ms"
-        data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
-      />
-      <TimeSeriesChart
-        title={ko.report.timeSeriesErrors}
-        yLabel="errors"
-        data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
-      />
-      {report.active_vu_series && report.active_vu_series.length > 0 ? (
-        <ActiveVuChart
-          series={report.active_vu_series}
-          byWorker={report.active_vu_by_worker ?? []}
+      <div className={pending ? "opacity-60 transition-opacity" : "transition-opacity"}>
+        <ReportHeadline
+          summary={report.summary}
+          profile={profile}
+          verdict={report.verdict}
+          validity={report.validity}
         />
-      ) : null}
-      <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} />
-      {report.latency ? (
-        <PageSection ariaLabel={ko.report.latencyTitle} title={ko.report.latencyTitle} className="">
-          <PercentileCurveChart curve={report.latency.percentile_curve} />
-          <LatencyHistogramChart buckets={report.latency.histogram} />
-        </PageSection>
-      ) : null}
-      <StatusDistribution distribution={report.status_distribution} />
-      <ErrorKindTable kinds={report.error_kinds ?? []} wholeRunBadge={wholeRunBadge} />
-      {report.connection && (
-        <ConnectionCostCard stats={report.connection} wholeRunBadge={wholeRunBadge} />
-      )}
-      <StepPhaseBreakdown
-        steps={report.steps}
-        meta={stepMeta}
-        retriedStepIds={retriedStepIds}
-        wholeRunBadge={wholeRunBadge}
-      />
-      <LoopExitSummary views={loopExitViews} wholeRunBadge={wholeRunBadge} />
-      <BranchStatsTable
-        breakdown={report.if_breakdown ?? []}
-        meta={ifMeta}
-        wholeRunBadge={wholeRunBadge}
-      />
-      <LoopExitPanel views={loopExitViews} wholeRunBadge={wholeRunBadge} />
-      <GroupLatencyTable
-        breakdown={report.group_latency ?? []}
-        meta={groupMeta}
-        wholeRunBadge={wholeRunBadge}
-      />
-      <ScenarioSnapshot yaml={report.scenario_yaml} />
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
+          <div className="flex items-center gap-1">
+            <Link
+              to={`/runs/${report.run.id}/print`}
+              className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+            >
+              {ko.print.page.openPrint}
+            </Link>
+            <DownloadMenu
+              label={ko.report.downloadMenu}
+              items={[
+                {
+                  label: "JSON",
+                  onSelect: () => void downloadJson(`run-${report.run.id}.json`, report),
+                },
+                {
+                  label: "CSV",
+                  onSelect: () =>
+                    downloadFile(
+                      api.reportCsvUrl(report.run.id),
+                      `run-${report.run.id}-report.csv`,
+                      "text/csv",
+                    ).catch((e) => setDlErr((e as Error).message)),
+                },
+                {
+                  label: "XLSX",
+                  onSelect: () =>
+                    downloadFile(
+                      api.reportXlsxUrl(report.run.id),
+                      `run-${report.run.id}-report.xlsx`,
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ).catch((e) => setDlErr((e as Error).message)),
+                },
+                {
+                  label: ko.report.downloadInsightsCsv,
+                  onSelect: () =>
+                    downloadFile(
+                      api.reportInsightsCsvUrl(report.run.id),
+                      `run-${report.run.id}-insights.csv`,
+                      "text/csv",
+                    ).catch((e) => setDlErr((e as Error).message)),
+                },
+                ...(report.stair
+                  ? [
+                      {
+                        label: ko.report.downloadStairsCsv,
+                        onSelect: () =>
+                          downloadFile(
+                            api.reportStairsCsvUrl(report.run.id),
+                            `run-${report.run.id}-stairs.csv`,
+                            "text/csv",
+                          ).catch((e) => setDlErr((e as Error).message)),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+            <HelpTip label={ko.report.downloadHelpAria}>
+              <span className="block">
+                <b>JSON</b> — {ko.report.downloadHelp.json}
+              </span>
+              <span className="block">
+                <b>CSV</b> — {ko.report.downloadHelp.csv}
+              </span>
+              <span className="block">
+                <b>XLSX</b> — {ko.report.downloadHelp.xlsx}
+              </span>
+              <span className="block">
+                <b>{ko.report.downloadInsightsCsv}</b> — {ko.report.downloadHelp.insights}
+              </span>
+              {report.stair && (
+                <span className="block">
+                  <b>{ko.report.downloadStairsCsv}</b> — {ko.report.downloadHelp.stairs}
+                </span>
+              )}
+            </HelpTip>
+          </div>
+        </div>
+        {dlErr && (
+          <Callout variant="error" role="alert" className="mb-4">
+            다운로드 실패: {dlErr}
+          </Callout>
+        )}
+        {/* spec §5.1: 유효성+해석 병합 → Verdict → Insight */}
+        <ValidityBanner validity={report.validity} narrative={report.narrative} />
+        <LoopRetryNotice views={loopExitViews} />
+        {report.stair ? <StairResultSection stair={report.stair} /> : null}
+        {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
+        <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
+        <AppliedTimeouts profile={profile} hasStepTimeoutOverride={hasStepTimeoutOverride} />
+        {showRampOnlyLine && (
+          <p className="mb-2 text-sm text-slate-500">
+            {ko.report.basis.rampOnlyLine(profile.ramp_up_seconds)}
+          </p>
+        )}
+        <Summary
+          summary={report.summary}
+          dropped={report.dropped}
+          dropBase={dropOther ? { count: dropOther.count } : undefined}
+          wholeRunBadge={dropOther != null}
+          openLoop={openLoopRates(
+            report.run.profile,
+            report.dropped,
+            dropOther ? dropOther.duration_seconds : report.summary.duration_seconds,
+            report.insights ?? [],
+            report.basis,
+          )}
+        />
+        <TimeSeriesChart
+          title={ko.report.timeSeriesRequests}
+          yLabel="req/s"
+          data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
+        />
+        <TimeSeriesChart
+          title={ko.report.timeSeriesP95}
+          yLabel="ms"
+          data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
+        />
+        <TimeSeriesChart
+          title={ko.report.timeSeriesErrors}
+          yLabel="errors"
+          data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
+        />
+        {report.active_vu_series && report.active_vu_series.length > 0 ? (
+          <ActiveVuChart
+            series={report.active_vu_series}
+            byWorker={report.active_vu_by_worker ?? []}
+          />
+        ) : null}
+        <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} />
+        {report.latency ? (
+          <PageSection
+            ariaLabel={ko.report.latencyTitle}
+            title={ko.report.latencyTitle}
+            className=""
+          >
+            <PercentileCurveChart curve={report.latency.percentile_curve} />
+            <LatencyHistogramChart buckets={report.latency.histogram} />
+          </PageSection>
+        ) : null}
+        <StatusDistribution distribution={report.status_distribution} />
+        <ErrorKindTable kinds={report.error_kinds ?? []} wholeRunBadge={wholeRunBadge} />
+        {report.connection && (
+          <ConnectionCostCard stats={report.connection} wholeRunBadge={wholeRunBadge} />
+        )}
+        <StepPhaseBreakdown
+          steps={report.steps}
+          meta={stepMeta}
+          retriedStepIds={retriedStepIds}
+          wholeRunBadge={wholeRunBadge}
+        />
+        <LoopExitSummary views={loopExitViews} wholeRunBadge={wholeRunBadge} />
+        <BranchStatsTable
+          breakdown={report.if_breakdown ?? []}
+          meta={ifMeta}
+          wholeRunBadge={wholeRunBadge}
+        />
+        <LoopExitPanel views={loopExitViews} wholeRunBadge={wholeRunBadge} />
+        <GroupLatencyTable
+          breakdown={report.group_latency ?? []}
+          meta={groupMeta}
+          wholeRunBadge={wholeRunBadge}
+        />
+        <ScenarioSnapshot yaml={report.scenario_yaml} />
+      </div>
     </div>
   );
 }

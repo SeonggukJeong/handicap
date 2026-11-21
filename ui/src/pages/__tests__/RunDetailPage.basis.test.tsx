@@ -145,7 +145,7 @@ describe("RunDetailPage — 집계 기준 주소", () => {
     const user = userEvent.setup();
     renderAt("/runs/R");
     await screen.findByRole("radiogroup", { name: "집계 기준" });
-    expect(screen.getByTestId("search")).toHaveTextContent("");
+    expect(screen.getByTestId("search").textContent).toBe("");
     await user.click(screen.getByRole("radio", { name: "전체 구간" }));
     await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("?basis=whole"));
     await waitFor(() =>
@@ -167,6 +167,34 @@ describe("RunDetailPage — 집계 기준 주소", () => {
     );
     await user.click(screen.getByRole("radio", { name: "유지 구간" }));
     await waitFor(() => expect(screen.getByTestId("search").textContent).toBe(""));
+  });
+
+  it("새 기준을 받는 동안 전환이 aria-busy이고 받으면 풀린다", async () => {
+    const user = userEvent.setup();
+    const base = fetchMock.getMockImplementation()!;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    fetchMock.mockImplementation((url: string) =>
+      url.endsWith("?basis=whole") ? gate.then(() => base(url)) : base(url),
+    );
+    renderAt("/runs/R");
+    await screen.findByRole("radiogroup", { name: "집계 기준" });
+    expect(screen.getByRole("radiogroup", { name: "집계 기준" })).not.toHaveAttribute("aria-busy");
+    await user.click(screen.getByRole("radio", { name: "전체 구간" }));
+    await waitFor(() =>
+      expect(screen.getByRole("radiogroup", { name: "집계 기준" })).toHaveAttribute(
+        "aria-busy",
+        "true",
+      ),
+    );
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole("radiogroup", { name: "집계 기준" })).not.toHaveAttribute(
+        "aria-busy",
+      ),
+    );
   });
 
   it("잘못된 basis 값은 무시한다", async () => {

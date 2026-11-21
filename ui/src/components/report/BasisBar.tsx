@@ -40,9 +40,11 @@ function basisLine(basis: ReportBasis): string {
 export function BasisBar({
   basis,
   onSelect,
+  pending,
 }: {
   basis: ReportBasis;
   onSelect: (b: Basis) => void;
+  pending?: boolean;
 }) {
   const t = ko.report.basis;
   const steadyOff = basis.state === "not_reached" || basis.state === "no_common_window";
@@ -53,6 +55,7 @@ export function BasisBar({
         value={basis.selected}
         onChange={onSelect}
         ariaLabel={t.switchAria}
+        busy={pending}
         options={[
           { value: "steady", label: t.steady, disabled: steadyOff },
           { value: "whole", label: t.whole },
@@ -66,7 +69,7 @@ export function BasisBar({
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
         <p className="text-sm text-slate-700">
           {basisLine(basis)}
-          <HelpTip label={`${t.switchAria} 설명`}>{t.latencyNote}</HelpTip>
+          <HelpTip label={t.helpLabel}>{t.latencyNote}</HelpTip>
         </p>
         {other && (
           <p className="text-sm text-slate-500">

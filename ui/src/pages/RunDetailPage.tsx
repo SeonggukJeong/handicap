@@ -341,6 +341,7 @@ export function RunDetailPage() {
           report={report.data}
           profile={normalizeProfile(r.profile)}
           onSelectBasis={selectBasis}
+          pending={report.isPlaceholderData}
         />
       ) : (
         <>

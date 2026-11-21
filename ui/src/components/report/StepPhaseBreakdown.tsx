@@ -21,7 +21,15 @@ const DL = "#22c55e";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
-function SplitLine({ label, stats }: { label: string; stats: LoopSplit["final"] }) {
+function SplitLine({
+  label,
+  stats,
+  badge,
+}: {
+  label: string;
+  stats: LoopSplit["final"];
+  badge?: boolean;
+}) {
   const pct = (v: number) => (stats.count === 0 ? "—" : fmt(v));
   return (
     <div className="break-words text-xs text-slate-600">
@@ -34,6 +42,7 @@ function SplitLine({ label, stats }: { label: string; stats: LoopSplit["final"] 
         pct(stats.p95_ms),
         pct(stats.p99_ms),
       )}
+      {badge && <WholeRunBadge className="ml-1" />}
     </div>
   );
 }
@@ -129,7 +138,11 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge 
                 </div>
                 {s.loop_split ? (
                   <div className="pb-2">
-                    <SplitLine label={ko.report.loopExit.splitFinal} stats={s.loop_split.final} />
+                    <SplitLine
+                      label={ko.report.loopExit.splitFinal}
+                      stats={s.loop_split.final}
+                      badge={wholeRunBadge}
+                    />
                     <SplitLine label={ko.report.loopExit.splitRetry} stats={s.loop_split.retry} />
                   </div>
                 ) : null}

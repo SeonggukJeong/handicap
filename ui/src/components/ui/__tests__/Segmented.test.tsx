@@ -72,6 +72,13 @@ describe("Segmented — disabled 선택지", () => {
     expect(onChange).toHaveBeenCalledWith("a");
   });
 
+  it("선택된 값이 꺼져 있으면 첫 켜진 선택지가 탭 정지점이다", () => {
+    render(<Segmented value="b" onChange={() => {}} options={three} ariaLabel="순서" />);
+    expect(screen.getByRole("radio", { name: "나" })).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("radio", { name: "가" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("radio", { name: "다" })).toHaveAttribute("tabindex", "-1");
+  });
+
   it("켜진 선택지가 하나뿐이면 방향키는 아무것도 하지 않는다", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
