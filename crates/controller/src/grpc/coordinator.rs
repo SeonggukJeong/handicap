@@ -97,7 +97,7 @@ pub struct PendingAssignment {
     pub stair: Option<crate::stair::StairConfig>,
 }
 
-type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
+pub(crate) type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
 
 /// An idle (or assigned) pool worker registered without a run_id. (LAN L1, R5.)
 struct PoolEntry {

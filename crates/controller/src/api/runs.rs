@@ -907,13 +907,16 @@ pub(crate) async fn spawn_run(
                             backstop_total,
                         )
                         .await;
+                    if let Some(done) = row_if_no_longer_pending(state, &row.id, &workers).await? {
+                        return Ok(done);
+                    }
                     if state
                         .coord
                         .assign_pool_workers(&row.id, workers)
                         .await
                         .is_err()
                     {
-                        return Err(fail_pool_assignment(&state.coord, &state.db, &row.id).await?);
+                        return fail_pool_assignment(&state.coord, &state.db, &row.id).await;
                     }
                     return Ok(row);
                 }
@@ -970,13 +973,16 @@ pub(crate) async fn spawn_run(
                     backstop_total,
                 )
                 .await;
+            if let Some(done) = row_if_no_longer_pending(state, &row.id, &reserved).await? {
+                return Ok(done);
+            }
             if state
                 .coord
                 .assign_pool_workers(&row.id, reserved)
                 .await
                 .is_err()
             {
-                return Err(fail_pool_assignment(&state.coord, &state.db, &row.id).await?);
+                return fail_pool_assignment(&state.coord, &state.db, &row.id).await;
             }
             return Ok(row);
         }
@@ -994,6 +1000,9 @@ pub(crate) async fn spawn_run(
             backstop_total,
         )
         .await;
+    if let Some(done) = row_if_no_longer_pending(state, &row.id, &[]).await? {
+        return Ok(done);
+    }
 
     // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).
     // Dispatch failure (missing worker binary, K8s Job creation denied, cluster
@@ -1373,16 +1382,54 @@ pub async fn list_for_scenario(
 
 const POOL_ASSIGN_FAILED_MSG: &str = "풀 워커 배정 실패(워커 이탈) — 재시도하세요";
 
-/// 풀 배정 실패 처리: run 상태를 정리하고 호출부가 돌려줄 오류를 만든다.
+/// 풀 배정 실패 처리. 행이 `aborted`면 그 행(정상 생성으로 돌려줄 값), 아니면 오류.
 /// 이미 끝난 run은 덮어쓰지 않는다(`mark_failed_if_active`).
 async fn fail_pool_assignment(
     coord: &crate::grpc::coordinator::CoordinatorState,
     db: &crate::store::Db,
     run_id: &str,
-) -> Result<ApiError, sqlx::Error> {
+) -> Result<runs::RunRow, ApiError> {
     coord.cancel_dispatch_failed(run_id).await;
-    runs::mark_failed_if_active(db, run_id, POOL_ASSIGN_FAILED_MSG).await?;
-    Ok(ApiError::Internal(anyhow::anyhow!(POOL_ASSIGN_FAILED_MSG)))
+    if !runs::mark_failed_if_active(db, run_id, POOL_ASSIGN_FAILED_MSG).await? {
+        if let Some(row) = runs::get(db, run_id).await? {
+            if row.status == runs::RunStatus::Aborted {
+                return Ok(row);
+            }
+        }
+    }
+    Err(ApiError::Internal(anyhow::anyhow!(POOL_ASSIGN_FAILED_MSG)))
+}
+
+/// `enqueue` 뒤·디스패치 앞에서 부른다. 행이 더는 `pending`이 아니면 풀 예약을 풀고(`reserved`가
+/// 비어 있지 않으면) 코디네이터 항목을 정리하고(`aborted`면 시작 전 사유를 남기고) 다시 읽은 행을
+/// 돌려준다. `pending`이면 None. 행 읽기가 실패해도 같은 정리를 한 뒤 오류를 돌려준다.
+async fn row_if_no_longer_pending(
+    state: &AppState,
+    run_id: &str,
+    reserved: &[(String, crate::grpc::coordinator::WorkerTx)],
+) -> Result<Option<runs::RunRow>, ApiError> {
+    let row = runs::get(&state.db, run_id).await;
+    if let Ok(Some(r)) = &row {
+        if r.status == RunStatus::Pending {
+            return Ok(None);
+        }
+    }
+    if !reserved.is_empty() {
+        state.coord.release_pool_reservation(reserved).await;
+    }
+    state.coord.cancel_dispatch_failed(run_id).await;
+    if let Ok(Some(r)) = &row {
+        if r.status == RunStatus::Aborted {
+            runs::set_abort_reason_if_absent(&state.db, run_id, runs::ABORT_MSG_NOT_STARTED)
+                .await?;
+        }
+    }
+    row?;
+    Ok(Some(
+        runs::get(&state.db, run_id)
+            .await?
+            .ok_or(ApiError::NotFound)?,
+    ))
 }
 
 pub async fn abort_run(
@@ -3047,7 +3094,10 @@ steps:
             .await
             .unwrap();
         let coord = CoordinatorState::new(db.clone());
-        let err = super::fail_pool_assignment(&coord, &db, &id).await.unwrap();
+        let err = super::fail_pool_assignment(&coord, &db, &id)
+            .await
+            .err()
+            .expect("오류를 돌려준다");
         assert!(matches!(err, ApiError::Internal(_)));
         let row = runs::get(&db, &id).await.unwrap().unwrap();
         assert_eq!(row.status, runs::RunStatus::Completed);
@@ -3059,12 +3109,233 @@ steps:
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let id = seed_plain_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        super::fail_pool_assignment(&coord, &db, &id).await.unwrap();
+        let err = super::fail_pool_assignment(&coord, &db, &id)
+            .await
+            .err()
+            .expect("오류를 돌려준다");
+        assert!(matches!(err, ApiError::Internal(_)));
         let row = runs::get(&db, &id).await.unwrap().unwrap();
         assert_eq!(row.status, runs::RunStatus::Failed);
         assert_eq!(row.message.as_deref(), Some(super::POOL_ASSIGN_FAILED_MSG));
     }
 
+    #[tokio::test]
+    async fn fail_pool_assignment_returns_row_when_aborted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        assert!(runs::abort_if_active(&db, &id).await.unwrap());
+        let coord = CoordinatorState::new(db.clone());
+        let row = super::fail_pool_assignment(&coord, &db, &id).await.unwrap();
+        assert_eq!(row.id, id);
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        let after = runs::get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(after.status, runs::RunStatus::Aborted);
+        assert_eq!(after.message, None);
+    }
+
+    // ---- run 생성 도중의 중단: enqueue 뒤 상태 다시 읽기 ----
+
+    #[tokio::test]
+    async fn row_if_no_longer_pending_returns_none_for_pending() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let state = state_with(db, 0).await;
+        enqueue_expecting(&state, &id, 1).await;
+        let got = super::row_if_no_longer_pending(&state, &id, &[])
+            .await
+            .unwrap();
+        assert!(got.is_none());
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        assert!(matches!(
+            state.coord.register(&id, "w0", tx).await,
+            crate::grpc::coordinator::RegisterOutcome::Assigned { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn row_if_no_longer_pending_tears_down_aborted_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let state = state_with(db.clone(), 0).await;
+        assert!(runs::abort_if_active(&db, &id).await.unwrap());
+        enqueue_expecting(&state, &id, 1).await;
+        let row = super::row_if_no_longer_pending(&state, &id, &[])
+            .await
+            .unwrap()
+            .expect("aborted row");
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some(runs::ABORT_MSG_NOT_STARTED));
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        assert!(matches!(
+            state.coord.register(&id, "w0", tx).await,
+            crate::grpc::coordinator::RegisterOutcome::NoRun
+        ));
+    }
+
+    #[tokio::test]
+    async fn row_if_no_longer_pending_keeps_existing_reason() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let id = seed_plain_run(&db).await;
+        let state = state_with(db.clone(), 0).await;
+        assert!(
+            runs::mark_aborted_if_active(&db, &id, "앱 종료로 중단")
+                .await
+                .unwrap()
+        );
+        enqueue_expecting(&state, &id, 1).await;
+        let row = super::row_if_no_longer_pending(&state, &id, &[])
+            .await
+            .unwrap()
+            .expect("aborted row");
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some("앱 종료로 중단"));
+    }
+
+    struct CountingDispatcher {
+        dispatches: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    #[async_trait::async_trait]
+    impl crate::dispatcher::WorkerDispatcher for CountingDispatcher {
+        async fn dispatch(&self, _run_id: &str, _worker_count: u32) -> anyhow::Result<()> {
+            self.dispatches
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+        async fn cleanup(&self, _run_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    async fn state_with_counting(
+        db: crate::store::Db,
+        capacity: u32,
+    ) -> (AppState, Arc<std::sync::atomic::AtomicUsize>) {
+        let dispatches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut state = state_with(db, capacity).await;
+        state.dispatcher = Arc::new(CountingDispatcher {
+            dispatches: dispatches.clone(),
+        });
+        (state, dispatches)
+    }
+
+    /// `runs::insert` 직후 행이 `aborted`가 되게 하는 시험용 트리거(= 생성 도중의 중단).
+    async fn abort_on_insert_trigger(db: &crate::store::Db) {
+        sqlx::query(
+            "CREATE TRIGGER abort_on_insert AFTER INSERT ON runs BEGIN \
+             UPDATE runs SET status = 'aborted' WHERE id = NEW.id; END",
+        )
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    async fn plain_scenario(db: &crate::store::Db) -> crate::store::scenarios::ScenarioRow {
+        let yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(yaml).unwrap();
+        crate::store::scenarios::insert(db, &sc, yaml)
+            .await
+            .unwrap()
+    }
+
+    fn plain_profile(vus: u32) -> Profile {
+        let mut p = unique_profile("unused".into(), vus);
+        p.data_binding = None;
+        p
+    }
+
+    async fn call_spawn_run(
+        state: &AppState,
+        scenario: &crate::store::scenarios::ScenarioRow,
+        vus: u32,
+        force: bool,
+    ) -> Result<runs::RunRow, ApiError> {
+        super::spawn_run(
+            state,
+            scenario,
+            &plain_profile(vus),
+            vec![],
+            &std::collections::HashMap::new(),
+            force,
+            None,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn spawn_run_skips_dispatch_when_aborted_during_create() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let (state, dispatches) = state_with_counting(db, 100).await;
+        let row = call_spawn_run(&state, &scenario, 1, false).await.unwrap();
+        assert_eq!(dispatches.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        assert_eq!(row.message.as_deref(), Some(runs::ABORT_MSG_NOT_STARTED));
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        assert!(matches!(
+            state.coord.register(&row.id, "w0", tx).await,
+            crate::grpc::coordinator::RegisterOutcome::NoRun
+        ));
+    }
+
+    #[tokio::test]
+    async fn spawn_run_dispatches_normally_without_abort() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        let (state, dispatches) = state_with_counting(db, 100).await;
+        let row = call_spawn_run(&state, &scenario, 1, false).await.unwrap();
+        assert_eq!(dispatches.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(row.status, runs::RunStatus::Pending);
+    }
+
+    type WorkerRx =
+        tokio::sync::mpsc::Receiver<Result<handicap_proto::v1::ServerMessage, tonic::Status>>;
+
+    /// 풀 모드 상태: 유휴 워커 2대(capacity 100)와 그 수신 큐.
+    async fn pool_state_with_two_workers(db: crate::store::Db) -> (AppState, Vec<WorkerRx>) {
+        let state = state_with(db, 100).await;
+        state.coord.set_pool_mode(true);
+        let mut rxs = Vec::new();
+        for w in ["w0", "w1"] {
+            let (tx, rx) = tokio::sync::mpsc::channel(8);
+            state
+                .coord
+                .pool_register_idle(w, tx, 100, "host".into(), false)
+                .await;
+            rxs.push(rx);
+        }
+        (state, rxs)
+    }
+
+    async fn assert_pool_released(state: &AppState, rxs: &mut [WorkerRx], row: &runs::RunRow) {
+        assert_eq!(row.status, runs::RunStatus::Aborted);
+        let snap = state.coord.pool_snapshot(tokio::time::Instant::now()).await;
+        assert_eq!(snap.len(), 2);
+        assert!(snap.iter().all(|w| w.assigned_run.is_none()));
+        for rx in rxs.iter_mut() {
+            assert!(rx.try_recv().is_err(), "배정이 가면 안 된다");
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_recheck_releases_pool_reservation() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let (state, mut rxs) = pool_state_with_two_workers(db).await;
+        let row = call_spawn_run(&state, &scenario, 2, false).await.unwrap();
+        assert_pool_released(&state, &mut rxs, &row).await;
+    }
+
+    #[tokio::test]
+    async fn spawn_recheck_releases_pool_reservation_force() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario = plain_scenario(&db).await;
+        abort_on_insert_trigger(&db).await;
+        let (state, mut rxs) = pool_state_with_two_workers(db).await;
+        let row = call_spawn_run(&state, &scenario, 2, true).await.unwrap();
+        assert_pool_released(&state, &mut rxs, &row).await;
+    }
     // ---- 계단 실행 중 요약 (`auto_stop_live`) ----
 
     const LONG: std::time::Duration = std::time::Duration::from_secs(3600);
