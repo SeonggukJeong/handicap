@@ -190,12 +190,11 @@ export function metricRows(
     if (opts.incomparable) cls = "none";
     else if (spec.key === "error_rate" && opts.errorRateReference) cls = "reference";
 
-    const { b, a } = valueTexts(
-      spec.kind,
-      bv,
-      av,
-      (cls === "better" || cls === "worse") && bv !== av,
-    );
+    const texts = valueTexts(spec.kind, bv, av, (cls === "better" || cls === "worse") && bv !== av);
+    // 요청이 0건인 쪽은 오류율·응답시간을 잰 적이 없다. 건수·처리량은 0이 실제 값이다.
+    const unmeasured = spec.kind === "pct" || spec.kind === "ms";
+    const b = unmeasured && before.count === 0 ? c.metric.notMeasured : texts.b;
+    const a = unmeasured && after.count === 0 ? c.metric.notMeasured : texts.a;
     const isNew = bv === 0 && av > 0 && base !== "similar";
     const pct = bv > 0 ? Math.abs(av - bv) / bv : null;
     const fell = av < bv;
@@ -218,7 +217,9 @@ export function metricRows(
       }
     }
 
-    const top = Math.max(bv, av);
+    const barB = before.count === 0 ? 0 : bv;
+    const barA = after.count === 0 ? 0 : av;
+    const top = Math.max(barB, barA);
     return {
       key: spec.key,
       name: spec.name,
@@ -234,8 +235,8 @@ export function metricRows(
       arrow,
       changeText,
       wordText: wordOf(cls),
-      barBefore: top > 0 ? bv / top : 0,
-      barAfter: top > 0 ? av / top : 0,
+      barBefore: top > 0 ? barB / top : 0,
+      barAfter: top > 0 ? barA / top : 0,
     };
   });
 }

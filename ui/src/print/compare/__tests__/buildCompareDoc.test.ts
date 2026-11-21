@@ -51,9 +51,8 @@ describe("buildCompareDoc", () => {
     expect(d.before.role).toBe("이전");
     expect(d.after.role).toBe("이후");
     expect(d.before.shortId).toBe("#abc111");
-    expect(d.footerLeft).toContain("#abc111");
-    expect(d.footerLeft).toContain("→");
-    expect(d.footerLeft).toContain("#def222");
+    expect(d.footerTitle).toBe("민원 신청 흐름 이전·이후 비교");
+    expect(d.footerIds).toBe(" · #abc111 → #def222");
     expect(d.createdDate).toMatch(/^2026-11-0[67]$/);
     expect(d.headline.answer).toBe("improved");
   });

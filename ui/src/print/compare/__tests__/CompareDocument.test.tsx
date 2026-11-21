@@ -172,7 +172,7 @@ describe("CompareDocument 표준판", () => {
     await ready(root);
   });
 
-  it("절 제목은 번호 뒤에 따로 띄어쓰기 글자 없이 번호 칸(2mm 여백)만 둔다", async () => {
+  it("절 제목: 번호 칸(.p-cmp-no)이 '1. '이고 제목 글은 그 뒤의 따로 된 글 마디다", async () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     const h2 = screen.getByRole("heading", { name: "1. 종합" });
@@ -273,12 +273,53 @@ describe("CompareDocument 표준판", () => {
     }
   });
 
-  it("꼬리말에 footerLeft와 쪽 번호", async () => {
+  it("꼬리말에 제목·측정 번호·쪽 번호", async () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
-    const foot = container.querySelector(".p-foot") as HTMLElement;
+    const foot = container.querySelector(".p-page .p-foot") as HTMLElement;
     expect(foot.textContent).toContain("이전·이후 비교 · #abc111 → #def222");
     expect(foot.textContent).toContain("1 / 1");
+  });
+
+  it("꼬리말: 긴 제목은 제목 칸만 말줄임되고 측정 번호·가운데 글·쪽 번호는 따로 줄지 않는 칸", async () => {
+    const long = "아주 긴 시나리오 이름 ".repeat(12).trim();
+    const { root, container } = renderDoc(
+      makeDoc(
+        { yaml: `version: 1\nname: "${long}"\nsteps: []\n` },
+        { yaml: `version: 1\nname: "${long}"\nsteps: []\n` },
+      ),
+    );
+    await ready(root);
+    const foot = container.querySelector(".p-page .p-foot") as HTMLElement;
+    const left = foot.children[0] as HTMLElement;
+    expect(left).toHaveClass("p-cmp-foot-left");
+    const title = left.querySelector(".p-cmp-foot-title") as HTMLElement;
+    const ids = left.querySelector(".p-cmp-foot-ids") as HTMLElement;
+    expect(title.textContent).toBe(`${long} 이전·이후 비교`);
+    expect(ids.textContent).toBe(" · #abc111 → #def222");
+    expect(title.contains(ids)).toBe(false);
+    expect(foot.children[1]).toHaveClass("p-cmp-foot-fixed");
+    expect(foot.children[1].textContent).toBe("Handicap 부하 테스트 도구로 생성");
+    expect(foot.children[2]).toHaveClass("p-cmp-foot-fixed");
+    expect(foot.children[2].textContent).toBe("1 / 1");
+  });
+
+  it("짝 상자의 판정 줄: 판정한 측정은 '판정 ' 뒤에 낱말, 판정 안 함은 앞말 없이", async () => {
+    const { root, container } = renderDoc(
+      makeDoc(
+        { profile: CRIT_PROFILE, verdict: { passed: false, criteria: [crit(false)] } },
+        {
+          summary: { count: 0, errors: 0, rps: 0 },
+          meta: { label: "릴리즈 후", status: "failed" },
+        },
+      ),
+    );
+    await ready(root);
+    const runs = container.querySelectorAll(".p-page .p-cmp-run");
+    expect(runs[0].textContent).toMatch(/ · 판정 ✕ 부적합$/);
+    expect(runs[1].querySelector(".p-cmp-same")?.textContent).toBe("판정 안 함");
+    expect(runs[1].textContent).toMatch(/ · 판정 안 함$/);
+    expect(runs[1].textContent).not.toMatch(/판정\s*판정/);
   });
 
   it("나빠짐은 색이 아니라 기호와 낱말로도 구분된다", async () => {

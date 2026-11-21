@@ -306,6 +306,15 @@ describe("remainingIssues", () => {
     expect(list[0]).toContain("오류 제외");
   });
 
+  it("문제 단계 항목 뒤에 이어 붙인 문장은 단계 이름을 되풀이하지 않는다", () => {
+    const list = issues({ "429": 24 }, { "429": 38 });
+    expect(list).toHaveLength(1);
+    expect(list[0].startsWith("① 목록: ")).toBe(true);
+    expect(list[0].endsWith(". 429 요청이 너무 많음 24건 → 38건으로 늘었습니다.")).toBe(true);
+    expect(list[0].split("① 목록")).toHaveLength(2);
+    expect(list[0]).not.toContain("목록의");
+  });
+
   it("201 검사를 지운 뒤 200은 성공 응답이라 새로 생겼다고 하지 않는다", () => {
     const before = model(
       "b",

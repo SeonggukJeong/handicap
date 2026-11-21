@@ -2501,6 +2501,7 @@ export const ko = {
         rpsHint: "초당 처리한 요청 수",
         count: "전체 요청 수",
         countHint: "",
+        notMeasured: "–",
       },
       change: {
         isNew: "새로 생김",
@@ -2537,6 +2538,8 @@ export const ko = {
         data: "데이터 연결",
         stair: "계단 시험 설정",
         other: "그 밖의 설정",
+        itemJoin: " · ",
+        keyJoin: ", ",
         loadDiff: (names: string, rest: number) =>
           `${names}${rest > 0 ? ` 외 ${rest}개` : ""} 다름`,
         envSame: (n: number) => (n === 0 ? "사용 안 함" : `${n}개 모두 같음`),
@@ -2574,6 +2577,7 @@ export const ko = {
         differs: "다름",
         unreadable: "읽을 수 없음",
         envCount: "환경 변수 개수",
+        envCountDiff: (n: number, keys: number) => `${n}개 · 다른 키 ${keys}개`,
         criteriaCount: "판정 기준 개수",
         scenarioKinds: {
           steps: "시나리오 단계 구성",
@@ -2590,6 +2594,7 @@ export const ko = {
           iter_random: "반복마다 무작위",
           unique: "한 번씩만 사용",
         } satisfies Record<BindingPolicy, string>,
+        policyJoin: "·",
         dataLine: (n: number, policies: string) => `${n}개 연결(${policies})`,
         stairLine: (steps: number, hold: string) => `${steps}계단 · 계단마다 ${hold} 유지`,
       },
@@ -2625,12 +2630,11 @@ export const ko = {
         notSent: "보내지 않음",
         stepStatus: (label: string, words: string, rate: string | null) =>
           `${label}: ${words}${rate === null ? "" : ` (${rate})`}`,
-        unchanged: (label: string, code: string, n: string) =>
-          `${label}의 ${code} ${n}건은 그대로입니다.`,
-        increased: (label: string, code: string, before: string, after: string) =>
-          `${label}의 ${code} ${before}건 → ${after}건으로 늘었습니다.`,
-        appeared: (label: string, code: string, n: string) =>
-          `${label}의 ${code} ${n}건이 새로 생겼습니다.`,
+        ofStep: (label: string, sentence: string) => `${label}의 ${sentence}`,
+        unchanged: (code: string, n: string) => `${code} ${n}건은 그대로입니다.`,
+        increased: (code: string, before: string, after: string) =>
+          `${code} ${before}건 → ${after}건으로 늘었습니다.`,
+        appeared: (code: string, n: string) => `${code} ${n}건이 새로 생겼습니다.`,
       },
       headline: {
         title: "비교 결과",
@@ -2685,8 +2689,8 @@ export const ko = {
         title: (name: string) => `${name} — 이전·이후 비교`,
         roleBefore: "이전",
         roleAfter: "이후",
-        footerLeft: (name: string, before: string, after: string) =>
-          `${name} 이전·이후 비교 · ${before} → ${after}`,
+        footerTitle: (name: string) => `${name} 이전·이후 비교`,
+        footerIds: (before: string, after: string) => ` · ${before} → ${after}`,
       },
       view: {
         titles: {
@@ -2697,6 +2701,8 @@ export const ko = {
         },
         continued: " (이어짐)",
         verdictPrefix: "판정",
+        sideSep: " · ",
+        sectionNo: (no: string) => `${no}. `,
         pairArrow: "→",
         quoted: (label: string) => `"${label}"`,
         reasonLabel: (side: string) => `${side} 측정 사유`,
@@ -2728,6 +2734,7 @@ export const ko = {
         foreign: "이 시나리오의 측정이 아니거나 없는 측정이 있어 비교 보고서를 만들 수 없습니다",
         pairGroup: "비교할 측정",
         pairSelect: (n: number) => `비교할 측정 ${n}`,
+        pairOption: (label: string, when: string) => `${label} · ${when}`,
         noStart: "–",
       },
     },

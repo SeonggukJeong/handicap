@@ -666,8 +666,10 @@
   display: flex;
   gap: 4mm;
 }
+/* 46mm: 한글 한 자가 1em인 글꼴에서도 "– 비교 불가"(20pt ≈ 36.8mm)가 안쪽에 여유 있게 들어간다
+   (42mm=안쪽 37mm에선 0.2mm 여유뿐) — 측정 보고서 .p-vbox와 같은 폭 */
 .p-root .p-cmp-vbox {
-  flex: 0 0 42mm;
+  flex: 0 0 46mm;
   border: 2px solid var(--ok);
   background: var(--okbg);
   color: var(--ok);
@@ -886,6 +888,26 @@
 }
 .p-root .p-cmp-clamp2 {
   -webkit-line-clamp: 2;
+}
+/* 비교 보고서 꼬리말: 제목만 한 줄 말줄임, 측정 번호·가운데 글·쪽 번호는 줄지 않는다 */
+.p-root .p-cmp-foot-left {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.p-root .p-cmp-foot-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.p-root .p-cmp-foot-ids {
+  flex: none;
+  white-space: pre;
+}
+.p-root .p-cmp-foot-fixed {
+  flex: none;
+  white-space: nowrap;
 }
 .p-root .p-cmp-runlabel.p-cmp-clamp1 {
   display: inline-block;

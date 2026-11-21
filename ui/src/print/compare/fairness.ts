@@ -226,7 +226,7 @@ function itemText(box: ConditionsBox, p: Profile, key: ItemKey): string | null {
     case "data": {
       const b = seedBindingsFrom(p);
       return b.length > 0
-        ? C.dataLine(b.length, b.map((x) => C.policyNames[x.policy]).join("·"))
+        ? C.dataLine(b.length, b.map((x) => C.policyNames[x.policy]).join(C.policyJoin))
         : null;
     }
     case "stair":
@@ -237,7 +237,7 @@ function itemText(box: ConditionsBox, p: Profile, key: ItemKey): string | null {
 }
 
 function joinNames(names: string[]): { head: string; rest: number } {
-  return { head: names.slice(0, 2).join(" · "), rest: Math.max(0, names.length - 2) };
+  return { head: names.slice(0, 2).join(F.itemJoin), rest: Math.max(0, names.length - 2) };
 }
 
 type StepDiff = { kind: "steps" | "request" | "assert" | "extract"; text: string };
@@ -349,7 +349,7 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     const line = same
       ? [itemText(boxB, pb, "model"), itemText(boxB, pb, "size")]
           .filter((s): s is string => s !== null)
-          .join(" · ")
+          .join(F.itemJoin)
       : F.loadDiff(head, rest);
     return { card: { key: "load", title: F.titles.load, same, line }, differs, other, size };
   })();
@@ -362,7 +362,11 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     same: envSame,
     line: envSame
       ? F.envSame(Object.keys(after.env).length)
-      : F.envDiff(envKeys.length, envKeys.slice(0, 2).join(", "), Math.max(0, envKeys.length - 2)),
+      : F.envDiff(
+          envKeys.length,
+          envKeys.slice(0, 2).join(F.keyJoin),
+          Math.max(0, envKeys.length - 2),
+        ),
   };
 
   const sc = compareScenario(before, after);
@@ -457,10 +461,11 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
       false,
     );
   }
+  const envAfterCount = Object.keys(after.env).length;
   addRow(
     C.envCount,
     C.count(Object.keys(before.env).length),
-    C.count(Object.keys(after.env).length),
+    envSame ? C.count(envAfterCount) : C.envCountDiff(envAfterCount, envKeys.length),
     !envSame,
     false,
   );

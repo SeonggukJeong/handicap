@@ -13,6 +13,15 @@ const VERDICT_TONE: Record<SideHead["verdictKind"], string> = {
   noCriteria: "p-cmp-same",
 };
 
+// "판정 안 함"은 낱말 자체가 "판정"으로 시작하므로 앞말을 붙이지 않는다.
+const PREFIXED: Record<SideHead["verdictKind"], boolean> = {
+  fail: true,
+  pass: true,
+  notJudged: false,
+  notEvaluable: true,
+  noCriteria: true,
+};
+
 function RunBox({ head, after, clamp }: { head: SideHead; after: boolean; clamp: boolean }) {
   return (
     <div className={after ? "p-cmp-run p-cmp-run--after" : "p-cmp-run"}>
@@ -24,7 +33,9 @@ function RunBox({ head, after, clamp }: { head: SideHead; after: boolean; clamp:
       )}{" "}
       {head.shortId}
       <br />
-      {head.window} · {V.verdictPrefix}{" "}
+      {head.window}
+      {V.sideSep}
+      {PREFIXED[head.verdictKind] && <>{V.verdictPrefix} </>}
       <span className={VERDICT_TONE[head.verdictKind]}>{head.verdictText}</span>
     </div>
   );

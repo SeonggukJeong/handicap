@@ -202,33 +202,22 @@ export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
     order.push(r.stepId);
   }
 
-  const extras: Array<{ stepId: string; n: number; text: string; fresh: boolean }> = [];
+  // sentence는 단계 이름 없는 문장 — 문제 단계 항목 뒤에 붙일 땐 그대로, 홀로 설 땐 단계 이름을 앞에 둔다.
+  type Extra = { stepId: string; label: string; n: number; sentence: string; fresh: boolean };
+  const extras: Extra[] = [];
   for (const p of pairs) {
     for (const x of p.codes) {
       if (x.code === "residual" || x.after <= 0) continue;
       if (typeof x.code === "number" && !isTargetClass(x.classAfter)) continue;
       const code = codeText(x.code);
+      const add = (sentence: string, fresh: boolean) =>
+        extras.push({ stepId: p.stepId, label: p.label, n: x.after, sentence, fresh });
       if (x.before === 0) {
-        extras.push({
-          stepId: p.stepId,
-          n: x.after,
-          text: c.issues.appeared(p.label, code, fmtCount(x.after)),
-          fresh: true,
-        });
+        add(c.issues.appeared(code, fmtCount(x.after)), true);
       } else if (x.after > x.before) {
-        extras.push({
-          stepId: p.stepId,
-          n: x.after,
-          text: c.issues.increased(p.label, code, fmtCount(x.before), fmtCount(x.after)),
-          fresh: false,
-        });
+        add(c.issues.increased(code, fmtCount(x.before), fmtCount(x.after)), false);
       } else if (notReduced(x.before, x.after)) {
-        extras.push({
-          stepId: p.stepId,
-          n: x.after,
-          text: c.issues.unchanged(p.label, code, fmtCount(x.after)),
-          fresh: false,
-        });
+        add(c.issues.unchanged(code, fmtCount(x.after)), false);
       }
     }
   }
@@ -237,10 +226,12 @@ export function remainingIssues(after: RunModel, pairs: StepPair[]): string[] {
   const out: string[] = [];
   for (const id of order) {
     const head = heads.get(id) ?? id;
-    const own = extras.filter((e) => e.stepId === id).map((e) => e.text);
+    const own = extras.filter((e) => e.stepId === id).map((e) => e.sentence);
     out.push(own.length > 0 ? c.issues.merge(head, own.join(c.issues.sentenceJoin)) : head);
   }
-  for (const e of extras) if (!heads.has(e.stepId)) out.push(e.text);
+  for (const e of extras) {
+    if (!heads.has(e.stepId)) out.push(c.issues.ofStep(e.label, e.sentence));
+  }
   return out;
 }
 

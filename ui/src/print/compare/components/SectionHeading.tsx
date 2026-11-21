@@ -15,7 +15,7 @@ export function SectionHeading({
 }) {
   return (
     <h2 className="p-h2">
-      <span className="p-cmp-no">{no}. </span>
+      <span className="p-cmp-no">{V.sectionNo(no)}</span>
       {warn && (
         <>
           <span className="p-cmp-warn">{V.warnGlyph}</span>{" "}

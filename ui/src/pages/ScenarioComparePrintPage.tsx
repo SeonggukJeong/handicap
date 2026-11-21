@@ -182,9 +182,10 @@ export function ScenarioComparePrintPage() {
               >
                 {candidates.map((c) => (
                   <option key={c.id} value={c.id} disabled={c.id === shown[1 - slot]}>
-                    {`${runDisplayLabel(c.id, c.label)} · ${
-                      c.started_at === null ? ko.print.cmp.page.noStart : fmtDateTime(c.started_at)
-                    }`}
+                    {ko.print.cmp.page.pairOption(
+                      runDisplayLabel(c.id, c.label),
+                      c.started_at === null ? ko.print.cmp.page.noStart : fmtDateTime(c.started_at),
+                    )}
                   </option>
                 ))}
               </select>

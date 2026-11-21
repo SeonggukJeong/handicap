@@ -283,13 +283,34 @@ describe("환경 변수 — 값은 어디에도 찍지 않는다", () => {
     expect(card(f, "env").line).toBe("5개 다름: A, B 외 3개");
   });
 
-  it("대조 표는 환경 변수 개수만 보인다", () => {
+  it("대조 표는 환경 변수 개수와 다른 키 개수만 보인다", () => {
     const f = fair({ env: A }, { env: B });
     expect(f.condRows.find((r) => r.label === "환경 변수 개수")).toEqual({
       label: "환경 변수 개수",
       before: "2개",
-      after: "3개",
+      after: "3개 · 다른 키 2개",
       differs: true,
+    });
+  });
+
+  it("개수가 같아도 값이 다르면 이후 칸에 다른 키 개수가 붙는다", () => {
+    const f = fair({ env: { A: "1", B: "1", C: "1" } }, { env: { A: "1", B: "2", C: "1" } });
+    expect(f.condRows.find((r) => r.label === "환경 변수 개수")).toEqual({
+      label: "환경 변수 개수",
+      before: "3개",
+      after: "3개 · 다른 키 1개",
+      differs: true,
+    });
+    expect(card(f, "env").line).toBe("1개 다름: B");
+  });
+
+  it("환경 변수가 같으면 두 칸 모두 개수만", () => {
+    const f = fair({ env: A }, { env: { ...A } });
+    expect(f.condRows.find((r) => r.label === "환경 변수 개수")).toEqual({
+      label: "환경 변수 개수",
+      before: "2개",
+      after: "2개",
+      differs: false,
     });
   });
 });

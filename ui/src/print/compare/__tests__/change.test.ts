@@ -204,6 +204,50 @@ describe("metricRows", () => {
     expect(er.isNew).toBe(false);
   });
 
+  it("요청 0건인 쪽은 오류율·응답시간을 '–'로, 건수·처리량은 0으로, 막대는 0", () => {
+    const zero = { ...BEFORE, count: 0, errors: 0, rps: 0, mean_ms: 0, p95_ms: 0, p99_ms: 7 };
+    const opts = { ...OPTS, incomparable: true };
+    const texts = (rows: ReturnType<typeof metricRows>, side: "beforeText" | "afterText") =>
+      Object.fromEntries(rows.map((r) => [r.key, r[side]]));
+
+    const left = metricRows(zero, AFTER, opts);
+    expect(texts(left, "beforeText")).toEqual({
+      error_rate: "–",
+      p99_ms: "–",
+      p95_ms: "–",
+      mean_ms: "–",
+      rps: "0건/초",
+      count: "0",
+    });
+    expect(texts(left, "afterText")).toEqual({
+      error_rate: "0.3%",
+      p99_ms: "3.1초",
+      p95_ms: "1.6초",
+      mean_ms: "0.62초",
+      rps: "253건/초",
+      count: "144,900",
+    });
+    for (const r of left) {
+      expect(r.barBefore, r.key).toBe(0);
+      expect(r.barAfter, r.key).toBe(1);
+    }
+
+    const right = metricRows(AFTER, zero, opts);
+    expect(texts(right, "afterText")).toEqual({
+      error_rate: "–",
+      p99_ms: "–",
+      p95_ms: "–",
+      mean_ms: "–",
+      rps: "0건/초",
+      count: "0",
+    });
+    expect(row(right, "p99_ms").beforeText).toBe("3.1초");
+    for (const r of right) {
+      expect(r.barAfter, r.key).toBe(0);
+      expect(r.barBefore, r.key).toBe(1);
+    }
+  });
+
   it("완전히 같은 요약", () => {
     for (const r of metricRows(BEFORE, BEFORE, OPTS)) {
       expect(r.cls).toBe("similar");

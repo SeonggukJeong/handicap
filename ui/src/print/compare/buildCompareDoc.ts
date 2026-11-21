@@ -32,7 +32,8 @@ export type SideHead = {
 
 export type CompareDoc = {
   title: string;
-  footerLeft: string;
+  footerTitle: string;
+  footerIds: string;
   createdDate: string;
   before: SideHead;
   after: SideHead;
@@ -101,11 +102,8 @@ export function buildCompareDoc(a: {
 
   return {
     title: D.title(shownName),
-    footerLeft: D.footerLeft(
-      shownName,
-      runShortLabel(before.meta.id),
-      runShortLabel(after.meta.id),
-    ),
+    footerTitle: D.footerTitle(shownName),
+    footerIds: D.footerIds(runShortLabel(before.meta.id), runShortLabel(after.meta.id)),
     createdDate: fmtDate(a.now),
     before: sideHead(D.roleBefore, before),
     after: sideHead(D.roleAfter, after),
