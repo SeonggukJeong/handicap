@@ -25,6 +25,9 @@ import { ko } from "../i18n/ko";
 
 const BASE = "/api";
 
+type ReportBasisName = "steady" | "whole";
+const basisQuery = (basis?: ReportBasisName) => (basis ? `?basis=${basis}` : "");
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -314,14 +317,16 @@ export const api = {
     deleteScenarioImpl(id, force),
 
   // File download URL builders — return raw URL strings (do NOT go through request()).
-  reportCsvUrl: (runId: string) => `${BASE}/runs/${encodeURIComponent(runId)}/report.csv`,
-  reportXlsxUrl: (runId: string) => `${BASE}/runs/${encodeURIComponent(runId)}/report.xlsx`,
+  reportCsvUrl: (runId: string, basis?: ReportBasisName) =>
+    `${BASE}/runs/${encodeURIComponent(runId)}/report.csv${basisQuery(basis)}`,
+  reportXlsxUrl: (runId: string, basis?: ReportBasisName) =>
+    `${BASE}/runs/${encodeURIComponent(runId)}/report.xlsx${basisQuery(basis)}`,
   compareCsvUrl: (scenarioId: string, runIds: string[], baseline: string) =>
     `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare.csv?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
   compareXlsxUrl: (scenarioId: string, runIds: string[], baseline: string) =>
     `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare.xlsx?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
-  reportInsightsCsvUrl: (runId: string) =>
-    `${BASE}/runs/${encodeURIComponent(runId)}/report-insights.csv`,
+  reportInsightsCsvUrl: (runId: string, basis?: ReportBasisName) =>
+    `${BASE}/runs/${encodeURIComponent(runId)}/report-insights.csv${basisQuery(basis)}`,
   reportStairsCsvUrl: (runId: string) =>
     `${BASE}/runs/${encodeURIComponent(runId)}/report-stairs.csv`,
   compareInsightsCsvUrl: (scenarioId: string, runIds: string[], baseline: string) =>

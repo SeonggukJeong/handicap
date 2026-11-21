@@ -54,6 +54,8 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
     () => steadyMarks(report.basis, seconds[0]?.ts_second ?? null),
     [report.basis, seconds],
   );
+  const viewBasis = report.basis?.selected;
+  const nameTag = viewBasis ? `-${viewBasis}` : "";
   const wholeRunBadge = report.basis?.selected === "steady";
   const rampLoad = deriveLoadMode(profile);
   const showRampOnlyLine =
@@ -153,7 +155,11 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
           <div className="flex items-center gap-1">
             <Link
-              to={`/runs/${report.run.id}/print`}
+              to={
+                report.basis && report.basis.selected !== report.basis.default
+                  ? `/runs/${report.run.id}/print?basis=${report.basis.selected}`
+                  : `/runs/${report.run.id}/print`
+              }
               className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
             >
               {ko.print.page.openPrint}
@@ -169,8 +175,8 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
                   label: "CSV",
                   onSelect: () =>
                     downloadFile(
-                      api.reportCsvUrl(report.run.id),
-                      `run-${report.run.id}-report.csv`,
+                      api.reportCsvUrl(report.run.id, viewBasis),
+                      `run-${report.run.id}-report${nameTag}.csv`,
                       "text/csv",
                     ).catch((e) => setDlErr((e as Error).message)),
                 },
@@ -178,8 +184,8 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
                   label: "XLSX",
                   onSelect: () =>
                     downloadFile(
-                      api.reportXlsxUrl(report.run.id),
-                      `run-${report.run.id}-report.xlsx`,
+                      api.reportXlsxUrl(report.run.id, viewBasis),
+                      `run-${report.run.id}-report${nameTag}.xlsx`,
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     ).catch((e) => setDlErr((e as Error).message)),
                 },
@@ -187,8 +193,8 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
                   label: ko.report.downloadInsightsCsv,
                   onSelect: () =>
                     downloadFile(
-                      api.reportInsightsCsvUrl(report.run.id),
-                      `run-${report.run.id}-insights.csv`,
+                      api.reportInsightsCsvUrl(report.run.id, viewBasis),
+                      `run-${report.run.id}-insights${nameTag}.csv`,
                       "text/csv",
                     ).catch((e) => setDlErr((e as Error).message)),
                 },

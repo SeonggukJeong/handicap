@@ -4,7 +4,13 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReportView } from "../ReportView";
+import { downloadFile } from "../../../api/download";
 import type { Profile, Report, ReportBasis } from "../../../api/schemas";
+
+vi.mock("../../../api/download", () => ({
+  downloadFile: vi.fn(() => Promise.resolve()),
+  downloadJson: vi.fn(() => Promise.resolve()),
+}));
 
 const STEP_ID = "01HX0000000000000000000001";
 const BADGE = "전체 구간";
@@ -322,5 +328,85 @@ describe("ReportView — steady 없는 상승 run의 한 줄", () => {
       />,
     );
     expect(screen.queryByText(/포함 전체 구간 값/)).toBeNull();
+  });
+});
+
+describe("ReportView — 내려받기·인쇄 링크가 보고 있는 기준을 넘긴다", () => {
+  async function pick(label: string) {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /내려받기/ }));
+    await user.click(screen.getByRole("menuitem", { name: label }));
+  }
+
+  it("전체 구간을 보고 있으면 CSV가 ?basis=whole과 -whole 이름으로", async () => {
+    vi.mocked(downloadFile).mockClear();
+    const basis = basisOf({ selected: "whole" });
+    render(<ReportView report={{ ...FIXTURE, basis }} profile={PROFILE} />);
+    await pick("CSV");
+    const [url, name] = vi.mocked(downloadFile).mock.calls[0];
+    expect(url.endsWith("/runs/R1/report.csv?basis=whole")).toBe(true);
+    expect(name).toBe("run-R1-report-whole.csv");
+  });
+
+  it("전체 구간을 보고 있으면 XLSX·인사이트 CSV도 -whole", async () => {
+    vi.mocked(downloadFile).mockClear();
+    const basis = basisOf({ selected: "whole" });
+    render(<ReportView report={{ ...FIXTURE, basis }} profile={PROFILE} />);
+    await pick("XLSX");
+    await pick("인사이트 CSV");
+    const calls = vi.mocked(downloadFile).mock.calls;
+    expect(calls[0][0].endsWith("/runs/R1/report.xlsx?basis=whole")).toBe(true);
+    expect(calls[0][1]).toBe("run-R1-report-whole.xlsx");
+    expect(calls[1][0].endsWith("/runs/R1/report-insights.csv?basis=whole")).toBe(true);
+    expect(calls[1][1]).toBe("run-R1-insights-whole.csv");
+  });
+
+  it("기본 기준을 보고 있으면 ?basis=steady와 -steady 이름으로", async () => {
+    vi.mocked(downloadFile).mockClear();
+    render(<ReportView report={{ ...FIXTURE, basis: basisOf() }} profile={PROFILE} />);
+    await pick("CSV");
+    await pick("XLSX");
+    await pick("인사이트 CSV");
+    const calls = vi.mocked(downloadFile).mock.calls;
+    expect(calls[0][0].endsWith("/report.csv?basis=steady")).toBe(true);
+    expect(calls[0][1]).toBe("run-R1-report-steady.csv");
+    expect(calls[1][0].endsWith("/report.xlsx?basis=steady")).toBe(true);
+    expect(calls[1][1]).toBe("run-R1-report-steady.xlsx");
+    expect(calls[2][0].endsWith("/report-insights.csv?basis=steady")).toBe(true);
+    expect(calls[2][1]).toBe("run-R1-insights-steady.csv");
+  });
+
+  it("basis 없는 리포트는 URL·파일 이름이 그대로", async () => {
+    vi.mocked(downloadFile).mockClear();
+    render(<ReportView report={FIXTURE} profile={PROFILE} />);
+    await pick("CSV");
+    await pick("XLSX");
+    await pick("인사이트 CSV");
+    const calls = vi.mocked(downloadFile).mock.calls;
+    expect(calls[0][0].endsWith("/runs/R1/report.csv")).toBe(true);
+    expect(calls[0][1]).toBe("run-R1-report.csv");
+    expect(calls[1][0].endsWith("/runs/R1/report.xlsx")).toBe(true);
+    expect(calls[1][1]).toBe("run-R1-report.xlsx");
+    expect(calls[2][0].endsWith("/runs/R1/report-insights.csv")).toBe(true);
+    expect(calls[2][1]).toBe("run-R1-insights.csv");
+  });
+
+  it("인쇄 링크: 기본 기준이 아니면 ?basis=를 싣는다", () => {
+    const basis = basisOf({ selected: "whole" });
+    render(<ReportView report={{ ...FIXTURE, basis }} profile={PROFILE} />);
+    expect(screen.getByRole("link", { name: /인쇄/ })).toHaveAttribute(
+      "href",
+      "/runs/R1/print?basis=whole",
+    );
+  });
+
+  it("인쇄 링크: 기본 기준이면 싣지 않는다", () => {
+    render(<ReportView report={{ ...FIXTURE, basis: basisOf() }} profile={PROFILE} />);
+    expect(screen.getByRole("link", { name: /인쇄/ })).toHaveAttribute("href", "/runs/R1/print");
+  });
+
+  it("인쇄 링크: basis 없으면 싣지 않는다", () => {
+    render(<ReportView report={FIXTURE} profile={PROFILE} />);
+    expect(screen.getByRole("link", { name: /인쇄/ })).toHaveAttribute("href", "/runs/R1/print");
   });
 });
