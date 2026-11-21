@@ -932,7 +932,13 @@ describe("LoadModelFields — 계단", () => {
       const setDiscard = vi.fn();
       const { unmount } = render(
         <LoadModelFields
-          {...baseProps({ loadModel: "open", rateMode: "fixed", duration: 60, rampOpen: 10, setDiscard })}
+          {...baseProps({
+            loadModel: "open",
+            rateMode: "fixed",
+            duration: 60,
+            rampOpen: 10,
+            setDiscard,
+          })}
         />,
       );
       expect(screen.getByText("권장 5초")).toBeInTheDocument();
@@ -940,10 +946,113 @@ describe("LoadModelFields — 계단", () => {
       unmount();
       render(
         <LoadModelFields
-          {...baseProps({ loadModel: "open", rateMode: "fixed", duration: 60, rampOpen: 10, discard: 5 })}
+          {...baseProps({
+            loadModel: "open",
+            rateMode: "fixed",
+            duration: 60,
+            rampOpen: 10,
+            discard: 5,
+          })}
         />,
       );
       expect(screen.queryByText("권장 5초")).toBeNull();
+    });
+
+    it("도착률 고정: 목표 도착률 오류가 상승·버림 칸과 안내 줄보다 앞에 온다", () => {
+      const { container } = render(
+        <LoadModelFields
+          {...baseProps({
+            loadModel: "open",
+            rateMode: "fixed",
+            duration: 12,
+            discard: 10,
+            errs: { ...noErrs, targetRpsInvalid: true, steadyInvalid: true },
+          })}
+        />,
+      );
+      const targetError = container.querySelector("#target-rps-error")!;
+      const ramp = screen.getByRole("spinbutton", { name: "상승 시간(초)" });
+      const steadyLine = screen.getByRole("alert");
+      const follows = (a: Element, b: Element) =>
+        Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(targetError).not.toBeNull();
+      expect(follows(targetError, ramp)).toBe(true);
+      expect(follows(targetError, steadyLine)).toBe(true);
+    });
+
+    it.each([
+      ["ramp_too_long", { duration: 10000, rampOpen: 3601 }, "true", "false"],
+      ["discard_too_long", { duration: 5000, discard: 3601 }, "false", "true"],
+      ["ramp_ge_duration", { duration: 60, rampOpen: 100 }, "true", "true"],
+      ["hold_too_short", { duration: 12, discard: 10 }, "true", "true"],
+      ["hold_too_long", { duration: 90000, rampOpen: 1 }, "true", "true"],
+      ["not_whole_seconds(버림)", { duration: 60, discard: 2.5 }, "false", "true"],
+      ["not_whole_seconds(상승)", { duration: 60, rampOpen: 2.5 }, "true", "false"],
+    ] as const)(
+      "aria-invalid은 사유가 가리키는 칸에만: %s",
+      (_n, over, rampInvalid, discardInvalid) => {
+        setup({
+          loadModel: "open",
+          rateMode: "fixed",
+          errs: { ...noErrs, steadyInvalid: true },
+          ...over,
+        });
+        expect(screen.getByRole("spinbutton", { name: "상승 시간(초)" })).toHaveAttribute(
+          "aria-invalid",
+          rampInvalid,
+        );
+        expect(screen.getByRole("spinbutton", { name: "앞부분 버림(초)" })).toHaveAttribute(
+          "aria-invalid",
+          discardInvalid,
+        );
+      },
+    );
+
+    it("표시된 오류 줄을 표시된 칸이 aria-describedby로 가리킨다", () => {
+      setup({
+        loadModel: "open",
+        rateMode: "fixed",
+        duration: 12,
+        discard: 10,
+        errs: { ...noErrs, steadyInvalid: true },
+      });
+      const lineId = screen.getByRole("alert").id;
+      expect(lineId).not.toBe("");
+      for (const name of ["상승 시간(초)", "앞부분 버림(초)"]) {
+        expect(screen.getByRole("spinbutton", { name }).getAttribute("aria-describedby")).toContain(
+          lineId,
+        );
+      }
+    });
+
+    it("VU 고정: 점진 시작 오류와 steady 오류가 둘 다 있으면 두 id를 공백으로 잇는다", () => {
+      setup({
+        loadModel: "closed",
+        rateMode: "fixed",
+        duration: 12,
+        rampUp: 20,
+        discard: 3,
+        errs: { ...noErrs, rampInvalid: true, steadyInvalid: true },
+      });
+      const lineId = screen.getByRole("alert").id;
+      expect(
+        screen.getByRole("spinbutton", { name: /점진 시작/ }).getAttribute("aria-describedby"),
+      ).toBe(`ramp-up-error ${lineId}`);
+    });
+
+    it("오류가 없으면 칸에 steady 줄 연결이 없다", () => {
+      setup({ loadModel: "open", rateMode: "fixed", duration: 60, rampOpen: 10, discard: 5 });
+      expect(
+        screen
+          .getByRole("spinbutton", { name: "앞부분 버림(초)" })
+          .getAttribute("aria-describedby"),
+      ).toBeNull();
+    });
+
+    it("새 도움말 버튼의 접근명", () => {
+      setup({ loadModel: "open", rateMode: "fixed" });
+      expect(screen.getByRole("button", { name: "상승 시간 설명" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "앞부분 버림 설명" })).toBeInTheDocument();
     });
   });
 });

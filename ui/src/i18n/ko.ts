@@ -301,6 +301,8 @@ export const ko = {
     rampHelpOpen:
       "처음부터 목표 도착률로 보내지 않고 0에서 목표까지 이 시간 동안 올립니다. 실행 시간에 포함됩니다.",
     rampHelpVuMax: "VU 수가 상승 초보다 적으면 더 일찍 다 뜹니다 — 상승 시간은 최대값입니다.",
+    rampHelpLabel: "상승 시간 설명",
+    discardHelpLabel: "앞부분 버림 설명",
     discardRecommend: "권장 5초",
     steadySummary: (ramp: number, hold: number, measured: number) =>
       ramp === 0

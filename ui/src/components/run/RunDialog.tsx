@@ -1191,7 +1191,7 @@ export function RunDialog({
           ...(mode === "simple" && loadModel === "open" && loadErrs.workerCountInvalid
             ? [ko.validation.workerCount]
             : []),
-          ...(mode === "simple" && steadyBlock.kind === "error"
+          ...(mode === "simple" && loadErrs.steadyInvalid && steadyBlock.kind === "error"
             ? [ko.loadModel.steadyError(ko.loadModel.steadyReason[steadyBlock.reason])]
             : []),
         ];

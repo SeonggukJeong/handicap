@@ -287,6 +287,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
       );
       expect(num("앞부분 버림(초)")).toHaveAttribute("aria-invalid", "true");
     }
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
     expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/runs"))).toBe(false);
   });
 });

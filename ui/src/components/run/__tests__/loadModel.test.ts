@@ -541,6 +541,7 @@ describe("steady (상승·버림)", () => {
     }
   });
 
+  // 서버 정규화 모양: stages 두 칸 + target_rps null
   const openRamp = {
     stages: [
       { target: 40, duration_seconds: 20 },
@@ -550,7 +551,6 @@ describe("steady (상승·버림)", () => {
   };
   it.each([
     ["open-ramp", { target_rps: null, ...openRamp }, "open"],
-    // (서버 정규화 모양: stages 두 칸 + target_rps null)
     [
       "open 버림만",
       { target_rps: 40, steady: { ramp_seconds: 0, hold_seconds: 60, discard_seconds: 5 } },
