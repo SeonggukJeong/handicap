@@ -706,13 +706,17 @@ async fn abort_before_worker_registers_sends_no_load() {
     // 늦게 뜬 부하기는 배정 전 AbortRun을 받고 재시도(60초) 없이 끝나야 한다.
     let mut child = dispatcher.spawn_now();
     let exited = tokio::time::timeout(Duration::from_secs(10), child.wait()).await;
-    assert!(exited.is_ok(), "late worker must exit without retrying");
+    if exited.is_err() {
+        // 요청 수가 확정되도록 먼저 정리한다.
+        let _ = child.kill().await;
+    }
 
     assert_eq!(
         target.received_requests().await.unwrap().len(),
         0,
-        "no load may reach the target after abort-before-register"
+        "load reached the target after abort-before-register"
     );
+    assert!(exited.is_ok(), "late worker must exit without retrying");
 
     let v: Value = http
         .get(format!("{}/api/runs/{}", rest_base, run_id))
