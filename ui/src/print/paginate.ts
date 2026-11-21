@@ -68,14 +68,28 @@ export function paginate(
       }
       continue;
     }
+    placeRows(b, head, true);
+  }
+
+  if (pages.length > 1 && current().length === 0) pages.pop();
+  return { pages, oversized: [...new Set(oversized)] };
+
+  // 행이 있는 표를 놓고 놓은 조각 [from,to] 목록을 돌려준다. allowMove면 앞선 항목이 있는 쪽에서
+  // 막 시작한 표가 한 행 조각을 만들 때 새 쪽 배치를 시험해 보고, 그 배치에 한 행 조각이
+  // 없을 때만 채택한다(아니면 원래 자리에 그대로 놓는다).
+  function placeRows(
+    b: Extract<Block, { kind: "table" }>,
+    head: number,
+    allowMove: boolean,
+  ): [number, number][] {
     const n = b.rowsMm.length;
+    const placed: [number, number][] = [];
     let from = 0;
-    let moved = false;
     while (from < n) {
       const first = b.rowsMm[from]!;
       ensureRoom(head + first);
-      // 앞선 항목이 있는 쪽에서 막 시작한 표만 새 쪽으로 옮길 수 있다(표마다 최대 한 번).
-      const canMove = from === 0 && !moved && current().length > 0;
+      const canMove = allowMove && from === 0 && current().length > 0;
+      let needMove = false;
       let to = from + 1;
       let sliceUsed = used + head + first;
       if (head + first > bodyMm + EPS_MM) {
@@ -93,30 +107,43 @@ export function paginate(
             to = to2;
             sliceUsed = used + head;
             for (let i = from; i < to; i++) sliceUsed += b.rowsMm[i]!;
-          } else if (canMove) {
-            moved = true;
-            newPage();
-            continue;
+          } else {
+            needMove = true;
           }
-        } else if (to < n && to - from < KEEP_ROWS && canMove) {
-          moved = true;
-          newPage();
-          continue;
+        } else if (to < n && to - from < KEEP_ROWS) {
+          needMove = true;
         }
       }
+      if (needMove && canMove) {
+        const snap = {
+          pages: pages.length,
+          items: current().length,
+          used,
+          forceBreak,
+          oversized: oversized.length,
+        };
+        newPage();
+        const trial = placeRows(b, head, false);
+        if (trial.every(([f, t]) => t - f >= Math.min(KEEP_ROWS, n))) return trial;
+        pages.length = snap.pages;
+        current().length = snap.items;
+        used = snap.used;
+        forceBreak = snap.forceBreak;
+        oversized.length = snap.oversized;
+        return placeRows(b, head, false);
+      }
       current().push({ kind: "tableSlice", id: b.id, from, to, continued: from > 0 });
+      placed.push([from, to]);
       used = sliceUsed;
       from = to;
-      if (from < b.rowsMm.length) {
+      if (from < n) {
         forceBreak = true;
       } else if (head + first > bodyMm + EPS_MM) {
         forceBreak = true;
       }
     }
+    return placed;
   }
-
-  if (pages.length > 1 && current().length === 0) pages.pop();
-  return { pages, oversized: [...new Set(oversized)] };
 }
 
 export function chooseSummaryLevel<L extends number = LadderLevel>(

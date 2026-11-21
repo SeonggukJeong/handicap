@@ -51,13 +51,31 @@ describe("표 조각 앞뒤 최소 2행", () => {
     expect(slices(paginate([atom("a", 250), table([10])], 259))).toEqual([[], [[0, 1]]]);
     expect(slices(paginate([table([10, 250, 10])], 259))).toEqual([[[0, 1]], [[1, 2]], [[2, 3]]]);
   });
-  it("빈 조각을 내지 않는다", () => {
+  it("옮겨도 한 행 꼬리가 남으면 표를 옮기지 않는다(꼬리 규칙)", () => {
+    // 10 + 14 + 200 = 224, 셋째 행은 안 들어간다. 새 쪽에서도 [0,2) [2,3)이라 옮겨 봐야 이득이 없다.
+    const r = paginate([atom("a", 10), table([100, 100, 100])], 259);
+    expect(r.pages).toHaveLength(2);
+    expect(slices(r)).toEqual([[[0, 2]], [[2, 3]]]);
+  });
+  it("옮겨도 행 단위로 나뉘면 표를 옮기지 않는다(머리 규칙)", () => {
+    const r = paginate([atom("a", 10), table([10, 250, 10])], 259);
+    expect(r.pages).toHaveLength(3);
+    expect(slices(r)).toEqual([[[0, 1]], [[1, 2]], [[2, 3]]]);
+  });
+  it("빈 조각을 내지 않고 이어 붙으며 한 행 조각이 없다", () => {
     for (let n = 1; n <= 30; n++)
       for (const used of [0, 100, 200, 230, 244]) {
         const r = paginate([atom("a", used), table(Array(n).fill(10))], 259);
         const all = r.pages.flat().filter((i) => i.kind === "tableSlice");
         expect(all.every((i) => i.kind === "tableSlice" && i.to > i.from)).toBe(true);
         expect(all.at(-1)).toMatchObject({ to: n });
+        let prev = 0;
+        for (const i of all) {
+          if (i.kind !== "tableSlice") continue;
+          expect(i.from).toBe(prev);
+          if (n > 1) expect(i.to - i.from).toBeGreaterThanOrEqual(KEEP_ROWS);
+          prev = i.to;
+        }
       }
   });
 });
