@@ -576,6 +576,172 @@ async fn abort_e2e_marks_run_aborted() {
     grpc_handle.abort();
 }
 
+/// 워커를 `dispatch` 때 띄우지 않고 run_id만 기억한다. `spawn_now()`가 실제 워커
+/// 바이너리를 `SubprocessDispatcher`와 같은 인자(--controller --run-id --worker-id)로 띄운다.
+struct DeferredDispatcher {
+    worker_bin: String,
+    grpc_addr: SocketAddr,
+    run_id: std::sync::Mutex<Option<String>>,
+}
+
+impl DeferredDispatcher {
+    fn spawn_now(&self) -> tokio::process::Child {
+        let run_id = self.run_id.lock().unwrap().clone().expect("dispatched run");
+        tokio::process::Command::new(&self.worker_bin)
+            .args([
+                "--controller",
+                &format!("http://{}", self.grpc_addr),
+                "--run-id",
+                &run_id,
+                "--worker-id",
+                &ulid::Ulid::new().to_string(),
+            ])
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn worker")
+    }
+}
+
+#[async_trait::async_trait]
+impl handicap_controller::dispatcher::WorkerDispatcher for DeferredDispatcher {
+    async fn dispatch(&self, run_id: &str, _worker_count: u32) -> anyhow::Result<()> {
+        *self.run_id.lock().unwrap() = Some(run_id.to_string());
+        Ok(())
+    }
+    async fn cleanup(&self, _run_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// 부하기가 등록하기 전에 중단한 run은 늦게 뜬 부하기가 부하를 내지 못하고,
+/// 부하기는 재시도 없이 끝나며, 기록은 시작 전 중단으로 남는다.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn abort_before_worker_registers_sends_no_load() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+        .mount(&target)
+        .await;
+
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let dispatcher = Arc::new(DeferredDispatcher {
+        worker_bin: worker_bin.to_string_lossy().to_string(),
+        grpc_addr,
+        run_id: std::sync::Mutex::new(None),
+    });
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: dispatcher.clone(),
+        ui_dir: None,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
+        scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    let scenario_yaml = format!(
+        "version: 1\nname: abort-before-register\nvariables:\n  base: \"{}\"\nsteps:\n  - id: ping\n    name: GET /\n    type: http\n    request:\n      method: GET\n      url: \"{{{{base}}}}/\"\n    assert:\n      - status: 200\n",
+        target.uri()
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    let resp = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 8, "duration_seconds": 30 },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let v: Value = resp.json().await.unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 부하기가 뜨기 전에 중단한다.
+    let abort_resp = http
+        .post(format!("{}/api/runs/{}/abort", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(abort_resp.status(), 200, "abort POST should succeed");
+
+    // 늦게 뜬 부하기는 배정 전 AbortRun을 받고 재시도(60초) 없이 끝나야 한다.
+    let mut child = dispatcher.spawn_now();
+    let exited = tokio::time::timeout(Duration::from_secs(10), child.wait()).await;
+    assert!(exited.is_ok(), "late worker must exit without retrying");
+
+    assert_eq!(
+        target.received_requests().await.unwrap().len(),
+        0,
+        "no load may reach the target after abort-before-register"
+    );
+
+    let v: Value = http
+        .get(format!("{}/api/runs/{}", rest_base, run_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["status"], "aborted");
+    assert_eq!(v["message"], "부하를 시작하기 전에 중단했습니다");
+    assert!(v["started_at"].is_null(), "run never started: {v}");
+
+    let r: Value = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(r["summary"]["count"], 0);
+    assert_eq!(r["summary"]["duration_seconds"], 0);
+    assert_eq!(r["summary"]["rps"].as_f64(), Some(0.0));
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
 /// Full-stack regression guard for the loop node (Slice 7).
 ///
 /// A scenario whose single top-level step is a `type: loop` with `repeat: 2`
