@@ -37,6 +37,21 @@ it("open+fixed: 굵은 rate·total·time, sub=동시 요청 상한", () => {
   expect(r.sub).toBe("동시 요청 상한 200");
 });
 
+it("open+fixed 상승: 반복 수는 상승 구간을 절반으로 센다", () => {
+  const withRamp = runSummary({
+    ...base,
+    loadModel: "open",
+    targetRps: "40",
+    duration: 60,
+    rampOpen: 20,
+  });
+  const text = withRamp.main.map((s) => s.text).join("");
+  expect(text).toContain("2,000");
+  expect(text).not.toContain("2,400");
+  const noRamp = runSummary({ ...base, loadModel: "open", targetRps: "40", duration: 60 });
+  expect(noRamp.main.map((s) => s.text).join("")).toContain("2,400");
+});
+
 it("invalid(closed vus=0): main='설정을 확인하세요'(굵음 없음) + warn sub", () => {
   const r = runSummary({ ...base, loadModel: "closed", vus: 0 });
   expect(r.tone).toBe("warn");

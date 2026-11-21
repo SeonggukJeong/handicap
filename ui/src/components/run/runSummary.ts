@@ -1,4 +1,4 @@
-import type { LoadModelState } from "./loadModel";
+import { steadyPlan, type LoadModelState } from "./loadModel";
 import { peakStageTarget } from "./sizing";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo } from "../../i18n/duration";
@@ -81,7 +81,11 @@ export function runSummary(s: LoadModelState): {
       tone: "warn",
       curve: false,
     };
-  const total = (rps * Math.round(s.duration)).toLocaleString("ko");
+  // 상승이 있으면 상승 구간은 0에서 목표까지 선형이라 그 구간 반복 수는 목표 × 상승 ÷ 2.
+  const plan = steadyPlan(s);
+  const ramp = plan.kind === "send" ? plan.steady.ramp_seconds : 0;
+  const seconds = Math.round(s.duration);
+  const total = Math.round(rps * (seconds - ramp) + (rps * ramp) / 2).toLocaleString("ko");
   return {
     main: ko.runDialog.summaryOpen(rps, total, time),
     sub: ko.runDialog.summaryOpenSub(s.maxInFlight),

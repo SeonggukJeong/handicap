@@ -63,6 +63,14 @@ describe("StepPhaseBreakdown", () => {
     expect(labelEl).toHaveAttribute("title", longName);
   });
 
+  it("wholeRunBadge면 막대 접근명이 전체 구간 값임을 말한다", () => {
+    const a = render(<StepPhaseBreakdown steps={steps as never} meta={meta} wholeRunBadge />);
+    expect(screen.getByRole("img").getAttribute("aria-label")).toContain("전체 구간");
+    a.unmount();
+    render(<StepPhaseBreakdown steps={steps as never} meta={meta} />);
+    expect(screen.getByRole("img").getAttribute("aria-label")).not.toContain("전체 구간");
+  });
+
   describe("retriedStepIds 표지", () => {
     it("막대 보기: 이름 칸 안에 표지, 이름은 truncate+title 유지", () => {
       render(
