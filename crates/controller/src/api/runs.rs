@@ -1148,6 +1148,19 @@ pub async fn build_report_for_run(
     run_id: &str,
     basis: Option<crate::steady::Basis>,
 ) -> Result<crate::report::ReportJson, ApiError> {
+    build_reports_for_run(db, run_id, basis)
+        .await
+        .map(|(r, _)| r)
+}
+
+/// `build_report_for_run`과 같은 리포트(첫째)에 더해, `steady` 구간이 있는 run이면
+/// 반대 기준의 리포트 전체(둘째)를 함께 돌려준다. 둘째는 반대 `?basis=`로 받은
+/// 리포트와 JSON이 같다. `steady`가 없는 run은 둘째가 `None`이다.
+pub async fn build_reports_for_run(
+    db: &crate::store::Db,
+    run_id: &str,
+    basis: Option<crate::steady::Basis>,
+) -> Result<(crate::report::ReportJson, Option<crate::report::ReportJson>), ApiError> {
     let row = runs::get(db, run_id).await?.ok_or(ApiError::NotFound)?;
     let rows = crate::store::metrics::windows_with_hdr(db, run_id).await?;
     let loops = crate::store::metrics::loop_breakdown(db, run_id).await?;
@@ -1223,7 +1236,7 @@ pub async fn build_report_for_run(
     };
     let whole = build(None);
     let Some((cfg, starts, open_loop_rows)) = steady_inputs else {
-        return Ok(whole);
+        return Ok((whole, None));
     };
 
     use crate::steady::{Basis, BasisBlock, BasisOther, BasisWindow};
@@ -1300,22 +1313,11 @@ pub async fn build_report_for_run(
         count: s.count,
         duration_seconds: s.duration_seconds,
     };
-    let (mut chosen, other) = match (selected, steady_report) {
-        (Basis::Steady, Some(steady)) => {
-            let other = other_of(&whole.summary);
-            (steady, Some(other))
-        }
-        (_, Some(steady)) => {
-            let other = other_of(&steady.summary);
-            (whole, Some(other))
-        }
-        (_, None) => (whole, None),
-    };
-    chosen.basis = Some(BasisBlock {
+    let block = |selected: Basis, other: Option<BasisOther>| BasisBlock {
         selected,
         default,
         state: w.state,
-        config: cfg,
+        config: cfg.clone(),
         window: w.range.map(|(lo, hi)| BasisWindow {
             start_ms: lo * 1000,
             end_ms: hi * 1000,
@@ -1324,8 +1326,21 @@ pub async fn build_report_for_run(
         t0_estimated: w.t0_estimated,
         dropped_whole_run,
         other,
-    });
-    Ok(chosen)
+    };
+    let Some(mut steady) = steady_report else {
+        let mut whole = whole;
+        whole.basis = Some(block(selected, None));
+        return Ok((whole, None));
+    };
+    let mut whole = whole;
+    let steady_other = other_of(&steady.summary);
+    let whole_other = other_of(&whole.summary);
+    steady.basis = Some(block(Basis::Steady, Some(whole_other)));
+    whole.basis = Some(block(Basis::Whole, Some(steady_other)));
+    Ok(match selected {
+        Basis::Steady => (steady, Some(whole)),
+        Basis::Whole => (whole, Some(steady)),
+    })
 }
 
 fn needs_open_loop_totals(profile: &Profile, dropped: i64) -> bool {
@@ -1378,17 +1393,34 @@ fn ensure_terminal(row: &runs::RunRow) -> Result<(), ApiError> {
     }
 }
 
+/// 내보내기 파일 이름 뼈대. `basis` 블록이 있는 리포트(= `steady` run)에만
+/// 고른 기준(`steady`/`whole`)을 붙인다.
+fn export_stem(id: &str, kind: &str, report: &crate::report::ReportJson) -> String {
+    match &report.basis {
+        None => format!("run-{id}-{kind}"),
+        Some(b) => {
+            let tag = match b.selected {
+                crate::steady::Basis::Steady => "steady",
+                crate::steady::Basis::Whole => "whole",
+            };
+            format!("run-{id}-{kind}-{tag}")
+        }
+    }
+}
+
 pub async fn report_csv(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<ReportParams>,
 ) -> Result<axum::response::Response, ApiError> {
+    let basis = parse_basis(params.basis.as_deref())?;
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id, None).await?;
+    let report = build_report_for_run(&state.db, &id, basis).await?;
     let bytes = crate::export::report_to_csv(&report);
     Ok(file_response(
         "text/csv; charset=utf-8",
-        &format!("run-{id}-report.csv"),
+        &format!("{}.csv", export_stem(&id, "report", &report)),
         bytes,
     ))
 }
@@ -1396,14 +1428,16 @@ pub async fn report_csv(
 pub async fn report_xlsx(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<ReportParams>,
 ) -> Result<axum::response::Response, ApiError> {
+    let basis = parse_basis(params.basis.as_deref())?;
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id, None).await?;
-    let bytes = crate::export::report_to_xlsx(&report);
+    let (report, other) = build_reports_for_run(&state.db, &id, basis).await?;
+    let bytes = crate::export::report_to_xlsx(&report, other.as_ref());
     Ok(file_response(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        &format!("run-{id}-report.xlsx"),
+        &format!("{}.xlsx", export_stem(&id, "report", &report)),
         bytes,
     ))
 }
@@ -1411,14 +1445,16 @@ pub async fn report_xlsx(
 pub async fn report_insights_csv(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<ReportParams>,
 ) -> Result<axum::response::Response, ApiError> {
+    let basis = parse_basis(params.basis.as_deref())?;
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id, None).await?;
+    let report = build_report_for_run(&state.db, &id, basis).await?;
     let bytes = crate::export::report_to_insights_csv(&report);
     Ok(file_response(
         "text/csv; charset=utf-8",
-        &format!("run-{id}-insights.csv"),
+        &format!("{}.csv", export_stem(&id, "insights", &report)),
         bytes,
     ))
 }

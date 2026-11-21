@@ -479,7 +479,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
 }
 
 /// Single-run XLSX: Summary + Steps + Windows + Status (+ Branches if any).
-pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
+pub fn report_to_xlsx(report: &ReportJson, _other: Option<&ReportJson>) -> Vec<u8> {
     let mut wb = Workbook::new();
 
     // --- Summary sheet ---
@@ -1235,7 +1235,7 @@ mod tests {
 
         let mut r = report_with_steps(vec![step("a", 10, 50)]);
         r.summary.count = 123;
-        let bytes = report_to_xlsx(&r);
+        let bytes = report_to_xlsx(&r, None);
 
         let mut wb: Xlsx<Cursor<Vec<u8>>> =
             open_workbook_from_rs(Cursor::new(bytes)).expect("read xlsx");
@@ -1278,7 +1278,7 @@ mod tests {
                 },
             ],
         };
-        let bytes = report_to_xlsx(&r);
+        let bytes = report_to_xlsx(&r, None);
         let mut wb: Xlsx<Cursor<Vec<u8>>> =
             open_workbook_from_rs(Cursor::new(bytes)).expect("read xlsx");
         let summary = wb.worksheet_range("Summary").expect("Summary sheet");
@@ -1365,7 +1365,7 @@ mod tests {
                 measured_seconds: None,
             },
         ];
-        let bytes = report_to_xlsx(&r);
+        let bytes = report_to_xlsx(&r, None);
         let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
         let ws = wb.worksheet_range("Insights").expect("Insights sheet");
         // 기존 헤더/데이터 단언 (유지)
@@ -1782,7 +1782,7 @@ mod tests {
         let mut r = report_with_steps(vec![step("a", 10, 50)]);
         r.insights = vec![stall.clone(), slots.clone()];
         let mut wb: Xlsx<Cursor<Vec<u8>>> =
-            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r))).unwrap();
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r, None))).unwrap();
         let ws = wb.worksheet_range("Insights").expect("Insights sheet");
         for i in 0..4u32 {
             let c = 17 + i;
@@ -2239,7 +2239,7 @@ mod tests {
         use std::io::Cursor;
         let plain = report_with_steps(vec![step("a", 10, 50)]);
         let wb: Xlsx<Cursor<Vec<u8>>> =
-            open_workbook_from_rs(Cursor::new(report_to_xlsx(&plain))).unwrap();
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&plain, None))).unwrap();
         assert_eq!(
             wb.sheet_names(),
             vec!["Summary", "Steps", "Windows", "Status"]
@@ -2248,7 +2248,7 @@ mod tests {
         let mut r = report_with_steps(vec![step("a", 10, 50)]);
         r.stair = Some(saturated_sample());
         let mut wb: Xlsx<Cursor<Vec<u8>>> =
-            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r))).unwrap();
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r, None))).unwrap();
         assert_eq!(
             wb.sheet_names(),
             vec!["Summary", "Steps", "Windows", "Status", "Stairs"]
@@ -2285,7 +2285,7 @@ mod tests {
         let mut r2 = report_with_steps(vec![step("a", 10, 50)]);
         r2.stair = Some(st.clone());
         let mut wb: Xlsx<Cursor<Vec<u8>>> =
-            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r2))).unwrap();
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r2, None))).unwrap();
         let ws = wb.worksheet_range("Stairs").unwrap();
         let lines = stair_headline_lines(&st);
         assert_eq!(lines.len(), 3);
@@ -2721,7 +2721,7 @@ mod tests {
         let mut r = report_with_steps(vec![step("a", 10, 50)]);
         r.stair = Some(st.clone());
         let mut wb: Xlsx<Cursor<Vec<u8>>> =
-            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r))).unwrap();
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r, None))).unwrap();
         let ws = wb.worksheet_range("Stairs").unwrap();
         let want = stair_stop_line(&st, "2023-11-14T22:13:21Z").unwrap();
         assert_eq!(ws.get_value((0, 0)), Some(&Data::String(want)));

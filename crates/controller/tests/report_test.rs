@@ -1049,3 +1049,149 @@ async fn exports_use_default_basis() {
     assert_eq!(row.split(',').nth(1).unwrap(), count.to_string());
     assert_eq!(count, 250);
 }
+
+async fn get_with_headers(
+    db: &handicap_controller::store::Db,
+    uri: &str,
+) -> (StatusCode, Option<String>, Vec<u8>) {
+    let resp = make_app(db.clone())
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let disposition = resp
+        .headers()
+        .get(axum::http::header::CONTENT_DISPOSITION)
+        .map(|v| v.to_str().unwrap().to_string());
+    let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    (status, disposition, body.to_vec())
+}
+
+fn disposition_for(id: &str, stem: &str, ext: &str) -> String {
+    format!("attachment; filename=\"run-{id}-{stem}.{ext}\"")
+}
+
+#[tokio::test]
+async fn export_csv_follows_basis_param() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    for basis in ["steady", "whole"] {
+        let json = report_json(&db, &format!("/api/runs/{id}/report?basis={basis}")).await;
+        let (st, csv) = get_report(&db, &format!("/api/runs/{id}/report.csv?basis={basis}")).await;
+        assert_eq!(st, StatusCode::OK);
+        let text = String::from_utf8(csv).unwrap();
+        let count = json["steps"][0]["count"].as_u64().unwrap();
+        assert_eq!(
+            text.lines().nth(1).unwrap().split(',').nth(1).unwrap(),
+            count.to_string()
+        );
+    }
+    let s = report_json(&db, &format!("/api/runs/{id}/report?basis=steady")).await;
+    let w = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
+    assert_ne!(s["steps"][0]["count"], w["steps"][0]["count"]);
+}
+
+#[tokio::test]
+async fn export_filename_carries_basis_only_for_steady_runs() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let cases = [
+        ("report.csv", "report", "csv"),
+        ("report.xlsx", "report", "xlsx"),
+        ("report-insights.csv", "insights", "csv"),
+    ];
+    for (route, kind, ext) in cases {
+        let (st, disp, _) =
+            get_with_headers(&db, &format!("/api/runs/{id}/{route}?basis=whole")).await;
+        assert_eq!(st, StatusCode::OK, "{route}");
+        assert_eq!(
+            disp.unwrap(),
+            disposition_for(&id, &format!("{kind}-whole"), ext)
+        );
+        let (st, disp, _) = get_with_headers(&db, &format!("/api/runs/{id}/{route}")).await;
+        assert_eq!(st, StatusCode::OK, "{route}");
+        assert_eq!(
+            disp.unwrap(),
+            disposition_for(&id, &format!("{kind}-steady"), ext)
+        );
+    }
+
+    let (plain, _) = seed_run_with_metrics(&db).await;
+    for (route, kind, ext) in cases {
+        for query in ["", "?basis=steady", "?basis=whole"] {
+            let (st, disp, _) =
+                get_with_headers(&db, &format!("/api/runs/{plain}/{route}{query}")).await;
+            assert_eq!(st, StatusCode::OK, "{route}{query}");
+            assert_eq!(disp.unwrap(), disposition_for(&plain, kind, ext));
+        }
+    }
+}
+
+#[tokio::test]
+async fn export_basis_steady_falls_back_to_whole_when_not_reached() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut s = SteadySeed::closed();
+    s.status = RunStatus::Aborted;
+    s.ended_ms = T0 + 8_000;
+    let id = seed_steady(&db, s).await;
+    let (st, disp_s, body_s) =
+        get_with_headers(&db, &format!("/api/runs/{id}/report.csv?basis=steady")).await;
+    let (st2, disp_w, body_w) =
+        get_with_headers(&db, &format!("/api/runs/{id}/report.csv?basis=whole")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(st2, StatusCode::OK);
+    assert_eq!(body_s, body_w);
+    assert_eq!(
+        disp_s.as_deref(),
+        Some(disposition_for(&id, "report-whole", "csv").as_str())
+    );
+    assert_eq!(disp_s, disp_w);
+}
+
+#[tokio::test]
+async fn export_invalid_basis_is_400() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    for route in ["report.csv", "report.xlsx", "report-insights.csv"] {
+        let (st, _) = get_report(&db, &format!("/api/runs/{id}/{route}?basis=x")).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{route}");
+        let (st, _) = get_report(&db, &format!("/api/runs/no-such-run/{route}?basis=x")).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{route} unknown run");
+    }
+}
+
+#[tokio::test]
+async fn both_reports_are_consistent() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    use handicap_controller::steady::Basis;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+
+    let (first, second) = build_reports_for_run(&db, &id, None).await.unwrap();
+    assert_eq!(first.basis.as_ref().unwrap().selected, Basis::Steady);
+    let second = second.expect("steady run has the opposite report");
+    let whole = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
+    let steady = report_json(&db, &format!("/api/runs/{id}/report?basis=steady")).await;
+    assert_eq!(serde_json::to_value(&second).unwrap(), whole);
+    assert_eq!(serde_json::to_value(&first).unwrap(), steady);
+
+    let (first, second) = build_reports_for_run(&db, &id, Some(Basis::Whole))
+        .await
+        .unwrap();
+    assert_eq!(first.basis.as_ref().unwrap().selected, Basis::Whole);
+    assert_eq!(serde_json::to_value(&first).unwrap(), whole);
+    assert_eq!(serde_json::to_value(second.unwrap()).unwrap(), steady);
+
+    let plain = seed_steady(&db, SteadySeed::without_steady()).await;
+    let (first, second) = build_reports_for_run(&db, &plain, None).await.unwrap();
+    assert!(second.is_none());
+    assert!(first.basis.is_none());
+}
