@@ -871,7 +871,16 @@ function normalizeForModel(input: unknown): unknown {
     notes: src.notes,
     steps: Array.isArray(src.steps) ? src.steps.map(normalizeStep) : [],
   };
+  if (src.setup !== undefined && src.setup !== null) out.setup = normalizeSetup(src.setup);
   return out;
+}
+
+// setup은 steps가 배열일 때만 스텝을 정규화한다 — `setup: {}`·모르는 키는 그대로 넘겨 Zod가 거절한다.
+function normalizeSetup(setup: unknown): unknown {
+  if (typeof setup !== "object" || setup === null || Array.isArray(setup)) return setup;
+  const src = setup as Record<string, unknown>;
+  if (!Array.isArray(src.steps)) return setup;
+  return { ...src, steps: src.steps.map(normalizeStep) };
 }
 
 function normalizeStep(s: unknown): unknown {

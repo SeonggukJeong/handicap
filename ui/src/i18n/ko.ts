@@ -855,6 +855,8 @@ export const ko = {
       `"${stepName}" 스텝의 URL이 비어 있습니다 — 실행하면 요청이 실패합니다.`,
     problemUrlNeedsScheme: (stepName: string) =>
       `"${stepName}" 스텝의 URL은 http:// 또는 https:// 로 시작해야 합니다 — 예: https://api.example.com/path 또는 \${BASE_URL}/path`,
+    problemDuplicateStepId: (id: string) => `스텝 id가 겹칩니다: ${id}`,
+    setupOutlineLine: (n: number) => `준비 스텝 ${n}개 — YAML 보기에서 확인할 수 있습니다`,
     problemGateIntro: "YAML이 유효하지 않아 에디터가 마지막 정상 상태로 표시될 수 있습니다.",
     editBlockedWhileInvalid: "YAML 오류를 고칠 때까지 아웃라인·인스펙터 편집이 차단됩니다.",
     problemGateAction: "YAML 열어 확인",
@@ -1197,6 +1199,24 @@ export const ko = {
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   report: {
+    // 준비 스텝(VU당 한 번 도는 구간) 리포트 구획
+    setup: {
+      title: "준비 스텝",
+      headline: (steps: number, ready: number, open: boolean) =>
+        `준비 스텝 ${steps}개 · ${open ? "슬롯" : "VU"} ${ready}개 준비 완료`,
+      warnVu: (n: number) =>
+        `VU ${n}개가 준비 스텝에 실패해 본 스텝을 실행하지 않았습니다. 실제 부하는 설정보다 적었습니다.`,
+      warnOpen: (n: number) =>
+        `슬롯 ${n}개가 준비 스텝에 실패해 run에서 빠졌습니다. 그만큼 보내지 못한 요청이 늘었을 수 있습니다.`,
+      interrupted: (n: number) => `VU ${n}개는 준비 도중 run이 끝났습니다.`,
+      steadyNote: "유지 구간 안에서도 준비가 실행됐을 수 있습니다.",
+      summaryLine:
+        "요약·판정에는 준비 스텝이 들어 있지 않습니다. 본 스텝은 준비가 끝난(로그인된) 상태에서 측정했습니다.",
+      colMax: "최대 ms",
+      colStatus: "상태 코드",
+      failureKinds: "실패 종류",
+      stepsLabel: "준비 스텝 통계",
+    },
     // 집계 기준(유지 구간/전체 구간) 전환·기준 줄·표지 (steady-window)
     basis: {
       switchAria: "집계 기준",
@@ -1446,6 +1466,12 @@ export const ko = {
         tls: "TLS 실패",
         local_port_exhaustion: "테스터 포트 고갈",
         blank_var: "보내지 않음 (앞 스텝 값 없음)",
+        read_body: "응답 본문 읽기 실패",
+        status_assert: "상태 코드 검증 실패",
+        extract: "값 추출 실패",
+        unknown_var: "정의되지 않은 변수",
+        malformed_template: "잘못된 변수 표기",
+        cast_failed: "타입 변환 실패",
         other: "기타",
       } as Record<string, string>,
     },
@@ -1637,6 +1663,7 @@ export const ko = {
       no_response_validation:
         "응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다",
       load_not_delivered: "목표한 부하를 다 걸지 못했습니다(도착 실패/드롭)",
+      setup_failed: "준비 스텝 실패로 부하가 설정보다 적었습니다",
       loadgen_port_exhaustion: (count: string) =>
         `부하 발생기 머신의 포트가 부족했습니다 (${count}건) — 대상 서버(SUT) 문제가 아니며 이 run의 수치는 오염됐습니다`,
     },

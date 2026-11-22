@@ -491,7 +491,16 @@ const FINGERPRINT_SHAPES: Array<{ model: string; shape: object; keys: string[] }
   {
     model: "ScenarioModel",
     shape: ScenarioModel.shape,
-    keys: ["cookie_jar", "default_think_time", "name", "notes", "steps", "variables", "version"],
+    keys: [
+      "cookie_jar",
+      "default_think_time",
+      "name",
+      "notes",
+      "setup",
+      "steps",
+      "variables",
+      "version",
+    ],
   },
 ];
 

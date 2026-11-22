@@ -1,23 +1,38 @@
 import { ko } from "../i18n/ko";
-import { flattenHttpSteps, type Step } from "./model";
+import { flattenHttpSteps, type HttpStep, type Step } from "./model";
 
 /** 배너 한 줄 (spec §5.4). step 항목 = 모델-가용(클릭 시 해당 스텝 선택),
  *  gate 항목 = YAML 파싱/Zod 게이트 실패(모델 stale — 스텝 선택 비활성). */
 export type ScenarioProblem =
   | { kind: "step"; stepId: string; message: string }
-  | { kind: "gate"; message: string };
+  | { kind: "gate"; message: string }
+  /** 모델은 유효하지만 스텝 선택으로 이어지지 않는 항목(준비 스텝 id 겹침). */
+  | { kind: "plain"; message: string };
 
 /** 게이트 에러(yamlError)가 있으면 모델은 stale — 모델-가용 항목은 내지 않는다
  *  (stale 모델 기준 스텝 선택은 거짓 정보, spec §5.4와 같은 근거). */
 export function collectProblems(
   steps: ReadonlyArray<Step> | null,
   yamlError: string | null,
+  setupSteps: ReadonlyArray<HttpStep> = [],
 ): ScenarioProblem[] {
   if (yamlError !== null) {
     return formatGateMessages(yamlError).map((message) => ({ kind: "gate" as const, message }));
   }
   if (!steps) return [];
   const out: ScenarioProblem[] = [];
+  // 준비 스텝은 A1에서 선택할 수 없으므로 연결 없는 항목(gate)으로 낸다.
+  if (setupSteps.length > 0) {
+    const seen = new Set<string>();
+    const dup = new Set<string>();
+    for (const id of [...setupSteps.map((s) => s.id), ...collectNodeIds(steps)]) {
+      if (seen.has(id)) dup.add(id);
+      seen.add(id);
+    }
+    for (const id of dup) {
+      out.push({ kind: "plain", message: ko.editor.problemDuplicateStepId(id) });
+    }
+  }
   for (const s of flattenHttpSteps(steps)) {
     const url = s.request.url.trim();
     if (url === "") {
@@ -27,6 +42,23 @@ export function collectProblems(
     } else if (!/^https?:\/\//i.test(url)) {
       // 변수-prefix가 아닌 리터럴인데 http(s):// 스킴이 없음 → 엔진 fail-fast(status 0). /login·//host·example.com/api·api/users 포괄 (R5/R7).
       out.push({ kind: "step", stepId: s.id, message: ko.editor.problemUrlNeedsScheme(s.name) });
+    }
+  }
+  return out;
+}
+
+/** 컨테이너를 포함한 모든 스텝 노드의 id(문서순). */
+function collectNodeIds(steps: ReadonlyArray<Step>): string[] {
+  const out: string[] = [];
+  for (const s of steps) {
+    out.push(s.id);
+    if (s.type === "loop") out.push(...collectNodeIds(s.do));
+    else if (s.type === "parallel")
+      for (const b of s.branches) out.push(...collectNodeIds(b.steps));
+    else if (s.type === "if") {
+      out.push(...collectNodeIds(s.then));
+      for (const e of s.elif) out.push(...collectNodeIds(e.then));
+      out.push(...collectNodeIds(s.else));
     }
   }
   return out;

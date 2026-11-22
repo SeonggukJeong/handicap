@@ -534,6 +534,7 @@ export function FlowOutline({
   onActivateStep?: (id: string) => void;
 } = {}) {
   const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
+  const setupCount = useScenarioEditor((s) => s.model?.setup?.steps.length ?? 0);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
   const addStep = useScenarioEditor((s) => s.addStep);
@@ -680,6 +681,9 @@ export function FlowOutline({
             if (e.target === e.currentTarget) select(null);
           }}
         >
+          {setupCount > 0 && (
+            <p className="mb-1 text-xs text-slate-500">{ko.editor.setupOutlineLine(setupCount)}</p>
+          )}
           <div className="flex flex-col gap-1">
             <SortableContext items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
               {steps.map((s, i) => (

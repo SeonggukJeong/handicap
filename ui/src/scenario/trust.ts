@@ -1,4 +1,4 @@
-import { flattenHttpSteps, type Scenario } from "./model";
+import { allSteps, flattenHttpSteps, type Scenario } from "./model";
 import { undefinedVarRefs } from "./scanVars";
 import { buildVarRows } from "./varRows";
 
@@ -46,7 +46,7 @@ export interface TrustReport {
 
 /** http 스텝이 0개면 신뢰도를 평가하지 않는다(spec D12) — 호출부가 이걸로 칩을 숨긴다. */
 export function isTrustApplicable(scenario: Scenario): boolean {
-  return flattenHttpSteps(scenario.steps).length > 0;
+  return flattenHttpSteps(allSteps(scenario)).length > 0;
 }
 
 /**
@@ -54,7 +54,7 @@ export function isTrustApplicable(scenario: Scenario): boolean {
  * 등급이 사람마다 달라진다(spec D19/FR1). 순수 함수: localStorage·시간·난수 미사용.
  */
 export function evaluateTrust(scenario: Scenario): TrustReport {
-  const https = flattenHttpSteps(scenario.steps);
+  const https = flattenHttpSteps(allSteps(scenario));
 
   // A — 모든 http 스텝이 status assert를 가져야 통과(전칭). 1차 서버 판정은 존재 한정이다.
   const missing = https.filter((s) => !s.assert.some((x) => x.kind === "status"));

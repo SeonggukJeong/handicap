@@ -17,6 +17,7 @@ import {
   type PickArraySpec,
 } from "../../scenario/genVars";
 import { jsonCastVarNames } from "../../scenario/scanVars";
+import { allSteps } from "../../scenario/model";
 import { GenSampleLine, GenVarEditor } from "./GenVarEditor";
 import { DeleteVariableDialog } from "./DeleteVariableDialog";
 import { PickArrayDialog } from "./PickArrayDialog";
@@ -565,7 +566,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
         <VarUsagePopover
           anchor={usageNav.anchor}
           refIds={usageNav.refIds}
-          steps={model.steps}
+          steps={allSteps(model)}
           selectedStepId={selectedStepId}
           onJump={(id) => onJumpToStep?.(id)}
           onClose={() => setUsageNav(null)}
@@ -576,7 +577,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           open
           name={pendingDelete.name}
           refIds={pendingDelete.refIds}
-          steps={model.steps}
+          steps={allSteps(model)}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => {
             removeVariable(pendingDelete.name);

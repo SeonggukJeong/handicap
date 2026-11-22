@@ -1,5 +1,5 @@
 import { hashSeed } from "./genVars";
-import type { Scenario, Step } from "./model";
+import { setupSteps, type Scenario, type Step } from "./model";
 import type { TestRunState } from "./trust";
 
 const KEY = "handicap:trust-testrun:v1";
@@ -83,10 +83,13 @@ function canonStep(s: Step): string {
 
 export function executionFingerprint(scenario: Scenario): string {
   // 시나리오 name·notes·default_think_time은 제외(실행 표면 아님 / test-run 미행사).
+  // 준비 스텝이 없으면 이 부분이 빠져 옛 지문과 글자가 같다.
+  const setup = setupSteps(scenario);
   return [
     `v${scenario.version}`,
     `jar:${scenario.cookie_jar}`,
     `vars:${canonJson(scenario.variables)}`,
+    ...(setup.length > 0 ? [`setup:${canonSteps(setup)}`] : []),
     `steps:${canonSteps(scenario.steps)}`,
   ].join("|");
 }

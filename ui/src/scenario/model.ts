@@ -516,10 +516,25 @@ export const ScenarioModel = z
     variables: z.record(z.string(), z.union([z.string(), GenSpecModel])).default({}),
     default_think_time: ThinkTimeModel.optional(),
     notes: z.string().optional(),
+    // VU당 한 번 도는 준비 구간. http 스텝만 둔다.
+    setup: z
+      .object({ steps: z.array(HttpStepModel) })
+      .strict()
+      .optional(),
     steps: z.array(StepModel).default([]),
   })
   .strict();
 export type Scenario = z.infer<typeof ScenarioModel>;
+
+/** 준비 스텝(없으면 빈 배열). */
+export function setupSteps(s: Scenario): HttpStep[] {
+  return s.setup?.steps ?? [];
+}
+
+/** 준비 스텝 → 본 스텝 순서의 모든 스텝. */
+export function allSteps(s: Scenario): Step[] {
+  return [...setupSteps(s), ...s.steps];
+}
 
 export function newEmptyScenario(name = "Untitled"): Scenario {
   return {

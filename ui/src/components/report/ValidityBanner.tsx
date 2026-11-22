@@ -25,6 +25,8 @@ function reasonText(r: ValidityReason): string {
       return ko.validity.reason.no_response_validation;
     case "load_not_delivered":
       return ko.validity.reason.load_not_delivered;
+    case "setup_failed":
+      return ko.validity.reason.setup_failed;
     case "loadgen_port_exhaustion":
       return ko.validity.reason.loadgen_port_exhaustion((r.count ?? 0).toLocaleString("en-US"));
     default:

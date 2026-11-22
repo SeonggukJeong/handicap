@@ -66,6 +66,8 @@ export type PrintDoc = {
     ident: string;
     basis?: string;
     basisOther?: string;
+    /** 준비 스텝이 있는 run의 머리 한 줄 안내. */
+    setupNote?: string;
   };
   box: BoxState;
   boxText: { big: string; sub: string };
@@ -191,6 +193,7 @@ export function buildPrintDoc(a: {
       ident: label ? D.identLabeled(shortId, label) : shortId,
       ...(basis ? { basis: basisLine(basis) } : {}),
       ...(basisOther !== null ? { basisOther } : {}),
+      ...(report.setup ? { setupNote: ko.report.setup.summaryLine } : {}),
     },
     box,
     boxText: boxText(box),

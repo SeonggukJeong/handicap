@@ -803,6 +803,30 @@ export const ReportBasisSchema = z
   .strict();
 export type ReportBasis = z.infer<typeof ReportBasisSchema>;
 
+// 준비 스텝 구획. 준비 스텝이 없으면 서버가 키를 생략한다(null 아님).
+export const ReportSetupSchema = z
+  .object({
+    ok: z.number(),
+    failed: z.number(),
+    interrupted: z.number(),
+    steps: z.array(
+      z
+        .object({
+          step_id: z.string(),
+          count: z.number(),
+          errors: z.number(),
+          p50_ms: z.number(),
+          p95_ms: z.number(),
+          max_ms: z.number(),
+          status_counts: z.record(z.string(), z.number()),
+          failure_kinds: z.record(z.string(), z.number()),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type ReportSetup = z.infer<typeof ReportSetupSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -834,6 +858,7 @@ export const ReportSchema = z
     speed_bands: SpeedBandsSchema.optional(),
     // steady run만. 서버 skip_serializing_if → absent → .optional()
     basis: ReportBasisSchema.optional(),
+    setup: ReportSetupSchema.optional(),
   })
   .strict();
 

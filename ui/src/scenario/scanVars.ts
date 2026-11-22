@@ -1,4 +1,11 @@
-import { flattenHttpSteps, type Scenario, type Step, type Condition } from "./model";
+import {
+  allSteps,
+  flattenHttpSteps,
+  setupSteps,
+  type Scenario,
+  type Step,
+  type Condition,
+} from "./model";
 import { splitFlowToken } from "./flowToken";
 import { PURE_FLOW } from "./cast";
 
@@ -25,7 +32,7 @@ function collectEnvFromJson(value: unknown, out: Set<string>): void {
  *  파라미터화 datalist 힌트용. scanFlowVars의 env 대응(같은 http-leaf request 필드 스캔). */
 export function scanEnvVars(scenario: Scenario): Set<string> {
   const out = new Set<string>();
-  for (const step of flattenHttpSteps(scenario.steps)) {
+  for (const step of flattenHttpSteps(allSteps(scenario))) {
     collectEnvFromString(step.request.url, out);
     for (const v of Object.values(step.request.headers)) collectEnvFromString(v, out);
     const body = step.request.body;
@@ -62,7 +69,7 @@ function collectFromJson(value: unknown, out: Set<string>): void {
  */
 export function scanFlowVars(scenario: Scenario): Set<string> {
   const out = new Set<string>();
-  for (const step of flattenHttpSteps(scenario.steps)) {
+  for (const step of flattenHttpSteps(allSteps(scenario))) {
     collectFromString(step.request.url, out);
     for (const v of Object.values(step.request.headers)) collectFromString(v, out);
     const body = step.request.body;
@@ -138,7 +145,7 @@ export function buildVarRefIndex(scenario: Scenario): Map<string, string[]> {
       }
     }
   };
-  walk(scenario.steps);
+  walk(allSteps(scenario));
   return index;
 }
 
@@ -158,7 +165,8 @@ export function countFlowVarUsage(scenario: Scenario): Map<string, number> {
 export function collectProducedVars(scenario: Scenario): Set<string> {
   const out = new Set<string>();
   for (const k of Object.keys(scenario.variables)) out.add(k);
-  for (const step of flattenHttpSteps(scenario.steps)) for (const e of step.extract) out.add(e.var);
+  for (const step of flattenHttpSteps(allSteps(scenario)))
+    for (const e of step.extract) out.add(e.var);
   return out;
 }
 
@@ -216,7 +224,7 @@ export function flatExtractNames(scenario: Scenario): Set<string> {
       // parallel: NOT descended (branch extracts are namespaced, not flat).
     }
   };
-  walk(scenario.steps);
+  walk(allSteps(scenario));
   return out;
 }
 
@@ -438,6 +446,20 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
       }
     }
   };
+  // 준비 스텝은 선언과 자기 구간 안의 추출만 본다 — 본 스텝의 추출은 준비 뒤에 생긴다.
+  const setupBase = new Set(Object.keys(scenario.variables));
+  for (const s of setupSteps(scenario)) for (const e of s.extract) setupBase.add(e.var);
+  for (const s of setupSteps(scenario)) {
+    const refs = new Set<string>();
+    collectFromString(s.request.url, refs);
+    for (const v of Object.values(s.request.headers)) collectFromString(v, refs);
+    const body = s.request.body;
+    if (body?.kind === "raw") collectFromString(body.value, refs);
+    else if (body?.kind === "form")
+      for (const v of Object.values(body.value)) collectFromString(v, refs);
+    else if (body?.kind === "json") collectFromJson(body.value, refs);
+    for (const name of refs) if (!setupBase.has(name)) record(name, s.id, false, null, true);
+  }
   walk(scenario.steps, null);
 
   const out = new Map<string, UndefinedRef>();
@@ -531,7 +553,7 @@ export function jsonCastVarNames(scenario: Scenario): Set<string> {
       for (const x of Object.values(v as Record<string, unknown>)) walk(x);
     }
   };
-  for (const s of flattenHttpSteps(scenario.steps)) {
+  for (const s of flattenHttpSteps(allSteps(scenario))) {
     const b = s.request.body;
     if (b && b.kind === "json") walk(b.value);
   }

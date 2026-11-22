@@ -13,7 +13,7 @@ export function ValidationBanner({ onOpenYaml }: { onOpenYaml?: () => void } = {
   const select = useScenarioEditor((s) => s.select);
 
   const problems = useMemo(
-    () => collectProblems(model?.steps ?? null, yamlError),
+    () => collectProblems(model?.steps ?? null, yamlError, model?.setup?.steps ?? []),
     [model, yamlError],
   );
   if (problems.length === 0) return null;

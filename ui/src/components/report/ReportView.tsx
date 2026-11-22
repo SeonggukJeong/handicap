@@ -5,7 +5,8 @@ import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { flattenHttpSteps, findStepById } from "../../scenario/model";
+import { allSteps, flattenHttpSteps, findStepById } from "../../scenario/model";
+import { SetupSection } from "./SetupSection";
 import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
@@ -83,7 +84,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
     const m = new Map<string, { id: string; name: string; method: string; url: string }>();
     const parsed = parseScenarioDoc(report.scenario_yaml);
     if ("model" in parsed) {
-      for (const s of flattenHttpSteps(parsed.model.steps)) {
+      for (const s of flattenHttpSteps(allSteps(parsed.model))) {
         m.set(s.id, {
           id: s.id,
           name: s.name,
@@ -264,6 +265,9 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
             report.basis,
           )}
         />
+        {report.setup && (
+          <p className="mb-2 text-sm text-slate-500">{ko.report.setup.summaryLine}</p>
+        )}
         {marks ? (
           <p className="text-sm text-slate-500 mb-2">
             {ko.report.basis.chartLegend(
@@ -318,6 +322,14 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           retriedStepIds={retriedStepIds}
           wholeRunBadge={wholeRunBadge}
         />
+        {report.setup && (
+          <SetupSection
+            setup={report.setup}
+            stepMeta={stepMeta}
+            loadModel={rampLoad.loadModel === "open" ? "open" : "vu"}
+            steadyNote={rampLoad.loadModel === "open" && report.basis != null}
+          />
+        )}
         <LoopExitSummary views={loopExitViews} wholeRunBadge={wholeRunBadge} />
         <BranchStatsTable
           breakdown={report.if_breakdown ?? []}
