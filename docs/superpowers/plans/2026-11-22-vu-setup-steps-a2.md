@@ -2,21 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-REVIEW-GATE: APPROVED
-
 **Goal:** QA가 YAML 없이 화면에서 준비 스텝을 만들고(본 스텝 → 「준비 스텝으로 옮기기」) 고치고, test-run·사이징·실행 창이 준비 스텝을 구분해 다루게 한다.
 
-**Architecture:** `ui/`만 고친다. `yamlDoc.ts`의 스텝 찾기(`findStepPath`)가 `setup.steps`도 찾게 해서 기존 편집 Edit를 그대로 재사용하고, 구획 사이 이동만 새 Edit 하나로 더한다. 화면은 모델 헬퍼 `allSteps`/`setupSteps`/`isSetupStep`으로 준비 스텝을 본다. trace의 준비 표지는 서버가 이미 보내는 선택 키를 UI Zod에 더해 읽는다.
+**Architecture:** `ui/`와 엔진 한 곳(Task 10 — 본 스텝이 없는 시나리오의 VU 종료)을 고친다. `yamlDoc.ts`의 스텝 찾기(`findStepPath`)가 `setup.steps`도 찾게 해서 기존 편집 Edit를 그대로 재사용하고, 구획 사이 이동만 새 Edit 하나로 더한다. 화면은 모델 헬퍼 `allSteps`/`setupSteps`/`isSetupStep`으로 준비 스텝을 본다. trace의 준비 표지는 서버가 이미 보내는 선택 키를 UI Zod에 더해 읽는다.
 
 **Tech Stack:** TypeScript · React · Zustand · Zod · `yaml` Document API · vitest/RTL
 
 **목업(시각 기준, 사용자 승인 2026-11-22):** `docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-mockups/a2-screens.html` — 장면 1 아웃라인(「가」 상자 안이 채택), 2 Inspector, 3 test-run, 4 안내 상자, 5 모니터·현황판. **이 파일의 CSS·마크업이 화면의 시각 기준이다**: 바탕·테두리·글자 크기와 굵기·간격·칩 모양을 목업의 값 그대로 Tailwind 클래스로 옮긴다(목업의 `--a*`는 `accent-*`, `--s*`는 `slate-*`, `--am*`는 `amber-*`). 각 task의 「목업」 줄이 가리키는 장면을 열어 보고 구현한다. 목업과 이 plan의 글이 어긋나면 목업이 이긴다(문구만은 plan의 글자가 이긴다).
 
-**Spec:** `docs/superpowers/specs/2026-11-22-vu-setup-steps-design.md` — §7-2(D13·D15·D14), §12. US 블록은 spec 머리(「사용자 스토리 (US)」). A2 UI 자리의 원천: `docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-ui-steps-table.md`.
+**Spec:** `docs/superpowers/specs/2026-11-22-vu-setup-steps-design.md` — §7-2(D13·D15·D14·D16), §12. US 블록은 spec 머리(「사용자 스토리 (US)」). A2 UI 자리의 원천: `docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-ui-steps-table.md`.
 
 ## Global Constraints
 
-- `crates/`·proto·마이그레이션 **0-diff**. `ui/`만.
+- Task 1–9는 `ui/`만, Task 10만 `crates/engine`. 컨트롤러·워커·proto·마이그레이션 **0-diff**.
 - 문구는 전부 `ui/src/i18n/ko.ts` 경유(ADR-0035). **화면 문구에 「로그인」을 쓰지 않는다**(사용자 결정). 아래 각 task의 문구는 글자 그대로 쓴다.
 - 준비 스텝이 없는 시나리오: YAML 출력·화면·요청 페이로드가 지금과 같다(기존 테스트가 그대로 통과해야 한다).
 - 「준비가 있는가」는 `setupSteps(model).length > 0`으로만 판단한다(`setup` 키 유무가 아니다).
@@ -32,7 +30,7 @@ REVIEW-GATE: APPROVED
 ## Review Focus
 
 1. **구획 이동 뒤 YAML을 서버가 읽는가** — `setup:` 키를 새로 만든 문서가 flow 표기(`setup: { steps: [ … ] }`)로 쓰이거나 `steps: []`만 남을 때 서버(serde_yaml)가 받는지. → Task 1 block 표기 테스트 + 라이브(저장 200).
-2. **하나뿐인 본 스텝을 준비로 옮기기** — 화면에서 본 스텝 0개 시나리오를 만들 수 없어야 한다(run이 쉬지 않고 돈다). → Task 1 store 가드 + Task 3 잠긴 버튼. 손으로 쓴 본 스텝 0개 YAML은 아웃라인이 깨지지 않고 그린다 → Task 2.
+2. **하나뿐인 본 스텝을 준비로 옮긴 시나리오**(본 스텝 0개) — 화면이 깨지지 않고(→ Task 1·2), run이 쉬지 않고 돌지 않고 준비만 하고 끝나며(→ Task 10), 실행 창·스케줄 폼이 시작 전에 경고한다(→ Task 7).
 3. **깨진 YAML 버퍼 중 옮기기 버튼** — 눌러도 조용히 사라지지 않고 잠겨 있는지. → Task 3.
 4. **행 모드 test-run에서 준비가 실패** — `rows`가 비고 `setup_steps`만 있는 응답을 화면이 「실행할 스텝이 없습니다」로만 보이지 않는지. → Task 5.
 5. **모니터 미리 실행의 준비 행에서 조건·표시 추가** — A2는 이 길을 열면 안 된다(spec D15). → Task 8.
@@ -101,7 +99,7 @@ steps:
   | `준비 스텝이 둘이면 하나를 지워도 setup이 남는다` | 준비 2개 픽스처에서 하나 삭제 → `model.setup.steps.length === 1` |
   | `본 스텝을 준비로 옮기면 setup 키가 steps 앞에 block 표기로 생긴다` | 준비 없는 2스텝 픽스처에서 `moveStepToSection(첫 스텝, "setup")` → `yamlText.indexOf("setup:") < yamlText.search(/^steps:/m)`, `yamlText`에 `setup: {`·`steps: [{` 없음, `model.setup.steps.map(id)`가 `[첫]`, `model.steps.map(id)`가 `[둘째]` |
   | `준비로 옮기면 준비 구획 끝에 붙는다` | 준비 S1 + 본 스텝 2개(B1·B2) 픽스처에서 `moveStepToSection(B1, "setup")` → `setup.steps` id 순서 `[S1, B1]`, `steps`는 `[B2]` |
-  | `하나뿐인 본 스텝은 준비로 옮기지 않는다` | 픽스처(본 스텝 B1 하나)에서 `moveStepToSection(B1, "setup")` → `getState().model`이 같은 참조(`toBe`). 본 스텝 2개 픽스처에서는 옮겨진다(같은 테스트에서 대조) |
+  | `하나뿐인 본 스텝도 옮겨지고 steps는 빈 목록으로 남는다` | 픽스처(본 스텝 B1 하나)에서 `moveStepToSection(B1, "setup")` → `model.steps`가 `[]`, `model.setup.steps`의 마지막 id가 B1, `parseScenarioDoc(yamlText)`에 `error` 없음, `yamlText`에 `/^steps: \[\]$/m` |
   | `손으로 쓴 flow 표기 setup에 옮겨도 block 표기로 쓰인다` | `setup: { steps: [] }`는 Zod가 받는 모양(빈 목록)이므로 `setup: { steps: [] }` + 본 스텝 2개 픽스처에서 첫 스텝을 옮김 → `yamlText`에 `setup: {` 없음, `setup:` 키가 하나뿐(`match(/^setup:/gm).length === 1`), `model.setup.steps.length === 1` |
   | `준비 스텝을 본 스텝으로 옮기면 steps 끝에 붙고 마지막이면 setup 키가 사라진다` | 픽스처에서 `moveStepToSection(S1, "steps")` → `model.steps.map(id)`가 `[B1, S1]`, `model.setup === undefined`, `yamlText`에 `/^setup:/m` 없음 |
   | `옮겨도 선택과 스텝 내용이 그대로다` | 옮기기 전 `select(B1)`; 옮긴 뒤 `selectedStepId === B1`이고 옮겨진 스텝의 `request`·`extract`가 `toEqual` 원본 |
@@ -130,7 +128,7 @@ steps:
   - `isSetupStep`: `setupSteps(s).some((x) => x.id === stepId)`.
   - `scenarioHasThink`: `flattenHttpSteps(allSteps(sc))`.
   - `setStepsThinkTime`의 허용 집합과 `addStepExtract`의 스텝 찾기: `allSteps(model)` 기준.
-  - `moveStepToSection`: `doc`·`model` 없거나 `yamlError !== null`이면 return. `to === "setup"`은 `model.steps.length > 1`이고 `model.steps.some((s) => s.id === stepId && s.type === "http")`일 때만(하나뿐인 본 스텝은 못 옮긴다), `to === "steps"`는 `isSetupStep(model, stepId)`일 때만. 적용은 `reparentStep`과 같은 방식(복제본에 `applyEdit` → `parseScenarioDoc(serializeDoc(clone))` 성공 시에만 `set`). 선택은 건드리지 않는다.
+  - `moveStepToSection`: `doc`·`model` 없거나 `yamlError !== null`이면 return. `to === "setup"`은 `model.steps.some((s) => s.id === stepId && s.type === "http")`일 때만, `to === "steps"`는 `isSetupStep(model, stepId)`일 때만. 적용은 `reparentStep`과 같은 방식(복제본에 `applyEdit` → `parseScenarioDoc(serializeDoc(clone))` 성공 시에만 `set`). 선택은 건드리지 않는다.
   - store 타입(`ScenarioEditorState`)에 액션 시그니처를 더한다.
 
 - [ ] **Step 5: 통과를 확인한다** — `pnpm test setupEdit` PASS, 이어서 `pnpm test`(전체) PASS — 기존 `yamlDoc`·`store`·`insertSteps` 테스트가 그대로여야 한다.
@@ -198,7 +196,7 @@ steps:
 - Test: `ui/src/components/scenario/__tests__/Inspector.setup.test.tsx` (신규)
 
 **Interfaces:**
-- 목업: 장면 2(세 상태).
+- 목업: 장면 2(두 상태).
 - Consumes: Task 1의 `moveStepToSection`, `isSetupStep`; Task 2의 준비 행(테스트는 store `select`로 직접 고른다).
 - Produces: `SetupBadge`(Task 4·5·8이 쓴다).
 
@@ -208,7 +206,6 @@ steps:
 - `setupStepHint`: `"VU마다 한 번만 실행됩니다."` (앞에 `SetupBadge`가 붙는다)
 - `setupBadge`: `"준비"`
 - `setupDefaultUnused`: `"준비 스텝에서는 쓰이지 않습니다"`
-- `moveToSetupOnlyMain`: `"본 스텝이 하나뿐이면 옮길 수 없습니다"`
 
 - [ ] **Step 1: 실패하는 테스트** — `Inspector.setup.test.tsx` (`beforeEach`에 `localStorage.clear()`와 store reset)
 
@@ -220,14 +217,14 @@ steps:
   | `최상위 본 http 스텝에는 「준비 스텝으로 옮기기」가 있다` | 본 스텝 2개 픽스처에서 `select(B1)` → 버튼 존재; 클릭 → `model.setup.steps` 끝에 B1 |
   | `loop 안의 http 스텝과 컨테이너에는 옮기기 버튼이 없다` | loop 픽스처: 자식 http 선택 → 두 버튼 모두 없음; loop 선택 → 없음 |
   | `깨진 YAML 버퍼 중에는 옮기기 버튼이 잠긴다` | 깨진 버퍼 커밋 뒤 버튼 `toBeDisabled()` |
-  | `본 스텝이 하나뿐이면 「준비 스텝으로 옮기기」가 잠기고 이유가 보인다` | 본 스텝 1개 시나리오 → 버튼 `toBeDisabled()` + `getByText("본 스텝이 하나뿐이면 옮길 수 없습니다")`; 본 스텝 2개면 활성이고 이유 글 없음 |
+  | `본 스텝이 하나뿐이어도 「준비 스텝으로 옮기기」가 눌린다` | 본 스텝 1개 시나리오 → 버튼 활성; 클릭 → `model.steps`가 `[]`, 그 스텝이 `model.setup.steps`에 있고 Inspector는 그 스텝을 계속 보인다 |
   | `준비 스텝의 추출 기본값 칸 옆에 안 쓰인다는 안내가 나온다` | `default`가 선언된 추출을 가진 준비 스텝 → 추출 섹션을 펼치면 `getByText("준비 스텝에서는 쓰이지 않습니다")`; 같은 추출을 가진 본 스텝에서는 없음 |
 
 - [ ] **Step 2: 실패 확인** — `pnpm test Inspector.setup`.
 
 - [ ] **Step 3: 구현**
   - `Inspector()`: `steps` 셀렉터를 `model` 셀렉터 + `useMemo(() => (model ? allSteps(model) : EMPTY_STEPS), [model])`로 바꾼다. `topLevel` 판정은 `model.steps` 기준 그대로.
-  - `HttpStepInspector`: `inSetup = isSetupStep(model, step.id)`, `topLevelMain = model.steps.some((s) => s.id === step.id)`. `inSetup`이면 `MoveButtons`를 그리지 않는다. 머리(`header`) 바로 아래에 한 줄(목업 장면 2의 `.moveline`): `inSetup`이면 `flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent-200 bg-accent-50 px-2 py-1.5` 안에 왼쪽 `<span className="text-xs text-accent-800">`(`SetupBadge` + 안내 글), 오른쪽 「본 스텝으로 옮기기」. `topLevelMain`이면 바탕 없는 `flex justify-end`에 「준비 스텝으로 옮기기」. 둘 다 아니면 줄 자체가 없다. 버튼은 기존 `SmallButton`. `disabled={yamlError !== null}`, 「준비 스텝으로 옮기기」는 `model.steps.length <= 1`일 때도 잠그고 그 아래에 `moveToSetupOnlyMain`을 보인다(`text-xs text-slate-500`).
+  - `HttpStepInspector`: `inSetup = isSetupStep(model, step.id)`, `topLevelMain = model.steps.some((s) => s.id === step.id)`. `inSetup`이면 `MoveButtons`를 그리지 않는다. 머리(`header`) 바로 아래에 한 줄(목업 장면 2의 `.moveline`): `inSetup`이면 `flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent-200 bg-accent-50 px-2 py-1.5` 안에 왼쪽 `<span className="text-xs text-accent-800">`(`SetupBadge` + 안내 글), 오른쪽 「본 스텝으로 옮기기」. `topLevelMain`이면 바탕 없는 `flex justify-end`에 「준비 스텝으로 옮기기」. 둘 다 아니면 줄 자체가 없다. 버튼은 기존 `SmallButton`. `disabled={yamlError !== null}`.
   - `ExtractEditor`에 `inSetup: boolean` prop. 기본값 칸이 보이는 줄에서 `inSetup`이면 칸 옆에 안내 글(`text-xs text-amber-700`).
   - `isInsideParallelBranch(model.steps, …)` 호출은 그대로 둔다(준비 스텝은 못 찾아 `false`).
 
@@ -375,7 +372,7 @@ steps:
 ### Task 7: 실행 창·스케줄 폼 안내 (D14)
 
 **Files:**
-- Create: `ui/src/components/run/setupNotices.ts`, `ui/src/components/run/SetupNotices.tsx`
+- Create: `ui/src/components/run/setupNotices.ts`, `ui/src/components/run/SetupNotices.tsx`, `ui/src/components/run/NoMainStepsWarning.tsx`
 - Modify: `ui/src/components/run/RunDialog.tsx`, `ScheduleForm.tsx`, `DataBindingPanel.tsx`(`per_vu` option 글자를 ko 키로), `ui/src/i18n/ko.ts`
 - Test: `ui/src/components/run/__tests__/setupNotices.test.ts`(신규), `SetupNotices.test.tsx`(신규), `RunDialog.test.tsx`, `ScheduleForm.test.tsx`, `DataBindingPanel.test.tsx`
 
@@ -405,9 +402,12 @@ steps:
 
   // SetupNotices.tsx — rowCounts는 컴포넌트가 useDatasets()로 채운다
   export function SetupNotices(props: Omit<SetupNoticeInput, "rowCounts">): JSX.Element | null;
+
+  // NoMainStepsWarning.tsx — 훅 없음. 본 스텝이 있으면 null
+  export function NoMainStepsWarning(props: { scenario: Scenario | null }): JSX.Element | null;
   ```
 
-- 목업: 장면 4(파란 안내 상자 — 제목 한 줄 + 목록).
+- 목업: 장면 4(노란 경고 상자 + 파란 안내 상자 — 제목 한 줄 + 목록).
 - 판정 규칙(순서 = 반환 순서):
   1. `scenario`가 없거나 준비 스텝이 없으면 `[]`.
   2. `burst`: `loadModel === "closed" && rateMode === "fixed" && rampUpSeconds === 0`.
@@ -418,6 +418,8 @@ steps:
   7. `not_per_vu`: `policy !== "per_vu"`인 바인딩들의 `mappings` 가운데 `var`가 `setupVars`에 있는 이름(바인딩·매핑 순서, 중복 제거)이 하나라도 있으면 하나.
 
 문구(`ko.runDialog.setupNotice`):
+- `noMainSetupOnly`: `"본 스텝이 없습니다. 준비 스텝만 한 번 실행하고 run이 끝납니다."` (spec D16 — 경고 상자)
+- `noMainEmpty`: `"본 스텝이 없습니다. 보낼 요청이 없어 run이 바로 끝납니다."`
 - `title`: `"준비 스텝 안내"`
 - `burst`: `"준비 스텝이 VU 수만큼 한꺼번에 나갑니다. 상승 시간을 두면 나눠서 나갑니다."`
 - `perSlot`: `(n: number) => \`준비 스텝은 슬롯마다 한 번 실행됩니다. 슬롯이 ${n}개면 준비 스텝이 최대 ${n}번 나갑니다.\``
@@ -442,6 +444,9 @@ steps:
   | `DataBindingPanel.test.tsx` · `per_vu 선택지 글자는 그대로다` | 방식 select의 `per_vu` option 글이 `per_vu — VU마다 한 행 (고정)`(리터럴) |
   | `SetupNotices.test.tsx` · `안내가 없으면 아무것도 그리지 않는다` | 컨테이너가 비어 있음 |
   | `RunDialog.test.tsx` · `준비 스텝이 있는 시나리오는 기본 상태에서 burst 안내가 뜨고 상승 시간을 두면 사라진다` | 픽스처 시나리오로 열기 → 안내 글 존재; 상승 시간 입력에 5 → 없음 |
+  | `SetupNotices.test.tsx` · `본 스텝이 없으면 경고 상자가 나온다` | `<NoMainStepsWarning>`에 준비 1·본 0 시나리오 → `getByText("본 스텝이 없습니다. 준비 스텝만 한 번 실행하고 run이 끝납니다.")`; 준비 0·본 0 → `getByText("본 스텝이 없습니다. 보낼 요청이 없어 run이 바로 끝납니다.")`; 본 스텝이 있거나 `scenario: null` → 아무것도 없음 |
+  | `RunDialog.test.tsx` · `본 스텝이 없는 시나리오는 경고가 뜨고 제출은 막히지 않는다` | 준비 1·본 0 시나리오로 열기 → 경고 글 존재, 제출 버튼 활성 |
+  | `ScheduleForm.test.tsx` · `스케줄 폼에도 본 스텝 없음 경고가 뜬다` | 같은 시나리오 → 경고 글 존재 |
   | `RunDialog.test.tsx` · `준비 스텝이 없는 시나리오에는 안내 구역이 없다` | `queryByText("준비 스텝 안내")` 없음 |
   | `ScheduleForm.test.tsx` · `스케줄 폼에도 같은 안내가 뜬다` | 준비 있는 시나리오 선택 + VU 고정·상승 0 → burst 글 존재 |
 
@@ -450,6 +455,7 @@ steps:
 - [ ] **Step 3: 구현**
   - `setupNotices.ts`: 위 규칙.
   - `SetupNotices.tsx`: `useDatasets()`로 `rowCounts`(`id → row_count`)를 만들고 `setupNotices`를 불러, 결과가 비면 `null`, 아니면 `Callout variant="info" role="status" title={ko.runDialog.setupNotice.title}` 안에 `<ul>`로 한 줄씩.
+  - `NoMainStepsWarning`: `scenario.steps.length === 0`이면 `Callout variant="warn" role="status"`로 위 두 문구 가운데 하나(준비 스텝 유무), 아니면 `null`. `RunDialog`·`ScheduleForm`에서 `SetupNotices` 자리 바로 위에 항상 둔다. 기존 테스트 가운데 `getByRole("status")`를 쓰는 것은 `scenario: null`로 그리고, 본 스텝 0개 시나리오(`newEmptyScenario`)를 쓰는 것은 `status`를 묻지 않아 지금은 충돌이 없다 — 전체 `pnpm test RunDialog ScheduleForm`으로 확인한다. 미리 실행(`TestRunSection`)에는 두지 않는다.
   - `RunDialog`·`ScheduleForm`: **`scenario`에 준비 스텝이 있을 때만** `<SetupNotices … />`를 그린다(없으면 마운트하지 않는다 — 준비 없는 시나리오에서 데이터셋 조회가 새로 나가지 않게). 자리: `RunDialog`는 신뢰도 한 줄(`trust` `Callout`) 바로 위 — 간단·상세 모드 게이트 밖. `ScheduleForm`은 같은 성격의 `Callout`(파일의 `Callout variant="warn" role="status"` 자리) 바로 위. `vus`·`rampUp`은 폼의 숫자 상태 그대로, `maxInFlight`는 문자열 상태라 빈 칸·정수 아님이면 `null`로 넘긴다. `rateMode`는 폼 값 그대로(`stair` 포함). `vuPeak`는 폼이 가진 VU 곡선 단계 목표의 최댓값(단계가 없으면 `null`).
 
 - [ ] **Step 4: 통과 확인** — Step 2 명령 + `pnpm test RunDialog ScheduleForm`(기존 케이스 전부 통과 — 호출 수를 세는 기존 테스트가 깨지면 준비 없는 시나리오에서 `SetupNotices`가 마운트된 것이다).
@@ -535,10 +541,55 @@ steps:
 
 ---
 
+### Task 10: 엔진 — 본 스텝이 없으면 준비만 하고 끝낸다 (spec D16)
+
+**Files:**
+- Modify: `crates/engine/src/runner.rs` (`run_vu`, `run_vu_curve`와 곡선 감독 루프, `run_scenario_open_loop`·`OpenSetup`·`run_arrival`)
+- Test: `crates/engine/tests/setup_steps.rs` (기존 `Mode::{Closed, Curve, Open}` 하니스에 케이스 추가)
+
+`tdd-guard`: `crates/engine/src`를 고치기 전에 테스트 파일(`tests/setup_steps.rs`)에 새 테스트가 있어야 한다 — Step 1을 먼저 한다.
+
+**Interfaces** — 바뀌는 동작은 전부 `scenario.steps.is_empty()`일 때만:
+- `run_vu`: VU는 준비 구간이 끝난 뒤(준비 스텝이 없으면 첫 반복 머리에서) 반복 없이 `Ok(())`로 끝난다.
+- `run_vu_curve`: 같은 자리에서 `unique` 소진 가지와 같은 마무리(`clear_slot` 뒤 `return Ok(())`).
+- 곡선 감독 루프(「cancel 또는 deadline까지 tick」 하는 루프): 종료 조건을 하나 더한다 — 본 스텝이 없고, `spawned`가 곡선 목표의 최댓값(모든 단계 `target`의 최대)에 닿았고, 시작한 VU 태스크가 모두 끝났으면(성공·실패 무관) 루프를 나간다. 「모두 끝났는가」는 VU 태스크가 끝날 때 올리는 공유 계수(`AtomicUsize`)를 `spawned`와 비교한다 — 계수는 drop 가드로 올려 태스크가 panic해도 오른다. 루프 뒤의 기존 마무리(VU 태스크 기다림·실패 집계)는 그대로 탄다.
+- open-loop:
+  - `OpenSetup`에 준비를 마친 슬롯 수 `ready: AtomicUsize`를 더하고 `run_arrival`이 준비 성공 때(지금 `slot_state.ready`를 세우는 자리) 올린다.
+  - 스케줄러: 본 스텝이 없으면 도착은 준비 안 된 슬롯을 받았을 때만 태스크를 띄운다. 빈 슬롯이 없으면 `Dropped`를 기록하지 않고, 이미 준비된 슬롯을 받으면 슬롯을 돌려주고 `Launched`를 기록하지 않는다. 준비에 성공한 태스크도 `Launched`·완료를 기록하지 않는다(시작·완료·보내지 않음 모두 0).
+  - 스케줄러 루프 머리(지금 `retired >= max_in_flight`를 보는 자리, 그 검사 **뒤**): 본 스텝이 없고 `ready + retired >= max_in_flight`이면 새 도착을 멈추고 기존 마무리(in-flight 기다림)를 타 `Ok`로 끝낸다. 전부 실패(`retired >= max_in_flight`)는 지금처럼 `AllVusFailed`가 먼저다. 준비 스텝도 없으면(`open_setup`이 `None`) 첫 도착 전에 끝낸다.
+- 바뀌지 않는 것: `execute_steps`와 그 http 가지, trace, 준비 실패·준비 중 종료의 결과, 본 스텝이 있는 시나리오의 모든 동작과 숫자.
+
+- [ ] **Step 1: 실패하는 테스트** — `setup_steps.rs`. 하니스의 `TEMPLATE`은 본 스텝(조회)이 박혀 있으므로 본 스텝 없는 시나리오를 만드는 선택지(새 템플릿 또는 `Yaml` 옵션)를 테스트 쪽에 더한다. 실제 시계로 도는 run이라 실행 시간을 5초로 주고 **걸린 시간**으로 「일찍 끝남」을 본다.
+
+  | 테스트 이름 | 단언 |
+  |---|---|
+  | `setup_only_closed_runs_setup_once_and_ends_early` | 준비 1(발급)·본 0, VU 5·상승 0·실행 시간 5초 → 결과 `Ok`, 발급 수 == 5, 걸린 시간 < 2초 |
+  | `setup_only_curve_ends_after_peak_and_setup` | 같은 시나리오, VU 곡선 「1초에 0→5, 그 뒤 4초 유지」 → 결과 `Ok`, 발급 수 == 5, 걸린 시간 < 3초 |
+  | `setup_only_curve_waits_for_late_peak` | 곡선 「1초에 0→2, 2초 유지, 1초에 2→5, 1초 유지」 → 발급 수 == 5(뒤에 시작한 VU도 준비를 한다), 걸린 시간 ≥ 3초 |
+  | `setup_only_open_loop_ends_after_every_slot_is_ready` | open-loop, 슬롯 4·초당 20·실행 시간 5초, 본 0, 준비 스텝에 think 200ms(하니스의 `Yaml.setup_think` — 준비가 도착 간격 50ms보다 오래 슬롯을 잡아 빈 슬롯 없는 도착이 생기게) → 결과 `Ok`, 발급 수 == 4, 걸린 시간 < 2초, 마지막 flush의 `dropped == 0`이고 본 집계 창에 요청 0건 |
+  | `setup_only_open_loop_all_failed_is_still_error` | 같은 조건에서 계정이 전부 틀림 → 기존 `AllVusFailed` 그대로 |
+  | `setup_only_open_loop_partial_failure_ends_ok` | 기존 `bad_account_in_slot_one()` 데이터(슬롯 하나만 틀린 계정) → 결과 `Ok`, 걸린 시간 < 2초 |
+  | `no_steps_no_setup_ends_immediately` | `setup` 없음·`steps: []`를 세 모드로 각각(곡선은 「1초에 0→3, 4초 유지」), 실행 시간 5초 → 결과 `Ok`, 요청 0건, 걸린 시간 — VU 고정·open-loop < 1초, 곡선 < 3초 |
+  | `setup_only_failed_setup_still_fails_run` | VU 고정, 계정이 전부 틀림·본 0 → 기존 `AllVusFailed` 그대로 |
+  | (기존 테스트 전부) | 그대로 통과 — 본 스텝이 있는 시나리오 불변 |
+
+- [ ] **Step 2: 실패 확인** — `cargo nextest run -p handicap-engine --test setup_steps setup_only no_steps`. 기대: 걸린 시간 상한 단언이 든 테스트들이 FAIL(지금은 실행 시간 끝까지 돈다).
+
+- [ ] **Step 3: 구현** — 위 Interfaces대로. `run_vu`의 새 줄은 준비 구간 블록 **바로 뒤**(준비가 이번 반복에 성공했거나 준비가 없는 경우 모두 지나는 자리): `if scenario.steps.is_empty() { break; }`. 요청 경로에는 손대지 않는다.
+
+- [ ] **Step 4: 통과 확인** — `cargo nextest run -p handicap-engine --test setup_steps` 전체 PASS, 이어서 `cargo nextest run -p handicap-engine`.
+
+- [ ] **Step 5: 되돌려 확인** — 각각 지우고 RED를 본 뒤 원복: `run_vu`의 새 줄 → 첫째 테스트, 곡선 감독 루프의 새 종료 조건 → `setup_only_curve_ends_after_peak_and_setup`, 그 조건의 「최고점에 닿았고」 항 → `setup_only_curve_waits_for_late_peak`, 스케줄러의 새 종료 검사 → open-loop 첫째 테스트, `Dropped` 건너뛰기 → 같은 테스트의 `dropped == 0`.
+
+- [ ] **Step 6: 커밋** — cargo 게이트가 도는 커밋이다(수 분). `git add crates/engine/src/runner.rs crates/engine/tests/setup_steps.rs` → `fix(engine): 본 스텝이 없는 시나리오는 준비만 하고 끝낸다`
+
+---
+
 ## 구현 뒤 — orchestrator가 하는 일
 
 1. **첫 화면 대조(Task 2·3 직후)**: 컨트롤러를 띄워 아웃라인 준비 구획과 Inspector 옮기기 줄을 스크린샷으로 찍어 목업(`docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-mockups/a2-screens.html` 장면 1·2)과 **나란히** 대조한다 — 상자 바탕·테두리·머리 글자 색, 표지 모양, 옮기기 줄. 어긋나면 그 자리에서 고치고 다음 task로 간다. Task 5 뒤에도 장면 3을 같은 방식으로 한 번 대조한다.
 2. **전수 명령 재실행**: `grep -rnE '\.steps\b|"steps"' ui/src --include='*.ts' --include='*.tsx'` — 분류표의 「A2」 줄이 전부 고쳐졌거나 이 plan의 「고치지 않는 것」에 있는지 대조.
+2-1. **워커 성능 비교**(`/perf-ab master`) — Task 10이 `runner.rs`의 반복 머리를 건드린다. 준비 없는 GET 한 스텝 시나리오의 요청당 CPU가 측정 변동 안인지.
 3. **`handicap-reviewer`** 최종 리뷰(와이어 1:1 — trace 선택 키, 준비 없는 시나리오 불변). `finish-slice` §0 보안 grep — trace/body 뷰어(`TestRunPanel`·`PreviewResult`)를 건드리므로 `security-reviewer` 대상(살필 곳: 준비 행에서 조건·표시 추가가 막혔는지, 새로 값이 옮겨지는 sink가 없는지).
 4. **라이브 검증**(`/live-verify`, 워크트리 자체 바이너리):
 
@@ -548,11 +599,12 @@ steps:
    | US4 | 에디터에서 test-run | 준비 행이 앞에 「준비」 표지, 조회 요청 헤더에 토큰, 칩에 준비 구분. 발급을 실패시키면 「준비 스텝이 실패해…」 |
    | US4 | 데이터셋 순차 모드 test-run | 준비 행이 행 목록 위에 한 번 |
    | US5 | YAML 모달에서 `setup:`을 손으로 넣고 닫기 → 아웃라인 / 아웃라인에서 옮기기 → 저장 뒤 `GET /api/scenarios/{id}`의 `yaml` | 양쪽 반영, `setup:`이 `steps:` 앞, 마지막 준비 스텝을 본 스텝으로 옮기면 `setup:` 없음 |
-   | 안내 | 실행 창과 스케줄 폼에서 네 조건을 하나씩 | 조건마다 그 안내만. 간단·상세 모드 둘 다 |
+   | 안내 | 실행 창과 스케줄 폼에서 다섯 조건을 하나씩 | 조건마다 그 안내만. 간단·상세 모드 둘 다 |
+   | 준비만 | (`cargo build -p handicap-worker` 먼저 — 컨트롤러가 그 워커 바이너리를 띄운다) 본 스텝이 하나인 시나리오에서 그 스텝을 준비로 옮겨 저장 → VU 20·60초 run, VU 곡선(5초에 최고점 20)·open-loop(슬롯 20)로 각각 한 번 더 | 실행 창에 노란 경고(제출은 됨), 응답기가 센 준비 요청 = 20, run이 60초 전에 `completed`, 그 뒤 워커 CPU가 쉼(`ps -o time=` 차이 ≈ 0), 리포트가 열리고 본 요청 0건·보내지 않음 0건 + 준비 구획 20건, 유효성 「요청 0건」. 미리 실행에는 경고 없음 |
    | 사이징 | 느린 준비(2초) + 빠른 본 스텝 시나리오로 슬롯·VU 사이징 측정 | 측정 점유 시간이 준비 2초를 포함하지 않음 |
    | 모니터 | 준비 스텝 있는 시나리오로 보드 미리 실행·점검 기록 | 준비 행 이름·표지, 준비 행에 추가 버튼 없음 |
    | 극단값 | 준비 스텝 5개·이름 60자·주소 200자 | 아웃라인 준비 구획·Inspector 옮기기 줄·칩·test-run 머리에서 rect 겹침 0, 잘림은 `truncate`+`title`. 좁은 Inspector(약 294px)에서 버튼 줄이 넘치지 않음 |
    | 진입 화면 | `/scenarios/new`(템플릿 뒤)와 `/scenarios/{id}` 둘 다, 넓게 보기·스텝 편집 모달 | 준비 구획·옮기기·칩이 모두 동작 |
    | 불변 | 준비 없는 기존 시나리오를 열고 저장 | 저장 YAML이 글자 그대로, 화면에 준비 관련 글자 없음 |
 
-5. **기록**(`/finish-slice`): build-log · roadmap 새 §B 블록(번호는 `grep -n '^### B' docs/roadmap.md`의 마지막 + 1) — 다음 슬라이스 「모니터 가림 문구 + 칸의 준비 스텝 선택」(사용자 결정: 문구가 있으면 가리고 없으면 안 가림 · 모든 스텝 · 위험해 보이면 미리 채움 · A2와 그 슬라이스 사이 릴리즈 금지), TUI·API로는 지금도 준비 스텝을 칸 대상으로 걸 수 있다는 것, `RunDetailPage` 준비 진행(슬라이스 B), 승인 문구 ④에서 바꾼 두 군데(방식 이름 = 바인딩 선택지 글자 그대로 · 「`user` 값이 … 한다면」), 묶음 스텝 칸이 준비 스텝을 가리킬 때의 「스텝 없음」(다음 슬라이스) · 현황판 · CLAUDE 상태줄 · 메모리.
+5. **기록**(`/finish-slice`): build-log · roadmap 새 §B 블록(번호는 `grep -n '^### B' docs/roadmap.md`의 마지막 + 1) — 다음 슬라이스 「모니터 가림 문구 + 칸의 준비 스텝 선택」(사용자 결정: 문구가 있으면 가리고 없으면 안 가림 · 모든 스텝 · 위험해 보이면 미리 채움 · A2와 그 슬라이스 사이 릴리즈 금지), TUI·API로는 지금도 준비 스텝을 칸 대상으로 걸 수 있다는 것, `RunDetailPage` 준비 진행(슬라이스 B), **사용자 요청 후보(2026-11-22)**: if·loop 안에 스텝이 하나만 있어도 밖으로 뺄 수 있게 + if·loop를 지울 때 「안의 스텝을 밖으로 빼고 지울지 / 통째로 지울지」 묻기(지금은 하나 남은 스텝을 빼려면 임시 스텝을 더해야 한다 — working-rules §5 「위험은 막되 편하게」), 승인 문구 ④에서 바꾼 두 군데(방식 이름 = 바인딩 선택지 글자 그대로 · 「`user` 값이 … 한다면」), 묶음 스텝 칸이 준비 스텝을 가리킬 때의 「스텝 없음」(다음 슬라이스) · 현황판 · CLAUDE 상태줄 · 메모리.
