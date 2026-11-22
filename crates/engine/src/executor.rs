@@ -526,6 +526,25 @@ pub async fn execute_step_traced_with(
     ctx: &TemplateContext<'_>,
     mode: ExtractMode,
 ) -> HttpTrace {
+    send_rendered_trace(render_traced(client, step, ctx), step, mode).await
+}
+
+/// trace 요청의 렌더 절반 — url·헤더 값·본문(JSON 문자열 leaf·캐스트 leaf·form 값·raw)을
+/// `render_collecting`으로 렌더해 보낼 요청과 화면용 사본, 미바인딩 이름을 만든다.
+/// 아직 아무것도 보내지 않는다. 보내는 절반은 [`send_rendered_trace`].
+pub(crate) struct RenderedTrace {
+    pub(crate) request: TracedRequest,
+    /// 요청 전체에서 모은 미바인딩 이름(첫 등장 순, 중복 없음).
+    pub(crate) unbound_vars: Vec<String>,
+    builder: reqwest::RequestBuilder,
+    build_error: Option<String>,
+}
+
+pub(crate) fn render_traced(
+    client: &VuClient,
+    step: &HttpStep,
+    ctx: &TemplateContext<'_>,
+) -> RenderedTrace {
     let mut unbound: Vec<String> = Vec::new();
     let url = render_collecting(&step.request.url, ctx, &mut unbound);
 
@@ -598,7 +617,26 @@ pub async fn execute_step_traced_with(
         headers: header_display,
         body: body_display,
     };
+    RenderedTrace {
+        request,
+        unbound_vars: unbound,
+        builder: req,
+        build_error,
+    }
+}
 
+/// [`render_traced`]가 지은 요청을 보내고 응답·추출을 담는다.
+pub(crate) async fn send_rendered_trace(
+    rendered: RenderedTrace,
+    step: &HttpStep,
+    mode: ExtractMode,
+) -> HttpTrace {
+    let RenderedTrace {
+        request,
+        unbound_vars: unbound,
+        builder: req,
+        build_error,
+    } = rendered;
     let started = std::time::Instant::now();
     let outcome = req.send().await;
     let latency_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;

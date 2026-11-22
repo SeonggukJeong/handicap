@@ -1707,6 +1707,39 @@ mod tests {
         assert!(!names.contains("plainvar"), "{names:?}");
     }
 
+    /// setup { login(L1) } → me(L2). 준비 행이 401로 실패하고 본 행은 없다.
+    fn setup_401() -> (Scenario, ScenarioTrace) {
+        let mut y = String::from("version: 1\nname: s\nsetup:\n  steps:\n");
+        y += &http_yaml(L1, "login", 4);
+        y += "steps:\n";
+        y += &http_yaml(L2, "me", 2);
+        let sc = Scenario::from_yaml(&y).unwrap();
+        let mut row = st(L1, Some(resp(401, 9)), Some("status 401 != 200"));
+        row.section = Some(handicap_engine::Section::Setup);
+        let mut t = tr(vec![row]);
+        t.setup_failed = true;
+        (sc, t)
+    }
+
+    #[test]
+    fn setup_failure_is_upstream_cause_named_by_step() {
+        let (sc, t) = setup_401();
+        let r = run(&sc, &panels(&[L2]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[0].detail.as_deref(), Some("login · HTTP 401"));
+    }
+
+    #[test]
+    fn setup_step_panel_gets_own_verdict() {
+        let (sc, t) = setup_401();
+        let r = run(&sc, &panels(&[L1, L2]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("HTTP 401"));
+        assert_eq!(r[0].detail, None);
+        assert_up(&r[1], "login");
+    }
+
     #[test]
     fn non_auth_header_extract_value_shown() {
         let sc = extract_scn("{ from: header, var: isRaceDay, name: X-Race-Day }");

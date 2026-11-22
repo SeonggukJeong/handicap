@@ -4,47 +4,42 @@
 //! 체인 각 링크의 개별 `to_string()`만 사용한다. 최상위 `reqwest::Error`의
 //! `Display`/`Debug`는 URL(크레덴셜 포함 가능)을 렌더하므로 절대 사용 금지.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ErrorKind {
-    ConnectRefused,
-    ConnectionReset,
-    ConnectTimeout,
-    Timeout,
-    Dns,
-    Tls,
-    LocalPortExhaustion,
-    Other,
-    /// 비워진 값이 든 주소라 보내지 않음. `classify_send_error`는 이 값을 만들지 않는다.
-    BlankVar,
+/// 열거형·`ALL`·`as_str`를 한 목록에서 만든다 — 변형을 더하면 세 곳이 함께 바뀐다.
+macro_rules! error_kinds {
+    (@unit $variant:ident) => {
+        ()
+    };
+    ($( $(#[$meta:meta])* $variant:ident => $wire:literal, )+) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum ErrorKind {
+            $( $(#[$meta])* $variant, )+
+        }
+
+        impl ErrorKind {
+            /// 모든 변형(선언 순).
+            pub const ALL: [ErrorKind; <[()]>::len(&[$( error_kinds!(@unit $variant) ),+])] =
+                [$( ErrorKind::$variant ),+];
+
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $( ErrorKind::$variant => $wire, )+
+                }
+            }
+        }
+    };
 }
 
-impl ErrorKind {
-    /// 모든 변형. 변형을 더하면 `tests::ordinal`의 exhaustive match가 컴파일되지 않는다.
-    pub const ALL: [ErrorKind; 9] = [
-        ErrorKind::ConnectRefused,
-        ErrorKind::ConnectionReset,
-        ErrorKind::ConnectTimeout,
-        ErrorKind::Timeout,
-        ErrorKind::Dns,
-        ErrorKind::Tls,
-        ErrorKind::LocalPortExhaustion,
-        ErrorKind::Other,
-        ErrorKind::BlankVar,
-    ];
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ErrorKind::ConnectRefused => "connect_refused",
-            ErrorKind::ConnectionReset => "connection_reset",
-            ErrorKind::ConnectTimeout => "connect_timeout",
-            ErrorKind::Timeout => "timeout",
-            ErrorKind::Dns => "dns",
-            ErrorKind::Tls => "tls",
-            ErrorKind::LocalPortExhaustion => "local_port_exhaustion",
-            ErrorKind::Other => "other",
-            ErrorKind::BlankVar => "blank_var",
-        }
-    }
+error_kinds! {
+    ConnectRefused => "connect_refused",
+    ConnectionReset => "connection_reset",
+    ConnectTimeout => "connect_timeout",
+    Timeout => "timeout",
+    Dns => "dns",
+    Tls => "tls",
+    LocalPortExhaustion => "local_port_exhaustion",
+    Other => "other",
+    /// 비워진 값이 든 주소라 보내지 않음. `classify_send_error`는 이 값을 만들지 않는다.
+    BlankVar => "blank_var",
 }
 
 /// 규칙 1: 선별적 io-kind 스캔 — kind가 매핑 4종인 **첫** io::Error만 채택,
@@ -126,34 +121,6 @@ pub fn classify_send_error(e: &reqwest::Error) -> ErrorKind {
 mod tests {
     use super::*;
     use std::fmt;
-
-    /// 변형마다 서로 다른 번호 — 변형을 더하면 이 match가 컴파일되지 않아 `ALL` 갱신을 강제한다.
-    fn ordinal(k: ErrorKind) -> usize {
-        match k {
-            ErrorKind::ConnectRefused => 0,
-            ErrorKind::ConnectionReset => 1,
-            ErrorKind::ConnectTimeout => 2,
-            ErrorKind::Timeout => 3,
-            ErrorKind::Dns => 4,
-            ErrorKind::Tls => 5,
-            ErrorKind::LocalPortExhaustion => 6,
-            ErrorKind::Other => 7,
-            ErrorKind::BlankVar => 8,
-        }
-    }
-
-    #[test]
-    fn all_lists_every_variant_once() {
-        let mut ords: Vec<usize> = ErrorKind::ALL.iter().map(|k| ordinal(*k)).collect();
-        ords.sort_unstable();
-        assert_eq!(ords, (0..ErrorKind::ALL.len()).collect::<Vec<_>>());
-        assert_eq!(ErrorKind::ALL.len(), 9);
-    }
-
-    #[test]
-    fn blank_var_wire_name() {
-        assert_eq!(ErrorKind::BlankVar.as_str(), "blank_var");
-    }
 
     /// 합성 체인 노드: 임의 메시지 + 임의 source. 필드는 `Send + Sync` 바운드까지
     /// 갖는다 — `io::Error::new`(아래 `io_node`/falls-through 테스트)의
@@ -245,20 +212,23 @@ mod tests {
     }
 
     #[test]
-    fn as_str_is_the_wire_contract() {
-        // 8종 전부 — 와이어 계약 스냅샷 (변경 = 계약 위반)
-        let all = [
-            (ErrorKind::ConnectRefused, "connect_refused"),
-            (ErrorKind::ConnectionReset, "connection_reset"),
-            (ErrorKind::ConnectTimeout, "connect_timeout"),
-            (ErrorKind::Timeout, "timeout"),
-            (ErrorKind::Dns, "dns"),
-            (ErrorKind::Tls, "tls"),
-            (ErrorKind::LocalPortExhaustion, "local_port_exhaustion"),
-            (ErrorKind::Other, "other"),
-        ];
-        for (k, s) in all {
-            assert_eq!(k.as_str(), s);
-        }
+    fn all_and_wire_strings_are_pinned() {
+        // 와이어 계약 스냅샷 — `ALL`의 순서와 각 변형의 글자 (변경 = 계약 위반).
+        let pairs: Vec<(ErrorKind, &str)> =
+            ErrorKind::ALL.iter().map(|k| (*k, k.as_str())).collect();
+        assert_eq!(
+            pairs,
+            vec![
+                (ErrorKind::ConnectRefused, "connect_refused"),
+                (ErrorKind::ConnectionReset, "connection_reset"),
+                (ErrorKind::ConnectTimeout, "connect_timeout"),
+                (ErrorKind::Timeout, "timeout"),
+                (ErrorKind::Dns, "dns"),
+                (ErrorKind::Tls, "tls"),
+                (ErrorKind::LocalPortExhaustion, "local_port_exhaustion"),
+                (ErrorKind::Other, "other"),
+                (ErrorKind::BlankVar, "blank_var"),
+            ]
+        );
     }
 }

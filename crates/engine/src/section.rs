@@ -268,7 +268,8 @@ fn classify_engine_error(e: &EngineError) -> Option<(&'static str, Option<String
 /// `vars`는 실행 중 추출을 받아 뒤 스텝이 읽을 수 있게 갱신된다(호출자가 사본을 넘긴다).
 /// 요청 통계와 결과 수 ok/failed, deadline에 따른 interrupted는 이 함수가 `stats`에 기록한다.
 /// 취소(`Aborted`)는 기록하지 않는다 — run이 끝나는 취소인지 호출자만 안다.
-/// `Err`는 준비 실패로 분류하지 않는 엔진 오류다.
+/// `Err`는 준비 실패로 분류하지 않는 엔진 오류다 — 호출자가 그 VU(슬롯)를 끝내므로 결과 수
+/// failed에도 센다.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_section(
     section: Section,
@@ -288,6 +289,7 @@ pub(crate) async fn run_section(
     let mut extracted_all = BTreeMap::new();
     for step in steps {
         let Step::Http(http) = step else {
+            lock(stats).record_failed(section);
             return Err(<serde_yaml::Error as serde::de::Error>::custom(format!(
                 "section steps must be http (step {})",
                 step.id()
@@ -317,17 +319,14 @@ pub(crate) async fn run_section(
         let failure: (&'static str, Option<String>) = match result {
             Err(e) => match classify_engine_error(&e) {
                 Some(f) => f,
-                None => return Err(e),
+                None => {
+                    lock(stats).record_failed(section);
+                    return Err(e);
+                }
             },
             Ok(outcome) => {
-                lock(stats).record_request(
-                    section,
-                    &outcome.step_id,
-                    outcome.status,
-                    outcome.latency,
-                    outcome.error.is_some(),
-                );
-                if outcome.error.is_some() {
+                // 실패 판정을 먼저 — 빈 값 추출도 이 요청의 오류로 센다(trace 준비 행과 같은 판정).
+                let failure = if outcome.error.is_some() {
                     let kind = match (outcome.error_kind, outcome.error_class) {
                         (Some(k), _) => k.as_str(),
                         (None, Some(ErrorClass::ReadBody)) => KIND_READ_BODY,
@@ -335,9 +334,21 @@ pub(crate) async fn run_section(
                         (None, Some(ErrorClass::Extract)) => KIND_EXTRACT,
                         (None, Some(ErrorClass::Send) | None) => ErrorKind::Other.as_str(),
                     };
-                    (kind, None)
+                    Some((kind, None))
                 } else if outcome.extracted.values().any(String::is_empty) {
-                    (KIND_EXTRACT, None)
+                    Some((KIND_EXTRACT, None))
+                } else {
+                    None
+                };
+                lock(stats).record_request(
+                    section,
+                    &outcome.step_id,
+                    outcome.status,
+                    outcome.latency,
+                    failure.is_some(),
+                );
+                if let Some(f) = failure {
+                    f
                 } else {
                     if let Some(rg) = req.as_mut() {
                         rg.mark_written(outcome.extracted.keys());
@@ -615,7 +626,10 @@ mod tests {
         assert!(res.is_err());
         let (st, outcomes) = lock(&stats).drain();
         assert!(st.is_empty());
-        assert!(outcomes.is_empty());
+        // 호출자가 이 VU를 끝내므로 failed에 센다.
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].failed, 1);
+        assert_eq!(outcomes[0].ok, 0);
     }
 
     #[test]
@@ -687,6 +701,10 @@ mod tests {
             let (_, kind, _) = failed_parts(&ran.run);
             assert_eq!(kind, "extract", "body {body}");
             assert!(ran.vars.is_empty());
+            let (st, _) = lock(&ran.stats).drain();
+            assert_eq!(st.len(), 1, "body {body}");
+            assert_eq!(st[0].count, 1, "body {body}");
+            assert_eq!(st[0].error_count, 1, "body {body}");
         }
     }
 

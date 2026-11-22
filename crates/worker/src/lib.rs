@@ -941,6 +941,8 @@ fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<M
     // Keep `error_kind_stats.is_empty()` too (E1): an error_kind-only flush with
     // all other vecs empty must not be silently skipped (the same C1 footgun).
     // loop_exit_stats도 같은 이유. open_loop_seconds도 같은 이유(초 계수만 든 flush를 버리지 않음).
+    // section_step_stats·section_outcomes: 준비 통계만 든 flush도 보낸다 — 준비가 첫 반복보다
+    // 길면 그것이 첫 배치이고, 컨트롤러의 시작 감시는 첫 배치를 기다린다(spec §4 D7).
     if windows.is_empty()
         && loop_stats.is_empty()
         && branch_stats.is_empty()
@@ -1148,9 +1150,74 @@ mod tests {
         assert_eq!(b.section_outcomes[0].last_done_ms, 1_234);
     }
 
-    /// 준비 없는 run의 배치 바이트는 proto 변경 전(필드 14·15 추가 전)에 캡처한 값과 같다.
+    /// 최상위 protobuf 필드 번호를 차례로 읽는다(varint 태그 → wire type별로 값을 건너뛴다).
+    fn top_level_field_numbers(mut buf: &[u8]) -> Vec<u32> {
+        fn varint(buf: &mut &[u8]) -> u64 {
+            let mut v = 0u64;
+            let mut shift = 0;
+            loop {
+                let b = buf[0];
+                *buf = &buf[1..];
+                v |= u64::from(b & 0x7f) << shift;
+                if b & 0x80 == 0 {
+                    return v;
+                }
+                shift += 7;
+            }
+        }
+        let mut out = Vec::new();
+        while !buf.is_empty() {
+            let tag = varint(&mut buf);
+            out.push((tag >> 3) as u32);
+            match tag & 7 {
+                0 => {
+                    varint(&mut buf);
+                }
+                1 => buf = &buf[8..],
+                2 => {
+                    let len = varint(&mut buf) as usize;
+                    buf = &buf[len..];
+                }
+                5 => buf = &buf[4..],
+                w => panic!("unexpected wire type {w}"),
+            }
+        }
+        out
+    }
+
+    /// 준비 통계 없는 flush를 실제 변환 경로로 인코딩하면 최상위에 필드 14·15가 없다.
     #[test]
-    fn no_section_batch_bytes_unchanged() {
+    fn flush_without_sections_encodes_no_section_fields() {
+        use prost::Message;
+        let mut histogram = hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3)
+            .expect("valid bounds");
+        histogram.record(1_000).unwrap();
+        let mut f = empty_flush();
+        f.windows = vec![handicap_engine::StepWindow {
+            step_id: "_all".into(),
+            ts_second: 5,
+            count: 3,
+            error_count: 1,
+            status_counts: [(200u16, 2u64)].into_iter().collect(),
+            histogram,
+        }];
+        f.dropped = 1;
+        let bytes = flush_to_batch(f, "r", "w").unwrap().encode_to_vec();
+        let fields = top_level_field_numbers(&bytes);
+        assert!(
+            fields.contains(&3),
+            "windows 필드가 있어야 한다: {fields:?}"
+        );
+        assert!(
+            !fields.contains(&14) && !fields.contains(&15),
+            "준비 필드가 나가면 안 된다: {fields:?}"
+        );
+    }
+
+    /// 필드 번호 재배정 가드: 준비 없는 손 배치의 바이트는 proto 변경 전(필드 14·15 추가 전)에
+    /// 캡처한 값과 같다.
+    #[test]
+    fn hand_built_batch_bytes_pin_field_numbers() {
         use prost::Message;
         let b = MetricBatch {
             run_id: "r".into(),

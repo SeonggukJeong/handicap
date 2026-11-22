@@ -1299,6 +1299,105 @@ async fn closed_loop_steady_window_start_waits_for_setup_done() {
     assert_eq!(w.start_ms, T0 + 25_000);
 }
 
+async fn seed_outcome_rows(
+    db: &handicap_controller::store::Db,
+    id: &str,
+    rows: &[(&str, &str, i64)],
+) {
+    use handicap_controller::store::section::{SectionOutcomeRow, insert_section_outcome_batch};
+    for (worker, section, last_done_ms) in rows {
+        insert_section_outcome_batch(
+            db,
+            &[SectionOutcomeRow {
+                run_id: id.to_string(),
+                worker_id: (*worker).into(),
+                section: (*section).into(),
+                ok: 1,
+                failed: 0,
+                interrupted: 0,
+                last_done_ms: *last_done_ms,
+            }],
+        )
+        .await
+        .unwrap();
+    }
+}
+
+/// 워커별 최대 → 올림 초. 뒤에 넣은 더 이른 값·0 행은 시작을 당기지 않는다.
+#[tokio::test]
+async fn steady_window_start_uses_per_worker_max_rounded_up() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = SteadySeed::closed();
+    seed.yaml = SETUP_SCENARIO_YAML;
+    let id = seed_steady(&db, seed).await;
+    seed_outcome_rows(
+        &db,
+        &id,
+        &[
+            ("w0", "setup", T0 + 25_400),
+            ("w0", "setup", T0 + 18_000),
+            ("w0", "setup", 0),
+        ],
+    )
+    .await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let w = first.basis.unwrap().window.unwrap();
+    assert_eq!(w.start_ms, T0 + 26_000);
+}
+
+/// 준비가 아닌 구간 글자의 행은 유지 구간 시작을 밀지 않는다.
+#[tokio::test]
+async fn steady_window_start_ignores_other_section_rows() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = SteadySeed::closed();
+    seed.yaml = SETUP_SCENARIO_YAML;
+    let id = seed_steady(&db, seed).await;
+    seed_outcome_rows(
+        &db,
+        &id,
+        &[("w0", "setup", T0 + 1_000), ("w0", "teardown", T0 + 25_000)],
+    )
+    .await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let w = first.basis.unwrap().window.unwrap();
+    assert_eq!(w.start_ms, T0 + 15_000);
+}
+
+/// VU 곡선 run은 유지 구간과 함께 만들 수 없다(`normalize_steady`가 거부). 저장된 행이 둘을
+/// 함께 가져도 준비 완료 시각은 시작을 밀지 않는다.
+#[tokio::test]
+async fn vu_curve_steady_window_start_ignores_setup_done() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let mut curve: Profile = serde_json::from_value(serde_json::json!({
+        "vus": 0,
+        "ramp_up_seconds": 0,
+        "duration_seconds": 0,
+        "vu_stages": [{"target": 2, "duration_seconds": 40}],
+        "steady": {"ramp_seconds": 10, "hold_seconds": 30, "discard_seconds": 5}
+    }))
+    .unwrap();
+    assert!(handicap_controller::steady::normalize_steady(&mut curve).is_err());
+
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = SteadySeed::closed();
+    seed.yaml = SETUP_SCENARIO_YAML;
+    let id = seed_steady(&db, seed).await;
+    sqlx::query(
+        "UPDATE runs SET profile_json = json_set(profile_json, '$.vu_stages', \
+         json('[{\"target\":2,\"duration_seconds\":40}]')) WHERE id = ?",
+    )
+    .bind(&id)
+    .execute(&db)
+    .await
+    .unwrap();
+    seed_outcome_rows(&db, &id, &[("w0", "setup", T0 + 25_400)]).await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let w = first.basis.unwrap().window.unwrap();
+    assert_eq!(w.start_ms, T0 + 15_000);
+}
+
 #[tokio::test]
 async fn open_loop_steady_window_start_ignores_setup_done() {
     use handicap_controller::api::runs::build_reports_for_run;

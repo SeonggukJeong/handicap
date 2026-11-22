@@ -1263,7 +1263,11 @@ pub async fn build_reports_for_run(
     // 준비 완료 시각은 VU 고정 부하에서만 유지 구간 시작을 민다(open-loop·VU 곡선은 그대로).
     let mut setup_done: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
     if !row.profile.is_open_loop() && !row.profile.is_vu_curve() {
-        for o in section_outcomes.iter().filter(|o| o.last_done_ms > 0) {
+        let setup = handicap_engine::Section::Setup.as_str();
+        for o in section_outcomes
+            .iter()
+            .filter(|o| o.section == setup && o.last_done_ms > 0)
+        {
             let e = setup_done.entry(o.worker_id.as_str()).or_insert(0);
             *e = (*e).max(o.last_done_ms);
         }

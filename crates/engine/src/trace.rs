@@ -197,7 +197,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::blank_guard::{self, BLOCKED_ERROR, BlankTable};
-use crate::executor::{ExtractMode, VuClient, execute_step_traced_with, method_parts};
+use crate::executor::{
+    ExtractMode, VuClient, execute_step_traced_with, method_parts, render_traced,
+    send_rendered_trace,
+};
 use crate::extract::fill_missing_extracts;
 use crate::pacing::ThinkTime;
 use crate::reqgen::{ReqGen, RequestGenPlan};
@@ -620,15 +623,31 @@ async fn trace_section(
             iter_id: state.iter_id,
             loop_index: None,
         };
-        let mut t =
-            execute_step_traced_with(client, http, &ctx, ExtractMode::StrictNoDefaults).await;
+        // 미바인딩 이름이 하나라도 있으면 보내지 않는다(부하 경로의 엄격 렌더와 같은 결과).
+        let rendered = render_traced(client, http, &ctx);
+        if !rendered.unbound_vars.is_empty() {
+            state.steps.push(StepTrace {
+                step_id: http.id.clone(),
+                kind: StepKind::Http,
+                loop_index: None,
+                branch: None,
+                request: Some(rendered.request),
+                response: None,
+                extracted: BTreeMap::new(),
+                unbound_vars: rendered.unbound_vars,
+                error: Some("setup: unbound variable".to_string()),
+                branch_eval: Vec::new(),
+                timed_out: false,
+                blocked: None,
+                defaulted: Vec::new(),
+                section: Some(section),
+            });
+            return TraceSectionRun::Failed;
+        }
+        let mut t = send_rendered_trace(rendered, http, ExtractMode::StrictNoDefaults).await;
         state.requests += 1;
-        if t.error.is_none() {
-            if !t.unbound_vars.is_empty() {
-                t.error = Some("setup: unbound variable".to_string());
-            } else if t.extracted.values().any(String::is_empty) {
-                t.error = Some("setup: empty extract".to_string());
-            }
+        if t.error.is_none() && t.extracted.values().any(String::is_empty) {
+            t.error = Some("setup: empty extract".to_string());
         }
         let failed = t.error.is_some();
         let extracted = t.extracted;
