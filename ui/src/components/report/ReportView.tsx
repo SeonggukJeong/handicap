@@ -5,7 +5,7 @@ import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { allSteps, flattenHttpSteps, findStepById } from "../../scenario/model";
+import { allSteps, flattenHttpSteps, findStepById, setupSteps } from "../../scenario/model";
 import { SetupSection } from "./SetupSection";
 import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
@@ -138,6 +138,13 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
       : false; // 파싱 실패 = 꼬리 생략(fail-soft, spec §10)
   }, [report.scenario_yaml]);
 
+  const setupOnly = useMemo(() => {
+    const parsed = parseScenarioDoc(report.scenario_yaml);
+    return "model" in parsed
+      ? parsed.model.steps.length === 0 && setupSteps(parsed.model).length > 0
+      : false;
+  }, [report.scenario_yaml]);
+
   const [dlErr, setDlErr] = useState<string | null>(null);
 
   return (
@@ -151,6 +158,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           profile={profile}
           verdict={report.verdict}
           validity={report.validity}
+          setupOnly={setupOnly}
         />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>

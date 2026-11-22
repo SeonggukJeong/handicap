@@ -1028,6 +1028,42 @@ describe("MonitorEditPage 준비 스텝", () => {
     await expandAll();
     expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
   });
+
+  it("준비 스텝을 가리키는 조건·표시 항목 줄에 「준비」 표지가 붙고 본 스텝 줄엔 없다", async () => {
+    withSetupScenario();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            ...board().config,
+            panels: [
+              panel({
+                conditions: [{ ...COND_B, step_id: SETUP_ID }, COND_B],
+                display_items: [
+                  { step_id: SETUP_ID, source: "status", path: "" },
+                  { step_id: STEP_B, source: "status", path: "" },
+                ],
+              }),
+            ],
+          },
+        }),
+      );
+    renderAt("/monitors/B1");
+    await expandAll();
+    const setupCond = (await screen.findByText(/상태코드 = 200 · 준비 요청$/)).closest("li")!;
+    expect(within(setupCond).getByText("준비")).toBeInTheDocument();
+    const mainCond = screen.getByText(/상태코드 = 200 · 조회 호출$/).closest("li")!;
+    expect(within(mainCond).queryByText("준비")).not.toBeInTheDocument();
+    const dispRows = screen
+      .getAllByText(/ · (준비 요청|조회 호출)$/)
+      .map((el) => el.closest("li")!)
+      .filter((li) => !li.textContent!.includes("상태코드 ="));
+    expect(dispRows).toHaveLength(2);
+    const setupDisp = dispRows.find((li) => li.textContent!.includes("준비 요청"))!;
+    const mainDisp = dispRows.find((li) => li.textContent!.includes("조회 호출"))!;
+    expect(within(setupDisp).getByText("준비")).toBeInTheDocument();
+    expect(within(mainDisp).queryByText("준비")).not.toBeInTheDocument();
+  });
 });
 
 const PREVIEW_URL = "/api/monitor-boards/preview-check";

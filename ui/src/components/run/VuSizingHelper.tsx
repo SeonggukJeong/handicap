@@ -70,6 +70,7 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
   const iteration = trace ? measuredIteration(trace) : null;
   const measured = iteration ? { reqPerIter: iteration.requests, iterMs: iteration.holdMs } : null;
   const truncated = trace?.truncated ?? false;
+  const setupFailed = trace?.setup_failed ?? false;
 
   const staticReqPerIter = scenario ? flattenHttpSteps(scenario.steps).length : 0;
   const estMsNum = Number(estMs);
@@ -146,6 +147,11 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
               {ko.sizing.truncated}
             </p>
           )}
+          {setupFailed && (
+            <p role="alert" className="text-xs text-red-600 mt-1">
+              {ko.sizing.setupFailed}
+            </p>
+          )}
           {testRun.isError && (
             <p role="alert" className="text-xs text-red-600 mt-1">
               {ko.sizing.measureError}
@@ -174,7 +180,8 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
         </div>
       ) : (
         targetRps.trim() !== "" &&
-        !truncated && <p className="text-xs text-slate-500">{ko.sizing.cannotCompute}</p>
+        !truncated &&
+        !setupFailed && <p className="text-xs text-slate-500">{ko.sizing.cannotCompute}</p>
       )}
       {result && result.recommendedVus > VU_SOFT_WARN_THRESHOLD && (
         <p className="text-xs text-amber-700 mt-1">{ko.sizing.overCapacity}</p>

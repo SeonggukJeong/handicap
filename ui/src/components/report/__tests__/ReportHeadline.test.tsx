@@ -116,6 +116,19 @@ describe("ReportHeadline", () => {
     expect(screen.getByText(ko.report.headlineNoRequests)).toBeInTheDocument();
   });
 
+  it("준비 스텝만 있는 시나리오의 0건 run은 준비만 실행했다고 말한다", () => {
+    render(
+      <ReportHeadline
+        summary={{ ...SUMMARY, count: 0, errors: 0 }}
+        profile={CLOSED}
+        verdict={null}
+        setupOnly
+      />,
+    );
+    expect(screen.getByText("본 스텝이 없어서 준비 스텝만 실행했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(ko.report.headlineNoRequests)).not.toBeInTheDocument();
+  });
+
   it("closed+curve(vu_stages): 단계별 VU 곡선 문구 + VU 수 문구 없음 (Task 8)", () => {
     render(
       <ReportHeadline

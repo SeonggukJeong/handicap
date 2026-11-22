@@ -10,10 +10,12 @@ type Props = {
   verdict: Verdict | null | undefined;
   /** A11: when level is limited/suspect, SLO pass must not use emerald (H4). */
   validity?: Validity | null;
+  /** 시나리오에 본 스텝이 없고 준비 스텝만 있다(spec D16) — 요청 0건이 정상 완료다. */
+  setupOnly?: boolean;
 };
 
 /** §7.1 쉬운 요약 헤더 — 리포트 최상단 한 문장 + verdict 콜아웃(클라 파생, 백엔드 무변경). */
-export function ReportHeadline({ summary, profile, verdict, validity }: Props) {
+export function ReportHeadline({ summary, profile, verdict, validity, setupOnly = false }: Props) {
   const common = {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),
@@ -25,7 +27,9 @@ export function ReportHeadline({ summary, profile, verdict, validity }: Props) {
   const fixed = fixedTarget(profile);
   const sentence =
     summary.count === 0
-      ? ko.report.headlineNoRequests
+      ? setupOnly
+        ? ko.report.headlineSetupOnly
+        : ko.report.headlineNoRequests
       : fixed != null
         ? ko.report.headlineOpenFixed({ ...common, targetRps: fixed })
         : isCurve

@@ -567,6 +567,7 @@ export function applyEdit(doc: Document, edit: Edit): void {
       // variant 자체는 total하게) — splice-out으로 밀린 인덱스 보정.
       const idx = targetSeq === parent && edit.index > fromIdx ? edit.index - 1 : edit.index;
       targetSeq.items.splice(Math.min(idx, targetSeq.items.length), 0, node);
+      if (path[0] === "setup") dropEmptySetup(doc);
       return;
     }
     case "setStepField": {

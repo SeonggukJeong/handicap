@@ -92,6 +92,7 @@ export function SlotSizingHelper({
   // (÷R 없음 — apply_think_time:true로 발사해 think time까지 포함된 전체 반복 시간).
   const trace = testRun.data;
   const truncated = trace?.truncated ?? false;
+  const setupFailed = trace?.setup_failed ?? false;
   const iteration = trace ? measuredIteration(trace) : null;
   const measuredR = iteration ? iteration.requests : 0;
   const measuredHold = iteration && iteration.holdMs > 0 ? iteration.holdMs : null;
@@ -156,6 +157,11 @@ export function SlotSizingHelper({
               {ko.slotSizing.truncated}
             </p>
           )}
+          {setupFailed && (
+            <p role="alert" className="text-xs text-red-600 mt-1">
+              {ko.slotSizing.setupFailed}
+            </p>
+          )}
           {testRun.isError && (
             <p role="alert" className="text-xs text-red-600 mt-1">
               {ko.slotSizing.measureError}
@@ -199,8 +205,9 @@ export function SlotSizingHelper({
           )}
         </>
       ) : holdMs == null ? (
-        // hold 출처 없음 — 단, truncated일 땐 위에서 자체 안내가 떠 중복 표시 방지.
-        !truncated && <p className="text-xs text-slate-500">{ko.slotSizing.cannotCompute}</p>
+        // hold 출처 없음 — 단, truncated·준비 실패일 땐 위에서 자체 안내가 떠 중복 표시 방지.
+        !truncated &&
+        !setupFailed && <p className="text-xs text-slate-500">{ko.slotSizing.cannotCompute}</p>
       ) : targetRps.trim() === "" ? (
         <p className="text-xs text-slate-500">
           {stairBased

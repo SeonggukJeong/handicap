@@ -184,6 +184,24 @@ describe("준비 스텝 쓰기 경로", () => {
     expect(st().model!.setup).toBeUndefined();
   });
 
+  it("하나뿐인 준비 스텝을 본 목록으로 끌어 옮기면 setup 키가 사라진다", () => {
+    st().loadFromString(SETUP_ONE);
+    st().reparentStep(S1, { parentId: null, band: "top", index: 0 });
+    const m = st().model!;
+    expect(m.setup).toBeUndefined();
+    expect(ids(m.steps)).toEqual([S1, B1]);
+    expect(st().yamlText).not.toMatch(/^setup:/m);
+  });
+
+  it("준비 스텝이 둘이면 하나를 끌어 옮겨도 setup이 남는다", () => {
+    st().loadFromString(SETUP_TWO);
+    st().reparentStep(S1, { parentId: null, band: "top", index: 1 });
+    const m = st().model!;
+    expect(ids(m.setup!.steps)).toEqual([S2]);
+    expect(ids(m.steps)).toEqual([B1, S1]);
+    expect(st().yamlText).toMatch(/^setup:/m);
+  });
+
   it("준비 스텝이 둘이면 하나를 지워도 setup이 남는다", () => {
     st().loadFromString(SETUP_TWO);
     st().removeStep(S1);

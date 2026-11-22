@@ -148,6 +148,27 @@ describe("SequentialRunPanel 준비 구간", () => {
     expect(screen.getByText(FAIL)).toBeInTheDocument();
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
+
+  it("뒤에 행이 없으면 준비 행 아래에 굵은 구분선을 그리지 않는다", () => {
+    render(
+      <SequentialRunPanel
+        seq={{
+          ok: false,
+          truncated: false,
+          total_ms: 3,
+          rows: [],
+          setup_steps: [setupRow("boom")],
+          setup_failed: true,
+        }}
+        steps={steps}
+        requestedRows={3}
+        expandedRow={null}
+        onExpandRow={noop}
+      />,
+    );
+    expect(screen.getByText("준비 요청")).toBeInTheDocument();
+    expect(document.querySelectorAll(".border-accent-200")).toHaveLength(0);
+  });
 });
 
 describe("SequentialRunPanel", () => {

@@ -1625,6 +1625,7 @@ export const ko = {
     headlineClosedCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
       `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
+    headlineSetupOnly: "본 스텝이 없어서 준비 스텝만 실행했습니다.",
     // A11: SLO 수치 통과이더라도 시험 유효성이 limited/suspect일 때 emerald 강조 금지용 병기
     headlineSloPassLimited: "SLO 수치는 통과 · 시험 해석은 제한적",
     headlineSloPassSuspect: "SLO 수치는 통과 · 시험 해석 주의",
@@ -1959,6 +1960,8 @@ export const ko = {
     measureCaveat:
       "방금 측정은 부하 없는 1회 실행이라 실제보다 빨라요. 부하가 걸리면 더 느려져 슬롯이 더 필요할 수 있어, 이 권장값은 최소 출발점이에요.",
     truncated: "시나리오가 길어 측정이 잘렸어요 — 예상 응답시간을 직접 입력하세요.",
+    setupFailed:
+      "준비 스텝이 실패해서 측정하지 못했어요. 미리 실행에서 준비 스텝을 먼저 확인해 주세요.",
     measureError: "측정에 실패했어요. 환경 변수(${BASE_URL} 등)와 시나리오를 확인하세요.",
     fromStallRun:
       "직전 run에서는 서버 응답이 가끔 잠깐씩 멈췄어요. 응답 시간으로 계산한 값으로는 그런 순간을 버티지 못하니, 슬롯 수는 그대로 두고 서버가 왜 멈췄는지부터 확인해 보세요.",
@@ -2031,6 +2034,8 @@ export const ko = {
     measureCaveat:
       "방금 측정은 부하 없는 1회 실행이라 실제보다 빨라요. 부하가 걸리면 더 느려질 수 있어, 이 권장값은 최소 출발점이에요.",
     truncated: "시나리오가 길어 측정이 잘렸어요 — 1회 반복 지연을 직접 입력하세요.",
+    setupFailed:
+      "준비 스텝이 실패해서 측정하지 못했어요. 미리 실행에서 준비 스텝을 먼저 확인해 주세요.",
     measureError: "측정에 실패했어요. 환경 변수(${BASE_URL} 등)와 시나리오를 확인하세요.",
     fromPriorRun: (vus: number, rps: number) =>
       `지난 실행(VU ${vus}개 → ${rps} RPS) 기준 추정이에요. 목표를 바꾸면 권장 VU가 함께 바뀌어요.`,

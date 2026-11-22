@@ -118,4 +118,53 @@ describe("ReportView 준비 스텝", () => {
     expect(screen.getByText(SUMMARY_LINE)).toBeInTheDocument();
     expect(screen.getByText("로그인 준비")).toBeInTheDocument();
   });
+
+  const ZERO_SUMMARY = { ...BASE.summary, count: 0, errors: 0, rps: 0 };
+  const SETUP_ONLY_LINE = "본 스텝이 없어서 준비 스텝만 실행했습니다.";
+  const NO_REQUESTS_LINE = "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.";
+  const SETUP_REPORT = {
+    ok: 1,
+    failed: 0,
+    interrupted: 0,
+    steps: [
+      {
+        step_id: SETUP_ID,
+        count: 1,
+        errors: 0,
+        p50_ms: 5,
+        p95_ms: 6,
+        max_ms: 7,
+        status_counts: { "200": 1 },
+        failure_kinds: {},
+      },
+    ],
+  };
+
+  it("본 스텝이 없고 준비 스텝만 있는 run의 맨 위 문장은 준비만 실행했다고 말한다", () => {
+    const setupOnlyYaml = YAML.slice(0, YAML.indexOf("steps:\n  - id:")) + "steps: []\n";
+    renderIt({
+      ...BASE,
+      scenario_yaml: setupOnlyYaml,
+      summary: ZERO_SUMMARY,
+      steps: [],
+      status_distribution: {},
+      setup: SETUP_REPORT,
+    });
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(SETUP_ONLY_LINE);
+    expect(region).not.toHaveTextContent(NO_REQUESTS_LINE);
+  });
+
+  it("본 스텝이 있는데 0건이면(준비가 모두 실패) 맨 위 문장은 예전 그대로다", () => {
+    renderIt({
+      ...BASE,
+      summary: ZERO_SUMMARY,
+      steps: [],
+      status_distribution: {},
+      setup: { ...SETUP_REPORT, ok: 0, failed: 1 },
+    });
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(NO_REQUESTS_LINE);
+    expect(region).not.toHaveTextContent(SETUP_ONLY_LINE);
+  });
 });

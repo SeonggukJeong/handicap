@@ -116,6 +116,33 @@ describe("VuSizingHelper", () => {
     expect(screen.queryByText(/권장 VU/)).not.toBeInTheDocument();
   });
 
+  it("준비 스텝이 실패한 측정이면 안내를 띄우고 일반 안내는 띄우지 않는다", async () => {
+    const user = userEvent.setup();
+    setHooks({
+      runs: [],
+      reportRps: null,
+      testRun: {
+        mutate: vi.fn(),
+        isPending: false,
+        isError: false,
+        data: {
+          truncated: false,
+          setup_failed: true,
+          total_ms: 50,
+          setup_ms: 50,
+          steps: [{ section: "setup", response: { status: 401 } }],
+        },
+      },
+    });
+    render(<VuSizingHelper scenarioId="s1" scenario={scenario} env={{}} onApply={vi.fn()} />);
+    await user.type(screen.getByLabelText("목표 RPS"), "400");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "준비 스텝이 실패해서 측정하지 못했어요. 미리 실행에서 준비 스텝을 먼저 확인해 주세요.",
+    );
+    expect(screen.queryByText(/처리량 정보가 없어요/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/권장 VU/)).not.toBeInTheDocument();
+  });
+
   it("측정(비-truncated) → R/T로 권장", async () => {
     const user = userEvent.setup();
     setHooks({

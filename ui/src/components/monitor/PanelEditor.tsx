@@ -18,7 +18,8 @@ import { ko } from "../../i18n/ko";
 import { ScenarioOptions } from "../scenario-groups/ScenarioOptions";
 import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { allSteps, flattenHttpSteps } from "../../scenario/model";
+import { allSteps, flattenHttpSteps, setupSteps } from "../../scenario/model";
+import { SetupBadge } from "../scenario/SetupBadge";
 import { PreviewResult } from "./PreviewResult";
 import { ConditionRow } from "./ConditionRow";
 import { conditionSummary, targetLabel } from "../../monitor/conditions";
@@ -136,6 +137,12 @@ export function PanelEditor({
     const parsed = parseScenarioDoc(scenario.yaml);
     if ("error" in parsed) return [];
     return flattenHttpSteps(allSteps(parsed.model));
+  }, [scenario]);
+  const setupIds = useMemo(() => {
+    if (!scenario) return new Set<string>();
+    const parsed = parseScenarioDoc(scenario.yaml);
+    if ("error" in parsed) return new Set<string>();
+    return new Set(setupSteps(parsed.model).map((s) => s.id));
   }, [scenario]);
   const stepNames = useMemo(
     () => Object.fromEntries(namedSteps.map((s) => [s.id, s.name])) as Record<string, string>,
@@ -571,6 +578,7 @@ export function PanelEditor({
                         <span className="min-w-0 break-words">
                           {conditionSummary(c, stepNames[c.step_id])}
                         </span>
+                        {setupIds.has(c.step_id) && <SetupBadge />}
                         {!group &&
                           scenario &&
                           namedSteps.length > 0 &&
@@ -635,6 +643,7 @@ export function PanelEditor({
                       <span className="min-w-0 break-words">
                         {`${ko.monitor.displayRank[i]} ${targetLabel(d)} · ${stepNames[d.step_id] ?? d.step_id}`}
                       </span>
+                      {setupIds.has(d.step_id) && <SetupBadge />}
                       {!group && scenario && namedSteps.length > 0 && !(d.step_id in stepNames) && (
                         <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
                       )}

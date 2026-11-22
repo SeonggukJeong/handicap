@@ -68,7 +68,7 @@ export function SequentialRunPanel({
               }}
               steps={steps}
               onAddExtract={onAddExtract}
-              setupEndDivider
+              setupEndDivider={seq.rows.length > 0}
             />
           </div>
         </>

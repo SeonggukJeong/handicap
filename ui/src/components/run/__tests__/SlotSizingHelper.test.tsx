@@ -330,6 +330,31 @@ describe("SlotSizingHelper", () => {
     expect(screen.queryByText(/max_in_flight를 최소/)).not.toBeInTheDocument();
   });
 
+  it("준비 스텝이 실패한 측정이면 안내를 띄우고 일반 안내는 띄우지 않는다", () => {
+    setHooks({
+      runs: [],
+      report: undefined,
+      testRun: {
+        mutate: vi.fn(),
+        isPending: false,
+        isError: false,
+        data: {
+          truncated: false,
+          setup_failed: true,
+          total_ms: 50,
+          setup_ms: 50,
+          steps: [{ section: "setup", response: { status: 401 } }],
+        },
+      },
+    });
+    render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="20" onApply={vi.fn()} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "준비 스텝이 실패해서 측정하지 못했어요. 미리 실행에서 준비 스텝을 먼저 확인해 주세요.",
+    );
+    expect(screen.queryByText(/응답시간 정보가 없어요/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/max_in_flight를 최소/)).not.toBeInTheDocument();
+  });
+
   it("측정 중(isPending): 버튼 '측정 중…' + disabled", () => {
     setHooks({
       runs: [],
