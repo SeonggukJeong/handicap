@@ -417,6 +417,59 @@ describe("PreviewResult 선택 상자 위치", () => {
     expect(follows(chooseCond(), screen.getByText(ko.monitor.previewHeaders))).toBe(true);
   });
 
+  describe("준비 행", () => {
+    const SETUP = "01HZZZZZZZZZZZZZZZZZZZZZS1";
+    const withSetup = (): Preview => {
+      const p = preview('{"token":"t"}');
+      const main = p.trace!.steps[0];
+      p.trace!.steps = [
+        { ...main, step_id: SETUP, section: "setup" },
+        { ...main, step_id: STEP },
+      ];
+      return p;
+    };
+    const renderBoth = () => {
+      const onAddDisplay = vi.fn();
+      const onAddCondition = vi.fn();
+      render(
+        <PreviewResult
+          preview={withSetup()}
+          stepNames={{ [SETUP]: "준비 요청", [STEP]: "로그인" }}
+          onAddCondition={onAddCondition}
+          conditionCount={0}
+          displayItems={[]}
+          onAddDisplay={onAddDisplay}
+        />,
+      );
+      const [setupRow, mainRow] = screen.getAllByRole("listitem");
+      return { setupRow, mainRow, onAddCondition, onAddDisplay, user: userEvent.setup() };
+    };
+
+    it("준비 행은 이름과 「준비」 표지로 나온다", () => {
+      const { setupRow, mainRow } = renderBoth();
+      expect(within(setupRow).getByText("준비 요청")).toBeInTheDocument();
+      expect(within(setupRow).getByText("준비")).toBeInTheDocument();
+      expect(within(mainRow).getByText("로그인")).toBeInTheDocument();
+      expect(within(mainRow).queryByText("준비")).not.toBeInTheDocument();
+    });
+
+    it("준비 행에서는 조건·화면 추가를 낼 수 없고 안내가 나온다", async () => {
+      const { setupRow, mainRow, onAddCondition, user } = renderBoth();
+      const statusAdd = ko.monitor.condAddAria(ko.monitor.condTargetStatus);
+      expect(within(setupRow).queryByRole("button", { name: statusAdd })).not.toBeInTheDocument();
+      expect(
+        within(setupRow).getByText("준비 스텝의 값은 아직 칸에 쓸 수 없습니다"),
+      ).toBeInTheDocument();
+      expect(
+        within(mainRow).queryByText("준비 스텝의 값은 아직 칸에 쓸 수 없습니다"),
+      ).not.toBeInTheDocument();
+      await user.click(within(mainRow).getByRole("button", { name: statusAdd }));
+      await user.click(chooseCond());
+      await user.click(confirmBtn());
+      expect(onAddCondition).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("본문 전체 조건 버튼 → 조건 줄이 버튼 뒤", async () => {
     const { user } = setup(preview("plain text", HEADERS));
     const btn = screen.getByRole("button", { name: ko.monitor.condAddBodyText });

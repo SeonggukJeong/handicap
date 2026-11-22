@@ -30,11 +30,8 @@ export function SetupNotices(props: Omit<SetupNoticeInput, "rowCounts">) {
   return (
     <Callout variant="info" role="status" title={T.title} className="mb-3">
       <ul className="list-disc pl-5">
-        {notices.map((n) => (
-          <li
-            key={n.kind + (n.kind === "not_per_vu" ? n.vars.join(",") : "")}
-            className="mt-1 first:mt-0"
-          >
+        {notices.map((n, i) => (
+          <li key={`${i}-${n.kind}`} className="mt-1 first:mt-0">
             {noticeText(n)}
           </li>
         ))}

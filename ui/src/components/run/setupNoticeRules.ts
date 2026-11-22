@@ -71,7 +71,10 @@ export function loadFieldsForNotices(f: {
   SetupNoticeInput,
   "loadModel" | "rateMode" | "vus" | "rampUpSeconds" | "vuPeak" | "maxInFlight"
 > {
-  const targets = f.stages.map((s) => Number(s.target)).filter((n) => Number.isFinite(n));
+  const targets = f.stages
+    .filter((s) => s.target.trim() !== "")
+    .map((s) => Number(s.target))
+    .filter((n) => Number.isFinite(n));
   const mif = f.maxInFlight.trim() === "" ? null : Number(f.maxInFlight);
   return {
     loadModel: f.loadModel,

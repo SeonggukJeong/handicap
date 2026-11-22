@@ -93,6 +93,26 @@ describe("SetupNotices", () => {
     expect(text).toContain("'per_vu — VU마다 한 행 (고정)'으로 두세요");
   });
 
+  it("공유 행 안내가 둘이어도 key 경고 없이 둘 다 나온다", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <SetupNotices
+        {...BASE}
+        scenario={model("http://x/{{user}}/{{pw}}", "http://x/o")}
+        loadModel="open"
+        maxInFlight={8}
+        bindings={[binding("per_vu", "user"), binding("per_vu", "pw")]}
+      />,
+    );
+    const shared = screen
+      .getAllByRole("listitem")
+      .filter((li) => (li.textContent ?? "").includes("그 행을 받은 슬롯이 모두"));
+    expect(shared).toHaveLength(2);
+    const dup = spy.mock.calls.filter((c) => String(c[0]).includes("same key"));
+    spy.mockRestore();
+    expect(dup).toHaveLength(0);
+  });
+
   it("안내가 없으면 아무것도 그리지 않는다", () => {
     const { container } = render(
       <SetupNotices {...BASE} scenario={model("http://x/login", "http://x/o")} />,

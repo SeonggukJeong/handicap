@@ -946,6 +946,90 @@ describe("MonitorEditPage", () => {
   });
 });
 
+const SETUP_ID = "01HZZZZZZZZZZZZZZZZZZZZZS1";
+const SETUP_YAML = `version: 1
+name: 점검
+setup:
+  steps:
+    - id: ${SETUP_ID}
+      name: 준비 요청
+      type: http
+      request:
+        method: POST
+        url: http://x/auth
+${YAML.slice(YAML.indexOf("steps:"))}`;
+const withSetupScenario = () => {
+  handlers["GET /api/scenarios"] = () =>
+    json({ scenarios: [{ ...scenarios.scenarios[0], yaml: SETUP_YAML }] });
+};
+
+describe("MonitorEditPage 준비 스텝", () => {
+  it("응답 시간 기준 스텝 선택지에 준비 스텝이 없다", async () => {
+    const user = userEvent.setup();
+    withSetupScenario();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await expandAll();
+    await user.click(await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) }));
+    const sel = await screen.findByLabelText(ko.monitor.latencySource);
+    await waitFor(() =>
+      expect(within(sel).getByRole("option", { name: "조회 호출" })).toBeInTheDocument(),
+    );
+    expect(within(sel).queryByRole("option", { name: "준비 요청" })).not.toBeInTheDocument();
+  });
+
+  it("준비 스텝을 기준으로 걸어 둔 칸은 그 값이 이름으로 남는다", async () => {
+    const user = userEvent.setup();
+    withSetupScenario();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            ...board().config,
+            panels: [panel({ latency_source: { kind: "step", step_id: SETUP_ID } })],
+          },
+        }),
+      );
+    renderAt("/monitors/B1");
+    await expandAll();
+    await user.click(await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) }));
+    const sel = (await screen.findByLabelText(ko.monitor.latencySource)) as HTMLSelectElement;
+    await waitFor(() => expect(sel.value).toBe(`step:${SETUP_ID}`));
+    const chosen = sel.selectedOptions[0];
+    expect(chosen.textContent).toContain("준비 요청");
+    expect(chosen.textContent).not.toContain(SETUP_ID);
+  });
+
+  it("준비 스텝을 가리키는 조건·표시 항목은 「스텝 없음」 경고가 없다", async () => {
+    withSetupScenario();
+    const GONE = "01HZZZZZZZZZZZZZZZZZZZZZG1";
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            ...board().config,
+            panels: [
+              panel({
+                conditions: [{ ...COND_B, step_id: SETUP_ID }],
+                display_items: [{ step_id: SETUP_ID, source: "status", path: "" }],
+              }),
+            ],
+          },
+        }),
+      );
+    const { unmount } = renderAt("/monitors/B1");
+    await expandAll();
+    await screen.findByText(/상태코드 = 200 · 준비 요청/);
+    expect(screen.getAllByText(/ · 준비 요청$/)).toHaveLength(2);
+    expect(screen.queryByText(ko.monitor.condStepGone)).not.toBeInTheDocument();
+    unmount();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([{ ...COND_B, step_id: GONE }]));
+    renderAt("/monitors/B1");
+    await expandAll();
+    expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
+  });
+});
+
 const PREVIEW_URL = "/api/monitor-boards/preview-check";
 function previewWith(
   resp: { status?: number; headers?: Record<string, string>; body: string; truncated?: boolean },

@@ -2,7 +2,26 @@ import { describe, expect, it } from "vitest";
 import type { DataBinding } from "../../../api/schemas";
 import { parseScenarioDoc } from "../../../scenario/yamlDoc";
 import type { Scenario } from "../../../scenario/model";
-import { setupNotices, type SetupNoticeInput } from "../setupNoticeRules";
+import { loadFieldsForNotices, setupNotices, type SetupNoticeInput } from "../setupNoticeRules";
+
+describe("loadFieldsForNotices 목표 곡선", () => {
+  const f = (targets: string[]) =>
+    loadFieldsForNotices({
+      loadModel: "closed",
+      rateMode: "curve",
+      vus: 10,
+      rampUp: 0,
+      stages: targets.map((target) => ({ target })),
+      maxInFlight: "",
+    });
+  it("빈 목표만 있으면 vuPeak은 null이다", () => {
+    expect(f(["", "  "]).vuPeak).toBeNull();
+    expect(f([]).vuPeak).toBeNull();
+  });
+  it("빈 목표는 건너뛰고 최댓값을 잡는다", () => {
+    expect(f(["", "50"]).vuPeak).toBe(50);
+  });
+});
 
 const S1 = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
 const S2 = "01ARZ3NDEKTSV4RRFFQ69G5FA2";

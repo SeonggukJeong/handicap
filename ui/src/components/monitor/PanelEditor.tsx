@@ -18,7 +18,7 @@ import { ko } from "../../i18n/ko";
 import { ScenarioOptions } from "../scenario-groups/ScenarioOptions";
 import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { flattenHttpSteps } from "../../scenario/model";
+import { allSteps, flattenHttpSteps } from "../../scenario/model";
 import { PreviewResult } from "./PreviewResult";
 import { ConditionRow } from "./ConditionRow";
 import { conditionSummary, targetLabel } from "../../monitor/conditions";
@@ -131,9 +131,15 @@ export function PanelEditor({
     if ("error" in parsed) return {};
     return loopJudgeMeta(parsed.model);
   }, [scenario]);
+  const namedSteps = useMemo(() => {
+    if (!scenario) return [];
+    const parsed = parseScenarioDoc(scenario.yaml);
+    if ("error" in parsed) return [];
+    return flattenHttpSteps(allSteps(parsed.model));
+  }, [scenario]);
   const stepNames = useMemo(
-    () => Object.fromEntries(steps.map((s) => [s.id, s.name])) as Record<string, string>,
-    [steps],
+    () => Object.fromEntries(namedSteps.map((s) => [s.id, s.name])) as Record<string, string>,
+    [namedSteps],
   );
 
   const set = (patch: Partial<PanelConfig>) => onChange({ ...panel, ...patch });
@@ -459,7 +465,9 @@ export function PanelEditor({
                   >
                     <option value="total">{ko.monitor.latencyTotal}</option>
                     {stepGone && panel.latency_source.kind === "step" && (
-                      <option value={latencyValue}>{panel.latency_source.step_id}</option>
+                      <option value={latencyValue}>
+                        {stepNames[panel.latency_source.step_id] ?? panel.latency_source.step_id}
+                      </option>
                     )}
                     {steps.map((s) => (
                       <option key={s.id} value={`step:${s.id}`}>
@@ -563,9 +571,14 @@ export function PanelEditor({
                         <span className="min-w-0 break-words">
                           {conditionSummary(c, stepNames[c.step_id])}
                         </span>
-                        {!group && scenario && steps.length > 0 && !(c.step_id in stepNames) && (
-                          <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
-                        )}
+                        {!group &&
+                          scenario &&
+                          namedSteps.length > 0 &&
+                          !(c.step_id in stepNames) && (
+                            <span className="text-xs text-amber-700">
+                              {ko.monitor.condStepGone}
+                            </span>
+                          )}
                         <button
                           type="button"
                           aria-label={ko.monitor.condEdit(i + 1)}
@@ -622,7 +635,7 @@ export function PanelEditor({
                       <span className="min-w-0 break-words">
                         {`${ko.monitor.displayRank[i]} ${targetLabel(d)} · ${stepNames[d.step_id] ?? d.step_id}`}
                       </span>
-                      {!group && scenario && steps.length > 0 && !(d.step_id in stepNames) && (
+                      {!group && scenario && namedSteps.length > 0 && !(d.step_id in stepNames) && (
                         <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
                       )}
                       <button

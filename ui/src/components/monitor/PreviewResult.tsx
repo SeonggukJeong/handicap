@@ -15,6 +15,7 @@ import { BodyBlock } from "../response/BodyBlock";
 import { HeaderTable } from "../response/HeaderTable";
 import { JsonValueTree } from "../response/JsonValueTree";
 import { ConditionRow } from "./ConditionRow";
+import { SetupBadge } from "../scenario/SetupBadge";
 import { LoopJudgeRow } from "../scenario/LoopJudgeRow";
 import type { LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
 
@@ -139,7 +140,8 @@ function StepRow({
   const k = ko.monitor;
   const [click, setClick] = useState<ConditionClick | null>(null);
   const resp = s.response;
-  const interactive = s.kind === "http" && resp != null && onAddCondition !== undefined;
+  const isSetup = s.section === "setup";
+  const interactive = s.kind === "http" && resp != null && onAddCondition !== undefined && !isSetup;
   const blockedReason = conditionCount >= MAX_CONDITIONS ? k.condMax : undefined;
   const choice = (c: ConditionClick, close: () => void) => (
     <AddChoice
@@ -188,7 +190,10 @@ function StepRow({
     <li className="rounded border border-slate-200 bg-white p-2">
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
         <dt className="text-slate-500">{k.previewStep}</dt>
-        <dd>{name}</dd>
+        <dd className="flex items-center gap-2">
+          {isSetup && <SetupBadge />}
+          <span>{name}</span>
+        </dd>
         <dt className="text-slate-500">{k.previewStatus}</dt>
         <dd className="flex items-center gap-2 tabular-nums">
           <span>{resp ? String(resp.status) : k.noValue}</span>
@@ -213,6 +218,7 @@ function StepRow({
           </>
         )}
       </dl>
+      {isSetup && <p className="mt-1 text-xs text-slate-600">{k.setupNotAddable}</p>}
       {defaulted && <p className="mt-1 text-xs break-all text-slate-600">{defaulted}</p>}
       {interactive && (
         <div className="mt-2">

@@ -14,6 +14,7 @@ import {
 } from "../groups";
 import { newPanel, type BoardConfig, type CheckGroup, type PanelConfig } from "../../api/monitors";
 import type { Step } from "../../scenario/model";
+import { parseScenarioDoc } from "../../scenario/yamlDoc";
 
 const G1: CheckGroup = { id: "g1", scenario_id: "s1", environment_id: "e1", interval_seconds: 20 };
 const G2: CheckGroup = { id: "g2", scenario_id: "s2", environment_id: null, interval_seconds: 30 };
@@ -177,6 +178,18 @@ describe("monitor groups helpers", () => {
   });
 
   const h = (id: string, name: string) => ({ id, name, type: "http" }) as unknown as Step;
+
+  it("칸 스텝 선택지는 본 스텝만이다", () => {
+    const S1 = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
+    const S2 = "01ARZ3NDEKTSV4RRFFQ69G5FA2";
+    const parsed = parseScenarioDoc(
+      `version: 1\nname: s\nsetup:\n  steps:\n    - id: ${S1}\n      name: 준비\n      type: http\n      request:\n        method: GET\n        url: http://x/a\nsteps:\n  - id: ${S2}\n    name: 본\n    type: http\n    request:\n      method: GET\n      url: http://x/b\n`,
+    );
+    if (!("model" in parsed)) throw new Error(parsed.error);
+    const ids = stepOptionsFor(parsed.model.steps).map((o) => o.id);
+    expect(ids).toEqual([S2]);
+    expect(ids).not.toContain(S1);
+  });
 
   it("stepOptionsFor_parallel_branch_has_no_hint", () => {
     const steps = [

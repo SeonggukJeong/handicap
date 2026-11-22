@@ -48,12 +48,21 @@ steps:
           method: GET
           url: https://h/z
 `;
+const scenarioYaml = { current: YAML };
 vi.mock("../../../api/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/hooks")>()),
   useScenarios: () => ({
     data: {
       scenarios: [
-        { id: "SC", name: "sc", yaml: YAML, version: 1, created_at: 0, updated_at: 0, group: null },
+        {
+          id: "SC",
+          name: "sc",
+          yaml: scenarioYaml.current,
+          version: 1,
+          created_at: 0,
+          updated_at: 0,
+          group: null,
+        },
       ],
     },
   }),
@@ -131,7 +140,10 @@ const dlg = (c: CheckResult = clicked) => (
   <CheckRecordDialog boardId="B1" panel={panel} clicked={c} onClose={() => {}} />
 );
 
-beforeEach(() => getRecord.mockReset());
+beforeEach(() => {
+  getRecord.mockReset();
+  scenarioYaml.current = YAML;
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe("CheckRecordDialog", () => {
@@ -550,6 +562,28 @@ describe("CheckRecordDialog 보내지 않은 요청", () => {
     expect(msg.className).toMatch(/red/);
     expect(screen.queryByText(/not sent: blank value in url/)).not.toBeInTheDocument();
     expect(screen.getByText("연결 거부")).toBeInTheDocument();
+  });
+});
+
+describe("CheckRecordDialog 준비 행", () => {
+  it("준비 행의 이름을 찾는다", async () => {
+    const S0 = "01HX0000000000000000000000";
+    scenarioYaml.current = `version: 1
+name: sc
+setup:
+  steps:
+    - id: "${S0}"
+      name: "준비 요청"
+      type: http
+      request:
+        method: POST
+        url: https://h/auth
+${YAML.slice(YAML.indexOf("steps:"))}`;
+    getRecord.mockResolvedValue(rec({}, [http({ step_id: S0, section: "setup" }), http()]));
+    wrap(dlg());
+    expect(await screen.findByText(/^준비 요청 · /)).toBeInTheDocument();
+    expect(screen.getAllByText("준비")).toHaveLength(1);
+    expect(screen.queryByText(new RegExp(S0))).not.toBeInTheDocument();
   });
 });
 

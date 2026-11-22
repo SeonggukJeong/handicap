@@ -2547,6 +2547,7 @@ export const ko = {
     condValueOneOfPlaceholder: "0000, 0020",
     condErrOneOf: "후보값을 하나 이상 입력하세요",
     condStepGone: "⚠ 스텝 없음",
+    setupNotAddable: "준비 스텝의 값은 아직 칸에 쓸 수 없습니다",
     condEdit: (n: number) => `조건 ${n} 편집`,
     condRemove: (n: number) => `조건 ${n} 삭제`,
     condSaveAria: (n: number) => `조건 ${n} 저장`,

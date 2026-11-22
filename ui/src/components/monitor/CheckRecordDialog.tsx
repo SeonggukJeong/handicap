@@ -11,9 +11,10 @@ import { RecordBody } from "./RecordBody";
 import { ko } from "../../i18n/ko";
 import { formatDateHms } from "../../monitor/time";
 import { branchText } from "../../scenario/chipResults";
-import { flattenHttpSteps } from "../../scenario/model";
+import { allSteps, flattenHttpSteps } from "../../scenario/model";
 import { defaultedText, traceErrorText } from "../../scenario/blockedText";
 import { loopJudgeMeta, type LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
+import { SetupBadge } from "../scenario/SetupBadge";
 import { LoopJudgeRow } from "../scenario/LoopJudgeRow";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 
@@ -62,7 +63,7 @@ export function CheckRecordDialog({
     if (!sc) return {} as Record<string, string>;
     const parsed = parseScenarioDoc(sc.yaml);
     if ("error" in parsed) return {};
-    return Object.fromEntries(flattenHttpSteps(parsed.model.steps).map((s) => [s.id, s.name]));
+    return Object.fromEntries(flattenHttpSteps(allSteps(parsed.model)).map((s) => [s.id, s.name]));
   }, [scenarios, panel.scenario_id]);
 
   const loopMeta = useMemo((): LoopJudgeMeta => {
@@ -240,6 +241,7 @@ function StepRow({
         {step.loop_index !== null && (
           <span className="rounded bg-slate-200 px-1 font-mono">{`#${step.loop_index}`}</span>
         )}
+        {step.section === "setup" && <SetupBadge />}
         <span className="font-mono">{summary}</span>
       </button>
       {errorText && <div className="px-2 pb-1 text-xs text-red-600">{errorText}</div>}
