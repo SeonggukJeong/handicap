@@ -56,7 +56,7 @@ grep -rnE '\.steps\b|"steps"' ui/src --include='*.ts' --include='*.tsx'
 | `components/run/RunDialog.tsx:409` | 본문 | - | SLO 스텝 기준 후보 목록 — 반복 본문만(D2「SLO 스텝 기준의 대상 스텝」) |
 | `components/run/ScheduleForm.tsx:78,146` | 본문 | - | 78: loop 유무, 146: SLO 스텝 후보(본문) |
 | `pages/ScenarioRunsPage.tsx:120` | 본문 | - | loop 유무 |
-| `components/run/LoadModelFields.tsx:214` | 본문 | A2 | 반복 요청 수 범위 — 사이징은 반복 본문(D2·D7) |
+| `components/run/LoadModelFields.tsx:214` | 본문 | - | 반복 요청 수 범위 — 사이징은 반복 본문(D2·D7) |
 | `components/run/openLoopChecks.ts:52,115` | 본문 | - | 반복 시간 상한 |
 | `components/run/sizing.ts:114,150` | 본문 | - | parallel 분기 하강 |
 | `components/run/SlotSizingHelper.tsx:49–51` | 본문 | - | 반복 점유 시간. `total_ms − setup_ms` 보정(D7)은 A2 |
@@ -79,13 +79,13 @@ grep -rnE '\.steps\b|"steps"' ui/src --include='*.ts' --include='*.tsx'
 | `components/report/ReportView.tsx:130,320` | 무관 | - | `report.steps` |
 | `components/report/SetupSection.tsx` | 무관 | A1 | 새 구획(`report.setup.steps`) |
 | `components/report/stair/*` (`stairFormat.ts`·`stairBandTypes.ts`·`StairTable.tsx`·`StairResultSection.tsx`) 계 17건 | 무관 | - | 계단 `stair.steps` |
-| `pages/RunDetailPage.tsx:89` | 모두 | A2 | 진행 중 화면의 스텝 이름표 — 준비 행이 report에 없어 지금은 영향 없음, 준비 진행 표시를 더할 때 |
+| `pages/RunDetailPage.tsx:89` | 모두 | B | 진행 중 화면의 스텝 이름표 — 준비 행이 report에 없어 지금은 영향 없음, 준비 진행 표시를 더할 때 |
 | `pages/ScenarioComparePage.tsx:131,143` | 본문 | - | 비교는 `report.steps`(본문). 준비 구획 비교는 비목표 |
 | `compare/compareReports.ts:62–89` | 무관 | - | `report.steps` |
 | `print/buildPrintDoc.ts:124,190,291` | 무관 | - | 124 `report.steps`, 190 facts, 291 계단. 머리 한 줄은 `meta.setupNote`(A1) |
 | `print/scenarioFacts.ts:68,86` | 모두 | A2 | 인쇄 본문의 「대상 시스템」·스텝 사실표가 준비 스텝의 URL을 보지 않는다(준비가 다른 호스트면 누락). A2 |
 | `print/stepTable.ts:175,177,180`, `print/compare/runModel.ts:38`, `print/compare/errorCells.ts:40` | 본문 | - | `report.steps`·facts. 인쇄 표에 준비 행은 비목표 |
-| `print/compare/fairness.ts` 9건·`buildCompareDoc.ts:256,257` | 본문 | A2 | 두 run 시나리오 같음 판정이 `setup` 차이를 못 본다(준비를 바꿔도 「같은 시나리오」). A2에서 setup을 비교 대상에 |
+| `print/compare/fairness.ts` 9건·`buildCompareDoc.ts:256,257` | 본문 | A2 | (2026-11-22 정정) 판정은 YAML 전체를 비교하므로 `setup` 내용 차이는 이미 「다름」으로 나온다. 고칠 것은 반대쪽 — 준비 스텝의 이름·메모만 달라도 「다름」이 되는 것(`stripScenarioNames`가 `setup.steps`의 이름을 안 지운다) |
 | `print/speedBands.ts` 5건·`stairTable.ts`·`PrintDocument.tsx:168`·`StepCodeTable.tsx:47,48` | 무관 | - | 속도 구간·계단·절 제목 |
 | `pages/TemplatesPage.tsx:31` | 본문 | - | 스텝 템플릿 |
 
