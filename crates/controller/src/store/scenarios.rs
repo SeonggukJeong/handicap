@@ -250,6 +250,8 @@ pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
         "run_loop_exit_metrics",
         "run_open_loop_seconds",
         "run_worker_starts",
+        "run_section_step_metrics",
+        "run_section_outcomes",
     ] {
         sqlx::query(&format!(
             "DELETE FROM {table} WHERE run_id IN (SELECT id FROM runs WHERE scenario_id = ?)"

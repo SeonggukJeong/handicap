@@ -2244,6 +2244,128 @@ pub(crate) async fn ingest_and_forward(state: &CoordinatorState, batch: pb::Metr
     }
 }
 
+/// 구간 통계의 `failure_kinds` 허용 글자(D6): ADR-0050 전송 실패 kind + 구간 실패 고정 분류.
+const SECTION_TRANSPORT_KINDS: [handicap_engine::ErrorKind; 9] = [
+    handicap_engine::ErrorKind::ConnectRefused,
+    handicap_engine::ErrorKind::ConnectionReset,
+    handicap_engine::ErrorKind::ConnectTimeout,
+    handicap_engine::ErrorKind::Timeout,
+    handicap_engine::ErrorKind::Dns,
+    handicap_engine::ErrorKind::Tls,
+    handicap_engine::ErrorKind::LocalPortExhaustion,
+    handicap_engine::ErrorKind::Other,
+    handicap_engine::ErrorKind::BlankVar,
+];
+const SECTION_FAILURE_KINDS: [&str; 6] = [
+    "read_body",
+    "status_assert",
+    "extract",
+    "unknown_var",
+    "malformed_template",
+    "cast_failed",
+];
+
+fn is_allowed_failure_kind(k: &str) -> bool {
+    SECTION_FAILURE_KINDS.contains(&k) || SECTION_TRANSPORT_KINDS.iter().any(|e| e.as_str() == k)
+}
+
+/// 허용 목록에 있는 키만 JSON 객체 글자로 — 워커가 보낸 다른 글자는 저장하지 않는다.
+fn sanitize_failure_kinds(m: &std::collections::HashMap<String, u64>) -> String {
+    let kept: std::collections::BTreeMap<&str, u64> = m
+        .iter()
+        .filter(|(k, _)| is_allowed_failure_kind(k))
+        .map(|(k, v)| (k.as_str(), *v))
+        .collect();
+    serde_json::to_string(&kept).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// 준비 구간 통계 두 필드를 저장한다. 워커 입력은 믿지 않는다 — 모르는 구간 이름의 행은
+/// 버리고, 허용 목록 밖 실패 종류 키는 버리고, 말이 안 되는 완료 시각은 0으로 둔다.
+/// 로그에는 run·worker id와 고정 문구만 싣는다.
+async fn ingest_sections(state: &CoordinatorState, batch: &pb::MetricBatch, now_ms: i64) {
+    if !batch.section_step_stats.is_empty() {
+        let mut dropped = 0usize;
+        let mut rows = Vec::with_capacity(batch.section_step_stats.len());
+        for s in &batch.section_step_stats {
+            let Some(section) = handicap_engine::Section::from_wire(&s.section) else {
+                dropped += 1;
+                continue;
+            };
+            rows.push(crate::store::section::SectionStepRow {
+                run_id: batch.run_id.clone(),
+                worker_id: batch.worker_id.clone(),
+                section: section.as_str().to_string(),
+                step_id: s.step_id.clone(),
+                count: s.count as i64,
+                error_count: s.error_count as i64,
+                status_counts: serde_json::to_string(&s.status_counts)
+                    .unwrap_or_else(|_| "{}".to_string()),
+                failure_kinds: sanitize_failure_kinds(&s.failure_kinds),
+                hdr_histogram: s.hdr_histogram.clone(),
+            });
+        }
+        if dropped > 0 {
+            warn!(
+                run_id = %batch.run_id,
+                worker_id = %batch.worker_id,
+                dropped,
+                "dropping section step stats with unknown section"
+            );
+        }
+        if let Err(e) = crate::store::section::insert_section_step_batch(&state.db, &rows).await {
+            warn!(run_id = %batch.run_id, error = %e, "section step metrics insert failed");
+        }
+    }
+    if !batch.section_outcomes.is_empty() {
+        let mut dropped = 0usize;
+        let mut zeroed = 0usize;
+        let mut rows = Vec::with_capacity(batch.section_outcomes.len());
+        for o in &batch.section_outcomes {
+            let Some(section) = handicap_engine::Section::from_wire(&o.section) else {
+                dropped += 1;
+                continue;
+            };
+            let last_done_ms = if o.last_done_ms > 0 && plausible_start(o.last_done_ms, now_ms) {
+                o.last_done_ms
+            } else {
+                if o.last_done_ms != 0 {
+                    zeroed += 1;
+                }
+                0
+            };
+            rows.push(crate::store::section::SectionOutcomeRow {
+                run_id: batch.run_id.clone(),
+                worker_id: batch.worker_id.clone(),
+                section: section.as_str().to_string(),
+                ok: o.ok as i64,
+                failed: o.failed as i64,
+                interrupted: o.interrupted as i64,
+                last_done_ms,
+            });
+        }
+        if dropped > 0 {
+            warn!(
+                run_id = %batch.run_id,
+                worker_id = %batch.worker_id,
+                dropped,
+                "dropping section outcomes with unknown section"
+            );
+        }
+        if zeroed > 0 {
+            warn!(
+                run_id = %batch.run_id,
+                worker_id = %batch.worker_id,
+                zeroed,
+                "zeroing section last_done_ms far from controller clock"
+            );
+        }
+        if let Err(e) = crate::store::section::insert_section_outcome_batch(&state.db, &rows).await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "section outcome metrics insert failed");
+        }
+    }
+}
+
 /// 반환 = 이 run의 계단 감시 송신자(있으면) — 이미 잡는 잠금 블록에서 꺼낸다(추가 잠금 0).
 async fn ingest_metrics(
     state: &CoordinatorState,
@@ -2415,6 +2537,7 @@ async fn ingest_metrics(
             warn!(run_id = %batch.run_id, error = %e, "loop_exit metrics insert failed");
         }
     }
+    ingest_sections(state, batch, now_ms).await;
     let group_rows: Vec<crate::store::metrics::GroupMetricRow> = batch
         .group_stats
         .iter()
@@ -3645,6 +3768,118 @@ mod tests {
             .map(|r| (r.pass_bucket, r.outcome, r.count, r.pass_sum))
             .collect();
         assert_eq!(got, vec![(1, 0, 2, 2), (2, 0, 6, 12), (21, 2, 2, 19998)]);
+    }
+
+    fn section_stat(section: &str, kinds: &[(&str, u64)]) -> pb::SectionStepStat {
+        pb::SectionStepStat {
+            section: section.to_string(),
+            step_id: "s1".to_string(),
+            count: 2,
+            error_count: 1,
+            status_counts: [("200".to_string(), 1u64)].into_iter().collect(),
+            hdr_histogram: vec![9],
+            failure_kinds: kinds.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        }
+    }
+
+    fn section_outcome(section: &str, last_done_ms: i64) -> pb::SectionOutcome {
+        pb::SectionOutcome {
+            section: section.to_string(),
+            ok: 3,
+            failed: 1,
+            interrupted: 0,
+            last_done_ms,
+        }
+    }
+
+    #[tokio::test]
+    async fn ingest_drops_unknown_section() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            section_step_stats: vec![section_stat("setup", &[]), section_stat("teardown", &[])],
+            section_outcomes: vec![section_outcome("setup", 0), section_outcome("bogus", 0)],
+            ..Default::default()
+        };
+        ingest_metrics(&coord, &batch).await;
+        let steps = crate::store::section::section_steps(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].section, "setup");
+        assert_eq!(steps[0].worker_id, "w0");
+        let outs = crate::store::section::section_outcomes(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(outs.len(), 1);
+        assert_eq!(outs[0].section, "setup");
+    }
+
+    #[tokio::test]
+    async fn ingest_zeroes_implausible_last_done() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let now = crate::store::now_ms();
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            section_outcomes: vec![
+                section_outcome("setup", now),
+                section_outcome("setup", 5),
+                section_outcome("setup", now + 10 * 86_400_000),
+                section_outcome("setup", -1),
+            ],
+            ..Default::default()
+        };
+        ingest_metrics(&coord, &batch).await;
+        let outs = crate::store::section::section_outcomes(&db, &run_id)
+            .await
+            .unwrap();
+        let got: Vec<i64> = outs.iter().map(|o| o.last_done_ms).collect();
+        assert_eq!(got.len(), 4);
+        assert_eq!(got[0], now);
+        assert_eq!(&got[1..], &[0, 0, 0]);
+        assert!(outs.iter().all(|o| o.ok == 3 && o.failed == 1));
+    }
+
+    #[tokio::test]
+    async fn ingest_drops_unknown_failure_kind() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            section_step_stats: vec![section_stat(
+                "setup",
+                &[
+                    ("timeout", 2),
+                    ("status_assert", 1),
+                    ("secret-token-abc", 7),
+                    ("", 1),
+                ],
+            )],
+            ..Default::default()
+        };
+        ingest_metrics(&coord, &batch).await;
+        let steps = crate::store::section::section_steps(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(steps.len(), 1);
+        let kinds: std::collections::BTreeMap<String, u64> =
+            serde_json::from_str(&steps[0].failure_kinds).unwrap();
+        let want: std::collections::BTreeMap<String, u64> =
+            [("timeout".to_string(), 2), ("status_assert".to_string(), 1)]
+                .into_iter()
+                .collect();
+        assert_eq!(kinds, want);
+        assert!(!steps[0].failure_kinds.contains("secret"));
+        assert_eq!(steps[0].status_counts, "{\"200\":1}");
+        assert_eq!(steps[0].hdr_histogram, vec![9]);
     }
 
     #[tokio::test]

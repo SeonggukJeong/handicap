@@ -187,6 +187,40 @@ async fn delete_cascade_removes_full_graph_and_spares_other_scenarios() {
 }
 
 #[tokio::test]
+async fn scenario_delete_removes_section_rows() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "victim").await;
+    let other = create_scenario(&app, "bystander").await;
+    seed_run(&db, &sid, "R1", "completed").await;
+    seed_run(&db, &other, "R2", "completed").await;
+    for run in ["R1", "R2"] {
+        sqlx::query(
+            "INSERT INTO run_section_step_metrics(run_id,worker_id,section,step_id,count,error_count,status_counts,failure_kinds,hdr_histogram) \
+             VALUES(?,'w0','setup','S',1,0,'{}','{}',x'00')",
+        )
+        .bind(run)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO run_section_outcomes(run_id,worker_id,section,ok,failed,interrupted,last_done_ms) \
+             VALUES(?,'w0','setup',1,0,0,0)",
+        )
+        .bind(run)
+        .execute(&db)
+        .await
+        .unwrap();
+    }
+    let outcome = store::scenarios::delete_cascade(&db, &sid).await.unwrap();
+    assert_eq!(outcome, store::scenarios::DeleteOutcome::Deleted);
+    for t in ["run_section_step_metrics", "run_section_outcomes"] {
+        assert_eq!(count(&db, t, "run_id", "R1").await, 0, "{t} orphan");
+        assert_eq!(count(&db, t, "run_id", "R2").await, 1, "{t} bystander");
+    }
+}
+
+#[tokio::test]
 async fn delete_cascade_refuses_active_run_without_mutation() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db.clone());

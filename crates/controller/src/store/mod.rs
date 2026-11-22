@@ -8,6 +8,7 @@ pub mod presets;
 pub mod runs;
 pub mod scenarios;
 pub mod schedules;
+pub mod section;
 pub mod settings;
 pub mod step_templates;
 
@@ -45,6 +46,7 @@ const MIGRATION_SQL_0020: &str = include_str!("migrations/0020_run_error_kind_me
 const MIGRATION_SQL_0022: &str = include_str!("migrations/0022_monitor_boards.sql");
 const MIGRATION_SQL_0023: &str = include_str!("migrations/0023_run_loop_exit_metrics.sql");
 const MIGRATION_SQL_0024: &str = include_str!("migrations/0024_run_open_loop_seconds.sql");
+const MIGRATION_SQL_0027: &str = include_str!("migrations/0027_run_section_metrics.sql");
 // Inline literal (no migrations/*.sql file) — single trivial statement; grep MIGRATION_SQL_0017 to find it.
 const MIGRATION_SQL_0017: &str = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)";
 
@@ -94,6 +96,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0024).execute(&pool).await?; // migration 0024: run_open_loop_seconds
     ensure_runs_auto_stop_json(&pool).await?; // migration 0025 (Rust-guarded; see fn)
     ensure_scenarios_group_name(&pool).await?; // migration 0026 (Rust-guarded; see fn)
+    sqlx::query(MIGRATION_SQL_0027).execute(&pool).await?; // migration 0027: run_section_metrics
     Ok(pool)
 }
 
@@ -750,6 +753,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn migration_0027_is_idempotent() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        sqlx::query(MIGRATION_SQL_0027)
+            .execute(&pool)
+            .await
+            .unwrap(); // connect()가 이미 한 번 적용 — CREATE IF NOT EXISTS: no-op
+        for table in ["run_section_step_metrics", "run_section_outcomes"] {
+            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(n, 0);
+        }
     }
 
     #[tokio::test]
