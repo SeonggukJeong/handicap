@@ -29,6 +29,7 @@ import {
   isParallelStep,
   summarizeCondition,
   findStepById,
+  setupSteps,
   type LoopStep,
   type Step,
 } from "../../scenario/model";
@@ -454,6 +455,39 @@ function OutlineRow({
   );
 }
 
+// 준비 구획의 행. 끄는 대상도 놓는 대상도 아니다(useSortable·useDroppable·손잡이 없음).
+function SetupRow({ step, view }: { step: Step; view?: RowView }) {
+  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
+  const select = useScenarioEditor((s) => s.select);
+  const selected = step.id === selectedStepId;
+  const accent = selected ? "border-accent-500 ring-1 ring-accent-500" : "border-slate-200";
+  const activate = () => view?.onActivate?.(step.id);
+  return (
+    <div
+      role="option"
+      aria-selected={selected}
+      aria-label={ko.editor.outlineRowAria(step.name)}
+      tabIndex={0}
+      data-depth="0"
+      data-step-id={step.id}
+      onClick={() => {
+        select(step.id);
+        activate();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          select(step.id);
+          activate();
+        }
+      }}
+      className={`flex items-center gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`}
+    >
+      <RowContent step={step} wide={view?.wide ?? false} />
+    </div>
+  );
+}
+
 // DragOverlay 안에 띄우는 비대화형 재귀 프리뷰. useSortable/SortableContext/onClick
 // 없음(이중 등록·중복 핸들 방지), store 미접촉, 선택 accent 미표시(F3), aria-hidden 장식.
 export function OutlineRowPreview({ step, depth }: { step: Step; depth: number }) {
@@ -534,7 +568,8 @@ export function FlowOutline({
   onActivateStep?: (id: string) => void;
 } = {}) {
   const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
-  const setupCount = useScenarioEditor((s) => s.model?.setup?.steps.length ?? 0);
+  const model = useScenarioEditor((s) => s.model);
+  const setup = useMemo(() => (model ? setupSteps(model) : EMPTY_STEPS), [model]);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
   const addStep = useScenarioEditor((s) => s.addStep);
@@ -681,8 +716,27 @@ export function FlowOutline({
             if (e.target === e.currentTarget) select(null);
           }}
         >
-          {setupCount > 0 && (
-            <p className="mb-1 text-xs text-slate-500">{ko.editor.setupOutlineLine(setupCount)}</p>
+          {setup.length > 0 && (
+            <>
+              <div
+                role="group"
+                aria-label={`${ko.editor.setupSectionName} ${ko.editor.setupSectionNote}`}
+                className="mb-2.5 rounded-lg border border-accent-200 bg-accent-50 p-2"
+              >
+                <p className="mb-1 px-0.5 text-[11px] font-semibold text-accent-800">
+                  {ko.editor.setupSectionName}{" "}
+                  <span className="font-normal text-slate-600">{ko.editor.setupSectionNote}</span>
+                </p>
+                <div className="flex flex-col gap-1">
+                  {setup.map((s) => (
+                    <SetupRow key={s.id} step={s} view={view} />
+                  ))}
+                </div>
+              </div>
+              <p className="mb-1 px-0.5 text-[11px] font-semibold text-slate-400">
+                {ko.editor.mainSectionTitle}
+              </p>
+            </>
           )}
           <div className="flex flex-col gap-1">
             <SortableContext items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>

@@ -257,7 +257,10 @@ describe("준비 스텝 쓰기 경로", () => {
   it("옮긴 스텝 안의 주석이 따라간다", () => {
     st().loadFromString(NO_SETUP);
     st().moveStepToSection(B1, "setup");
-    expect(st().yamlText).toContain("# 메모");
+    expect(st().model!.setup!.steps.map((s) => s.id)).toContain(B1);
+    const text = st().yamlText;
+    expect(text).toContain("# 메모");
+    expect(text.indexOf("# 메모")).toBeLessThan(text.search(/^steps:/m));
   });
 
   it("loop 안의 스텝·컨테이너·없는 id는 옮기지 않는다", () => {

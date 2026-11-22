@@ -856,7 +856,9 @@ export const ko = {
     problemUrlNeedsScheme: (stepName: string) =>
       `"${stepName}" 스텝의 URL은 http:// 또는 https:// 로 시작해야 합니다 — 예: https://api.example.com/path 또는 \${BASE_URL}/path`,
     problemDuplicateStepId: (id: string) => `스텝 id가 겹칩니다: ${id}`,
-    setupOutlineLine: (n: number) => `준비 스텝 ${n}개 — YAML 보기에서 확인할 수 있습니다`,
+    setupSectionName: "준비 스텝",
+    setupSectionNote: "— VU마다 한 번만 실행",
+    mainSectionTitle: "본 스텝 — 반복 실행",
     problemGateIntro: "YAML이 유효하지 않아 에디터가 마지막 정상 상태로 표시될 수 있습니다.",
     editBlockedWhileInvalid: "YAML 오류를 고칠 때까지 아웃라인·인스펙터 편집이 차단됩니다.",
     problemGateAction: "YAML 열어 확인",
