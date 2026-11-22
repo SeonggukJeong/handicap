@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+REVIEW-GATE: APPROVED
+
 **Goal:** QA가 YAML 없이 화면에서 준비 스텝을 만들고(본 스텝 → 「준비 스텝으로 옮기기」) 고치고, test-run·사이징·실행 창이 준비 스텝을 구분해 다루게 한다.
 
 **Architecture:** `ui/`와 엔진 한 곳(Task 10 — 본 스텝이 없는 시나리오의 VU 종료)을 고친다. `yamlDoc.ts`의 스텝 찾기(`findStepPath`)가 `setup.steps`도 찾게 해서 기존 편집 Edit를 그대로 재사용하고, 구획 사이 이동만 새 Edit 하나로 더한다. 화면은 모델 헬퍼 `allSteps`/`setupSteps`/`isSetupStep`으로 준비 스텝을 본다. trace의 준비 표지는 서버가 이미 보내는 선택 키를 UI Zod에 더해 읽는다.
