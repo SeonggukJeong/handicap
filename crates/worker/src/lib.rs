@@ -898,6 +898,41 @@ fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<M
             dropped: s.dropped,
         })
         .collect();
+    let section_step_stats: Vec<pb::SectionStepStat> = flush
+        .section_step_stats
+        .into_iter()
+        .filter_map(|s| {
+            let hdr = s.serialize_histogram().ok()?;
+            Some(pb::SectionStepStat {
+                section: s.section.as_str().to_string(),
+                step_id: s.step_id,
+                count: s.count,
+                error_count: s.error_count,
+                status_counts: s
+                    .status_counts
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+                hdr_histogram: hdr,
+                failure_kinds: s
+                    .failure_kinds
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+            })
+        })
+        .collect();
+    let section_outcomes: Vec<pb::SectionOutcome> = flush
+        .section_outcomes
+        .into_iter()
+        .map(|o| pb::SectionOutcome {
+            section: o.section.as_str().to_string(),
+            ok: o.ok,
+            failed: o.failed,
+            interrupted: o.interrupted,
+            last_done_ms: o.last_done_ms.unwrap_or(0),
+        })
+        .collect();
     let error_kind_stats = error_kind_stats_to_proto(flush.error_kind_stats);
     let loop_exit_stats = loop_exit_stats_to_proto(flush.loop_exit_stats);
     // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
@@ -915,6 +950,8 @@ fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<M
         && error_kind_stats.is_empty()
         && loop_exit_stats.is_empty()
         && flush.open_loop_seconds.is_empty()
+        && section_step_stats.is_empty()
+        && section_outcomes.is_empty()
         && flush.dropped == 0
     {
         return None;
@@ -933,6 +970,8 @@ fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<M
         dropped: flush.dropped,
         open_loop_seconds,
         open_loop_started_at_ms: flush.open_loop_started_at_ms.unwrap_or(0),
+        section_step_stats,
+        section_outcomes,
     })
 }
 
@@ -1033,6 +1072,107 @@ mod tests {
             section_step_stats: vec![],
             section_outcomes: vec![],
         }
+    }
+
+    fn setup_stat() -> handicap_engine::SectionStepStat {
+        let mut histogram = hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3)
+            .expect("valid bounds");
+        histogram.record(1_500).unwrap();
+        histogram.record(2_500).unwrap();
+        handicap_engine::SectionStepStat {
+            section: handicap_engine::Section::Setup,
+            step_id: "s1".into(),
+            count: 2,
+            error_count: 1,
+            status_counts: [(200u16, 1u64), (0u16, 1u64)].into_iter().collect(),
+            histogram,
+            failure_kinds: [("timeout", 1u64)].into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn section_only_flush_is_forwarded() {
+        let mut f = empty_flush();
+        f.section_outcomes = vec![handicap_engine::SectionOutcome {
+            section: handicap_engine::Section::Setup,
+            ok: 1,
+            failed: 0,
+            interrupted: 0,
+            last_done_ms: None,
+        }];
+        let b = flush_to_batch(f, "r", "w").expect("section-only flush must be sent");
+        assert_eq!(b.section_outcomes.len(), 1);
+        assert_eq!(b.section_outcomes[0].section, "setup");
+        assert_eq!(b.section_outcomes[0].ok, 1);
+        assert_eq!(b.section_outcomes[0].last_done_ms, 0);
+    }
+
+    #[test]
+    fn section_step_stats_only_flush_is_forwarded() {
+        let mut f = empty_flush();
+        f.section_step_stats = vec![setup_stat()];
+        assert!(flush_to_batch(f, "r", "w").is_some());
+    }
+
+    #[test]
+    fn section_step_stat_maps_fields() {
+        let mut f = empty_flush();
+        f.section_step_stats = vec![setup_stat()];
+        let b = flush_to_batch(f, "r", "w").unwrap();
+        assert_eq!(b.section_step_stats.len(), 1);
+        let s = &b.section_step_stats[0];
+        assert_eq!(s.section, "setup");
+        assert_eq!(s.step_id, "s1");
+        assert_eq!(s.count, 2);
+        assert_eq!(s.error_count, 1);
+        assert_eq!(s.status_counts.get("200"), Some(&1));
+        assert_eq!(s.status_counts.get("0"), Some(&1));
+        assert_eq!(s.failure_kinds.get("timeout"), Some(&1));
+        let h: hdrhistogram::Histogram<u64> = hdrhistogram::serialization::Deserializer::new()
+            .deserialize(&mut s.hdr_histogram.as_slice())
+            .unwrap();
+        assert_eq!(h.len(), 2);
+    }
+
+    #[test]
+    fn last_done_ms_maps_through() {
+        let mut f = empty_flush();
+        f.section_outcomes = vec![handicap_engine::SectionOutcome {
+            section: handicap_engine::Section::Setup,
+            ok: 1,
+            failed: 0,
+            interrupted: 0,
+            last_done_ms: Some(1_234),
+        }];
+        let b = flush_to_batch(f, "r", "w").unwrap();
+        assert_eq!(b.section_outcomes[0].last_done_ms, 1_234);
+    }
+
+    /// 준비 없는 run의 배치 바이트는 proto 변경 전(필드 14·15 추가 전)에 캡처한 값과 같다.
+    #[test]
+    fn no_section_batch_bytes_unchanged() {
+        use prost::Message;
+        let b = MetricBatch {
+            run_id: "r".into(),
+            worker_id: "w".into(),
+            windows: vec![MetricWindow {
+                ts_second: 5,
+                step_id: "_all".into(),
+                count: 3,
+                error_count: 1,
+                hdr_histogram: vec![],
+                status_counts: [("200".to_string(), 2u64)].into_iter().collect(),
+            }],
+            dropped: 1,
+            section_step_stats: vec![],
+            section_outcomes: vec![],
+            ..Default::default()
+        };
+        let before: Vec<u8> = vec![
+            10, 1, 114, 18, 1, 119, 26, 21, 8, 5, 18, 4, 95, 97, 108, 108, 24, 3, 32, 1, 50, 7, 10,
+            3, 50, 48, 48, 16, 2, 48, 1,
+        ];
+        assert_eq!(b.encode_to_vec(), before);
     }
 
     #[test]

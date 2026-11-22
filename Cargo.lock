@@ -1554,6 +1554,8 @@ dependencies = [
  "handicap-engine",
  "handicap-proto",
  "handicap-worker-core",
+ "hdrhistogram",
+ "prost",
  "tokio",
  "tokio-util",
  "tracing",

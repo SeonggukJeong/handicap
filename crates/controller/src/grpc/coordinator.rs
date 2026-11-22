@@ -3306,6 +3306,8 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
 
         let mk = |d: u64| pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: "w0".to_string(),
             windows: vec![],
@@ -3338,6 +3340,8 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
 
         let mk = |secs: Vec<pb::OpenLoopSecond>, started: i64, w: &str| pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: w.to_string(),
             windows: vec![],
@@ -3413,6 +3417,8 @@ mod tests {
 
         let now_ms = crate::store::now_ms();
         let batch = pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: "w0".to_string(),
             windows: vec![pb::MetricWindow {
@@ -3457,6 +3463,8 @@ mod tests {
             dropped: 0,
         };
         let mk = |secs: Vec<pb::OpenLoopSecond>, started: i64, w: &str| pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: w.to_string(),
             windows: vec![],
@@ -3508,6 +3516,8 @@ mod tests {
         let now_ms = crate::store::now_ms();
         let day_ms = 86_400_000_i64;
         let mk = |started: i64, w: &str| pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: w.to_string(),
             windows: vec![],
@@ -3555,6 +3565,8 @@ mod tests {
         V2Serializer::new().serialize(&h, &mut blob_a).unwrap();
 
         let batch = pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: "w0".to_string(),
             windows: vec![],
@@ -3642,6 +3654,8 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
 
         let batch = pb::MetricBatch {
+            section_step_stats: vec![],
+            section_outcomes: vec![],
             run_id: run_id.clone(),
             worker_id: "w0".to_string(),
             windows: vec![],
