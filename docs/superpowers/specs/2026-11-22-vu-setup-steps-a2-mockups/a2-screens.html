@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>준비 스텝 A2 화면 목업</title>
+<style>
+/* 실제 앱의 색·치수(Tailwind slate / indigo=accent / amber)를 그대로 옮긴 정적 목업. 밝은 바탕 고정(앱이 밝은 바탕). */
+:root {
+  --bg:#f8fafc; --surface:#fff; --fg:#0f172a; --s700:#334155; --s600:#475569; --s500:#64748b; --s400:#94a3b8;
+  --s300:#cbd5e1; --s200:#e2e8f0; --s100:#f1f5f9; --s50:#f8fafc;
+  --a50:#eef2ff; --a100:#e0e7ff; --a200:#c7d2fe; --a500:#6366f1; --a600:#4f46e5; --a800:#3730a3;
+  --am50:#fffbeb; --am300:#fcd34d; --am700:#b45309; --am800:#92400e;
+  --em200:#a7f3d0; --em600:#059669; --em900:#064e3b; --r200:#fecaca; --r600:#dc2626; --r700:#b91c1c; --r900:#7f1d1d;
+  --font: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:14px; line-height:1.5; }
+.wrap { max-width:1080px; margin:0 auto; padding:28px 16px 64px; display:flex; flex-direction:column; gap:40px; }
+h1 { font-size:20px; margin:0; }
+.lead { color:var(--s600); margin:6px 0 0; max-width:70ch; }
+.scene > h2 { font-size:15px; margin:0 0 2px; }
+.scene > p { margin:0 0 12px; color:var(--s600); max-width:80ch; }
+.ask { background:var(--am50); border:1px solid var(--am300); color:var(--am800); border-radius:6px; padding:6px 10px; font-size:13px; margin:0 0 12px; max-width:80ch; }
+.screen { background:var(--surface); border:1px solid var(--s200); border-radius:10px; padding:16px; }
+.cols { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.col { flex:1 1 300px; min-width:0; }
+.cap { font-size:12px; font-weight:600; color:var(--s500); margin:0 0 6px; }
+.tag { font-size:11px; font-weight:700; letter-spacing:.02em; color:var(--a600); }
+
+/* 아웃라인 */
+.panel { border:1px solid var(--s200); border-radius:6px; background:#fff; padding:12px; }
+.rows { display:flex; flex-direction:column; gap:4px; }
+.row { display:flex; gap:8px; align-items:center; border:1px solid var(--s200); border-radius:6px; background:#fff; padding:6px 8px; font-size:14px; cursor:pointer; min-width:0; }
+.row.sel { border-color:var(--a500); box-shadow:0 0 0 1px var(--a500); }
+.grip { color:var(--s400); flex:none; }
+.m { flex:none; border-radius:4px; padding:2px 6px; font-size:11px; font-weight:700; }
+.m.post { background:#fef3c7; color:#92400e; } .m.get { background:#d1fae5; color:#065f46; }
+.nm { display:flex; flex-direction:column; min-width:0; }
+.nm b { font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nm span { font-size:12px; color:var(--s500); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sec-label { font-size:11px; font-weight:600; color:var(--s400); padding:0 2px; margin:0 0 4px; }
+.sec-label.gap { margin-top:10px; }
+.setup-box { border:1px solid var(--a200); background:var(--a50); border-radius:8px; padding:8px; margin-bottom:10px; }
+.setup-box .sec-label { color:var(--a800); }
+.setup-box .sec-label small { font-weight:400; color:var(--s600); }
+.addbar { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+.addbar button, .sbtn { font:inherit; font-size:14px; border:1px solid var(--s300); background:#fff; border-radius:4px; padding:6px 12px; color:var(--s500); }
+.addbar button:first-child { border-color:var(--s400); color:var(--fg); font-weight:500; }
+
+/* Inspector */
+.insp { display:flex; flex-direction:column; gap:12px; font-size:14px; }
+.insp header { display:flex; align-items:center; justify-content:space-between; }
+.insp h3 { margin:0; font-size:14px; font-weight:600; color:var(--s700); }
+.sm { font:inherit; font-size:12px; padding:4px 8px; border:1px solid var(--s300); border-radius:4px; background:#fff; color:var(--s700); }
+.sm.danger { border-color:#fca5a5; color:var(--r700); }
+.sm:disabled { opacity:.4; }
+.moveline { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.moveline.setup { background:var(--a50); border:1px solid var(--a200); border-radius:6px; padding:6px 8px; }
+.moveline .hint { font-size:12px; color:var(--a800); }
+.why { font-size:12px; color:var(--s500); margin:-6px 0 0; }
+.field label { display:block; font-size:12px; color:var(--s500); margin-bottom:2px; }
+.field input { font:inherit; width:100%; border:1px solid var(--s300); border-radius:6px; padding:5px 8px; }
+.card { border:1px solid var(--s200); border-radius:6px; padding:8px; }
+.card > b { font-size:12px; color:var(--s600); }
+.exline { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px; font-size:12px; }
+.exline code { font-family:var(--mono); background:var(--s100); border-radius:4px; padding:1px 5px; }
+.exline input { font:inherit; font-size:12px; width:96px; border:1px solid var(--s300); border-radius:4px; padding:2px 6px; }
+.unused { color:var(--am700); font-size:12px; }
+
+/* test-run */
+.chips { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.chip { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--s300); border-radius:999px; padding:2px 10px; font-size:12px; background:#fff; }
+.chip.ok { border-color:var(--em200); background:#ecfdf5; color:var(--em900); }
+.chip.fail { border-color:var(--r200); background:#fef2f2; color:var(--r900); }
+.chip.idle { color:var(--s400); }
+.arrow { color:var(--s300); }
+.badge { border-radius:4px; background:var(--a100); color:var(--a800); padding:1px 6px; font-size:11px; font-weight:600; flex:none; }
+.sep { color:var(--s300); padding:0 2px; }
+.res { border:1px solid var(--s200); border-radius:4px; padding:16px; }
+.res-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.res-head h3 { margin:0; font-size:18px; font-weight:600; }
+.pill { border-radius:4px; padding:2px 8px; font-size:12px; font-weight:600; }
+.pill.ok { background:var(--em200); color:var(--em900); } .pill.fail { background:var(--r200); color:var(--r900); }
+.meta { font-size:12px; color:var(--s500); }
+.res ul { list-style:none; margin:0; padding:0; }
+.res li { border-bottom:1px solid var(--s100); padding:8px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:14px; }
+.res li .st { font-family:var(--mono); font-size:12px; }
+.res li .st.ok { color:var(--em600); } .res li .st.bad { color:var(--r600); }
+.res li.divide { border-bottom:2px solid var(--a200); }
+.callout { border-radius:6px; border:1px solid; padding:8px; font-size:14px; }
+.callout.warn { border-color:var(--am300); background:var(--am50); color:var(--am800); }
+.callout.info { border-color:var(--a200); background:var(--a50); color:var(--a800); }
+.callout p { margin:0 0 4px; font-weight:500; }
+.callout ul { margin:0; padding-left:18px; }
+.callout li + li { margin-top:4px; }
+.callout code { font-family:var(--mono); font-size:12px; background:#fff8; border-radius:3px; padding:0 4px; }
+.mb { margin-bottom:8px; }
+.sub { font-size:13px; font-weight:600; color:var(--s700); margin:0 0 4px; }
+table { border-collapse:collapse; width:100%; font-size:13px; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--s100); }
+th { font-size:12px; color:var(--s500); font-weight:600; }
+.note { font-size:12px; color:var(--s600); margin:4px 0 0; }
+</style>
+
+<div class="wrap">
+  <div>
+    <h1>준비 스텝 A2 — 화면 목업</h1>
+    <p class="lead">A2가 새로 그리는 화면 다섯 곳입니다. 색·글자 크기·간격은 실제 앱의 값(slate·indigo·amber)을 그대로 썼습니다. 사용자 승인 2026-11-22 — 이 파일의 CSS·마크업이 A2 구현의 시각 기준입니다.</p>
+  </div>
+
+  <section class="scene">
+    <h2>1. 아웃라인 — 준비 구획</h2>
+    <p>준비 스텝이 있을 때만 맨 위에 나옵니다. 행 모양은 본 스텝과 같고, 끌기 손잡이(⠿)가 없습니다.</p>
+    <p class="ask">결정(사용자 2026-11-22): <b>가</b>(옅은 indigo 상자로 묶기) 채택. 「준비」 표지는 이 목업의 indigo 칩으로 통일. 「나」는 비교용으로 남긴 기각안입니다.</p>
+    <div class="screen cols">
+      <div class="col">
+        <p class="cap"><span class="tag">가</span> 상자로 묶기 — 채택</p>
+        <div class="panel">
+          <div class="setup-box">
+            <p class="sec-label">준비 스텝 <small>— VU마다 한 번만 실행</small></p>
+            <div class="rows">
+              <div class="row sel"><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+              <div class="row"><span class="m get">GET</span><div class="nm"><b>내 정보 확인</b><span>${BASE_URL}/me</span></div></div>
+            </div>
+          </div>
+          <p class="sec-label">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>주문 생성</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button></div>
+        </div>
+      </div>
+      <div class="col">
+        <p class="cap"><span class="tag">나</span> 머리 글자만 — 기각</p>
+        <div class="panel">
+          <p class="sec-label">준비 스텝 — VU마다 한 번만 실행</p>
+          <div class="rows">
+            <div class="row sel"><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="m get">GET</span><div class="nm"><b>내 정보 확인</b><span>${BASE_URL}/me</span></div></div>
+          </div>
+          <p class="sec-label gap">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>주문 생성</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>2. Inspector — 구획 사이 옮기기</h2>
+    <p>머리 줄 바로 아래에 한 줄이 생깁니다. 폭은 실제 Inspector(약 294px)에 맞췄습니다. loop·if·병렬 안의 스텝과 컨테이너에는 이 줄이 없습니다.</p>
+    <div class="screen cols">
+      <div class="col" style="max-width:310px">
+        <p class="cap">준비 스텝을 골랐을 때 — ↑↓ 없음</p>
+        <div class="insp">
+          <header><h3>HTTP 스텝</h3><div><button class="sm danger">삭제</button></div></header>
+          <div class="moveline setup"><span class="hint"><span class="badge">준비</span> VU마다 한 번만 실행됩니다.</span><button class="sm">본 스텝으로 옮기기</button></div>
+          <div class="field"><label>이름</label><input value="토큰 발급"></div>
+          <div class="card"><b>추출</b>
+            <div class="exline"><code>token</code> ← 본문 <code>$.token</code></div>
+            <div class="exline">값이 없을 때 <input value="guest"> <span class="unused">준비 스텝에서는 쓰이지 않습니다</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="col" style="max-width:310px">
+        <p class="cap">최상위 본 스텝을 골랐을 때</p>
+        <div class="insp">
+          <header><h3>HTTP 스텝</h3><div style="display:flex;gap:4px"><button class="sm">↑</button><button class="sm">↓</button><button class="sm danger">삭제</button></div></header>
+          <div class="moveline"><span></span><button class="sm">준비 스텝으로 옮기기</button></div>
+          <div class="field"><label>이름</label><input value="주문 목록 조회"></div>
+        </div>
+      </div>
+      <div class="col" style="max-width:310px">
+        <p class="cap">본 스텝이 하나뿐일 때 — 잠김</p>
+        <div class="insp">
+          <header><h3>HTTP 스텝</h3><div style="display:flex;gap:4px"><button class="sm" disabled>↑</button><button class="sm" disabled>↓</button><button class="sm danger">삭제</button></div></header>
+          <div class="moveline"><span></span><button class="sm" disabled>준비 스텝으로 옮기기</button></div>
+          <p class="why">본 스텝이 하나뿐이면 옮길 수 없습니다</p>
+          <div class="field"><label>이름</label><input value="토큰 발급"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>3. test-run — 흐름 칩과 결과</h2>
+    <p>준비 스텝이 앞에 「준비」 표지와 함께 나오고, 본 스텝과는 세로줄(|)로 갈립니다. 결과 머리의 스텝 수는 본 스텝만 세고 준비 수를 따로 적습니다.</p>
+    <div class="screen" style="display:flex;flex-direction:column;gap:16px">
+      <div>
+        <p class="sub">흐름 칩</p>
+        <div class="chips">
+          <span class="badge">준비</span>
+          <span class="chip ok">토큰 발급 ✓</span><span class="arrow">→</span><span class="chip ok">내 정보 확인 ✓</span>
+          <span class="sep">|</span>
+          <span class="chip ok">주문 목록 조회 ✓</span><span class="arrow">→</span><span class="chip fail">주문 생성 ✗</span>
+        </div>
+      </div>
+      <div class="cols">
+        <div class="col">
+          <p class="cap">준비 성공</p>
+          <div class="res">
+            <div class="res-head"><h3>실행 결과</h3><span class="pill fail">실패</span><span class="meta">412ms · 2 steps · 준비 2</span></div>
+            <ul>
+              <li><span class="badge">준비</span><b style="font-weight:500">토큰 발급</b><span class="st ok">200</span><span class="meta">41ms</span></li>
+              <li class="divide"><span class="badge">준비</span><b style="font-weight:500">내 정보 확인</b><span class="st ok">200</span><span class="meta">18ms</span></li>
+              <li><b style="font-weight:500">주문 목록 조회</b><span class="st ok">200</span><span class="meta">120ms</span></li>
+              <li><b style="font-weight:500">주문 생성</b><span class="st bad">500</span><span class="meta">233ms</span></li>
+            </ul>
+          </div>
+        </div>
+        <div class="col">
+          <p class="cap">준비 실패 — 본 스텝을 실행하지 않음</p>
+          <div class="res">
+            <div class="res-head"><h3>실행 결과</h3><span class="pill fail">실패</span><span class="meta">52ms · 0 steps · 준비 1</span></div>
+            <div class="callout warn mb">준비 스텝이 실패해 본 스텝을 실행하지 않았습니다</div>
+            <ul>
+              <li><span class="badge">준비</span><b style="font-weight:500">토큰 발급</b><span class="st bad">401</span><span class="meta">52ms</span><span style="color:var(--r700);font-size:12px;flex-basis:100%">상태 검증 실패 — 기대 200, 받음 401</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="cap">데이터셋 순차 모드 — 준비 행은 행 목록 위에 한 번</p>
+        <div class="res">
+          <div class="res-head"><h3>순차 실행 결과</h3><span class="pill ok">성공</span><span class="meta">980ms · 3행</span></div>
+          <p class="sub">준비 스텝 — 첫 행 앞에 한 번 실행</p>
+          <ul style="margin-bottom:10px">
+            <li class="divide"><span class="badge">준비</span><b style="font-weight:500">토큰 발급</b><span class="st ok">200</span><span class="meta">41ms</span></li>
+          </ul>
+          <ul>
+            <li>▸ <b style="font-weight:500">1행</b><span class="st ok">✓</span><span class="meta">310ms</span></li>
+            <li>▸ <b style="font-weight:500">2행</b><span class="st ok">✓</span><span class="meta">298ms</span></li>
+            <li>▸ <b style="font-weight:500">3행</b><span class="st ok">✓</span><span class="meta">331ms</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>4. 실행 창·스케줄 폼 — 준비 스텝 안내</h2>
+    <p>막지 않는 안내입니다(파란 상자 하나). 해당하는 줄만 나오고, 준비 스텝이 없는 시나리오에는 상자 자체가 없습니다. 아래는 네 줄이 모두 뜬 최악의 경우입니다(실제로는 ①과 ③이 함께 뜨지 않습니다).</p>
+    <div class="screen" style="max-width:640px">
+      <div class="callout info">
+        <p>준비 스텝 안내</p>
+        <ul>
+          <li>준비 스텝이 VU 수만큼 한꺼번에 나갑니다. 상승 시간을 두면 나눠서 나갑니다.</li>
+          <li>준비 스텝은 슬롯마다 한 번 실행됩니다. 슬롯이 30개면 준비 스텝이 최대 30번 나갑니다.</li>
+          <li>데이터 5행을 VU 20개가 나눠 씁니다. 같은 행으로 준비 스텝이 여러 번 실행됩니다. 값 하나가 틀리면 그 행을 받은 VU가 모두 준비에 실패합니다.</li>
+          <li>준비 스텝은 VU마다 첫 반복의 값으로 한 번만 실행됩니다. <code>user</code>, <code>pw</code> 값이 VU마다 고정돼야 한다면 데이터셋 방식을 'per_vu — VU마다 한 행 (고정)'으로 두세요.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>5. 그 밖 — 모니터 미리 실행 · 페이싱 현황판</h2>
+    <p>모니터: 준비 행에 이름과 표지가 붙고, 그 행에서는 「조건으로 추가」·「화면에 추가」가 나오지 않습니다(다음 슬라이스 「가림 문구」에서 엽니다). 현황판: 준비 스텝이 맨 앞 행, 경로 칸이 「준비」.</p>
+    <div class="screen cols">
+      <div class="col">
+        <p class="cap">모니터 칸 설정 — 미리 실행 결과</p>
+        <div class="res" style="padding:12px">
+          <ul>
+            <li style="flex-direction:column;align-items:flex-start;gap:2px">
+              <div style="display:flex;gap:8px;align-items:center"><span class="badge">준비</span><b style="font-weight:500">토큰 발급</b><span class="st ok">200</span><span class="meta">41ms</span></div>
+              <p class="note">준비 스텝의 값은 아직 칸에 쓸 수 없습니다</p>
+            </li>
+            <li><b style="font-weight:500">주문 목록 조회</b><span class="st ok">200</span><span class="meta">120ms</span><span class="meta" style="color:var(--a600)">값을 눌러 조건·화면에 추가</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <p class="cap">페이싱 현황판</p>
+        <table>
+          <tr><th>스텝</th><th>위치</th><th>상태</th><th>대기</th></tr>
+          <tr><td>토큰 발급</td><td><span class="badge">준비</span></td><td>기본값 따름</td><td>500–1500ms</td></tr>
+          <tr><td>주문 목록 조회</td><td></td><td>기본값 따름</td><td>500–1500ms</td></tr>
+          <tr><td>주문 생성</td><td></td><td>이 스텝만 지정</td><td>2000–3000ms</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+</html>

@@ -10,6 +10,8 @@ REVIEW-GATE: APPROVED
 
 **Tech Stack:** TypeScript · React · Zustand · Zod · `yaml` Document API · vitest/RTL
 
+**목업(시각 기준, 사용자 승인 2026-11-22):** `docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-mockups/a2-screens.html` — 장면 1 아웃라인(「가」 상자 안이 채택), 2 Inspector, 3 test-run, 4 안내 상자, 5 모니터·현황판. **이 파일의 CSS·마크업이 화면의 시각 기준이다**: 바탕·테두리·글자 크기와 굵기·간격·칩 모양을 목업의 값 그대로 Tailwind 클래스로 옮긴다(목업의 `--a*`는 `accent-*`, `--s*`는 `slate-*`, `--am*`는 `amber-*`). 각 task의 「목업」 줄이 가리키는 장면을 열어 보고 구현한다. 목업과 이 plan의 글이 어긋나면 목업이 이긴다(문구만은 plan의 글자가 이긴다).
+
 **Spec:** `docs/superpowers/specs/2026-11-22-vu-setup-steps-design.md` — §7-2(D13·D15·D14), §12. US 블록은 spec 머리(「사용자 스토리 (US)」). A2 UI 자리의 원천: `docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-ui-steps-table.md`.
 
 ## Global Constraints
@@ -20,6 +22,7 @@ REVIEW-GATE: APPROVED
 - 「준비가 있는가」는 `setupSteps(model).length > 0`으로만 판단한다(`setup` 키 유무가 아니다).
 - Zustand 셀렉터 안에서 `allSteps(model)`을 부르지 않는다(매번 새 배열 → 무한 리렌더). `s.model`을 고르고 `useMemo`로 만든다.
 - 새 편집 어포던스는 `yamlError !== null`이면 `disabled`.
+- 「준비」 표지는 공용 컴포넌트 `SetupBadge` 하나로 그린다(Task 3이 만든다 — `ui/src/components/scenario/SetupBadge.tsx`, 글자 `ko.editor.setupBadge` = `"준비"`, 모양은 목업의 `.badge`: `rounded bg-accent-100 px-1.5 py-px text-[11px] font-semibold text-accent-800 shrink-0`). 표지를 자리마다 다시 그리지 않는다.
 - 놀라운 동작을 변호하는 주석을 쓰지 않는다(working-rules §7) — 고치거나 report에 적는다.
 - 회귀 테스트는 되돌려 확인한다(고친 줄을 옛 상태로 → RED → 원복 → GREEN). 결과를 task report에 적는다.
 - 테스트 파일은 `__tests__/` 안에만 둔다(밖의 `*.test.ts`는 돌지 않는다). 테스트 파일을 먼저 고친 뒤 src를 고친다(`tdd-guard`).
@@ -149,18 +152,20 @@ steps:
 
 **Interfaces:**
 - Consumes: store `select`, `selectedStepId`, `model`; `setupSteps`.
+- 목업: 장면 1의 「가」.
 - Produces: 준비 스텝 행 = `role="option"`, `aria-label={ko.editor.outlineRowAria(name)}`, `data-step-id={id}`를 **항상** 단다(`OutlineRow`는 넓게 보기·`onActivate`일 때만 다는데, 준비 행은 사용처 이동의 스크롤 대상이라 조건 없이 단다 — `EditorShell.jumpToStep`이 이 속성으로 찾는다), `aria-selected`.
 
 문구(`ko.editor`):
-- `setupSectionTitle`: `"준비 스텝 — VU마다 한 번만 실행"`
+- `setupSectionName`: `"준비 스텝"`
+- `setupSectionNote`: `"— VU마다 한 번만 실행"` (구획의 접근 이름은 둘을 공백으로 이은 `준비 스텝 — VU마다 한 번만 실행`)
 - `mainSectionTitle`: `"본 스텝 — 반복 실행"`
 
 - [ ] **Step 1: 테스트를 바꿔 쓴다** — `FlowOutline.setup.test.tsx`
 
   | 테스트 이름 | 단언 |
   |---|---|
-  | `준비 스텝이 있으면 구획 머리 줄 둘과 준비 행이 본 스텝 행보다 앞에 나온다` | `getByText("준비 스텝 — VU마다 한 번만 실행")`·`getByText("본 스텝 — 반복 실행")` 존재, `getAllByRole("option")`의 `aria-label` 순서가 `[스텝: 준비 요청, 스텝: 조회]` |
-  | `준비 스텝이 없으면 머리 줄이 없다` | 두 문구 `queryByText` 없음 |
+  | `준비 스텝이 있으면 구획 머리 줄 둘과 준비 행이 본 스텝 행보다 앞에 나온다` | `getByRole("group", { name: "준비 스텝 — VU마다 한 번만 실행" })`·`getByText("본 스텝 — 반복 실행")` 존재, 준비 행들이 그 group **안**에 있다(`within(group).getAllByRole("option")` 길이 = 준비 스텝 수), `getAllByRole("option")`의 `aria-label` 순서가 `[스텝: 준비 요청, 스텝: 조회]` |
+  | `준비 스텝이 없으면 머리 줄이 없다` | `queryByRole("group", { name: "준비 스텝 — VU마다 한 번만 실행" })` 없음, `queryByText("본 스텝 — 반복 실행")` 없음 |
   | `준비 행을 누르면 선택된다` | 클릭 → `useScenarioEditor.getState().selectedStepId === S1`, 행 `aria-selected="true"` |
   | `준비 행에는 끌기 손잡이가 없다` | `within(준비 행).queryByRole("button")` 없음; 본 스텝 행에는 있음(같은 테스트에서 대조) |
   | `넓게 보기에서 준비 행을 누르면 onActivateStep이 불린다` | `<FlowOutline wide onActivateStep={spy} />` → 클릭 시 `spy`가 `S1`로 호출 |
@@ -171,7 +176,12 @@ steps:
 
 - [ ] **Step 2: 실패 확인** — `pnpm test FlowOutline.setup`.
 
-- [ ] **Step 3: 구현** — `FlowOutline`에서 `setupCount` 줄과 A1의 `<p>`를 지우고, `model`을 골라 `useMemo`로 `setupSteps`를 만든다. 본 스텝 목록 위에 준비 구획(`<div role="group" aria-label={ko.editor.setupSectionTitle}>` + 머리 줄 + 행들)을, 구획이 있을 때만 본 스텝 목록 위 머리 줄을 그린다. 준비 행은 새 컴포넌트 `SetupRow`: `OutlineRow`의 http leaf 가지와 **같은 클래스·같은 행 내용 컴포넌트·같은 선택/키보드 처리**를 쓰되 `useSortable`·`useDroppable`·끌기 손잡이·`SortableContext`가 없다(끄는 대상도 놓는 대상도 아니다 — 끌기 계산은 지금처럼 `model.steps`만 받는다). 머리 줄 글자 모양은 밴드 라벨(`text-[11px] font-semibold text-slate-400`)과 같게. `ko.editor.setupOutlineLine`을 지운다(`grep -rn setupOutlineLine ui/src crates` → 0).
+- [ ] **Step 3: 구현** — 목업 장면 1의 「가」. `FlowOutline`에서 `setupCount` 줄과 A1의 `<p>`를 지우고, `model`을 골라 `useMemo`로 `setupSteps`를 만든다. 본 스텝 목록 위에 준비 구획을 그린다:
+  - 상자(목업 `.setup-box`): `<div role="group" aria-label={name + " " + note}>` — `mb-2.5 rounded-lg border border-accent-200 bg-accent-50 p-2`.
+  - 머리 줄(목업 `.setup-box .sec-label`): `mb-1 px-0.5 text-[11px] font-semibold text-accent-800`에 이름, 이어서 `<span className="font-normal text-slate-600">`에 note.
+  - 행: 새 컴포넌트 `SetupRow` — `OutlineRow`의 http leaf 가지와 **같은 클래스·같은 행 내용 컴포넌트(`RowContent`)·같은 선택/키보드 처리**를 쓰되 `useSortable`·`useDroppable`·끌기 손잡이·`SortableContext`가 없다(끄는 대상도 놓는 대상도 아니다 — 끌기 계산은 지금처럼 `model.steps`만 받는다). 행 바탕은 흰색 그대로(상자의 옅은 바탕 위에 흰 행).
+  - 구획이 있을 때만 본 스텝 목록 위 머리 줄(목업 `.sec-label`): `mb-1 px-0.5 text-[11px] font-semibold text-slate-400`에 `mainSectionTitle`.
+  - `ko.editor.setupOutlineLine`을 지운다(`grep -rn setupOutlineLine ui/src crates` → 0).
 
 - [ ] **Step 4: 통과 확인** — `pnpm test FlowOutline` (기존 `FlowOutline.test.tsx` 포함).
 
@@ -182,17 +192,21 @@ steps:
 ### Task 3: Inspector — 준비 스텝 편집·구획 옮기기
 
 **Files:**
+- Create: `ui/src/components/scenario/SetupBadge.tsx` (`export function SetupBadge(): JSX.Element` — Global Constraints의 모양)
 - Modify: `ui/src/components/scenario/Inspector.tsx` (`Inspector`, `HttpStepInspector`, `ExtractEditor`)
 - Modify: `ui/src/i18n/ko.ts`
 - Test: `ui/src/components/scenario/__tests__/Inspector.setup.test.tsx` (신규)
 
 **Interfaces:**
+- 목업: 장면 2(세 상태).
 - Consumes: Task 1의 `moveStepToSection`, `isSetupStep`; Task 2의 준비 행(테스트는 store `select`로 직접 고른다).
+- Produces: `SetupBadge`(Task 4·5·8이 쓴다).
 
 문구(`ko.editor`):
 - `moveToSetup`: `"준비 스텝으로 옮기기"`
 - `moveToMain`: `"본 스텝으로 옮기기"`
-- `setupStepHint`: `"준비 스텝 — VU마다 한 번만 실행됩니다."`
+- `setupStepHint`: `"VU마다 한 번만 실행됩니다."` (앞에 `SetupBadge`가 붙는다)
+- `setupBadge`: `"준비"`
 - `setupDefaultUnused`: `"준비 스텝에서는 쓰이지 않습니다"`
 - `moveToSetupOnlyMain`: `"본 스텝이 하나뿐이면 옮길 수 없습니다"`
 
@@ -201,7 +215,7 @@ steps:
   | 테스트 이름 | 단언 |
   |---|---|
   | `준비 스텝을 고르면 Inspector가 열리고 이름을 고치면 YAML에 반영된다` | `select(S1)` → 이름 입력에 `준비 요청`; 바꾸고 blur → `model.setup.steps[0].name`이 새 이름 |
-  | `준비 스텝에는 ↑↓가 없고 안내 줄과 「본 스텝으로 옮기기」가 있다` | `queryByTitle(ko.common.moveUp)` 없음, `getByText("준비 스텝 — VU마다 한 번만 실행됩니다.")`, `getByRole("button",{name:"본 스텝으로 옮기기"})` |
+  | `준비 스텝에는 ↑↓가 없고 안내 줄과 「본 스텝으로 옮기기」가 있다` | `queryByTitle(ko.common.moveUp)` 없음, 옮기기 줄 안에 `준비` 표지와 `getByText("VU마다 한 번만 실행됩니다.")`, `getByRole("button",{name:"본 스텝으로 옮기기"})` |
   | `「본 스텝으로 옮기기」를 누르면 본 스텝이 되고 버튼이 바뀐다` | 클릭 → `model.setup === undefined`, `model.steps`의 마지막 id가 S1, 같은 Inspector에 `준비 스텝으로 옮기기` 버튼과 ↑↓가 나타남 |
   | `최상위 본 http 스텝에는 「준비 스텝으로 옮기기」가 있다` | 본 스텝 2개 픽스처에서 `select(B1)` → 버튼 존재; 클릭 → `model.setup.steps` 끝에 B1 |
   | `loop 안의 http 스텝과 컨테이너에는 옮기기 버튼이 없다` | loop 픽스처: 자식 http 선택 → 두 버튼 모두 없음; loop 선택 → 없음 |
@@ -213,7 +227,7 @@ steps:
 
 - [ ] **Step 3: 구현**
   - `Inspector()`: `steps` 셀렉터를 `model` 셀렉터 + `useMemo(() => (model ? allSteps(model) : EMPTY_STEPS), [model])`로 바꾼다. `topLevel` 판정은 `model.steps` 기준 그대로.
-  - `HttpStepInspector`: `inSetup = isSetupStep(model, step.id)`, `topLevelMain = model.steps.some((s) => s.id === step.id)`. `inSetup`이면 `MoveButtons`를 그리지 않는다. 머리(`header`) 바로 아래에 한 줄: `inSetup`이면 안내 글 + 「본 스텝으로 옮기기」, `topLevelMain`이면 「준비 스텝으로 옮기기」, 둘 다 아니면 줄 자체가 없다. 버튼은 기존 `SmallButton`. `disabled={yamlError !== null}`, 「준비 스텝으로 옮기기」는 `model.steps.length <= 1`일 때도 잠그고 그 아래에 `moveToSetupOnlyMain`을 보인다(`text-xs text-slate-500`).
+  - `HttpStepInspector`: `inSetup = isSetupStep(model, step.id)`, `topLevelMain = model.steps.some((s) => s.id === step.id)`. `inSetup`이면 `MoveButtons`를 그리지 않는다. 머리(`header`) 바로 아래에 한 줄(목업 장면 2의 `.moveline`): `inSetup`이면 `flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent-200 bg-accent-50 px-2 py-1.5` 안에 왼쪽 `<span className="text-xs text-accent-800">`(`SetupBadge` + 안내 글), 오른쪽 「본 스텝으로 옮기기」. `topLevelMain`이면 바탕 없는 `flex justify-end`에 「준비 스텝으로 옮기기」. 둘 다 아니면 줄 자체가 없다. 버튼은 기존 `SmallButton`. `disabled={yamlError !== null}`, 「준비 스텝으로 옮기기」는 `model.steps.length <= 1`일 때도 잠그고 그 아래에 `moveToSetupOnlyMain`을 보인다(`text-xs text-slate-500`).
   - `ExtractEditor`에 `inSetup: boolean` prop. 기본값 칸이 보이는 줄에서 `inSetup`이면 칸 옆에 안내 글(`text-xs text-amber-700`).
   - `isInsideParallelBranch(model.steps, …)` 호출은 그대로 둔다(준비 스텝은 못 찾아 `false`).
 
@@ -228,7 +242,7 @@ steps:
 ### Task 4: 페이싱 현황판·파일 가져오기·스텝으로 가는 연결들
 
 **Files:**
-- Modify: `ui/src/scenario/thinkTime.ts` (`buildThinkRows`)
+- Modify: `ui/src/scenario/thinkTime.ts` (`ThinkRow`, `buildThinkRows`), `ui/src/components/scenario/ThinkTimeBoard.tsx`
 - Modify: `ui/src/components/scenario/YamlFileActions.tsx`
 - Modify: `ui/src/scenario/problems.ts` (준비 스텝 항목을 스텝 연결로)
 - Modify: `ui/src/i18n/ko.ts`
@@ -237,14 +251,15 @@ steps:
 **Interfaces:**
 - Consumes: Task 1(think 일괄 편집이 준비 스텝에 적용), Task 2·3(준비 행 선택·Inspector).
 
-문구: `ko.editor.setupPathLabel`: `"준비"`
+목업: 장면 5의 현황판 — **표지의 모양과 행 순서만** 본다. 목업은 「위치」 칸을 따로 그렸지만 실제 현황판의 표 구조(칸·열)는 바꾸지 않는다: 표지는 이름 칸 안, 지금 경로 글자(`step-path`)가 있는 자리에 둔다. 새 문구 없음.
 
 - [ ] **Step 1: 실패하는 테스트**
 
   | 파일 · 테스트 이름 | 단언 |
   |---|---|
-  | `thinkTime.test.ts` · `준비 스텝이 현황판 행의 맨 앞에 경로 「준비」로 나온다` | `buildThinkRows(model)`의 `[0]`이 `{stepId: S1, path: "준비", insideParallel: false}`, `[1].stepId === B1` |
-  | 같은 파일 · `준비 스텝도 시나리오 기본 think time을 상속한다` | `default_think_time`이 있는 모델 → `[0].state === "inherited"`, `effective` = 기본값 |
+  | `thinkTime.test.ts` · `준비 스텝이 현황판 행의 맨 앞에 준비 표시와 함께 나온다` | `buildThinkRows(model)`의 `[0]`이 `{stepId: S1, setup: true, path: "", insideParallel: false}`, `[1]`이 `{stepId: B1, setup: false}` |
+  | `ThinkTimeBoard.test.tsx` · `준비 스텝 행에 「준비」 표지가 있다` | 준비 행 안에 `준비` 글자, 본 스텝 행에는 없음 |
+  | `thinkTime.test.ts` · `준비 스텝도 시나리오 기본 think time을 상속한다` | `default_think_time`이 있는 모델 → `[0].state === "inherited"`, `effective` = 기본값 |
   | `ThinkTimeBoard.test.tsx` · `준비 스텝 행의 값을 고치면 그 스텝에 반영된다` | 준비 행(`stepId`로 특정)의 min/max 입력 후 포커스 이동 → `model.setup.steps[0].think_time` 반영 |
   | `YamlFileActions.test.tsx` · `준비 스텝만 있는 시나리오도 덮어쓰기 확인을 묻는다` | 본 스텝 0개·준비 1개 store에서 파일 가져오기 → `window.confirm` 호출됨 |
   | `problems.test.ts` · `준비 스텝의 주소 문제는 스텝으로 가는 항목이다` | 준비 스텝 주소가 빈 모델 → 그 항목이 `{ kind: "step", stepId: S1 }` (A1의 `plain` 기대를 바꾼다. id 겹침 항목은 `plain` 그대로) |
@@ -255,7 +270,7 @@ steps:
 - [ ] **Step 2: 실패 확인** — `pnpm test thinkTime ThinkTimeBoard YamlFileActions problems ValidationBanner TrustBoard`.
 
 - [ ] **Step 3: 구현**
-  - `buildThinkRows`: `visit(sc.steps, [], false)` 앞에 `visit(setupSteps(sc), [ko.editor.setupPathLabel], false)`.
+  - `ThinkRow`에 `setup: boolean`을 더한다. `buildThinkRows`: 준비 스텝을 먼저 훑어 `setup: true`·`path: ""`로, 본 스텝은 `setup: false`로. `ThinkTimeBoard`: `row.setup`이면 이름 앞(경로 글자 자리)에 `SetupBadge`. `ThinkRow` 리터럴을 만드는 테스트는 `tsc -b`가 알려 준다(전부 `setup: false`).
   - `YamlFileActions`: `hasContent = (s.model ? allSteps(s.model).length : 0) > 0 || s.yamlError !== null`.
   - `problems.ts`: `urlProblems(setupSteps, true)`로 바꾸고 「A1에서 선택할 수 없으므로」 주석을 지운다(id 겹침 항목은 어느 스텝을 가리킬지 정할 수 없어 `plain` 그대로).
 
@@ -274,13 +289,14 @@ steps:
 - Test: `ui/src/api/__tests__/`의 trace 스키마 테스트(있으면 그 파일, 없으면 `traceSetup.test.ts` 신규), `TestRunPanel.test.tsx`, `SequentialRunPanel.test.tsx`, `TestFlowChips.test.tsx`, `TestRunSection.test.tsx`, `TestRunSection.dataset.test.tsx`
 
 **Interfaces:**
+- 목업: 장면 3(흐름 칩·준비 성공·준비 실패·순차 모드).
 - Produces:
   - `StepTrace.section?: string`(준비 행이면 `"setup"` — 다른 구간 이름이 와도 파싱이 깨지지 않게 글자로 읽는다) · `ScenarioTrace.setup_failed?: boolean` · `ScenarioTrace.setup_ms?: number` · `SequentialTrace.setup_steps?: StepTrace[]` · `SequentialTrace.setup_failed?: boolean` · `SequentialTrace.setup_ms?: number` — 전부 `.optional()`(서버는 없으면 키를 생략한다. `null`은 오지 않는다).
   - `TestFlowChips`에 선택 prop `setupCount?: number`(기본 0) — `steps`의 앞 `setupCount`개가 준비 스텝.
   - `TraceStepList`·`TestRunPanel`·`SequentialRunPanel`의 props는 그대로(`steps`에 준비 스텝을 포함해 넘긴다).
 
 문구(`ko.editor`):
-- `setupBadge`: `"준비"`
+- (표지는 `SetupBadge` — Task 3)
 - `testRunSetupCount`: `(n: number) => \`준비 ${n}\``
 - `testRunSetupFailed`: `"준비 스텝이 실패해 본 스텝을 실행하지 않았습니다"`
 - `seqSetupTitle`: `"준비 스텝 — 첫 행 앞에 한 번 실행"`
@@ -309,10 +325,10 @@ steps:
 
 - [ ] **Step 3: 구현**
   - 스키마: `section: z.string().optional()`, `setup_failed: z.boolean().optional()`, `setup_ms: z.number().int().optional()`, `setup_steps: z.array(StepTraceSchema).optional()`. `SequentialTraceSchema` 위 주석의 「전 필드 항상 emit」을 사실에 맞게 고친다(준비 키 셋은 생략형).
-  - `TestRunPanel`: `HttpRow`가 `step.section === "setup"`이면 이름 앞에 `ko.editor.setupBadge` 칩(`rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700`). 머리의 수 = 준비 아닌 행 수, 준비 행이 있으면 ` · ` + `testRunSetupCount(n)`. `trace.setup_failed`면 `Callout variant="warn"`로 `testRunSetupFailed`(상한 안내 위).
+  - `TestRunPanel`: `HttpRow`가 `step.section === "setup"`이면 이름 앞에 `SetupBadge`. 구분선(목업의 `.divide`)은 두 경우에만 그린다. ① `TraceStepList` 안에서 **바로 다음 행이 본 스텝 행인 준비 행** — 그 행의 `border-b border-slate-100`을 `border-b-2 border-accent-200`으로 **바꾼다**(두 테두리 클래스를 함께 두지 않는다). 준비 행만 있는 trace(단일 실행의 준비 실패)에는 구분선이 없다(목업의 준비 실패 장면). ② 순차 모드의 따로 그린 준비 목록 — 그 목록을 `<div className="mb-2.5 border-b-2 border-accent-200">`로 감싼다(행의 클래스는 건드리지 않는다). 머리의 수 = 준비 아닌 행 수, 준비 행이 있으면 ` · ` + `testRunSetupCount(n)`. `trace.setup_failed`면 `Callout variant="warn"`로 `testRunSetupFailed`(상한 안내 위).
   - `SequentialRunPanel`: `seq.setup_steps`가 있으면 행 목록 위에 제목 `seqSetupTitle` + 그 행들(`TraceStepList`에 `{ ok: !seq.setup_failed, total_ms: seq.setup_ms ?? 0, steps: seq.setup_steps, final_vars: {}, truncated: false, error: null }`을 넘긴다). `seq.setup_failed`면 같은 실패 `Callout`.
   - `TestRunSection`: 모델에서 `all = allSteps(model)`, `setupCount = setupSteps(model).length`. 칩·결과 패널에는 `all`, **`leafCount`는 본 스텝만**(`flattenHttpSteps(model.steps)` — 행마다 도는 요청 수). 준비 요청은 한 번뿐이지만 요청 상한에 들어가므로(spec D11) `TestRunDatasetSection`에 선택 prop `setupRequestCount?: number`(기본 0)를 더해 상한 안내의 계산을 `requestedRows * expectedLeafCount + setupRequestCount > maxRequests`로 한다. 행 모드 `chipTrace` = 펼친 행의 trace 앞에 `seqData.setup_steps`를 이어 붙인 것(펼친 행이 없으면 `setup_steps`만 든 trace, `setup_steps`도 없으면 `null`).
-  - `TestFlowChips`: `setupCount > 0`이면 첫 칩 앞에 표지 `ko.editor.setupBadge`(글자 조각), `i === setupCount` 자리의 구분자는 `|`.
+  - `TestFlowChips`: `setupCount > 0`이면 첫 칩 앞에 `SetupBadge`, `i === setupCount` 자리의 구분자는 `→` 대신 `|`(`px-0.5 text-slate-300`, `aria-hidden`).
   - `EditorShell`: 넓게 보기 칩 스트립에 `allSteps(model)`(memo)과 `setupCount`를 넘긴다.
 
 - [ ] **Step 4: 통과 확인** — Step 2의 명령 + `pnpm test EditorShell chipResults`.
@@ -391,6 +407,7 @@ steps:
   export function SetupNotices(props: Omit<SetupNoticeInput, "rowCounts">): JSX.Element | null;
   ```
 
+- 목업: 장면 4(파란 안내 상자 — 제목 한 줄 + 목록).
 - 판정 규칙(순서 = 반환 순서):
   1. `scenario`가 없거나 준비 스텝이 없으면 `[]`.
   2. `burst`: `loadModel === "closed" && rateMode === "fixed" && rampUpSeconds === 0`.
@@ -454,7 +471,7 @@ steps:
 - `stepOptionsFor`(`ui/src/monitor/groups.ts`)와 `MonitorEditPage`의 호출은 **고치지 않는다** — 칸 대상 선택에 준비 스텝을 넣는 것은 다음 슬라이스(spec D15·§10-0).
 
 문구(`ko.monitor`):
-- `setupBadge`: `"준비"`
+- (표지는 `SetupBadge` — Task 3)
 - `setupNotAddable`: `"준비 스텝의 값은 아직 칸에 쓸 수 없습니다"`
 
 - [ ] **Step 1: 실패하는 테스트**
@@ -474,7 +491,7 @@ steps:
 - [ ] **Step 3: 구현**
   - `CheckRecordDialog`: 이름표를 만드는 `flattenHttpSteps(parsed.model.steps)`를 `flattenHttpSteps(allSteps(parsed.model))`로.
   - `PanelEditor`: 지금 `steps` 한 목록이 이름표(`stepNames`)·조건/표시 항목의 「스텝 없음」 경고·**「응답 시간 기준 스텝」 선택지(`steps.map(…)`)와 `stepGone`**에 함께 쓰인다. 둘로 나눈다 — `namedSteps = flattenHttpSteps(allSteps(model))`는 `stepNames`와 조건·표시 항목의 경고에만. 기존 `steps`(본 스텝만)는 선택지와 `stepGone`에 그대로(`stepGone`은 「선택지에 없는 저장 값」이라는 뜻 그대로 둬야 그 값을 위한 따로 한 줄 `<option>`이 계속 나온다). 그 따로 한 줄의 글만 raw id 대신 `stepNames[id] ?? id`로. `stepOptions`(prop)와 그것으로 계산하는 `stepMissing`은 고치지 않는다(묶음 스텝 칸이 준비 스텝을 가리킬 때의 「스텝 없음」은 다음 슬라이스 — spec D15).
-  - `PreviewResult`: `StepRow`의 `interactive`에 `s.section !== "setup"`을 더한다. 준비 행은 이름 옆에 `ko.monitor.setupBadge` 칩, 행 본문 위에 `setupNotAddable` 한 줄(밝은 바탕 `text-xs text-slate-600`). 칸 하나 보기·묶음 보기 둘 다 같은 `StepRow`를 지나므로 한 곳만 고치면 된다.
+  - `PreviewResult`: `StepRow`의 `interactive`에 `s.section !== "setup"`을 더한다. 준비 행은 이름 앞에 `SetupBadge`(목업 장면 5), 행 머리 아래에 `setupNotAddable` 한 줄(밝은 바탕 `text-xs text-slate-600`). 칸 하나 보기·묶음 보기 둘 다 같은 `StepRow`를 지나므로 한 곳만 고치면 된다.
 
 - [ ] **Step 4: 통과 확인** — Step 2 명령 + `pnpm test monitor`.
 
@@ -520,7 +537,7 @@ steps:
 
 ## 구현 뒤 — orchestrator가 하는 일
 
-1. **첫 화면 대조(Task 2·3 직후)**: 컨트롤러를 띄워 아웃라인 준비 구획과 Inspector 옮기기 줄을 스크린샷으로 본다(목업은 없다 — 기존 아웃라인 밴드·Inspector 머리와 같은 결인지).
+1. **첫 화면 대조(Task 2·3 직후)**: 컨트롤러를 띄워 아웃라인 준비 구획과 Inspector 옮기기 줄을 스크린샷으로 찍어 목업(`docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-mockups/a2-screens.html` 장면 1·2)과 **나란히** 대조한다 — 상자 바탕·테두리·머리 글자 색, 표지 모양, 옮기기 줄. 어긋나면 그 자리에서 고치고 다음 task로 간다. Task 5 뒤에도 장면 3을 같은 방식으로 한 번 대조한다.
 2. **전수 명령 재실행**: `grep -rnE '\.steps\b|"steps"' ui/src --include='*.ts' --include='*.tsx'` — 분류표의 「A2」 줄이 전부 고쳐졌거나 이 plan의 「고치지 않는 것」에 있는지 대조.
 3. **`handicap-reviewer`** 최종 리뷰(와이어 1:1 — trace 선택 키, 준비 없는 시나리오 불변). `finish-slice` §0 보안 grep — trace/body 뷰어(`TestRunPanel`·`PreviewResult`)를 건드리므로 `security-reviewer` 대상(살필 곳: 준비 행에서 조건·표시 추가가 막혔는지, 새로 값이 옮겨지는 sink가 없는지).
 4. **라이브 검증**(`/live-verify`, 워크트리 자체 바이너리):

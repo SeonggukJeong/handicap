@@ -328,7 +328,7 @@ CREATE INDEX IF NOT EXISTS idx_run_section_outcomes_run ON run_section_outcomes(
 
 ### 7-2. 슬라이스 A2
 
-A2는 화면(`ui/`)만 고친다. 엔진·컨트롤러·proto·저장·마이그레이션은 건드리지 않는다. A2가 다루는 UI 자리의 원천은 `2026-11-22-vu-setup-steps-a2-ui-steps-table.md`(처리 칸이 「A2」인 줄)다.
+A2는 화면(`ui/`)만 고친다. 엔진·컨트롤러·proto·저장·마이그레이션은 건드리지 않는다. 화면의 시각 기준은 목업 `docs/superpowers/specs/2026-11-22-vu-setup-steps-a2-mockups/a2-screens.html`(사용자 승인 2026-11-22 — 아웃라인은 「가」 상자, 「준비」 표지는 indigo 칩)이다. A2가 다루는 UI 자리의 원천은 `2026-11-22-vu-setup-steps-a2-ui-steps-table.md`(처리 칸이 「A2」인 줄)다.
 
 **D13. 에디터**
 
