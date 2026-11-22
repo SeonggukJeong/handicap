@@ -1012,6 +1012,26 @@ async fn setup_only_curve_ends_after_peak_and_setup() {
 }
 
 #[tokio::test]
+async fn setup_only_curve_all_failed_is_still_error() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_yaml(&server.uri());
+    let ds = dataset(BindingPolicy::PerVu, vec![row(&[("user", "bad")])]);
+    let started = std::time::Instant::now();
+    let (res, _) = run(Mode::Curve, &yaml, curve_plan(&[(5, 1), (5, 4)], vec![ds])).await;
+    let elapsed = started.elapsed();
+    match res {
+        Err(EngineError::AllVusFailed { failed, total, .. }) => {
+            assert_eq!((failed, total), (5, 5));
+        }
+        other => panic!("expected AllVusFailed, got {other:?}"),
+    }
+    assert_eq!(seen.orders_ok.load(Ordering::SeqCst), 0);
+    assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
+    assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
+}
+
+#[tokio::test]
 async fn setup_only_curve_waits_for_late_peak() {
     let seen = Arc::new(Seen::default());
     let server = server_with(&seen).await;
@@ -1030,9 +1050,9 @@ async fn setup_only_curve_waits_for_late_peak() {
 }
 
 /// 준비 think 425ms, 슬롯 4·초당 20(도착 간격 50ms)과 함께 쓴다: 슬롯 k(도착 50k ms)는
-/// 425+50k ms 뒤에 비므로 도착 200·250·300·350·400 ms 다섯 번은 빈 슬롯이 없고(가장 가까운
-/// 해제까지 25ms), 450 ms부터는 늘 빈 슬롯이 있다(가장 가까운 해제 뒤 25ms) — 도착 시각과
-/// 해제 시각이 겹치지 않아 빈 슬롯 없는 도착 수가 매번 5로 같다. 마지막 슬롯 준비 ≈ 575ms.
+/// 425+50k ms에 목 서버 응답 시간과 스케줄러 지연을 더한 때에 빈다. 그 더한 값이 25ms 아래면
+/// 도착 200·250·300·350·400 ms 다섯 번은 빈 슬롯이 없고 450 ms부터는 늘 빈 슬롯이 있어,
+/// 빈 슬롯 없는 도착 수가 5다. 이 수에 기대는 단언은 없다. 마지막 슬롯 준비 ≈ 575ms.
 fn setup_only_slow_yaml(uri: &str) -> String {
     build_yaml(
         uri,

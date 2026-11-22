@@ -2225,6 +2225,8 @@ pub async fn run_scenario_open_loop(
             // 방금 꺼낸 슬롯이라 큐에 자리가 있다.
             Ok(slot) if no_main && slots[slot].ready.load(Ordering::Acquire) => {
                 let _ = slot_tx.try_send(slot);
+                // 일정보다 늦은 도착이 몰려도 준비 중인 태스크가 돌 수 있게 양보한다(아래 `Err` 갈래와 같다).
+                tokio::task::yield_now().await;
             }
             Ok(slot) => {
                 // 준비가 안 된 슬롯의 도착은 준비에 성공한 뒤 태스크가 센다.
