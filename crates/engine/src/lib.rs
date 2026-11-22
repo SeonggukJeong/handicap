@@ -49,7 +49,7 @@ pub use runner::{
 };
 pub use scenario::{
     Assertion, Body, Branch, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep,
-    IfStep, LoopStep, ParallelStep, Request, Scenario, Step,
+    IfStep, LoopStep, ParallelStep, Request, Scenario, SetupSection, Step,
 };
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
 pub use trace::{

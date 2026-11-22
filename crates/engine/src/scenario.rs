@@ -29,7 +29,28 @@ pub struct Scenario {
     /// 템플릿)는 이 값을 읽지 않는다. 없으면 직렬화 생략(기존 YAML byte-identical).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// VU당 한 번 실행하는 준비 구간(http 스텝만). 없으면 직렬화 생략.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<SetupSection>,
     pub steps: Vec<Step>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetupSection {
+    #[serde(deserialize_with = "de_http_only_steps")]
+    pub steps: Vec<Step>,
+}
+
+fn de_http_only_steps<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Vec<Step>, D::Error> {
+    let steps = Vec::<Step>::deserialize(d)?;
+    if let Some(bad) = steps.iter().find(|s| !matches!(s, Step::Http(_))) {
+        return Err(de::Error::custom(format!(
+            "setup.steps: only http steps are allowed (step {})",
+            bad.id()
+        )));
+    }
+    Ok(steps)
 }
 
 fn default_cookie_jar() -> CookieJarMode {
@@ -687,6 +708,16 @@ impl Scenario {
 
     pub fn to_yaml(&self) -> Result<String> {
         serde_yaml::to_string(self).map_err(EngineError::from)
+    }
+
+    /// 준비 스텝. `setup`이 없거나 `steps`가 비면 빈 조각.
+    pub fn setup_steps(&self) -> &[Step] {
+        self.setup.as_ref().map_or(&[], |s| s.steps.as_slice())
+    }
+
+    /// setup → steps 순서.
+    pub fn all_steps(&self) -> impl Iterator<Item = &Step> {
+        self.setup_steps().iter().chain(self.steps.iter())
     }
 }
 
