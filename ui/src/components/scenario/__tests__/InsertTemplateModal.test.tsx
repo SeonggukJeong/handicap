@@ -260,4 +260,83 @@ describe("InsertTemplateModal", () => {
     expect(st.yamlText).toContain("XYZ");
     expect(st.yamlText).not.toContain("{{token}}");
   });
+
+  // JSON 본문에서 숫자·불리언으로 보내는 자리(`{{age:num}}`·`{{ok:bool}}`)가 든 템플릿.
+  const TPL_WITH_CASTS = {
+    ...TPL_SUMMARY,
+    steps_yaml: [
+      "- id: wild-1",
+      "  name: TplStep",
+      "  type: http",
+      "  request:",
+      "    method: POST",
+      "    url: /tpl",
+      "    body:",
+      "      json:",
+      '        age: "{{age:num}}"',
+      '        ok: "{{ok:bool}}"',
+      "",
+    ].join("\n"),
+  };
+
+  async function openLiteral(user: ReturnType<typeof userEvent.setup>, index: number) {
+    await user.click(await screen.findByRole("button", { name: "삽입" }));
+    await screen.findByText("변수 조정 후 삽입");
+    await user.click(screen.getAllByRole("radio", { name: "값으로 교체" })[index]);
+  }
+
+  it("숫자로 보내는 자리에 숫자가 아닌 값을 넣으면 안내하고 삽입을 막는다", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_WITH_CASTS);
+    mount();
+    await openLiteral(user, 0);
+
+    // 변수 이름은 캐스트를 뗀 `age`로 보인다.
+    const input = screen.getByRole("textbox", { name: "age 리터럴 값" });
+    // 빈 값도 숫자가 아니다.
+    expect(screen.getByRole("button", { name: "삽입" })).toBeDisabled();
+    expect(
+      screen.getByText("숫자로 보내는 자리입니다. 숫자를 넣으세요 (예: 5, 1.5)"),
+    ).toBeVisible();
+
+    await user.type(input, "abc");
+    expect(screen.getByRole("button", { name: "삽입" })).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "5");
+    expect(screen.getByRole("button", { name: "삽입" })).toBeEnabled();
+    expect(
+      screen.queryByText("숫자로 보내는 자리입니다. 숫자를 넣으세요 (예: 5, 1.5)"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("true/false로 보내는 자리에 다른 값을 넣으면 안내하고 삽입을 막는다", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_WITH_CASTS);
+    mount();
+    await openLiteral(user, 1);
+
+    await user.type(screen.getByRole("textbox", { name: "ok 리터럴 값" }), "yes");
+    expect(screen.getByRole("button", { name: "삽입" })).toBeDisabled();
+    expect(
+      screen.getByText("true/false로 보내는 자리입니다. true 또는 false를 넣으세요"),
+    ).toBeVisible();
+  });
+
+  it("캐스트 자리에 넣은 리터럴은 그 타입으로 삽입된다 (문자열 아님)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_WITH_CASTS);
+    const onClose = mount();
+    await openLiteral(user, 0);
+    await user.type(screen.getByRole("textbox", { name: "age 리터럴 값" }), "5");
+    await user.click(screen.getAllByRole("radio", { name: "값으로 교체" })[1]);
+    await user.type(screen.getByRole("textbox", { name: "ok 리터럴 값" }), "true");
+
+    await user.click(screen.getByRole("button", { name: "삽입" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    const yamlText = useScenarioEditor.getState().yamlText;
+    expect(yamlText).toContain("age: 5\n");
+    expect(yamlText).toContain("ok: true\n");
+  });
 });

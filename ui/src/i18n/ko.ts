@@ -1171,6 +1171,10 @@ export const ko = {
     renameAria: (name: string) => `${name} 새 변수명`,
     literalAria: (name: string) => `${name} 리터럴 값`,
     badRename: "변수명에 공백/중괄호/콜론을 쓸 수 없습니다",
+    // 템플릿이 이 변수를 JSON 본문에서 숫자·true/false·JSON 값으로 보내는 자리(`{{x:num}}` 등)에 쓸 때.
+    badLiteralNum: "숫자로 보내는 자리입니다. 숫자를 넣으세요 (예: 5, 1.5)",
+    badLiteralBool: "true/false로 보내는 자리입니다. true 또는 false를 넣으세요",
+    badLiteralJson: 'JSON 값으로 보내는 자리입니다. JSON을 넣으세요 (예: {"a": 1}, [1, 2])',
     confirmInsert: "삽입",
     back: "뒤로",
     typeLabel: {

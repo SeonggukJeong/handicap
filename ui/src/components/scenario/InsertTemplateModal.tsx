@@ -17,6 +17,8 @@ import { prepareTemplateInsertion } from "../../scenario/yamlDoc";
 import { scanFlowVars, scanEnvVars } from "../../scenario/scanVars";
 import {
   scanTemplateTokens,
+  scanTemplateCasts,
+  fitsCast,
   applyTokenSubstitutions,
   type Substitution,
   type SubMap,
@@ -29,6 +31,17 @@ interface Props {
 type Pending = { id: string; stepsYaml: string; flow: string[]; env: string[] };
 
 // flow: 공백/중괄호 금지; env: 추가로 콜론 금지(${} 안전).
+/** 리터럴 값이 그 변수의 캐스트 자리(`{{x:num}}` 등)에 안 맞으면 안내 문구, 맞으면 null. */
+function badLiteral(casts: readonly string[] | undefined, value: string): string | null {
+  for (const cast of casts ?? []) {
+    if (fitsCast(value, cast)) continue;
+    if (cast === "num") return ko.stepTemplates.badLiteralNum;
+    if (cast === "bool") return ko.stepTemplates.badLiteralBool;
+    return ko.stepTemplates.badLiteralJson;
+  }
+  return null;
+}
+
 function badRename(ns: "flow" | "env", to: string): boolean {
   if (to.trim() === "") return true;
   if (/[{}\s]/.test(to)) return true;
@@ -95,6 +108,18 @@ export function InsertTemplateModal({ onClose }: Props) {
   const setSub = (ns: "flow" | "env", name: string, s: Substitution) =>
     setSubs((prev) => ({ ...prev, [key(ns, name)]: s }));
 
+  // 캐스트는 flow 토큰에만 잡는다(env 캐스트 토큰은 치환 대상이 아니다).
+  const casts = useMemo(() => (pending ? scanTemplateCasts(pending.stepsYaml) : {}), [pending]);
+  const literalProblem = (ns: "flow" | "env", name: string, value: string): string | null =>
+    ns === "flow" ? badLiteral(casts[name], value) : null;
+
+  const hasBadLiteral =
+    pending !== null &&
+    pending.flow.some((name) => {
+      const s = subOf("flow", name);
+      return s.kind === "literal" && literalProblem("flow", name, s.value) !== null;
+    });
+
   const hasBadRename =
     pending !== null &&
     (["flow", "env"] as const).some((ns) =>
@@ -116,7 +141,7 @@ export function InsertTemplateModal({ onClose }: Props) {
   };
 
   const handleConfirmParams = () => {
-    if (!pending || hasBadRename) return;
+    if (!pending || hasBadRename || hasBadLiteral) return;
     setError(null);
     const substituted = applyTokenSubstitutions(pending.stepsYaml, buildSubMap());
     if (doInsert(substituted)) onClose();
@@ -148,6 +173,7 @@ export function InsertTemplateModal({ onClose }: Props) {
             flowHints={flowHints}
             envHints={envHints}
             badRename={badRename}
+            literalProblem={literalProblem}
           />
         ) : (
           <TemplateList
@@ -166,7 +192,7 @@ export function InsertTemplateModal({ onClose }: Props) {
               <Button variant="secondary" onClick={() => setPending(null)}>
                 {ko.stepTemplates.back}
               </Button>
-              <Button onClick={handleConfirmParams} disabled={hasBadRename}>
+              <Button onClick={handleConfirmParams} disabled={hasBadRename || hasBadLiteral}>
                 {ko.stepTemplates.confirmInsert}
               </Button>
             </>
@@ -258,6 +284,7 @@ function ParamForm({
   flowHints,
   envHints,
   badRename,
+  literalProblem,
 }: {
   pending: Pending;
   subOf: (ns: "flow" | "env", name: string) => Substitution;
@@ -265,6 +292,7 @@ function ParamForm({
   flowHints: string[];
   envHints: string[];
   badRename: (ns: "flow" | "env", to: string) => boolean;
+  literalProblem: (ns: "flow" | "env", name: string, value: string) => string | null;
 }) {
   const section = (ns: "flow" | "env", names: string[], title: string, hints: string[]) =>
     names.length === 0 ? null : (
@@ -333,14 +361,23 @@ function ParamForm({
                   </>
                 )}
                 {s.kind === "literal" && (
-                  <div className="w-56">
-                    <Input
-                      aria-label={ko.stepTemplates.literalAria(name)}
-                      placeholder={ko.stepTemplates.literalPlaceholder}
-                      value={s.value}
-                      onChange={(e) => setSub(ns, name, { kind: "literal", value: e.target.value })}
-                    />
-                  </div>
+                  <>
+                    <div className="w-56">
+                      <Input
+                        aria-label={ko.stepTemplates.literalAria(name)}
+                        placeholder={ko.stepTemplates.literalPlaceholder}
+                        value={s.value}
+                        onChange={(e) =>
+                          setSub(ns, name, { kind: "literal", value: e.target.value })
+                        }
+                      />
+                    </div>
+                    {literalProblem(ns, name, s.value) !== null && (
+                      <p role="alert" className="text-xs text-red-600">
+                        {literalProblem(ns, name, s.value)}
+                      </p>
+                    )}
+                  </>
                 )}
               </li>
             );
