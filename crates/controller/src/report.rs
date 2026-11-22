@@ -66,6 +66,86 @@ pub struct ReportJson {
     /// 집계 기준(유지 구간 설정이 있는 run만). 없으면 키 자체를 내지 않는다(byte-identical).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub basis: Option<crate::steady::BasisBlock>,
+    /// 준비 스텝 통계(D10). 시나리오에 준비 스텝이 없으면 키 자체를 내지 않는다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<SetupReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetupReport {
+    pub ok: u64,
+    pub failed: u64,
+    pub interrupted: u64,
+    pub steps: Vec<SetupStepReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetupStepReport {
+    pub step_id: String,
+    pub count: u64,
+    pub errors: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub max_ms: u64,
+    pub status_counts: BTreeMap<String, u64>,
+    pub failure_kinds: BTreeMap<String, u64>,
+}
+
+/// 시나리오에 준비 스텝이 없거나 YAML을 읽지 못하면 None.
+/// 순서 = 시나리오의 준비 스텝 순서. 통계가 없는 스텝은 0행.
+pub fn build_setup_report(
+    scenario_yaml: &str,
+    steps: &[crate::store::section::SectionStepRow],
+    outcomes: &[crate::store::section::SectionOutcomeRow],
+) -> Option<SetupReport> {
+    let sc = handicap_engine::Scenario::from_yaml(scenario_yaml).ok()?;
+    let setup = sc.setup_steps();
+    if setup.is_empty() {
+        return None;
+    }
+    let out_steps = setup
+        .iter()
+        .map(|st| {
+            let id = st.id();
+            let mut acc = SetupStepReport {
+                step_id: id.to_string(),
+                count: 0,
+                errors: 0,
+                p50_ms: 0,
+                p95_ms: 0,
+                max_ms: 0,
+                status_counts: BTreeMap::new(),
+                failure_kinds: BTreeMap::new(),
+            };
+            let mut hist = fresh_hist();
+            for r in steps.iter().filter(|r| r.step_id == id) {
+                acc.count += r.count.max(0) as u64;
+                acc.errors += r.error_count.max(0) as u64;
+                add_status(
+                    &mut acc.status_counts,
+                    &parse_status_counts(&r.status_counts),
+                );
+                add_status(
+                    &mut acc.failure_kinds,
+                    &parse_status_counts(&r.failure_kinds),
+                );
+                if let Ok(Some(h)) = decode_hdr(&r.hdr_histogram) {
+                    merge_into(&mut hist, &h);
+                }
+            }
+            let p = percentiles_of(&hist);
+            acc.p50_ms = p.p50_ms;
+            acc.p95_ms = p.p95_ms;
+            acc.max_ms = hist.max() / 1_000;
+            acc
+        })
+        .collect();
+    Some(SetupReport {
+        ok: outcomes.iter().map(|o| o.ok.max(0) as u64).sum(),
+        failed: outcomes.iter().map(|o| o.failed.max(0) as u64).sum(),
+        interrupted: outcomes.iter().map(|o| o.interrupted.max(0) as u64).sum(),
+        steps: out_steps,
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -549,6 +629,7 @@ pub fn build_report(
     loop_exits: &[crate::store::metrics::LoopExitRow],
     stair_inputs: &crate::stair::StairInputs,
     open_loop_totals: &[crate::store::open_loop::OpenLoopTotal],
+    setup: Option<&SetupReport>,
     scope: Option<&SteadyScope<'_>>,
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
@@ -1273,6 +1354,7 @@ pub fn build_report(
         has_active,
         &insights,
         stair.as_ref().is_some_and(|s| s.dropped_explained),
+        setup.map(|s| s.failed).unwrap_or(0),
     );
     let narrative = crate::validity::derive_narrative(&validity, &summary, has_active, &insights);
 
@@ -1310,6 +1392,7 @@ pub fn build_report(
         stair,
         speed_bands,
         basis: None,
+        setup: setup.cloned(),
     }
 }
 
@@ -1565,6 +1648,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &g.open_loop_totals,
             None,
+            None,
         );
         let got = serde_json::to_string_pretty(&rep).unwrap();
         if std::env::var_os("REPORT_WHOLE_GOLDEN_UPDATE").is_some() {
@@ -1662,6 +1746,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             scope,
         )
     }
@@ -2177,6 +2262,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
 
         // One collapsed window per (ts_second, step_id), counts summed.
@@ -2240,6 +2326,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
@@ -2250,6 +2337,188 @@ mod tests {
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(16));
         assert_eq!(rpt.status_distribution.get("500").copied(), Some(2));
         assert!(rpt.summary.p95_ms > 0);
+    }
+
+    const SETUP_YAML: &str = "version: 1
+name: s
+setup:
+  steps:
+    - type: http
+      id: 01HX0000000000000000000A01
+      name: login
+      request: { method: POST, url: \"http://x/login\" }
+    - type: http
+      id: 01HX0000000000000000000A02
+      name: profile
+      request: { method: GET, url: \"http://x/me\" }
+steps:
+  - type: http
+    id: 01HX0000000000000000000B01
+    name: main
+    request: { method: GET, url: \"http://x/\" }
+";
+
+    fn sec_step(
+        worker: &str,
+        step: &str,
+        count: i64,
+        errors: i64,
+        status: &str,
+        kinds: &str,
+        samples_us: &[u64],
+    ) -> crate::store::section::SectionStepRow {
+        crate::store::section::SectionStepRow {
+            run_id: "R1".into(),
+            worker_id: worker.into(),
+            section: "setup".into(),
+            step_id: step.into(),
+            count,
+            error_count: errors,
+            status_counts: status.into(),
+            failure_kinds: kinds.into(),
+            hdr_histogram: make_hdr_bytes(samples_us),
+        }
+    }
+
+    fn sec_outcome(
+        worker: &str,
+        ok: i64,
+        failed: i64,
+        interrupted: i64,
+    ) -> crate::store::section::SectionOutcomeRow {
+        crate::store::section::SectionOutcomeRow {
+            run_id: "R1".into(),
+            worker_id: worker.into(),
+            section: "setup".into(),
+            ok,
+            failed,
+            interrupted,
+            last_done_ms: 0,
+        }
+    }
+
+    #[test]
+    fn setup_report_none_without_setup() {
+        let yaml = "version: 1\nname: s\nsteps:\n  - type: http\n    id: 01HX0000000000000000000B01\n    name: m\n    request: { method: GET, url: \"http://x/\" }\n";
+        assert!(build_setup_report(yaml, &[], &[]).is_none());
+        let rep = build_whole(&run_row(), &[]);
+        let v = serde_json::to_value(&rep).unwrap();
+        assert!(!v.as_object().unwrap().contains_key("setup"));
+    }
+
+    #[test]
+    fn setup_report_merges_rows() {
+        let a = "01HX0000000000000000000A01";
+        let steps = [
+            sec_step(
+                "w1",
+                a,
+                3,
+                1,
+                r#"{"200":2,"401":1}"#,
+                r#"{"status_assert":1}"#,
+                &[10_000, 10_000, 10_000],
+            ),
+            sec_step(
+                "w2",
+                a,
+                2,
+                1,
+                r#"{"200":1,"401":1}"#,
+                r#"{"status_assert":1,"read_body":1}"#,
+                &[40_000, 90_000],
+            ),
+        ];
+        let outcomes = [
+            sec_outcome("w1", 2, 1, 0),
+            sec_outcome("w2", 1, 0, 1),
+            sec_outcome("w2", 3, 1, 2),
+        ];
+        let r = build_setup_report(SETUP_YAML, &steps, &outcomes).unwrap();
+        assert_eq!((r.ok, r.failed, r.interrupted), (6, 2, 3));
+        let s = &r.steps[0];
+        assert_eq!(s.step_id, a);
+        assert_eq!((s.count, s.errors), (5, 2));
+        assert_eq!(s.status_counts["200"], 3);
+        assert_eq!(s.status_counts["401"], 2);
+        assert_eq!(s.failure_kinds["status_assert"], 2);
+        assert_eq!(s.failure_kinds["read_body"], 1);
+        let mut h = fresh_hist();
+        for v in [10_000u64, 10_000, 10_000, 40_000, 90_000] {
+            h.record(v).unwrap();
+        }
+        let p = percentiles_of(&h);
+        assert_eq!((s.p50_ms, s.p95_ms), (p.p50_ms, p.p95_ms));
+        assert_eq!(s.p50_ms, 10);
+        assert_eq!(s.max_ms, h.max() / 1_000);
+        assert_eq!(s.max_ms, 90);
+    }
+
+    #[test]
+    fn setup_report_order_follows_scenario() {
+        let steps = [
+            sec_step(
+                "w1",
+                "01HX0000000000000000000A02",
+                1,
+                0,
+                "{}",
+                "{}",
+                &[1_000],
+            ),
+            sec_step(
+                "w1",
+                "01HX0000000000000000000A01",
+                1,
+                0,
+                "{}",
+                "{}",
+                &[1_000],
+            ),
+        ];
+        let r = build_setup_report(SETUP_YAML, &steps, &[]).unwrap();
+        let ids: Vec<&str> = r.steps.iter().map(|s| s.step_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["01HX0000000000000000000A01", "01HX0000000000000000000A02"]
+        );
+    }
+
+    #[test]
+    fn setup_report_zero_row_for_step_without_stats() {
+        let steps = [sec_step(
+            "w1",
+            "01HX0000000000000000000A01",
+            4,
+            0,
+            "{}",
+            "{}",
+            &[2_000],
+        )];
+        let r = build_setup_report(SETUP_YAML, &steps, &[]).unwrap();
+        assert_eq!((r.ok, r.failed, r.interrupted), (0, 0, 0));
+        assert_eq!(r.steps.len(), 2);
+        let z = &r.steps[1];
+        assert_eq!(z.step_id, "01HX0000000000000000000A02");
+        assert_eq!(
+            (z.count, z.errors, z.p50_ms, z.p95_ms, z.max_ms),
+            (0, 0, 0, 0, 0)
+        );
+        assert!(z.status_counts.is_empty() && z.failure_kinds.is_empty());
+    }
+
+    #[test]
+    fn setup_report_none_on_bad_yaml() {
+        assert!(build_setup_report("{{{ not yaml", &[], &[]).is_none());
+    }
+
+    #[test]
+    fn setup_report_tolerates_bad_hdr_blob() {
+        let mut bad = sec_step("w1", "01HX0000000000000000000A01", 2, 0, "{}", "{}", &[]);
+        bad.hdr_histogram = vec![0xff, 0xff, 0xff, 0xff];
+        let r = build_setup_report(SETUP_YAML, &[bad], &[]).unwrap();
+        assert_eq!(r.steps[0].count, 2);
+        assert_eq!(r.steps[0].p50_ms, 0);
     }
 
     #[test]
@@ -2280,6 +2549,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
@@ -2303,6 +2573,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         )
     }
@@ -2424,6 +2695,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
@@ -2482,6 +2754,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert_eq!(rep.if_breakdown.len(), 2);
@@ -2782,6 +3055,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
@@ -2812,6 +3086,7 @@ mod tests {
                 &crate::stair::StairInputs::default(),
                 &[],
                 None,
+                None,
             )
             .verdict
             .is_none()
@@ -2838,6 +3113,7 @@ mod tests {
                 &crate::stair::StairInputs::default(),
                 &[],
                 None,
+                None,
             )
             .verdict
             .is_none()
@@ -2862,6 +3138,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert_eq!(
@@ -2896,6 +3173,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         let v = serde_json::to_value(&rep).unwrap();
@@ -2951,6 +3229,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
@@ -2988,6 +3267,7 @@ mod tests {
                 &[],
                 &crate::stair::StairInputs::default(),
                 &[],
+                None,
                 None,
             )
             .latency
@@ -3168,6 +3448,7 @@ mod tests {
                 &crate::stair::StairInputs::default(),
                 &[],
                 None,
+                None,
             )
             .verdict
             .is_none()
@@ -3211,6 +3492,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
 
@@ -3287,6 +3569,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.active_vu_series.len(), 2);
         assert_eq!(
@@ -3311,6 +3594,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert_eq!(rep.summary.count, baseline.summary.count);
@@ -3363,6 +3647,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.active_vu_by_worker.len(), 2);
         assert_eq!(rep.active_vu_by_worker[0].worker_id, "w-0"); // sorted
@@ -3404,6 +3689,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert!(rep.active_vu_by_worker.is_empty());
         // No rows (non-curve caller passes &[]) -> empty (byte-identical default).
@@ -3421,6 +3707,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert!(none.active_vu_by_worker.is_empty());
@@ -3443,6 +3730,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert!(rep.group_latency.is_empty());
@@ -3499,6 +3787,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
 
@@ -3568,6 +3857,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
@@ -3600,6 +3890,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert!(
@@ -3644,6 +3935,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         )
     }
@@ -3834,6 +4126,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         let sat = rep
             .insights
@@ -3862,6 +4155,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
@@ -3892,6 +4186,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         let ins = rep
@@ -3940,6 +4235,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         let ins = rep
@@ -4004,6 +4300,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.summary.mean_ms, 25);
     }
@@ -4053,6 +4350,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         // wait attaches per-step
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
@@ -4078,6 +4376,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert!(rep2.connection.is_none());
@@ -4123,6 +4422,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // sorted by worker_id ascending
@@ -4166,6 +4466,7 @@ mod tests {
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert!(rep.worker_breakdown.is_empty());
         // skip_serializing_if -> field absent (byte-identical)
@@ -4201,6 +4502,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert!(rep.worker_breakdown.is_empty());
@@ -4244,6 +4546,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
@@ -4307,6 +4610,7 @@ steps:
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.validity.level, "suspect");
         assert!(
@@ -4351,6 +4655,7 @@ steps:
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.validity.level, "limited");
         assert!(
@@ -4394,6 +4699,7 @@ steps:
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         assert_eq!(rep.validity.level, "ok");
         assert!(
@@ -4428,6 +4734,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         )
     }
@@ -4501,6 +4808,7 @@ steps:
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
         let b = rep.steps.iter().find(|s| s.step_id == "b").unwrap();
@@ -4548,6 +4856,7 @@ steps:
             &crate::stair::StairInputs::default(),
             &[],
             None,
+            None,
         );
         let c = rep.connection.as_ref().expect("connection present");
         assert_eq!(c.requests_total, 6);
@@ -4571,6 +4880,7 @@ steps:
             rows,
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
         )
     }
@@ -4822,6 +5132,7 @@ steps:
                     &[],
                     &self.inp,
                     &[],
+                    None,
                     None,
                 )
             }
@@ -5341,6 +5652,7 @@ steps:
                 &[],
                 &StairInputs::default(),
                 &[],
+                None,
                 None,
             );
             assert!(rep.stair.is_none());

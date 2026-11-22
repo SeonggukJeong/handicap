@@ -1254,6 +1254,7 @@ mod tests {
             stair: None,
             speed_bands: None,
             basis: None,
+            setup: None,
         }
     }
 

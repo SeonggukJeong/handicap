@@ -214,7 +214,14 @@ pub fn steady_window(
     rows: &[crate::store::metrics::WindowWithHdr],
     starts: &[crate::store::open_loop::WorkerStartRow],
 ) -> SteadyWindow {
-    steady_window_from_spans(cfg, completed, ended_at_ms, &worker_spans(rows), starts)
+    steady_window_from_spans(
+        cfg,
+        completed,
+        ended_at_ms,
+        &worker_spans(rows),
+        starts,
+        &std::collections::HashMap::new(),
+    )
 }
 
 /// 일한 워커(`span` 키)마다 시작 시각 기준 [lo, hi) 초를 구해 공통 구간을 낸다.
@@ -226,6 +233,7 @@ pub fn steady_window_from_spans(
     ended_at_ms: Option<i64>,
     span: &std::collections::HashMap<&str, (i64, i64)>,
     starts: &[crate::store::open_loop::WorkerStartRow],
+    setup_done: &std::collections::HashMap<&str, i64>,
 ) -> SteadyWindow {
     let state_of = |found: bool| match (completed, found) {
         (true, true) => BasisState::Measured,
@@ -264,7 +272,10 @@ pub fn steady_window_from_spans(
             estimated = true;
             first.saturating_mul(1000)
         });
-        let lo_w = ceil_sec(t0.saturating_add(lead_ms));
+        let mut lo_w = ceil_sec(t0.saturating_add(lead_ms));
+        if let Some(done) = setup_done.get(worker) {
+            lo_w = lo_w.max(ceil_sec(*done));
+        }
         let mut hi_w = t0.saturating_add(plan_ms).div_euclid(1000);
         if let Some(e) = end_sec {
             hi_w = hi_w.min(e);
@@ -802,6 +813,40 @@ mod window_tests {
         assert!(w.t0_estimated);
         assert_eq!(w.range, Some((118, 140)));
         assert_eq!(w.state, BasisState::Measured);
+    }
+
+    fn spans_of(worker: &str, a: i64, b: i64) -> std::collections::HashMap<&str, (i64, i64)> {
+        std::collections::HashMap::from([(worker, (a, b))])
+    }
+
+    #[test]
+    fn steady_lo_waits_for_setup_done() {
+        let c = cfg(0, 30, 1);
+        let starts = [start("w1", 100_000)];
+        let span = spans_of("w1", 100, 139);
+        let base = steady_window_from_spans(
+            &c,
+            true,
+            None,
+            &span,
+            &starts,
+            &std::collections::HashMap::new(),
+        );
+        assert_eq!(base.range, Some((101, 130)));
+        let done = std::collections::HashMap::from([("w1", 102_400)]);
+        let w = steady_window_from_spans(&c, true, None, &span, &starts, &done);
+        assert_eq!(w.range, Some((ceil_sec(102_400), 130)));
+        assert_eq!(w.range.unwrap().0, 103);
+    }
+
+    #[test]
+    fn steady_setup_done_ignored_when_earlier() {
+        let c = cfg(0, 30, 1);
+        let starts = [start("w1", 100_000)];
+        let span = spans_of("w1", 100, 139);
+        let done = std::collections::HashMap::from([("w1", 100_200)]);
+        let w = steady_window_from_spans(&c, true, None, &span, &starts, &done);
+        assert_eq!(w.range, Some((101, 130)));
     }
 
     #[test]

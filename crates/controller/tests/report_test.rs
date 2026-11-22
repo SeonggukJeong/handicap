@@ -699,7 +699,19 @@ struct SteadySeed {
     worker_start: bool,
     seconds: i64,
     slow_until: i64,
+    yaml: &'static str,
 }
+
+const SETUP_SCENARIO_YAML: &str = "version: 1
+name: steady
+setup:
+  steps:
+    - type: http
+      id: 01HX0000000000000000000A01
+      name: login
+      request: { method: POST, url: \"http://x/login\" }
+steps: []
+";
 
 impl SteadySeed {
     fn closed() -> Self {
@@ -715,6 +727,7 @@ impl SteadySeed {
             worker_start: true,
             seconds: 40,
             slow_until: 15,
+            yaml: "version: 1\nname: steady\nsteps: []\n",
         }
     }
 
@@ -730,7 +743,7 @@ impl SteadySeed {
 /// 앞 `slow_until`초는 느리고 오류가 있고, 나머지는 빠르다. 워커 `w0`.
 async fn seed_steady(db: &handicap_controller::store::Db, s: SteadySeed) -> String {
     use handicap_controller::store::open_loop::insert_worker_start;
-    let yaml = "version: 1\nname: steady\nsteps: []\n";
+    let yaml = s.yaml;
     let mut profile: Profile = serde_json::from_value(s.profile).unwrap();
     handicap_controller::steady::normalize_steady(&mut profile).unwrap();
     sqlx::query(
@@ -1194,6 +1207,76 @@ async fn both_reports_are_consistent() {
     let (first, second) = build_reports_for_run(&db, &plain, None).await.unwrap();
     assert!(second.is_none());
     assert!(first.basis.is_none());
+}
+
+#[tokio::test]
+async fn both_bases_carry_setup() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    use handicap_controller::store::section::{
+        SectionOutcomeRow, SectionStepRow, insert_section_outcome_batch, insert_section_step_batch,
+    };
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = SteadySeed::closed();
+    seed.yaml = SETUP_SCENARIO_YAML;
+    let id = seed_steady(&db, seed).await;
+    insert_section_step_batch(
+        &db,
+        &[SectionStepRow {
+            run_id: id.clone(),
+            worker_id: "w0".into(),
+            section: "setup".into(),
+            step_id: "01HX0000000000000000000A01".into(),
+            count: 2,
+            error_count: 1,
+            status_counts: r#"{"200":1,"401":1}"#.into(),
+            failure_kinds: r#"{"status_assert":1}"#.into(),
+            hdr_histogram: make_hdr_bytes(&[30_000, 50_000]),
+        }],
+    )
+    .await
+    .unwrap();
+    insert_section_outcome_batch(
+        &db,
+        &[SectionOutcomeRow {
+            run_id: id.clone(),
+            worker_id: "w0".into(),
+            section: "setup".into(),
+            ok: 1,
+            failed: 1,
+            interrupted: 0,
+            last_done_ms: T0 + 500,
+        }],
+    )
+    .await
+    .unwrap();
+
+    let (first, second) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let second = second.expect("steady run has both bases");
+    assert!(first.basis.is_some() && second.basis.is_some());
+    let a = first.setup.as_ref().expect("selected basis carries setup");
+    let b = second.setup.as_ref().expect("other basis carries setup");
+    assert_eq!(a, b);
+    assert_eq!((a.ok, a.failed, a.interrupted), (1, 1, 0));
+    assert_eq!(a.steps[0].count, 2);
+    assert!(
+        first
+            .validity
+            .reasons
+            .iter()
+            .any(|r| r.kind == "setup_failed")
+    );
+}
+
+#[tokio::test]
+async fn no_setup_run_has_no_setup_block() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let (first, second) = build_reports_for_run(&db, &id, None).await.unwrap();
+    assert!(first.setup.is_none());
+    assert!(second.unwrap().setup.is_none());
+    let v = serde_json::to_value(&first).unwrap();
+    assert!(!v.as_object().unwrap().contains_key("setup"));
 }
 
 #[tokio::test]

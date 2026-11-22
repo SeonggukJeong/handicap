@@ -1216,6 +1216,19 @@ pub async fn build_reports_for_run(
         Vec::new()
     };
     let scenario_yaml = row.scenario_yaml.clone();
+    // 준비 스텝이 있는 시나리오만 구간 통계 두 표를 읽는다(없으면 조회 0회).
+    let has_setup = handicap_engine::Scenario::from_yaml(&scenario_yaml)
+        .is_ok_and(|sc| !sc.setup_steps().is_empty());
+    let (section_steps, section_outcomes) = if has_setup {
+        (
+            crate::store::section::section_steps(db, run_id).await?,
+            crate::store::section::section_outcomes(db, run_id).await?,
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let setup_report =
+        crate::report::build_setup_report(&scenario_yaml, &section_steps, &section_outcomes);
     let build = |scope: Option<&crate::report::SteadyScope<'_>>| {
         crate::report::build_report(
             &row,
@@ -1231,6 +1244,7 @@ pub async fn build_reports_for_run(
             &loop_exits,
             &stair_inputs,
             &open_loop_totals,
+            setup_report.as_ref(),
             scope,
         )
     };
@@ -1241,12 +1255,21 @@ pub async fn build_reports_for_run(
 
     use crate::steady::{Basis, BasisBlock, BasisOther, BasisWindow};
     let spans = crate::steady::worker_spans(&rows);
+    // 준비 완료 시각은 VU 고정 부하에서만 유지 구간 시작을 민다(open-loop·VU 곡선은 그대로).
+    let mut setup_done: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    if !row.profile.is_open_loop() && !row.profile.is_vu_curve() {
+        for o in section_outcomes.iter().filter(|o| o.last_done_ms > 0) {
+            let e = setup_done.entry(o.worker_id.as_str()).or_insert(0);
+            *e = (*e).max(o.last_done_ms);
+        }
+    }
     let w = crate::steady::steady_window_from_spans(
         &cfg,
         row.status == RunStatus::Completed,
         row.ended_at,
         &spans,
         &starts,
+        &setup_done,
     );
     let mut dropped_whole_run = false;
     let steady_report = w.range.map(|(lo, hi)| {
