@@ -22,6 +22,8 @@ import {
   isIfStep,
   isParallelStep,
   isInsideParallelBranch,
+  allSteps,
+  isSetupStep,
   extractDefaultIssue,
   EXTRACT_DEFAULT_MAX,
 } from "../../scenario/model";
@@ -39,6 +41,7 @@ import { Select } from "../ui/Select";
 import { Textarea } from "../ui/Textarea";
 import { Section } from "../ui/Section";
 import { Callout } from "../ui/Callout";
+import { SetupBadge } from "./SetupBadge";
 import { loopWarnings } from "../../scenario/loopWarnings";
 import {
   loadSectionPrefs,
@@ -65,8 +68,9 @@ const EMPTY_STEPS: Step[] = [];
 
 export function Inspector() {
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
-  const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
+  const model = useScenarioEditor((s) => s.model);
   const select = useScenarioEditor((s) => s.select);
+  const steps = useMemo(() => (model ? allSteps(model) : EMPTY_STEPS), [model]);
 
   const step = useMemo<Step | null>(
     () => findStepById(steps, selectedStepId),
@@ -92,7 +96,7 @@ export function Inspector() {
     );
   }
 
-  const topLevel = steps.some((s) => s.id === step.id);
+  const topLevel = (model?.steps ?? EMPTY_STEPS).some((s) => s.id === step.id);
 
   if (isLoopStep(step)) return <LoopInspector step={step} topLevel={topLevel} />;
   if (isIfStep(step)) return <IfInspector step={step} topLevel={topLevel} />;
@@ -191,6 +195,8 @@ function HttpStepInspector({
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
+  const moveStepToSection = useScenarioEditor((s) => s.moveStepToSection);
+  const yamlError = useScenarioEditor((s) => s.yamlError);
 
   // 시나리오 기본 think time 3상태(R8/R9): 상속(think_time 키 없음) / override(값
   // 명시) / "이 스텝만 대기 없음"({min_ms:0,max_ms:0}). parallel 분기 서브트리엔
@@ -199,6 +205,8 @@ function HttpStepInspector({
   const model = useScenarioEditor((s) => s.model);
   const defaultThink = model?.default_think_time;
   const insideParallel = model ? isInsideParallelBranch(model.steps, step.id) : false;
+  const inSetup = model ? isSetupStep(model, step.id) : false;
+  const topLevelMain = model ? model.steps.some((s) => s.id === step.id) : false;
   // 판정 단일 소스 = thinkTime.ts(엔진 규칙 미러). insideParallel은 state에서 유도하면
   // 안 된다 — 분기 안에 값이 지정된 스텝은 override/no_wait라 amber 안내가 사라진다.
   const think = classifyThink(step, defaultThink, insideParallel);
@@ -256,7 +264,7 @@ function HttpStepInspector({
       <header className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">{ko.editor.httpPanelTitle}</h3>
         <div className="flex gap-1">
-          <MoveButtons stepId={step.id} />
+          {!inSetup && <MoveButtons stepId={step.id} />}
           <SmallButton
             onClick={() => removeStep(step.id)}
             label={ko.common.delete}
@@ -265,6 +273,30 @@ function HttpStepInspector({
           />
         </div>
       </header>
+
+      {inSetup && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent-200 bg-accent-50 px-2 py-1.5">
+          <span className="text-xs text-accent-800">
+            <SetupBadge /> {ko.editor.setupStepHint}
+          </span>
+          <SmallButton
+            onClick={() => moveStepToSection(step.id, "steps")}
+            label={ko.editor.moveToMain}
+            title={ko.editor.moveToMain}
+            disabled={yamlError !== null}
+          />
+        </div>
+      )}
+      {topLevelMain && (
+        <div className="flex justify-end">
+          <SmallButton
+            onClick={() => moveStepToSection(step.id, "setup")}
+            label={ko.editor.moveToSetup}
+            title={ko.editor.moveToSetup}
+            disabled={yamlError !== null}
+          />
+        </div>
+      )}
 
       <StepNameField stepId={step.id} name={step.name} />
 
@@ -392,7 +424,7 @@ function HttpStepInspector({
         open={sectionPrefs.extract}
         onToggle={() => onToggleSection("extract")}
       >
-        <ExtractEditor step={step} />
+        <ExtractEditor step={step} inSetup={inSetup} />
       </Section>
     </aside>
   );
@@ -728,7 +760,7 @@ function defaultMsg(v: string | undefined): string | null {
   return null;
 }
 
-function ExtractEditor({ step }: { step: HttpStep }) {
+function ExtractEditor({ step, inSetup }: { step: HttpStep; inSetup: boolean }) {
   const setStepExtract = useScenarioEditor((s) => s.setStepExtract);
   // rename(#5)이 열린 스텝의 extract var draft를 실시간 재시드하게 reseed dep에 태운다.
   const renameEpoch = useScenarioEditor((s) => s.renameEpoch);
@@ -1006,6 +1038,9 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                     <span className="mt-1 block">{ko.glossary.extractDefault3}</span>
                     <span className="mt-1 block">{ko.glossary.extractDefault4}</span>
                   </HelpTip>
+                  {inSetup && (
+                    <span className="text-xs text-amber-700">{ko.editor.setupDefaultUnused}</span>
+                  )}
                 </div>
               )}
               {x.from === "status" && (
