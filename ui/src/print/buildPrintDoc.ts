@@ -187,7 +187,7 @@ export function buildPrintDoc(a: {
     shortId,
     createdDate: fmtDate(a.now),
     meta: {
-      targets: targetSystems(facts.ok ? facts.steps : [], env),
+      targets: targetSystems(facts.ok ? [...facts.setupSteps, ...facts.steps] : [], env),
       window: measuredWindow(run.started_at, run.ended_at, run.status),
       load: parsed.success ? loadConditionLine(parsed.data) : ko.print.fmt.noTarget,
       ident: label ? D.identLabeled(shortId, label) : shortId,

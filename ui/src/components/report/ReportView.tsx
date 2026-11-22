@@ -134,7 +134,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
     const parsed = parseScenarioDoc(report.scenario_yaml);
     // flattenHttpSteps는 loop/parallel/if 완전 재귀 — 중첩 오버라이드 포함(scenarioHasThink 선례).
     return "model" in parsed
-      ? flattenHttpSteps(parsed.model.steps).some((s) => s.timeout_seconds != null)
+      ? flattenHttpSteps(allSteps(parsed.model)).some((s) => s.timeout_seconds != null)
       : false; // 파싱 실패 = 꼬리 생략(fail-soft, spec §10)
   }, [report.scenario_yaml]);
 

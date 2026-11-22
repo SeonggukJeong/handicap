@@ -77,6 +77,9 @@ export function stripScenarioNames(yamlObj: unknown): unknown {
   if (!isObj(yamlObj)) return yamlObj;
   const out = omitNameNotes(yamlObj);
   if ("steps" in out) out.steps = stripSteps(out.steps);
+  if (isObj(out.setup) && "steps" in out.setup) {
+    out.setup = { ...out.setup, steps: stripSteps(out.setup.steps) };
+  }
   return out;
 }
 

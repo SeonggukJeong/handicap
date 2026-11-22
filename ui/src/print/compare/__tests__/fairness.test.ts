@@ -109,6 +109,30 @@ describe("deepEqualLoose / stripScenarioNames", () => {
   });
 });
 
+describe("준비 스텝과 같은 시나리오 판정", () => {
+  const withSetup = (name: string, url: string) => ({
+    name: "x",
+    setup: { steps: [{ id: "p1", name, notes: "메모", request: { method: "GET", url } }] },
+    steps: [{ id: "b1", name: "본", request: { method: "GET", url: "/b" } }],
+  });
+  it("준비 스텝의 이름·메모만 다른 두 시나리오는 같은 시나리오다", () => {
+    const a = stripScenarioNames(withSetup("가", "/p"));
+    const b = stripScenarioNames(
+      (() => {
+        const o = withSetup("나", "/p");
+        o.setup.steps[0].notes = "다른 메모";
+        return o;
+      })(),
+    );
+    expect(a).toEqual(b);
+  });
+  it("준비 스텝의 주소가 다르면 다른 시나리오다", () => {
+    expect(stripScenarioNames(withSetup("가", "/p"))).not.toEqual(
+      stripScenarioNames(withSetup("가", "/q")),
+    );
+  });
+});
+
 describe("부하 조건", () => {
   it("같은 리포트 둘이면 카드 4장 모두 같고 대조 행에 다름이 없다", () => {
     const f = fair();

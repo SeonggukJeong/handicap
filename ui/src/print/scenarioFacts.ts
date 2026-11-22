@@ -9,7 +9,9 @@ export type StepFacts = {
   fallibleExtract: boolean;
 };
 
-export type ScenarioFacts = { ok: true; name: string | null; steps: StepFacts[] } | { ok: false };
+export type ScenarioFacts =
+  | { ok: true; name: string | null; steps: StepFacts[]; setupSteps: StepFacts[] }
+  | { ok: false };
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -81,12 +83,15 @@ export function readScenarioFacts(yamlText: string): ScenarioFacts {
   } catch {
     return { ok: false };
   }
-  if (!isObj(root)) return { ok: true, name: null, steps: [] };
+  if (!isObj(root)) return { ok: true, name: null, steps: [], setupSteps: [] };
   const steps: StepFacts[] = [];
+  const setupSteps: StepFacts[] = [];
+  if (isObj(root.setup)) walk(root.setup.steps, setupSteps);
   walk(root.steps, steps);
   return {
     ok: true,
     name: typeof root.name === "string" ? root.name : null,
     steps,
+    setupSteps,
   };
 }

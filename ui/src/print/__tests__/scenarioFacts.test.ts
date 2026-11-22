@@ -133,13 +133,52 @@ steps:
     expect(f.steps[0].statusCodes).toEqual([404]);
   });
 
+  it("준비 스텝의 사실은 setupSteps에 따로 담긴다", () => {
+    const y = `version: 1
+name: n
+setup:
+  steps:
+    - id: S1
+      name: 준비
+      request: { method: POST, url: "https://auth.example/p" }
+steps:
+  - id: B1
+    name: 본
+    request: { method: GET, url: "https://api.example/b" }
+`;
+    const f = readScenarioFacts(y);
+    expect(f.ok).toBe(true);
+    if (!f.ok) return;
+    expect(f.setupSteps.map((s) => s.id)).toEqual(["S1"]);
+    expect(f.steps.map((s) => s.id)).toEqual(["B1"]);
+  });
+
+  it("setup이 없거나 모양이 이상해도 던지지 않는다", () => {
+    for (const setup of ["null", "3", '{ steps: "x" }']) {
+      const y = `version: 1
+name: n
+setup: ${setup}
+steps:
+  - id: B1
+    name: 본
+    request: { method: GET, url: "/b" }
+`;
+      const f = readScenarioFacts(y);
+      expect(f.ok).toBe(true);
+      if (!f.ok) return;
+      expect(f.setupSteps).toEqual([]);
+      expect(f.steps.map((s) => s.id)).toEqual(["B1"]);
+    }
+  });
+
   it("broken_yaml_is_not_ok", () => {
     expect(readScenarioFacts("steps: [\n")).toEqual({ ok: false });
-    expect(readScenarioFacts("")).toEqual({ ok: true, name: null, steps: [] });
+    expect(readScenarioFacts("")).toEqual({ ok: true, name: null, steps: [], setupSteps: [] });
     expect(readScenarioFacts("hello")).toEqual({
       ok: true,
       name: null,
       steps: [],
+      setupSteps: [],
     });
   });
 });

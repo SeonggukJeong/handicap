@@ -180,6 +180,33 @@ describe("ReportView", () => {
     );
   });
 
+  it("준비 스텝에만 타임아웃 재정의가 있어도 재정의 안내가 나온다", () => {
+    const yamlWithSetup = FIXTURE.scenario_yaml.replace(
+      "steps:",
+      [
+        "setup:",
+        "  steps:",
+        '    - id: "01HX0000000000000000000099"',
+        "      name: 준비",
+        "      type: http",
+        "      request:",
+        "        method: GET",
+        "        url: http://x/prep",
+        "      timeout_seconds: 10",
+        "steps:",
+      ].join("\n"),
+    );
+    render(
+      <ReportView
+        report={{ ...FIXTURE, scenario_yaml: yamlWithSetup }}
+        profile={{ ...TEST_PROFILE, connect_timeout_seconds: 5 }}
+      />,
+    );
+    expect(screen.getByText(new RegExp(ko.report.appliedTimeoutsLead)).textContent).toContain(
+      ko.report.appliedTimeoutsStepOverride,
+    );
+  });
+
   it("resolves env in step URLs (resolveForDisplay)", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     const stepRegion = screen.getByRole("region", { name: /스텝별 통계/ });

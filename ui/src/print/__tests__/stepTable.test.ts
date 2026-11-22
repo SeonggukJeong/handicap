@@ -35,7 +35,12 @@ const sf = (id: string, over: Partial<StepFacts> = {}): StepFacts => ({
   ...over,
 });
 
-const okFacts = (steps: StepFacts[]): ScenarioFacts => ({ ok: true, name: null, steps });
+const okFacts = (steps: StepFacts[]): ScenarioFacts => ({
+  ok: true,
+  name: null,
+  steps,
+  setupSteps: [],
+});
 
 const labels = (cols: { label: string }[]) => cols.map((c) => c.label);
 

@@ -165,6 +165,17 @@ describe("buildPrintDoc", () => {
     expect(JSON.stringify(doc)).not.toContain("secret-host.example.com/x");
   });
 
+  it("준비 스텝만 다른 호스트면 대상 시스템에 그 호스트가 나온다", () => {
+    const report = mkReport(1, {
+      scenario_yaml:
+        "version: 1\nname: 민원\nsetup:\n  steps:\n    - id: p0\n      name: 준비\n      request:\n        method: POST\n        url: https://auth.example/login\n" +
+        yamlOf(1).split("steps:\n")[1].replace(/^/, "steps:\n"),
+    });
+    const doc = build(mkRun(), report);
+    expect(doc.meta.targets).toContain("auth.example");
+    expect(doc.meta.targets).toContain("api.example.com");
+  });
+
   it("criteria_path_flows_to_kpis_other_rows_and_box", () => {
     const prof = { ...profile, criteria: { max_p95_ms: 100, max_p99_ms: 50 } };
     const report = mkReport(2, {
