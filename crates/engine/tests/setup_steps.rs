@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use handicap_engine::{
-    BindingPolicy, DataSet, EngineError, MetricFlush, RampDown, RunPlan, Scenario, run_scenario,
+    BindingPolicy, DataSet, EngineError, MetricFlush, RampDown, RunPlan, Scenario, Stage,
+    run_scenario, run_scenario_vu_curve,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +19,7 @@ const ORDERS_ID: &str = "01HX0000000000000000000002";
 #[derive(Clone, Copy)]
 enum Mode {
     Closed,
+    Curve,
 }
 
 #[derive(Default)]
@@ -186,12 +188,29 @@ async fn run(mode: Mode, yaml: &str, plan: RunPlan) -> (Result<(), EngineError>,
     let cancel = CancellationToken::new();
     let h = match mode {
         Mode::Closed => tokio::spawn(run_scenario(scenario, plan, tx, cancel)),
+        Mode::Curve => tokio::spawn(run_scenario_vu_curve(scenario, plan, tx, cancel)),
     };
     let mut flushes = Vec::new();
     while let Some(f) = rx.recv().await {
         flushes.push(f);
     }
     (h.await.unwrap(), flushes)
+}
+
+fn curve_plan(stages: &[(u32, u32)], bindings: Vec<Arc<DataSet>>) -> RunPlan {
+    let secs: u64 = stages.iter().map(|s| u64::from(s.1)).sum();
+    let mut p = plan(0, secs * 1000, bindings);
+    p.vu_stages = Some(
+        stages
+            .iter()
+            .map(|&(target, duration_seconds)| Stage {
+                target,
+                duration_seconds,
+            })
+            .collect(),
+    );
+    p.ramp_down = RampDown::Immediate;
+    p
 }
 
 fn query_param(req: &Request, key: &str) -> Option<String> {
@@ -315,7 +334,13 @@ async fn closed_all_failed_is_all_vus_failed() {
     let server = server_with(&seen).await;
     let yaml = build_yaml(&server.uri(), &Yaml::default());
     let ds = dataset(BindingPolicy::PerVu, vec![row(&[("user", "bad")])]);
-    let (res, _) = run(Mode::Closed, &yaml, plan(2, 1500, vec![ds])).await;
+    let (res, flushes) = run(Mode::Closed, &yaml, plan(2, 1500, vec![ds])).await;
+    let failed_outcomes: u64 = flushes
+        .iter()
+        .flat_map(|f| &f.section_outcomes)
+        .map(|o| o.failed)
+        .sum();
+    assert_eq!(failed_outcomes, 2);
     match res {
         Err(EngineError::AllVusFailed {
             failed,
@@ -461,4 +486,144 @@ steps:
             .iter()
             .all(|f| f.section_step_stats.is_empty() && f.section_outcomes.is_empty())
     );
+}
+
+#[tokio::test]
+async fn curve_setup_runs_once_per_activated_vu() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, _) = run(
+        Mode::Curve,
+        &yaml,
+        curve_plan(&[(3, 1), (1, 1), (3, 2)], vec![]),
+    )
+    .await;
+    res.unwrap();
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 3);
+    assert!(seen.orders_ok.load(Ordering::SeqCst) >= 3);
+    assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn curve_failed_vu_sends_no_main_requests() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let ds = dataset(
+        BindingPolicy::PerVu,
+        vec![row(&[("user", "good")]), row(&[("user", "bad")])],
+    );
+    let (res, _) = run(Mode::Curve, &yaml, curve_plan(&[(2, 1), (2, 2)], vec![ds])).await;
+    res.unwrap();
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 2);
+    let received = server.received_requests().await.unwrap();
+    let orders: Vec<_> = received
+        .iter()
+        .filter(|r| r.url.path() == "/orders")
+        .collect();
+    assert!(!orders.is_empty());
+    assert!(
+        orders
+            .iter()
+            .all(|r| query_param(r, "u").as_deref() == Some("good"))
+    );
+}
+
+#[tokio::test]
+async fn curve_all_failed_is_all_vus_failed() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let ds = dataset(BindingPolicy::PerVu, vec![row(&[("user", "bad")])]);
+    let (res, flushes) = run(Mode::Curve, &yaml, curve_plan(&[(2, 1), (2, 2)], vec![ds])).await;
+    match res {
+        Err(EngineError::AllVusFailed {
+            failed,
+            total,
+            cause,
+        }) => {
+            assert_eq!((failed, total), (2, 2));
+            let cause = cause.expect("cause");
+            assert!(cause.contains("준비 스텝"), "{cause}");
+            assert!(cause.contains("status_assert"), "{cause}");
+        }
+        other => panic!("expected AllVusFailed, got {other:?}"),
+    }
+    let failed_outcomes: u64 = flushes
+        .iter()
+        .flat_map(|f| &f.section_outcomes)
+        .map(|o| o.failed)
+        .sum();
+    assert_eq!(failed_outcomes, 2);
+    assert_eq!(seen.orders_ok.load(Ordering::SeqCst), 0);
+    assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn curve_main_window_has_no_setup_step_id() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, flushes) = run(Mode::Curve, &yaml, curve_plan(&[(2, 1), (2, 1)], vec![])).await;
+    res.unwrap();
+    assert!(
+        flushes
+            .iter()
+            .flat_map(|f| &f.windows)
+            .any(|w| w.step_id == ORDERS_ID)
+    );
+    assert!(
+        flushes
+            .iter()
+            .flat_map(|f| &f.windows)
+            .all(|w| w.step_id != LOGIN_ID)
+    );
+}
+
+#[tokio::test]
+async fn curve_retire_during_setup_redoes_setup() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(
+        &server.uri(),
+        &Yaml {
+            setup_think: "      think_time: { min_ms: 1500, max_ms: 1500 }",
+            ..Yaml::default()
+        },
+    );
+    let (res, flushes) = run(
+        Mode::Curve,
+        &yaml,
+        curve_plan(&[(1, 1), (0, 1), (1, 1), (1, 3)], vec![]),
+    )
+    .await;
+    res.unwrap();
+    assert!(seen.logins.load(Ordering::SeqCst) >= 2);
+    assert!(seen.orders_ok.load(Ordering::SeqCst) >= 1);
+    assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
+    let outcomes: Vec<_> = flushes.iter().flat_map(|f| &f.section_outcomes).collect();
+    assert_eq!(outcomes.iter().map(|o| o.interrupted).sum::<u64>(), 0);
+    assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
+    assert!(outcomes.iter().map(|o| o.ok).sum::<u64>() >= 1);
+}
+
+#[tokio::test]
+async fn curve_section_stats_flushed() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, flushes) = run(Mode::Curve, &yaml, curve_plan(&[(3, 1), (3, 2)], vec![])).await;
+    res.unwrap();
+    let count: u64 = flushes
+        .iter()
+        .flat_map(|f| &f.section_step_stats)
+        .filter(|s| s.step_id == LOGIN_ID)
+        .map(|s| s.count)
+        .sum();
+    assert_eq!(count, 3);
+    let outcomes: Vec<_> = flushes.iter().flat_map(|f| &f.section_outcomes).collect();
+    assert_eq!(outcomes.iter().map(|o| o.ok).sum::<u64>(), 3);
+    assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
+    assert!(outcomes.iter().any(|o| o.last_done_ms.is_some()));
 }

@@ -1360,6 +1360,11 @@ pub async fn run_scenario_vu_curve(
     let seq_counters = make_seq_counters(&datasets);
     // refresh: request 판정 — run당 1회, VU 공유(spec §4.3). None이면 요청 경로는 지금과 같다.
     let reqgen = RequestGenPlan::build(&scenario);
+    let section_stats: Option<SharedSectionStats> = if scenario.setup_steps().is_empty() {
+        None
+    } else {
+        Some(SharedSectionStats::default())
+    };
 
     // Desired active-VU count, broadcast to every VU task. VU `i` is active iff
     // `desired > i`.
@@ -1377,6 +1382,7 @@ pub async fn run_scenario_vu_curve(
     // CLAUDE.md "드레인 6/guard 5"). dropped is always 0 on this path.
     let flush_agg = agg.clone();
     let flush_out = out.clone();
+    let flush_sections = section_stats.clone();
     let flusher = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_millis(500));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1405,6 +1411,7 @@ pub async fn run_scenario_vu_curve(
                     g.drain_loop_exit_deltas(),
                 )
             };
+            let (section_step_stats, section_outcomes) = drain_shared(&flush_sections);
             if (!drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
@@ -1412,7 +1419,9 @@ pub async fn run_scenario_vu_curve(
                 || !phase_stats.is_empty()
                 || !active_vu_samples.is_empty()
                 || !error_kind_stats.is_empty()
-                || !loop_exit_stats.is_empty())
+                || !loop_exit_stats.is_empty()
+                || !section_step_stats.is_empty()
+                || !section_outcomes.is_empty())
                 && flush_out
                     .send(MetricFlush {
                         windows: drained,
@@ -1426,8 +1435,8 @@ pub async fn run_scenario_vu_curve(
                         loop_exit_stats,
                         open_loop_seconds: vec![],
                         open_loop_started_at_ms: None,
-                        section_step_stats: vec![],
-                        section_outcomes: vec![],
+                        section_step_stats,
+                        section_outcomes,
                     })
                     .await
                     .is_err()
@@ -1469,6 +1478,7 @@ pub async fn run_scenario_vu_curve(
             let rx = desired_rx.clone();
             let slab_vu = slab.clone();
             let reqgen = reqgen.clone();
+            let section_stats = section_stats.clone();
             set.spawn(async move {
                 if let Err(e) = run_vu_curve(
                     scenario,
@@ -1488,6 +1498,7 @@ pub async fn run_scenario_vu_curve(
                     measure_phases,
                     connect_timeout,
                     reqgen,
+                    section_stats,
                 )
                 .await
                 {
@@ -1575,6 +1586,7 @@ pub async fn run_scenario_vu_curve(
             g.drain_loop_exit_deltas(),
         )
     };
+    let (section_step_stats, section_outcomes) = drain_shared(&section_stats);
     if !final_windows.is_empty()
         || !final_loops.is_empty()
         || !final_branches.is_empty()
@@ -1583,6 +1595,8 @@ pub async fn run_scenario_vu_curve(
         || !final_active_vu.is_empty()
         || !final_error_kinds.is_empty()
         || !final_loop_exits.is_empty()
+        || !section_step_stats.is_empty()
+        || !section_outcomes.is_empty()
     {
         let _ = out
             .send(MetricFlush {
@@ -1597,8 +1611,8 @@ pub async fn run_scenario_vu_curve(
                 loop_exit_stats: final_loop_exits,
                 open_loop_seconds: vec![],
                 open_loop_started_at_ms: None,
-                section_step_stats: vec![],
-                section_outcomes: vec![],
+                section_step_stats,
+                section_outcomes,
             })
             .await;
     }
@@ -1705,6 +1719,7 @@ async fn run_vu_curve(
     measure_phases: bool,
     connect_timeout: Option<Duration>,
     reqgen: Option<Arc<RequestGenPlan>>,
+    section_stats: Option<SharedSectionStats>,
 ) -> Result<()> {
     // Client + rng + iter_id persist across park (Park & 재사용, spec §2):
     // the cookie jar IS the session, and iter_id stays monotonic.
@@ -1721,6 +1736,8 @@ async fn run_vu_curve(
     // 생성기 전용 rng — think_rng와 분리, park를 넘어 지속(같은 수명, spec §4).
     let mut gen_rng = StdRng::from_entropy();
     let mut iter_id: u32 = 0;
+    // 준비 상태는 park 밖 — 재활성화에서 다시 하지 않는다.
+    let mut vu_setup = VuSetup::default();
     let deadline_tokio = tokio::time::Instant::from_std(deadline);
     loop {
         // ── park: 3-way select — watch / run-cancel / deadline (spec §4.3) ──
@@ -1767,6 +1784,10 @@ async fn run_vu_curve(
             let mut req = reqgen
                 .as_ref()
                 .map(|p| ReqGen::new(p.clone(), &mut gen_rng));
+            vu_setup.overlay(&mut iter_vars, &mut req);
+            let setup_stats = section_stats.as_ref().filter(|_| !vu_setup.done);
+            let seed_vars = setup_stats.map(|_| iter_vars.clone());
+            let mut injected_rows: Vec<&BTreeMap<String, String>> = Vec::new();
             // Inject every binding in declared order (mirror of run_vu). First
             // exhausted Unique slice → permanent clean stop; partial inject discarded.
             // Side effect (spec §7): an earlier IterSequential counter advances one
@@ -1775,6 +1796,9 @@ async fn run_vu_curve(
             for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
                 match ds.select_index(vu_id, iter_id, counter.as_deref()) {
                     Some(idx) => {
+                        if setup_stats.is_some() {
+                            injected_rows.push(&ds.rows[idx]);
+                        }
                         for (k, v) in &ds.rows[idx] {
                             iter_vars.insert(k.clone(), v.clone());
                         }
@@ -1792,6 +1816,64 @@ async fn run_vu_curve(
             if stop {
                 clear_slot(&slab, index);
                 return Ok(());
+            }
+            if let (Some(stats), Some(mut rebuilt)) = (setup_stats, seed_vars) {
+                let mut setup_vars = iter_vars.clone();
+                let run = match run_section(
+                    Section::Setup,
+                    scenario.setup_steps(),
+                    &client,
+                    &mut setup_vars,
+                    &env,
+                    vu_id,
+                    iter_id,
+                    deadline,
+                    &act,
+                    &mut think_rng,
+                    scenario.default_think_time,
+                    &mut req,
+                    stats,
+                )
+                .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        clear_slot(&slab, index);
+                        return Err(e);
+                    }
+                };
+                match run {
+                    SectionRun::Done(extracted) => {
+                        vu_setup = VuSetup {
+                            done: true,
+                            vars: extracted,
+                        };
+                        vu_setup.overlay(&mut rebuilt, &mut req);
+                        for row in injected_rows {
+                            for (k, v) in row {
+                                rebuilt.insert(k.clone(), v.clone());
+                            }
+                        }
+                        iter_vars = rebuilt;
+                    }
+                    SectionRun::Failed(e) => {
+                        clear_slot(&slab, index);
+                        return Err(e);
+                    }
+                    SectionRun::Deadline => {
+                        clear_slot(&slab, index);
+                        return Ok(());
+                    }
+                    SectionRun::Aborted => {
+                        if cancel.is_cancelled() {
+                            stats
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .record_interrupted(Section::Setup);
+                        }
+                        break; // retire parks with setup undone; run-abort exits below
+                    }
+                }
             }
             let flow = match execute_steps(
                 &client,
