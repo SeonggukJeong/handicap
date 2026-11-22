@@ -4092,3 +4092,49 @@ describe("RunDialog — 계단 탭", () => {
     expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
   });
 });
+
+describe("RunDialog — 준비 스텝 안내", () => {
+  const SETUP_STEP = {
+    id: "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+    name: "준비",
+    type: "http" as const,
+    request: { method: "GET" as const, url: "http://x/a", headers: {} },
+    assert: [],
+    extract: [],
+  };
+  const MAIN_STEP = { ...SETUP_STEP, id: "01ARZ3NDEKTSV4RRFFQ69G5FA2", name: "본" };
+  const withSetup: Scenario = {
+    ...newEmptyScenario("s"),
+    setup: { steps: [SETUP_STEP] },
+    steps: [MAIN_STEP],
+  };
+  const setupOnly: Scenario = { ...newEmptyScenario("s"), setup: { steps: [SETUP_STEP] } };
+  const BURST = "준비 스텝이 VU 수만큼 한꺼번에 나갑니다. 상승 시간을 두면 나눠서 나갑니다.";
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(() => jsonResponse([]));
+  });
+
+  it("준비 스텝이 있는 시나리오는 기본 상태에서 burst 안내가 뜨고 상승 시간을 두면 사라진다", async () => {
+    const user = userEvent.setup();
+    renderDialog(false, withSetup);
+    expect(screen.getByText(BURST)).toBeInTheDocument();
+    const ramp = screen.getByLabelText("상승 시간(초)");
+    await user.clear(ramp);
+    await user.type(ramp, "5");
+    expect(screen.queryByText(BURST)).not.toBeInTheDocument();
+  });
+
+  it("본 스텝이 없는 시나리오는 경고가 뜨고 제출은 막히지 않는다", () => {
+    renderDialog(false, setupOnly);
+    expect(
+      screen.getByText("본 스텝이 없습니다. 준비 스텝만 한 번 실행하고 run이 끝납니다."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
+  });
+
+  it("준비 스텝이 없는 시나리오에는 안내 구역이 없다", () => {
+    renderDialog(false, { ...newEmptyScenario("s"), steps: [MAIN_STEP] });
+    expect(screen.queryByText("준비 스텝 안내")).not.toBeInTheDocument();
+  });
+});

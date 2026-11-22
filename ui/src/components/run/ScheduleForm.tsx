@@ -7,7 +7,10 @@ import { useEnvironment, useScenario } from "../../api/hooks";
 import { normalizeProfile, seedBindingsFrom } from "../../api/runPrefill";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { isLoopStep, flattenHttpSteps } from "../../scenario/model";
+import { isLoopStep, flattenHttpSteps, setupSteps } from "../../scenario/model";
+import { NoMainStepsWarning } from "./NoMainStepsWarning";
+import { SetupNotices } from "./SetupNotices";
+import { loadFieldsForNotices } from "./setupNoticeRules";
 import { LoadModelFields } from "./LoadModelFields";
 import {
   loadModelErrors,
@@ -504,16 +507,26 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
           ...(loopCapInvalid ? [ko.validation.loopCap] : []),
         ];
         return (
-          blockedReasons.length > 0 && (
-            <Callout variant="warn" role="status" className="mb-3">
-              <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
-              <ul className="list-disc pl-5">
-                {blockedReasons.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </Callout>
-          )
+          <>
+            <NoMainStepsWarning scenario={parsedScenario} />
+            {parsedScenario && setupSteps(parsedScenario).length > 0 && (
+              <SetupNotices
+                scenario={parsedScenario}
+                {...loadFieldsForNotices({ loadModel, rateMode, vus, rampUp, stages, maxInFlight })}
+                bindings={bindings}
+              />
+            )}
+            {blockedReasons.length > 0 && (
+              <Callout variant="warn" role="status" className="mb-3">
+                <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
+                <ul className="list-disc pl-5">
+                  {blockedReasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </Callout>
+            )}
+          </>
         );
       })()}
 

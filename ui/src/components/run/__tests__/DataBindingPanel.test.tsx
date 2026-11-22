@@ -229,6 +229,19 @@ describe("DataBindingPanel", () => {
     expect(await screen.findByText(/매핑되지 않음/i)).toBeInTheDocument();
   });
 
+  it("per_vu 선택지 글자는 그대로다", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
+    renderPanel(makeScenario());
+    const user = userEvent.setup();
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.selectOptions(await screen.findByLabelText(/데이터셋/i), "DS1");
+    const policySelect = await screen.findByLabelText(/정책/i);
+    const opt = within(policySelect).getByRole("option", { name: /^per_vu/ });
+    expect(opt).toHaveTextContent(/^per_vu — VU마다 한 행 \(고정\)$/);
+  });
+
   it("per-iteration policy shows memory warning banner; per_vu hides it", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(DATASET_LIST))

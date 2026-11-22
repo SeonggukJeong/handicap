@@ -96,6 +96,20 @@ export const ko = {
     genRefreshPriority: "같은 이름을 데이터셋이나 추출 값이 채우면 그 값이 우선합니다.",
   },
   runDialog: {
+    setupNotice: {
+      noMainSetupOnly: "본 스텝이 없습니다. 준비 스텝만 한 번 실행하고 run이 끝납니다.",
+      noMainEmpty: "본 스텝이 없습니다. 보낼 요청이 없어 run이 바로 끝납니다.",
+      title: "준비 스텝 안내",
+      burst: "준비 스텝이 VU 수만큼 한꺼번에 나갑니다. 상승 시간을 두면 나눠서 나갑니다.",
+      perSlot: (n: number) =>
+        `준비 스텝은 슬롯마다 한 번 실행됩니다. 슬롯이 ${n}개면 준비 스텝이 최대 ${n}번 나갑니다.`,
+      sharedRows: (rows: number, units: number, unit: "vu" | "slot") =>
+        unit === "vu"
+          ? `데이터 ${rows}행을 VU ${units}개가 나눠 씁니다. 같은 행으로 준비 스텝이 여러 번 실행됩니다. 값 하나가 틀리면 그 행을 받은 VU가 모두 준비에 실패합니다.`
+          : `데이터 ${rows}행을 슬롯 ${units}개가 나눠 씁니다. 같은 행으로 준비 스텝이 여러 번 실행됩니다. 값 하나가 틀리면 그 행을 받은 슬롯이 모두 준비에 실패합니다.`,
+      notPerVu: (vars: string[]) =>
+        `준비 스텝은 VU마다 첫 반복의 값으로 한 번만 실행됩니다. ${vars.map((v) => `\`${v}\``).join(", ")} 값이 VU마다 고정돼야 한다면 데이터셋 방식을 '${ko.binding.policyPerVu}'으로 두세요.`,
+    },
     title: "실행 설정",
     run: "실행하기",
     running: "시작 중…",
@@ -192,6 +206,7 @@ export const ko = {
     stairCardHint: "상세에서 수정",
   },
   binding: {
+    policyPerVu: "per_vu — VU마다 한 행 (고정)",
     sectionTitle: "데이터 바인딩",
     addDataset: "데이터셋 추가",
     removeBinding: (n: number) => `바인딩 ${n} 제거`,

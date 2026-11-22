@@ -13,7 +13,10 @@ import {
 import type { DataBinding, Profile } from "../../api/schemas";
 import { DEFAULT_HTTP_TIMEOUT_SECONDS } from "../../api/schemas";
 import type { Scenario } from "../../scenario/model";
-import { flattenHttpSteps, scenarioHasThink } from "../../scenario/model";
+import { flattenHttpSteps, scenarioHasThink, setupSteps } from "../../scenario/model";
+import { NoMainStepsWarning } from "./NoMainStepsWarning";
+import { SetupNotices } from "./SetupNotices";
+import { loadFieldsForNotices } from "./setupNoticeRules";
 import { bFailMode, evaluateTrust, isTrustApplicable } from "../../scenario/trust";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "../Button";
@@ -1212,6 +1215,15 @@ export function RunDialog({
           )
         );
       })()}
+
+      <NoMainStepsWarning scenario={scenario} />
+      {scenario && setupSteps(scenario).length > 0 && (
+        <SetupNotices
+          scenario={scenario}
+          {...loadFieldsForNotices({ loadModel, rateMode, vus, rampUp, stages, maxInFlight })}
+          bindings={bindings}
+        />
+      )}
 
       {trust && trust.level !== "good" && (
         <Callout variant="warn" role="status" className="mb-3">

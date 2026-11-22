@@ -730,7 +730,7 @@ function BindingCard({
                   value={policy}
                   onChange={(e) => setPolicy(e.target.value as BindingPolicy)}
                 >
-                  <option value="per_vu">per_vu — VU마다 한 행 (고정)</option>
+                  <option value="per_vu">{ko.binding.policyPerVu}</option>
                   <option value="iter_sequential">iter_sequential — 반복마다 순차 행</option>
                   <option value="iter_random">iter_random — 반복마다 랜덤 행</option>
                   <option value="unique">unique — 행마다 1회 소비, 소진 시 VU 종료</option>

@@ -22,6 +22,64 @@ beforeEach(() => {
   );
 });
 
+function stubScenarioYaml(yaml: string) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string) => {
+      const body = String(url).includes("/api/scenarios/s1")
+        ? { id: "s1", name: "scn", yaml, version: 1, created_at: 1, updated_at: 1, group: null }
+        : { datasets: [], scenarios: [] };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }),
+  );
+}
+
+const SETUP_STEP_YAML = `  - id: 01ARZ3NDEKTSV4RRFFQ69G5FA1
+    name: a
+    type: http
+    request:
+      method: GET
+      url: "http://x/a"
+`;
+
+describe("ScheduleForm — 준비 스텝 안내", () => {
+  async function pick(yaml: string) {
+    stubScenarioYaml(yaml);
+    const user = userEvent.setup();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s1");
+  }
+
+  it("스케줄 폼에도 본 스텝 없음 경고가 뜬다", async () => {
+    await pick(`version: 1\nname: s\nsetup:\n  steps:\n${SETUP_STEP_YAML}steps: []\n`);
+    expect(
+      await screen.findByText("본 스텝이 없습니다. 준비 스텝만 한 번 실행하고 run이 끝납니다."),
+    ).toBeInTheDocument();
+  });
+
+  it("스케줄 폼에도 같은 안내가 뜬다", async () => {
+    await pick(
+      `version: 1\nname: s\nsetup:\n  steps:\n${SETUP_STEP_YAML}steps:\n${SETUP_STEP_YAML.replace("FA1", "FA2")}`,
+    );
+    expect(
+      await screen.findByText(
+        "준비 스텝이 VU 수만큼 한꺼번에 나갑니다. 상승 시간을 두면 나눠서 나갑니다.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("ScheduleForm", () => {
   it("HTTP 타임아웃이 invalid면 저장이 비활성이고 사유 블록이 보인다", async () => {
     const user = userEvent.setup();
