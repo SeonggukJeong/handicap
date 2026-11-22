@@ -85,7 +85,18 @@ pub struct ExecOutcome {
     /// Transport send-failure classification (spec 2026-08-01 §3.1) — `Some` only on
     /// the send-Err arm; `None` on success or a post-send body-read failure.
     pub error_kind: Option<crate::error_kind::ErrorKind>,
+    /// Coarse failure class — `Some` exactly when `error` is `Some`.
+    pub error_class: Option<ErrorClass>,
     pub extracted: BTreeMap<String, String>,
+}
+
+/// Where in [`execute_step_with`] a step failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorClass {
+    Send,
+    ReadBody,
+    StatusAssert,
+    Extract,
 }
 
 /// Recursively render `{{var}}`/`${ENV}` in every string leaf of a JSON value.
@@ -154,6 +165,9 @@ fn render_json_value(
 pub enum ExtractMode {
     Strict,
     Lenient,
+    /// Like `Strict`, but an item's `default` never substitutes for a failed
+    /// extraction: the first failure errors the step.
+    StrictNoDefaults,
 }
 
 /// [`execute_step_with`] in [`ExtractMode::Strict`].
@@ -284,6 +298,7 @@ pub async fn execute_step_with(
                         wait,
                         error: Some(format!("read body: {}", e.without_url())),
                         error_kind: None, // post-send body-read failure — not a send-failure classification target
+                        error_class: Some(ErrorClass::ReadBody),
                         extracted: BTreeMap::new(),
                     });
                 }
@@ -291,10 +306,12 @@ pub async fn execute_step_with(
             let download = Some(dl_start.elapsed());
 
             let mut error: Option<String> = None;
+            let mut error_class: Option<ErrorClass> = None;
             for a in &step.assert {
                 match a {
                     Assertion::Status(want) if *want != status => {
                         error = Some(format!("status {} != {}", status, want));
+                        error_class = Some(ErrorClass::StatusAssert);
                         break;
                     }
                     _ => {}
@@ -317,11 +334,16 @@ pub async fn execute_step_with(
                             error = Some(e.to_string());
                         }
                     }
-                    ExtractMode::Strict => match evaluate_extracts(&step.extract, &facts) {
-                        Ok(map) => extracted = map,
-                        Err(e) => error = Some(e.to_string()),
-                    },
+                    ExtractMode::Strict | ExtractMode::StrictNoDefaults => {
+                        match evaluate_extracts(&step.extract, &facts) {
+                            Ok(map) => extracted = map,
+                            Err(e) => error = Some(e.to_string()),
+                        }
+                    }
                     ExtractMode::Lenient => extracted = evaluate_lenient(&step.extract, &facts),
+                }
+                if error.is_some() {
+                    error_class = Some(ErrorClass::Extract);
                 }
             }
 
@@ -335,6 +357,7 @@ pub async fn execute_step_with(
                 wait,
                 error,
                 error_kind: None,
+                error_class,
                 extracted,
             })
         }
@@ -356,6 +379,7 @@ pub async fn execute_step_with(
                 // 붙어도 안전하도록 소스에서 차단한다.
                 error: Some(e.without_url().to_string()),
                 error_kind: Some(error_kind),
+                error_class: Some(ErrorClass::Send),
                 extracted: BTreeMap::new(),
             })
         }
@@ -673,10 +697,12 @@ pub async fn execute_step_traced_with(
                     error = Some(e.to_string());
                 }
             }
-            ExtractMode::Strict => match evaluate_extracts(&step.extract, &facts) {
-                Ok(map) => extracted = map,
-                Err(e) => error = Some(e.to_string()),
-            },
+            ExtractMode::Strict | ExtractMode::StrictNoDefaults => {
+                match evaluate_extracts(&step.extract, &facts) {
+                    Ok(map) => extracted = map,
+                    Err(e) => error = Some(e.to_string()),
+                }
+            }
             ExtractMode::Lenient => extracted = evaluate_lenient(&step.extract, &facts),
         }
     }

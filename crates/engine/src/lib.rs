@@ -31,7 +31,7 @@ pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
 pub use error_kind::{ErrorKind, classify_send_error};
 pub use executor::{
-    ExecOutcome, ExtractMode, VuClient, execute_step, execute_step_traced,
+    ErrorClass, ExecOutcome, ExtractMode, VuClient, execute_step, execute_step_traced,
     execute_step_traced_with, execute_step_with,
 };
 pub use extract::{
