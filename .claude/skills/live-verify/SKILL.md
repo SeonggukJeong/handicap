@@ -63,4 +63,6 @@ rm -rf "$WT/.playwright-mcp"; rm -f "$WT"/*.png 2>/dev/null
 git -C "$WT" status --porcelain   # 잔류 untracked 0 확인
 ```
 
-`responder.py`는 이 스킬 디렉토리에 번들됨(`python3 .claude/skills/live-verify/responder.py <port> <delay_ms> [close]`).
+워커가 느려졌는지(요청당 CPU, 기준 ref 대비)는 이 스킬이 아니라 `/perf-ab`.
+
+`responder.py`는 이 스킬 디렉토리에 번들됨(`/perf-ab`도 이 파일을 쓴다 — 옮기거나 인자를 바꾸면 `perf-ab/perf_ab.py`도)(`python3 .claude/skills/live-verify/responder.py <port> <delay_ms> [close]`).
