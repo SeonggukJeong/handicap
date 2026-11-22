@@ -46,15 +46,18 @@ function HttpRow({
   steps,
   onAddExtract,
   divider = false,
+  showName = false,
 }: {
   step: StepTrace;
   steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
   /** 바로 다음 행이 본 스텝 행인 준비 행 — 준비 구간과 본 구간 사이의 굵은 구분선. */
   divider?: boolean;
+  /** 목록에 준비 행이 있을 때만 — 모든 행 앞에 스텝 이름을 보인다. */
+  showName?: boolean;
 }) {
   const isSetupRow = step.section === "setup";
-  const setupName = isSetupRow && steps ? findStepById(steps, step.step_id)?.name : undefined;
+  const rowName = showName && steps ? findStepById(steps, step.step_id)?.name : undefined;
   const errorText = traceErrorText(step, (id) =>
     steps ? findStepById(steps, id)?.name : undefined,
   );
@@ -109,7 +112,7 @@ function HttpRow({
       >
         <span className="font-mono text-xs text-slate-400">{open ? "▾" : "▸"}</span>
         {isSetupRow && <SetupBadge />}
-        {setupName !== undefined && <span className="text-sm font-medium">{setupName}</span>}
+        {rowName !== undefined && <span className="text-sm font-medium">{rowName}</span>}
         {step.loop_index !== null && chip(`#${step.loop_index}`, "bg-slate-100 text-slate-600")}
         {chip(req?.method ?? "—", "bg-slate-800 text-white")}
         <span className="font-mono text-xs break-all">{req?.url ?? "(no request)"}</span>
@@ -279,15 +282,19 @@ export function TraceStepList({
   trace,
   steps,
   onAddExtract,
+  setupEndDivider = false,
 }: {
   trace: ScenarioTrace;
   steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
+  /** 준비 행만 든 목록(순차 모드의 준비 구간)의 마지막 준비 행에 구분선을 그린다. */
+  setupEndDivider?: boolean;
 }) {
   const meta = useMemo(() => loopJudgeMeta({ steps: steps ?? [] }), [steps]);
   if (trace.steps.length === 0) {
     return <p className="text-sm text-slate-500">실행할 스텝이 없습니다.</p>;
   }
+  const hasSetupRow = trace.steps.some((s) => s.section === "setup");
   const endedId = trace.ended_by_loop;
   // 최대 횟수로 끝나면 그 loop의 `exhausted` 판정 줄이 있다. 없으면 요청을 못 보낸 회차로 끝난 것.
   const exhausted = trace.steps.some(
@@ -325,7 +332,11 @@ export function TraceStepList({
               step={step}
               steps={steps}
               onAddExtract={onAddExtract}
-              divider={step.section === "setup" && next !== undefined && next.section !== "setup"}
+              showName={hasSetupRow}
+              divider={
+                step.section === "setup" &&
+                (next !== undefined ? next.section !== "setup" : setupEndDivider)
+              }
             />
           );
         })}

@@ -469,7 +469,7 @@ describe("TestFlowChips — 준비 칩", () => {
       />,
     );
     const wrap = screen.getByTestId("chip-strip-wrap");
-    expect(wrap.firstElementChild).toHaveTextContent("준비");
+    expect(wrap.firstElementChild).toHaveTextContent(/^준비$/);
     expect(
       within(wrap)
         .getAllByRole("button")

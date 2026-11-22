@@ -622,6 +622,31 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
     ).toBeInTheDocument();
   });
 
+  it("행 모드에서 준비가 실패해 행이 없으면 준비 칩은 실패, 본 칩은 미실행이다", async () => {
+    const user = userEvent.setup();
+    testRunResponse = {
+      ok: false,
+      truncated: false,
+      total_ms: 4,
+      rows: [],
+      setup_steps: [{ ...mkStepTrace(STEP_A, 401), section: "setup", error: "status 401 != 200" }],
+      setup_failed: true,
+    };
+    renderSection(YAML_SETUP);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+    await user.click(screen.getByRole("button", { name: ko.editor.testRunRun }));
+    await screen.findByRole("region", { name: ko.editor.seqResultAria });
+    const strip = screen.getByRole("group", { name: ko.editor.testFlowTitle });
+    expect(
+      within(strip).getByRole("button", { name: ko.editor.chipAriaFail("준비 요청") }),
+    ).toBeInTheDocument();
+    expect(
+      within(strip).getByRole("button", { name: ko.editor.chipAriaNotRun("조회") }),
+    ).toBeInTheDocument();
+  });
+
   // 순차 경로의 검증 기록 회귀 가드(T4 리뷰 fold). 기존 trust 테스트 3건은 단발
   // mutate만 태우므로 sequential onSuccess의 markVerified가 사라져도 못 잡는다.
   it("T6: sequential 성공(ok·!truncated) → 검증 기록 = verified (T4 리뷰 fold)", async () => {

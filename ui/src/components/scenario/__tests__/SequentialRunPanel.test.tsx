@@ -107,6 +107,27 @@ describe("SequentialRunPanel 준비 구간", () => {
     expect(screen.getAllByText("준비 요청")).toHaveLength(1);
   });
 
+  it("준비 목록의 마지막 행은 굵은 구분선만 그리고 얇은 테두리와 겹치지 않는다", () => {
+    render(
+      <SequentialRunPanel
+        seq={{ ...seq, setup_steps: [setupRow()] }}
+        steps={steps}
+        requestedRows={3}
+        expandedRow={null}
+        onExpandRow={noop}
+      />,
+    );
+    const li = screen.getByText("준비 요청").closest("li")!;
+    expect(li).toHaveClass("border-b-2", "border-accent-200");
+    expect(li).not.toHaveClass("border-slate-100");
+    for (const el of document.querySelectorAll("*")) {
+      expect(el.classList.contains("border-b-2") && el.classList.contains("border-slate-100")).toBe(
+        false,
+      );
+    }
+    expect(document.querySelectorAll(".border-accent-200")).toHaveLength(1);
+  });
+
   it("준비가 실패해 행이 없어도 준비 행과 실패 안내가 나온다", () => {
     render(
       <SequentialRunPanel

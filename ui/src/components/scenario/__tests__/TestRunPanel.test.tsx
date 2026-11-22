@@ -505,6 +505,19 @@ describe("TestRunPanel 준비 표지", () => {
     expect(screen.queryByText(msg)).not.toBeInTheDocument();
   });
 
+  it("준비 행이 있는 목록에서는 본 행에도 스텝 이름이 나온다", () => {
+    render(<TestRunPanel trace={SETUP_TRACE} steps={STEPS} />);
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[1]).getByText("조회")).toBeInTheDocument();
+    expect(within(items[1]).queryByText("준비")).not.toBeInTheDocument();
+  });
+
+  it("준비 행이 없는 목록에는 스텝 이름이 나오지 않는다", () => {
+    render(<TestRunPanel trace={{ ...SETUP_TRACE, steps: [row(B_ID)] }} steps={STEPS} />);
+    const item = screen.getAllByRole("listitem")[0];
+    expect(within(item).queryByText("조회")).not.toBeInTheDocument();
+  });
+
   it("구분선은 바로 다음이 본 행인 준비 행에만 있다", () => {
     const { unmount } = render(<TestRunPanel trace={SETUP_TRACE} steps={STEPS} />);
     const items = screen.getAllByRole("listitem");

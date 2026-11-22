@@ -56,7 +56,7 @@ export function SequentialRunPanel({
       {seq.setup_steps && (
         <>
           <p className="mb-1 text-[13px] font-semibold text-slate-700">{ko.editor.seqSetupTitle}</p>
-          <div className="mb-2.5 border-b-2 border-accent-200">
+          <div className="mb-2.5">
             <TraceStepList
               trace={{
                 ok: !seq.setup_failed,
@@ -68,6 +68,7 @@ export function SequentialRunPanel({
               }}
               steps={steps}
               onAddExtract={onAddExtract}
+              setupEndDivider
             />
           </div>
         </>
