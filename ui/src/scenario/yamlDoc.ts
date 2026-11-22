@@ -119,22 +119,29 @@ export function parseScenarioDoc(yamlText: string): ParseResult {
 }
 
 export function serializeDoc(doc: Document): string {
-  quoteFlowIndicatorScalars(doc);
+  quoteServerDivergentScalars(doc);
   return String(doc);
 }
 
+// `yaml`(1.2 core)은 문자열로 읽어 평문으로 쓰지만 서버 serde_yaml 0.9는 정수로 읽는 글자.
+// serde_yaml로 대조해 확정한 집합이다(0x·0o는 부호가 붙을 때만 갈린다 — 부호 없는 것은 `yaml`도 정수).
+const SERDE_ONLY_INT = /^(?:[+-]?0b[01]+|[+-]0o[0-7]+|[+-]0x[0-9a-fA-F]+)$/;
+
 /**
- * flow 표기(`{ }`·`[ ]`) 안에서 `?`·`:`로 시작하는 평문 글자(키·값)를 큰따옴표로 감싼다.
- * `yaml`(1.2)은 `{ sec-ch-ua-mobile: ?0 }`를 평문으로 쓰지만 서버의 serde_yaml(libyaml)은 flow 안의
- * `?`·`:`를 키/값 표시로 읽어 파싱 오류를 내거나(`?0`·`:v`) 키를 조용히 바꾼다(`{ ?c: 1 }` → `c`).
- * block 표기는 양쪽이 같게 읽으므로 건드리지 않는다.
+ * 문자열인 평문 글자(키·값) 가운데 서버(serde_yaml = libyaml)가 다르게 읽는 것을 큰따옴표로 감싼다.
+ * ① flow 표기(`{ }`·`[ ]`) 안에서 `?`·`:`로 시작 — `yaml`은 `{ sec-ch-ua-mobile: ?0 }`를 평문으로 쓰지만
+ *    libyaml은 flow 안의 `?`·`:`를 키/값 표시로 읽어 파싱 오류를 내거나(`?0`·`:v`) 키를 조용히 바꾼다
+ *    (`{ ?c: 1 }` → `c`). block 표기는 양쪽이 같게 읽으므로 건드리지 않는다.
+ * ② 어디서든 `0b101`·`+0x1F`·`-0o17` 꼴 — serde_yaml이 정수로 읽어 문자열 칸(헤더 값 등)이 타입 오류.
  */
-function quoteFlowIndicatorScalars(doc: Document): void {
+function quoteServerDivergentScalars(doc: Document): void {
   const isFlow = (n: unknown): boolean => (isMap(n) || isSeq(n)) && n.flow === true;
   // `setIn`·`set`으로 넣은 키·값은 노드가 아니라 날 문자열일 수 있다 — 그때는 노드로 바꿔 돌려준다.
-  const quoted = (v: unknown): unknown => {
+  const quoted = (v: unknown, inFlow: boolean): unknown => {
     const text = isScalar(v) ? v.value : v;
-    if (typeof text !== "string" || (text[0] !== "?" && text[0] !== ":")) return v;
+    if (typeof text !== "string") return v;
+    const flowIndicator = inFlow && (text[0] === "?" || text[0] === ":");
+    if (!flowIndicator && !SERDE_ONLY_INT.test(text)) return v;
     if (isScalar(v)) {
       if (v.type === undefined || v.type === Scalar.PLAIN) v.type = Scalar.QUOTE_DOUBLE;
       return v;
@@ -145,13 +152,13 @@ function quoteFlowIndicatorScalars(doc: Document): void {
   };
   visit(doc, {
     Pair(_key, pair, path) {
-      if (!path.some(isFlow)) return;
-      pair.key = quoted(pair.key);
-      pair.value = quoted(pair.value);
+      const inFlow = path.some(isFlow);
+      pair.key = quoted(pair.key, inFlow);
+      pair.value = quoted(pair.value, inFlow);
     },
     Seq(_key, seq, path) {
-      if (!isFlow(seq) && !path.some(isFlow)) return;
-      seq.items = seq.items.map(quoted);
+      const inFlow = isFlow(seq) || path.some(isFlow);
+      seq.items = seq.items.map((item) => quoted(item, inFlow));
     },
   });
 }

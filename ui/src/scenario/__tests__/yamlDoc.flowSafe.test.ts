@@ -118,6 +118,38 @@ steps: []
     expect(serializeDoc(docOf(src))).toBe(src);
   });
 
+  // serde_yaml 0.9로 대조한 목록(후보 237개 중 `yaml`은 문자열 평문으로 쓰고 serde는 정수로 읽는 것 전부).
+  const SERDE_INTS = ["0b1", "0b101", "+0b101", "-0b101", "+0o17", "-0o17", "+0x1F", "-0x1f"];
+
+  it.each(SERDE_INTS)("block 표기에서도 서버가 정수로 읽는 %j 는 감싼다 (헤더 값)", (value) => {
+    const out = edit(
+      STARTER,
+      { type: "addStep", id: STEP_ID, name: "Step 1" },
+      {
+        type: "setStepField",
+        stepId: STEP_ID,
+        path: ["request", "headers"],
+        value: { "X-A": value },
+      },
+    );
+    expect(out).toContain(`\n        X-A: "${value}"\n`);
+  });
+
+  it.each(SERDE_INTS)("날 문자열로 들어간 %j 변수 값도 감싼다", (value) => {
+    const out = edit(STARTER, { type: "setVariable", key: "v", value });
+    expect(out).toContain(`variables:\n  v: "${value}"\n`);
+  });
+
+  it.each(["0x1F", "0o17", "0b", "0b2", "+0x", "-0o8", "0B101", "a0b1", "+12", "1e3"])(
+    "서버와 같게 읽히는 %j 의 표기는 `yaml` 기본 그대로",
+    (value) => {
+      const withGuard = edit(STARTER, { type: "setVariable", key: "v", value });
+      const doc = docOf(STARTER);
+      applyEdit(doc, { type: "setVariable", key: "v", value });
+      expect(withGuard).toBe(String(doc));
+    },
+  );
+
   it("중간에 `?`·`:`가 든 flow 값은 건드리지 않는다", () => {
     const src = STARTER.replace("variables: {}", "variables: { u: http://a/b?c=1 }");
     expect(serializeDoc(docOf(src))).toBe(src);

@@ -8,7 +8,7 @@
  * 템플릿도 스캔/치환 가능해야 한다. Document 스칼라만 방문하면 Zod 게이트를 우회하고
  * 주석/구조도 보존한다(reissueStepIdsInFragment와 동형).
  */
-import { parseDocument, visit, isScalar } from "yaml";
+import { parseDocument, visit, isScalar, Scalar } from "yaml";
 import { serializeDoc } from "./yamlDoc";
 
 export type Substitution =
@@ -70,20 +70,23 @@ function isIdentity(subs: SubMap): boolean {
   return all.every((s) => s.kind === "keep");
 }
 
-function rewrite(s: string, subs: SubMap): string {
+function rewrite(s: string, subs: SubMap): { out: string; literal: boolean } {
+  let literal = false;
   let out = s.replace(FLOW_RE, (full, name: string) => {
     const sub = subs.flow[name];
     if (!sub || sub.kind === "keep") return full;
     if (sub.kind === "rename") return `{{${sub.to}}}`;
+    literal = true;
     return sub.value; // literal — braces dropped
   });
   out = out.replace(ENV_RE, (full, name: string, def?: string) => {
     const sub = subs.env[name];
     if (!sub || sub.kind === "keep") return full;
     if (sub.kind === "rename") return `\${${sub.to}${def ?? ""}}`; // :- default preserved
+    literal = true;
     return sub.value; // literal — whole ${...} replaced
   });
-  return out;
+  return { out, literal };
 }
 
 export function applyTokenSubstitutions(stepsYaml: string, subs: SubMap): string {
@@ -100,7 +103,13 @@ export function applyTokenSubstitutions(stepsYaml: string, subs: SubMap): string
   visit(doc, {
     Scalar(_key, node) {
       if (isScalar(node) && typeof node.value === "string") {
-        node.value = rewrite(node.value, subs);
+        const { out, literal } = rewrite(node.value, subs);
+        node.value = out;
+        // 리터럴이 들어간 평문 글자는 큰따옴표로 — `yaml`(1.2)이 평문으로 쓰는 `0b101`·`+0x1F`를
+        // 서버 serde_yaml은 숫자로 읽는다. 원래 문자열이던 자리는 서버에서도 문자열이어야 한다.
+        if (literal && (node.type === undefined || node.type === Scalar.PLAIN)) {
+          node.type = Scalar.QUOTE_DOUBLE;
+        }
       }
     },
   });
