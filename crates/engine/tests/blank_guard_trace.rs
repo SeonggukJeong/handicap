@@ -450,6 +450,7 @@ fn blocked_field_roundtrip() {
             by_step: POLL_ID.into(),
         }),
         defaulted: Vec::new(),
+        section: None,
     };
     let json = serde_json::to_string(&s).unwrap();
     let back: StepTrace = serde_json::from_str(&json).unwrap();

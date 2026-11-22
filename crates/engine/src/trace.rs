@@ -158,6 +158,9 @@ pub struct StepTrace {
     /// http 행 전용: 값을 못 뽑아 `default`가 들어간 이름(선언 순서, 없으면 직렬화 생략).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub defaulted: Vec<String>,
+    /// 준비 구간에서 실행한 행이면 `Some(Section::Setup)`, 본 스텝이면 `None`(직렬화 생략).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<Section>,
 }
 
 /// 보내지 않은 http 행의 사유 — 변수 이름과 값을 못 준 스텝 id만 싣는다(값 없음).
@@ -182,6 +185,12 @@ pub struct ScenarioTrace {
     /// 조건 반복이 최대 횟수에 닿아 이번 반복을 끝냈다면 그 loop 스텝 id (없으면 직렬화 생략).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_by_loop: Option<String>,
+    /// 준비 스텝이 실패해 본 스텝을 실행하지 않았다(false면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub setup_failed: bool,
+    /// 준비에 걸린 시간 ms (준비가 있을 때만).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_ms: Option<u64>,
 }
 
 use std::sync::Arc;
@@ -194,6 +203,7 @@ use crate::pacing::ThinkTime;
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::runner::select_branch;
 use crate::scenario::{CompareOp, Condition, IfStep, Scenario, Step};
+use crate::section::Section;
 use crate::template::{TemplateContext, render_collecting};
 
 struct TraceState {
@@ -238,6 +248,15 @@ pub struct RowsTrace {
     pub truncated: bool,
     pub total_ms: u64,
     pub rows: Vec<RowTrace>,
+    /// 첫 행 앞에서 한 번 실행한 준비 스텝 행(없으면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub setup_steps: Vec<StepTrace>,
+    /// 준비 실패로 행을 하나도 실행하지 않았다(false면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub setup_failed: bool,
+    /// 준비에 걸린 시간 ms (준비가 있을 때만).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_ms: Option<u64>,
 }
 
 /// `trace_scenario` + 데이터셋 시드 1행 주입 (test-run single_row, ADR-0047).
@@ -263,6 +282,8 @@ pub async fn trace_scenario_with_seed(
                 truncated: false,
                 error: Some(format!("http client build: {e}")),
                 ended_by_loop: None,
+                setup_failed: false,
+                setup_ms: None,
             };
         }
     };
@@ -276,7 +297,44 @@ pub async fn trace_scenario_with_seed(
         judge_bytes: 0,
         ended_by_loop: None,
     };
-    trace_once(
+    let mut setup_rows = Vec::new();
+    let mut setup_ms = None;
+    let mut setup_vars = BTreeMap::new();
+    let mut reuse_seed = None;
+    if let Some(setup) = run_trace_setup(
+        scenario,
+        opts,
+        seed_vars,
+        &client,
+        deadline,
+        &mut state,
+        reqgen.as_ref(),
+    )
+    .await
+    {
+        match setup.outcome {
+            TraceSectionRun::Done(extracted) => {
+                setup_vars = extracted;
+                reuse_seed = Some(setup.scenario_vars);
+                setup_rows = setup.rows;
+                setup_ms = Some(setup.ms);
+            }
+            stopped => {
+                return ScenarioTrace {
+                    ok: setup.rows.iter().all(|s| s.error.is_none()),
+                    total_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    steps: setup.rows,
+                    final_vars: setup.vars,
+                    truncated: matches!(stopped, TraceSectionRun::Truncated),
+                    error: None,
+                    ended_by_loop: None,
+                    setup_failed: matches!(stopped, TraceSectionRun::Failed),
+                    setup_ms: Some(setup.ms),
+                };
+            }
+        }
+    }
+    let mut trace = trace_once(
         &client,
         scenario,
         opts,
@@ -285,8 +343,17 @@ pub async fn trace_scenario_with_seed(
         deadline,
         &mut state,
         reqgen.as_ref(),
+        &setup_vars,
+        reuse_seed,
     )
-    .await
+    .await;
+    if setup_ms.is_some() {
+        setup_rows.append(&mut trace.steps);
+        trace.steps = setup_rows;
+        trace.total_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        trace.setup_ms = setup_ms;
+    }
+    trace
 }
 
 /// 시나리오를 시드 행마다 1회씩 순차 실행 (1 VU iter_sequential 미러 — ADR-0047).
@@ -310,6 +377,9 @@ pub async fn trace_scenario_rows(
                 truncated: false,
                 total_ms: 0,
                 rows: vec![],
+                setup_steps: Vec::new(),
+                setup_failed: false,
+                setup_ms: None,
             };
         }
     };
@@ -323,6 +393,43 @@ pub async fn trace_scenario_rows(
         judge_bytes: 0,
         ended_by_loop: None,
     };
+    let mut setup_steps = Vec::new();
+    let mut setup_ms = None;
+    let mut setup_vars = BTreeMap::new();
+    let mut reuse_seed = None;
+    if let Some((_, first_seed)) = seeded_rows.first() {
+        if let Some(setup) = run_trace_setup(
+            scenario,
+            opts,
+            first_seed,
+            &client,
+            deadline,
+            &mut state,
+            reqgen.as_ref(),
+        )
+        .await
+        {
+            match setup.outcome {
+                TraceSectionRun::Done(extracted) => {
+                    setup_vars = extracted;
+                    reuse_seed = Some(setup.scenario_vars);
+                    setup_steps = setup.rows;
+                    setup_ms = Some(setup.ms);
+                }
+                stopped => {
+                    return RowsTrace {
+                        ok: false,
+                        truncated: matches!(stopped, TraceSectionRun::Truncated),
+                        total_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                        rows: vec![],
+                        setup_steps: setup.rows,
+                        setup_failed: matches!(stopped, TraceSectionRun::Failed),
+                        setup_ms: Some(setup.ms),
+                    };
+                }
+            }
+        }
+    }
     let mut rows: Vec<RowTrace> = Vec::with_capacity(seeded_rows.len());
     let mut truncated = false;
     for (i, (row_index, seed)) in seeded_rows.iter().enumerate() {
@@ -345,6 +452,8 @@ pub async fn trace_scenario_rows(
             deadline,
             &mut state,
             reqgen.as_ref(),
+            &setup_vars,
+            reuse_seed.take(),
         )
         .await;
         let mid_cut = trace.truncated;
@@ -364,6 +473,9 @@ pub async fn trace_scenario_rows(
         truncated,
         total_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
         rows,
+        setup_steps,
+        setup_failed: false,
+        setup_ms,
     }
 }
 
@@ -388,6 +500,10 @@ async fn trace_once(
     deadline: Instant,
     state: &mut TraceState,
     reqgen: Option<&Arc<RequestGenPlan>>,
+    // 준비 스텝이 추출한 변수(없으면 빈 맵).
+    setup_vars: &BTreeMap<String, String>,
+    // Some이면 이 패스의 시나리오 변수로 다시 시드하지 않고 이 값을 쓴다(첫 패스, 준비 때 시드한 값).
+    reuse_seed: Option<BTreeMap<String, String>>,
 ) -> ScenarioTrace {
     let started = Instant::now();
     state.steps = Vec::new();
@@ -395,10 +511,17 @@ async fn trace_once(
     state.iter_id = iter_id;
     // 생성기 전용 rng — think_rng와 절대 공유 금지(spec §4). 행/반복마다 재평가.
     let mut gen_rng = rand::rngs::StdRng::from_entropy();
-    let mut iter_vars: BTreeMap<String, String> =
-        crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+    let mut iter_vars: BTreeMap<String, String> = match reuse_seed {
+        Some(v) => v,
+        None => crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng),
+    };
     // 행/반복마다 새 상태 — 행 간 죽은 집합이 새지 않는다.
     let mut req = reqgen.map(|p| ReqGen::new(p.clone(), &mut gen_rng));
+    // 순서: 시나리오 변수 → 준비 추출 → 시드(데이터셋).
+    iter_vars.extend(setup_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+    if let Some(rg) = req.as_mut() {
+        rg.mark_written(setup_vars.keys());
+    }
     // 기존 데이터셋 overlay 루프 무변경 — 우선순위 생성 < 데이터셋 < extract.
     for (k, v) in seed_vars {
         iter_vars.insert(k.clone(), v.clone());
@@ -433,7 +556,164 @@ async fn trace_once(
         truncated: state.truncated,
         error: None,
         ended_by_loop: state.ended_by_loop.take(),
+        setup_failed: false,
+        setup_ms: None,
     }
+}
+
+/// 준비 구간 실행 결과.
+enum TraceSectionRun {
+    /// 모든 준비 스텝 성공 — 추출한 변수.
+    Done(BTreeMap<String, String>),
+    Failed,
+    /// 요청 상한 또는 시간 상한에 닿았다(`state.truncated`가 선다).
+    Truncated,
+}
+
+/// trace 쪽 구간 실행. 준비 행을 `state.steps`에 `section: Some(section)`으로 쌓는다.
+/// `state.requests`(요청 상한)와 `deadline`은 본 패스와 공유하고 스텝마다 머리에서 검사한다.
+/// 본 스텝용 `trace_steps`를 다시 쓰지 않는다(값 채우기·비움 표·너그러운 추출이 없다).
+#[allow(clippy::too_many_arguments)]
+async fn trace_section(
+    section: Section,
+    steps: &[Step],
+    client: &VuClient,
+    vars: &mut BTreeMap<String, String>,
+    opts: &TraceOptions,
+    deadline: Instant,
+    state: &mut TraceState,
+    req: &mut Option<ReqGen>,
+    default_think: Option<ThinkTime>,
+) -> TraceSectionRun {
+    let mut extracted_all = BTreeMap::new();
+    for step in steps {
+        let Step::Http(http) = step else {
+            continue;
+        };
+        if state.requests >= opts.max_requests || Instant::now() >= deadline {
+            state.truncated = true;
+            return TraceSectionRun::Truncated;
+        }
+        if let Some(rg) = req.as_mut() {
+            rg.refresh(&http.id, vars);
+        }
+        let ctx = TemplateContext {
+            vars,
+            env: &opts.env,
+            vu_id: 0,
+            iter_id: state.iter_id,
+            loop_index: None,
+        };
+        let mut t =
+            execute_step_traced_with(client, http, &ctx, ExtractMode::StrictNoDefaults).await;
+        state.requests += 1;
+        if t.error.is_none() {
+            if !t.unbound_vars.is_empty() {
+                t.error = Some("setup: unbound variable".to_string());
+            } else if t.extracted.values().any(String::is_empty) {
+                t.error = Some("setup: empty extract".to_string());
+            }
+        }
+        let failed = t.error.is_some() || !t.unbound_vars.is_empty();
+        let extracted = t.extracted;
+        state.steps.push(StepTrace {
+            step_id: http.id.clone(),
+            kind: StepKind::Http,
+            loop_index: None,
+            branch: None,
+            request: Some(t.request),
+            response: t.response,
+            extracted: extracted.clone(),
+            unbound_vars: t.unbound_vars,
+            error: t.error,
+            branch_eval: Vec::new(),
+            timed_out: t.timed_out,
+            blocked: None,
+            defaulted: Vec::new(),
+            section: Some(section),
+        });
+        if failed {
+            return TraceSectionRun::Failed;
+        }
+        if let Some(rg) = req.as_mut() {
+            rg.mark_written(extracted.keys());
+        }
+        vars.extend(extracted.clone());
+        extracted_all.extend(extracted);
+        if opts.apply_think_time {
+            if let Some(tt) = http.think_time.or(default_think) {
+                let now = Instant::now();
+                if now < deadline {
+                    let dur = tt.sample(&mut rand::thread_rng()).min(deadline - now);
+                    tokio::time::sleep(dur).await;
+                }
+                if Instant::now() >= deadline {
+                    state.truncated = true;
+                    return TraceSectionRun::Truncated;
+                }
+            }
+        }
+    }
+    TraceSectionRun::Done(extracted_all)
+}
+
+/// 준비 한 번 실행의 산출물. 준비 행은 `state.steps`에서 꺼내 `rows`에 둔다.
+struct TraceSetup {
+    outcome: TraceSectionRun,
+    rows: Vec<StepTrace>,
+    ms: u64,
+    /// 준비 때 한 번 시드한 시나리오 변수(첫 패스가 다시 쓴다).
+    scenario_vars: BTreeMap<String, String>,
+    /// 준비가 끝난 시점의 변수(준비 때 시나리오 변수 + 시드 + 준비 추출).
+    vars: BTreeMap<String, String>,
+}
+
+/// 준비 스텝이 있으면 「시나리오 변수 + 시드」의 사본에서 한 번 실행한다. 없으면 `None`.
+async fn run_trace_setup(
+    scenario: &Scenario,
+    opts: &TraceOptions,
+    seed_vars: &BTreeMap<String, String>,
+    client: &VuClient,
+    deadline: Instant,
+    state: &mut TraceState,
+    reqgen: Option<&Arc<RequestGenPlan>>,
+) -> Option<TraceSetup> {
+    if scenario.setup_steps().is_empty() {
+        return None;
+    }
+    let started = Instant::now();
+    state.steps = Vec::new();
+    state.truncated = false;
+    state.iter_id = 0;
+    let mut gen_rng = rand::rngs::StdRng::from_entropy();
+    let scenario_vars = crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+    let mut vars = scenario_vars.clone();
+    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), &mut gen_rng));
+    for (k, v) in seed_vars {
+        vars.insert(k.clone(), v.clone());
+    }
+    if let Some(rg) = req.as_mut() {
+        rg.mark_written(seed_vars.keys());
+    }
+    let outcome = trace_section(
+        Section::Setup,
+        scenario.setup_steps(),
+        client,
+        &mut vars,
+        opts,
+        deadline,
+        state,
+        &mut req,
+        scenario.default_think_time,
+    )
+    .await;
+    Some(TraceSetup {
+        outcome,
+        rows: std::mem::take(&mut state.steps),
+        ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        scenario_vars,
+        vars,
+    })
 }
 
 /// Collect the names of unresolved tokens referenced anywhere in an `if` node's
@@ -551,6 +831,7 @@ async fn trace_steps(
                             by_step: b.by_step,
                         }),
                         defaulted: filled.defaulted,
+                        section: None,
                     });
                 } else {
                     let ctx = TemplateContext {
@@ -591,6 +872,7 @@ async fn trace_steps(
                         timed_out: t.timed_out,
                         blocked: None,
                         defaulted: filled.defaulted,
+                        section: None,
                     });
                 }
                 if opts.apply_think_time || force_think {
@@ -690,6 +972,7 @@ async fn trace_steps(
                             timed_out: false,
                             blocked: None,
                             defaulted: Vec::new(),
+                            section: None,
                         });
                         state.judge_rows += 1;
                         if charge_judge_row(state, opts) {
@@ -786,6 +1069,7 @@ async fn trace_steps(
                     timed_out: false,
                     blocked: None,
                     defaulted: Vec::new(),
+                    section: None,
                 });
                 state.if_rows += 1;
                 if charge_judge_row(state, opts) {
@@ -914,11 +1198,14 @@ mod tests {
                 timed_out: false,
                 blocked: None,
                 defaulted: Vec::new(),
+                section: None,
             }],
             final_vars: BTreeMap::new(),
             truncated: false,
             error: None,
             ended_by_loop: None,
+            setup_failed: false,
+            setup_ms: None,
         };
         let json = serde_json::to_value(&t).unwrap();
         let back: ScenarioTrace = serde_json::from_value(json).unwrap();
@@ -946,8 +1233,13 @@ mod tests {
                     truncated: false,
                     error: None,
                     ended_by_loop: None,
+                    setup_failed: false,
+                    setup_ms: None,
                 },
             }],
+            setup_steps: Vec::new(),
+            setup_failed: false,
+            setup_ms: None,
         };
         let json = serde_json::to_value(&rt).unwrap();
         // 와이어 키 고정 (R8 — UI Zod 1:1 계약)
@@ -1483,6 +1775,7 @@ steps:
             timed_out: false,
             blocked: None,
             defaulted: Vec::new(),
+            section: None,
         }
     }
 

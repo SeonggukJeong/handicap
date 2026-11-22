@@ -20,7 +20,8 @@ use crate::reqgen::ReqGen;
 use crate::scenario::Step;
 use crate::template::TemplateContext;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Section {
     Setup,
 }

@@ -116,3 +116,30 @@ async fn error_class_matches_error() {
         .unwrap();
     assert_eq!(o.error_class, Some(ErrorClass::Send));
 }
+
+#[tokio::test]
+async fn traced_strict_no_defaults_ignores_default() {
+    let srv = server().await;
+    let s = step(format!("{}/p", srv.uri()), vec![], Some("x"));
+    let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+    let client = VuClient::new(CookieJarMode::Off).unwrap();
+
+    let t = handicap_engine::execute_step_traced_with(
+        &client,
+        &s,
+        &ctx(&vars, &env),
+        ExtractMode::StrictNoDefaults,
+    )
+    .await;
+    assert!(t.error.is_some());
+    assert!(!t.extracted.contains_key("var"));
+
+    let t = handicap_engine::execute_step_traced_with(
+        &client,
+        &s,
+        &ctx(&vars, &env),
+        ExtractMode::Strict,
+    )
+    .await;
+    assert!(t.error.is_none(), "error: {:?}", t.error);
+}

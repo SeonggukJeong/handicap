@@ -929,6 +929,7 @@ mod loop_judge_tests {
             timed_out: false,
             blocked: None,
             defaulted: Vec::new(),
+            section: None,
         }
     }
 
@@ -951,6 +952,8 @@ mod loop_judge_tests {
             truncated: false,
             error: None,
             ended_by_loop: None,
+            setup_failed: false,
+            setup_ms: None,
         };
         let lines = step_lines(&trace, &Names::default(), "S", None);
         let branch = |i: usize| match &lines[i] {

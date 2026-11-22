@@ -347,6 +347,7 @@ mod tests {
             timed_out: false,
             blocked: None,
             defaulted: Vec::new(),
+            section: None,
         }
     }
 
@@ -359,6 +360,8 @@ mod tests {
             truncated: false,
             error: None,
             ended_by_loop: None,
+            setup_failed: false,
+            setup_ms: None,
         }
     }
 

@@ -761,6 +761,7 @@ fn http_step(id: &str, status: Option<u16>) -> StepTrace {
         timed_out: false,
         blocked: None,
         defaulted: Vec::new(),
+        section: None,
     }
 }
 fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {
@@ -772,6 +773,8 @@ fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {
         truncated: false,
         error: None,
         ended_by_loop: None,
+        setup_failed: false,
+        setup_ms: None,
     }
 }
 

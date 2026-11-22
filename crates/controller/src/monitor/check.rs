@@ -884,6 +884,7 @@ steps:
             timed_out: false,
             blocked: None,
             defaulted: Vec::new(),
+            section: None,
         }
     }
 
@@ -896,6 +897,8 @@ steps:
             truncated: false,
             error: None,
             ended_by_loop: None,
+            setup_failed: false,
+            setup_ms: None,
         }
     }
 
@@ -1230,6 +1233,7 @@ steps:
                 timed_out: false,
                 blocked: None,
                 defaulted: Vec::new(),
+                section: None,
             })
             .collect()
     }

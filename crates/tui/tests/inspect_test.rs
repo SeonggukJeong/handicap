@@ -732,6 +732,7 @@ fn http(
         timed_out: false,
         blocked: None,
         defaulted: Vec::new(),
+        section: None,
     }
 }
 
@@ -750,6 +751,7 @@ fn if_row(step: &str, branch: &str) -> StepTrace {
         timed_out: false,
         blocked: None,
         defaulted: Vec::new(),
+        section: None,
     }
 }
 
@@ -762,6 +764,8 @@ fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {
         truncated: false,
         error: None,
         ended_by_loop: None,
+        setup_failed: false,
+        setup_ms: None,
     }
 }
 

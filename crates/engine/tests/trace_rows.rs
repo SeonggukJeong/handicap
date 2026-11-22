@@ -263,3 +263,74 @@ steps:
     assert!(!rt.ok);
     assert!(!rt.truncated);
 }
+
+#[tokio::test]
+async fn trace_rows_setup_once_with_first_row() {
+    use handicap_engine::Section;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"token":"tk"}"#))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/me"))
+        .and(header("authorization", "Bearer tk"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let base = server.uri();
+    let y = format!(
+        r#"
+version: 1
+name: rows-setup
+setup:
+  steps:
+    - type: http
+      id: 01HX0000000000000000000009
+      name: login
+      request: {{ method: POST, url: "{base}/login?u={{{{user}}}}" }}
+      extract:
+        - {{ var: token, from: body, path: "$.token" }}
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: me
+    request: {{ method: GET, url: "{base}/me", headers: {{ Authorization: "Bearer {{{{token}}}}" }} }}
+"#
+    );
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let rows = vec![
+        (0u64, seed(&[("user", "u0")])),
+        (1u64, seed(&[("user", "u1")])),
+        (2u64, seed(&[("user", "u2")])),
+    ];
+    let rt = trace_scenario_rows(&scenario, &opts(50), &rows).await;
+    assert!(rt.ok, "{rt:?}");
+    assert!(!rt.setup_failed);
+    assert!(rt.setup_ms.is_some());
+    assert_eq!(rt.setup_steps.len(), 1);
+    assert_eq!(rt.setup_steps[0].section, Some(Section::Setup));
+    assert!(
+        rt.setup_steps[0]
+            .request
+            .as_ref()
+            .unwrap()
+            .url
+            .ends_with("/login?u=u0")
+    );
+    assert_eq!(rt.rows.len(), 3);
+    for r in &rt.rows {
+        assert_eq!(r.trace.steps.len(), 1, "행 trace에 준비 행이 없다");
+        assert_eq!(r.trace.steps[0].section, None);
+        assert_eq!(r.trace.steps[0].response.as_ref().unwrap().status, 200);
+    }
+    let logins = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/login")
+        .count();
+    assert_eq!(logins, 1);
+}

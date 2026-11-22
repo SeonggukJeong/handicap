@@ -599,3 +599,248 @@ async fn not_timed_out_on_refused() {
     assert!(row.error.is_some());
     assert!(!row.timed_out);
 }
+
+// ---- 준비 스텝 (vu-setup-steps D11) ----
+
+use handicap_engine::Section;
+use wiremock::matchers::header;
+
+fn setup_yaml(setup_req: &str, main_url: &str) -> String {
+    format!(
+        r#"
+version: 1
+name: with-setup
+setup:
+  steps:
+    - type: http
+      id: 01HX0000000000000000000009
+      name: login
+      request: {setup_req}
+      extract:
+        - {{ var: token, from: body, path: "$.token" }}
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: main
+    request: {{ method: GET, url: "{main_url}", headers: {{ Authorization: "Bearer {{{{token}}}}" }} }}
+"#
+    )
+}
+
+async fn login_server(body: &str, status: u16) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .respond_with(ResponseTemplate::new(status).set_body_string(body.to_string()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/me"))
+        .and(header("authorization", "Bearer t1"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    server
+}
+
+fn login_req(base: &str) -> String {
+    format!(r#"{{ method: POST, url: "{base}/login" }}"#)
+}
+
+#[tokio::test]
+async fn trace_setup_then_steps() {
+    let server = login_server(r#"{"token":"t1"}"#, 200).await;
+    let base = server.uri();
+    let y = setup_yaml(&login_req(&base), &format!("{base}/me"));
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    assert!(trace.ok, "{trace:?}");
+    assert!(!trace.setup_failed);
+    assert!(trace.setup_ms.is_some());
+    assert_eq!(trace.steps.len(), 2);
+    assert_eq!(trace.steps[0].section, Some(Section::Setup));
+    assert_eq!(trace.steps[1].section, None);
+    let main_req = trace.steps[1].request.as_ref().unwrap();
+    assert_eq!(
+        main_req.headers.get("Authorization").map(String::as_str),
+        Some("Bearer t1")
+    );
+    assert_eq!(trace.steps[1].response.as_ref().unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn trace_setup_failure_stops() {
+    let server = login_server("denied", 401).await;
+    let base = server.uri();
+    let y = setup_yaml(&login_req(&base), &format!("{base}/me"));
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    // 본문이 JSON이 아니라 추출이 실패한다.
+    assert!(trace.setup_failed, "{trace:?}");
+    assert!(!trace.ok);
+    assert_eq!(trace.steps.len(), 1, "본 행 없음");
+    assert_eq!(trace.steps[0].section, Some(Section::Setup));
+    assert!(trace.steps[0].error.is_some());
+    assert!(trace.error.is_none());
+}
+
+#[tokio::test]
+async fn trace_setup_unbound_var_fails_with_fixed_error() {
+    let server = login_server(r#"{"token":"t1"}"#, 200).await;
+    let base = server.uri();
+    Mock::given(method("POST"))
+        .and(path("/login/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"token":"t1"}"#))
+        .mount(&server)
+        .await;
+    let req = format!(r#"{{ method: POST, url: "{base}/login/{{{{nope}}}}" }}"#);
+    let y = setup_yaml(&req, &format!("{base}/me"));
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    assert!(trace.setup_failed, "{trace:?}");
+    assert!(!trace.ok);
+    assert_eq!(trace.steps.len(), 1);
+    assert_eq!(
+        trace.steps[0].error.as_deref(),
+        Some("setup: unbound variable")
+    );
+}
+
+#[tokio::test]
+async fn trace_setup_empty_extract_fails() {
+    let server = login_server(r#"{"token": null}"#, 200).await;
+    let base = server.uri();
+    let y = setup_yaml(&login_req(&base), &format!("{base}/me"));
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    assert!(trace.setup_failed, "{trace:?}");
+    assert_eq!(trace.steps.len(), 1);
+    assert_eq!(
+        trace.steps[0].error.as_deref(),
+        Some("setup: empty extract")
+    );
+}
+
+#[tokio::test]
+async fn trace_setup_truncated_is_not_failed() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let base = server.uri();
+    let y = format!(
+        r#"
+version: 1
+name: two-setup
+setup:
+  steps:
+    - type: http
+      id: 01HX0000000000000000000008
+      name: s1
+      request: {{ method: GET, url: "{base}/a" }}
+    - type: http
+      id: 01HX0000000000000000000009
+      name: s2
+      request: {{ method: GET, url: "{base}/b" }}
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: main
+    request: {{ method: GET, url: "{base}/c" }}
+"#
+    );
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 1)).await;
+    assert!(trace.truncated, "{trace:?}");
+    assert!(!trace.setup_failed);
+    assert_eq!(trace.steps.len(), 1, "본 스텝은 실행하지 않는다");
+}
+
+#[tokio::test]
+async fn trace_first_pass_reuses_setup_seeded_scenario_vars() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"token":"t1"}"#))
+        .mount(&server)
+        .await;
+    let base = server.uri();
+    let y = format!(
+        r#"
+version: 1
+name: reuse
+variables:
+  oid: {{ gen: uuid }}
+setup:
+  steps:
+    - type: http
+      id: 01HX0000000000000000000009
+      name: login
+      request: {{ method: GET, url: "{base}/s/{{{{oid}}}}" }}
+      extract:
+        - {{ var: token, from: body, path: "$.token" }}
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: main
+    request: {{ method: GET, url: "{base}/m/{{{{oid}}}}" }}
+"#
+    );
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    assert!(trace.ok, "{trace:?}");
+    let setup_url = &trace.steps[0].request.as_ref().unwrap().url;
+    let main_url = &trace.steps[1].request.as_ref().unwrap().url;
+    let setup_id = setup_url.rsplit('/').next().unwrap();
+    let main_id = main_url.rsplit('/').next().unwrap();
+    assert!(!setup_id.is_empty());
+    assert_eq!(setup_id, main_id, "첫 패스는 다시 시드하지 않는다");
+}
+
+#[tokio::test]
+async fn trace_no_setup_json_unchanged() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let base = server.uri();
+    let y = format!(
+        r#"
+version: 1
+name: plain
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: a
+    request: {{ method: GET, url: "{base}/a" }}
+"#
+    );
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let v = serde_json::to_value(&trace).unwrap();
+    for key in ["setup_failed", "setup_ms"] {
+        assert!(v.get(key).is_none(), "{key}");
+    }
+    assert!(v["steps"][0].get("section").is_none());
+}
+
+#[test]
+fn trace_without_new_keys_deserializes() {
+    let t: handicap_engine::ScenarioTrace = serde_json::from_str(
+        r#"{"ok":true,"total_ms":1,"steps":[],"final_vars":{},"truncated":false,"error":null}"#,
+    )
+    .unwrap();
+    assert!(!t.setup_failed);
+    assert_eq!(t.setup_ms, None);
+    let r: handicap_engine::RowsTrace =
+        serde_json::from_str(r#"{"ok":true,"truncated":false,"total_ms":1,"rows":[]}"#).unwrap();
+    assert!(!r.setup_failed);
+    assert_eq!(r.setup_ms, None);
+    assert!(r.setup_steps.is_empty());
+    let s: handicap_engine::StepTrace = serde_json::from_str(
+        r#"{"step_id":"x","kind":"http","loop_index":null,"branch":null,"request":null,"response":null,"error":null}"#,
+    )
+    .unwrap();
+    assert_eq!(s.section, None);
+}

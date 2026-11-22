@@ -157,10 +157,13 @@ fn render_json_value(
 }
 
 /// How a step's `extract` list treats an item that cannot be extracted.
-/// `Strict` (default everywhere): the first failure errors the step.
+/// `Strict` (default everywhere): the first failure errors the step; an item's
+/// `default` substitutes for a failed extraction.
 /// `Lenient` (conditional-loop bodies): failed items are simply absent from
-/// `extracted` and never become a step error. Neither mode extracts when an
-/// error already exists before extraction.
+/// `extracted` and never become a step error.
+/// `StrictNoDefaults` (setup section): like `Strict`, but `default` never
+/// substitutes — the first failure errors the step.
+/// No mode extracts when an error already exists before extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtractMode {
     Strict,

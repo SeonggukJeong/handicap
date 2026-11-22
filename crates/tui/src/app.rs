@@ -4820,6 +4820,7 @@ mod body_input_tests {
             timed_out: false,
             blocked,
             defaulted: Vec::new(),
+            section: None,
         }
     }
 
@@ -4843,6 +4844,8 @@ mod body_input_tests {
                 truncated: false,
                 error: None,
                 ended_by_loop: None,
+                setup_failed: false,
+                setup_ms: None,
             }),
             clipped: vec![],
         }
