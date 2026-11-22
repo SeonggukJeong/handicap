@@ -118,6 +118,8 @@ struct Yaml {
     extra_extract: &'static str,
     setup_think: &'static str,
     orders_url_row: bool,
+    /// 본 스텝을 지우고 `steps: []`로 — 준비 스텝만 있는 시나리오.
+    no_main: bool,
 }
 
 impl Default for Yaml {
@@ -127,6 +129,7 @@ impl Default for Yaml {
             extra_extract: "",
             setup_think: "",
             orders_url_row: false,
+            no_main: false,
         }
     }
 }
@@ -141,6 +144,11 @@ fn build_yaml(uri: &str, y: &Yaml) -> String {
         .replace("@SETUP_THINK@", y.setup_think);
     if !y.orders_url_row {
         out = out.replace("&row={{n}}", "");
+    }
+    if y.no_main {
+        let cut = out.find("\nsteps:\n").expect("top-level steps");
+        out.truncate(cut);
+        out.push_str("\nsteps: []\n");
     }
     out
 }
@@ -950,4 +958,179 @@ async fn curve_section_stats_flushed() {
     assert_eq!(outcomes.iter().map(|o| o.ok).sum::<u64>(), 3);
     assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
     assert!(outcomes.iter().any(|o| o.last_done_ms.is_some()));
+}
+
+// ── 본 스텝이 없는 시나리오(spec D16): 준비만 하고 일찍 끝난다 ──
+
+fn setup_only_yaml(uri: &str) -> String {
+    build_yaml(
+        uri,
+        &Yaml {
+            no_main: true,
+            ..Yaml::default()
+        },
+    )
+}
+
+fn issued(seen: &Seen) -> usize {
+    seen.issued.lock().unwrap().len()
+}
+
+fn main_request_count(flushes: &[MetricFlush]) -> u64 {
+    flushes
+        .iter()
+        .flat_map(|f| &f.windows)
+        .map(|w| w.count)
+        .sum()
+}
+
+#[tokio::test]
+async fn setup_only_closed_runs_setup_once_and_ends_early() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_yaml(&server.uri());
+    let started = std::time::Instant::now();
+    let (res, flushes) = run(Mode::Closed, &yaml, plan(5, 5000, vec![])).await;
+    let elapsed = started.elapsed();
+    res.unwrap();
+    assert_eq!(issued(&seen), 5);
+    assert_eq!(main_request_count(&flushes), 0);
+    assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+}
+
+#[tokio::test]
+async fn setup_only_curve_ends_after_peak_and_setup() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_yaml(&server.uri());
+    let started = std::time::Instant::now();
+    let (res, _) = run(Mode::Curve, &yaml, curve_plan(&[(5, 1), (5, 4)], vec![])).await;
+    let elapsed = started.elapsed();
+    res.unwrap();
+    assert_eq!(issued(&seen), 5);
+    assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
+}
+
+#[tokio::test]
+async fn setup_only_curve_waits_for_late_peak() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_yaml(&server.uri());
+    let started = std::time::Instant::now();
+    let (res, _) = run(
+        Mode::Curve,
+        &yaml,
+        curve_plan(&[(2, 1), (2, 2), (5, 1), (5, 1)], vec![]),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    res.unwrap();
+    assert_eq!(issued(&seen), 5);
+    assert!(elapsed >= Duration::from_secs(3), "{elapsed:?}");
+}
+
+fn setup_only_slow_yaml(uri: &str) -> String {
+    build_yaml(
+        uri,
+        &Yaml {
+            no_main: true,
+            setup_think: "      think_time: { min_ms: 200, max_ms: 200 }",
+            ..Yaml::default()
+        },
+    )
+}
+
+#[tokio::test]
+async fn setup_only_open_loop_ends_after_every_slot_is_ready() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_slow_yaml(&server.uri());
+    let started = std::time::Instant::now();
+    let (res, flushes) = run(Mode::Open, &yaml, open_plan(20, 4, 5000, vec![])).await;
+    let elapsed = started.elapsed();
+    res.unwrap();
+    assert_eq!(issued(&seen), 4);
+    assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+    assert_eq!(flushes.last().expect("final flush").dropped, 0);
+    assert_eq!(main_request_count(&flushes), 0);
+    assert_eq!(open_seconds(&flushes), (0, 0, 0));
+}
+
+#[tokio::test]
+async fn setup_only_open_loop_all_failed_is_still_error() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_slow_yaml(&server.uri());
+    let ds = dataset(BindingPolicy::PerVu, vec![row(&[("user", "bad")])]);
+    let (res, _) = run(Mode::Open, &yaml, open_plan(20, 4, 5000, vec![ds])).await;
+    match res {
+        Err(EngineError::AllVusFailed { failed, total, .. }) => {
+            assert_eq!((failed, total), (4, 4));
+        }
+        other => panic!("expected AllVusFailed, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn setup_only_open_loop_partial_failure_ends_ok() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_slow_yaml(&server.uri());
+    let started = std::time::Instant::now();
+    let (res, _) = run(
+        Mode::Open,
+        &yaml,
+        open_plan(20, 4, 5000, bad_account_in_slot_one()),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    res.unwrap();
+    assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+}
+
+#[tokio::test]
+async fn no_steps_no_setup_ends_immediately() {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = "version: 1\nname: t\nsteps: []\n";
+    let cases = [
+        (Mode::Closed, plan(3, 5000, vec![]), Duration::from_secs(1)),
+        (
+            Mode::Curve,
+            curve_plan(&[(3, 1), (3, 4)], vec![]),
+            Duration::from_secs(3),
+        ),
+        (
+            Mode::Open,
+            open_plan(20, 4, 5000, vec![]),
+            Duration::from_secs(1),
+        ),
+    ];
+    for (mode, plan, bound) in cases {
+        let started = std::time::Instant::now();
+        let (res, flushes) = run(mode, yaml, plan).await;
+        let elapsed = started.elapsed();
+        res.unwrap();
+        assert_eq!(main_request_count(&flushes), 0);
+        assert!(elapsed < bound, "{elapsed:?} >= {bound:?}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn setup_only_failed_setup_still_fails_run() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_yaml(&server.uri());
+    let ds = dataset(BindingPolicy::PerVu, vec![row(&[("user", "bad")])]);
+    let (res, _) = run(Mode::Closed, &yaml, plan(2, 5000, vec![ds])).await;
+    match res {
+        Err(EngineError::AllVusFailed { failed, total, .. }) => {
+            assert_eq!((failed, total), (2, 2));
+        }
+        other => panic!("expected AllVusFailed, got {other:?}"),
+    }
 }

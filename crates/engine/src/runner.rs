@@ -504,6 +504,8 @@ async fn run_vu(
     let mut gen_rng = StdRng::from_entropy();
     let mut iter_id: u32 = 0;
     let mut vu_setup = VuSetup::default();
+    // 본 스텝이 없으면 VU는 준비 구간(없으면 첫 반복 머리)까지만 하고 끝난다(spec D16).
+    let no_main = scenario.steps.is_empty();
     while Instant::now() < deadline {
         if cancel.is_cancelled() {
             return Err(EngineError::Aborted);
@@ -591,6 +593,9 @@ async fn run_vu(
                     return Err(EngineError::Aborted);
                 }
             }
+        }
+        if no_main {
+            break;
         }
         let flow = execute_steps(
             &client,
@@ -1377,6 +1382,11 @@ pub async fn run_scenario_vu_curve(
     let mut set = JoinSet::new();
     let mut spawned: u32 = 0;
     let mut retire_since: Vec<Option<Instant>> = vec![None; max_vus as usize];
+    // 끝난 VU 태스크 수 — 본 스텝이 없는 run만 센다(감독 루프의 이른 종료, spec D16).
+    let ended: Option<Arc<AtomicU32>> = scenario
+        .steps
+        .is_empty()
+        .then(|| Arc::new(AtomicU32::new(0)));
 
     // Flusher: mirror of run_scenario's (MetricFlush drain site #5 — see engine
     // CLAUDE.md "드레인 6/guard 5"). dropped is always 0 on this path.
@@ -1460,6 +1470,14 @@ pub async fn run_scenario_vu_curve(
         if now >= deadline {
             break;
         }
+        // 본 스텝이 없는 run: 곡선 최고점까지 VU를 다 띄웠고 그 VU가 모두 끝났으면 끝낸다.
+        // 최고점 전에는 끝내지 않는다 — 뒤에 시작할 VU도 준비를 한 번 해야 한다.
+        if ended
+            .as_ref()
+            .is_some_and(|e| spawned >= max_vus && e.load(Ordering::Acquire) >= spawned)
+        {
+            break;
+        }
         let elapsed = now.duration_since(started_at).as_secs_f64();
         let desired =
             (rate_at(&stages, elapsed).round() as i64).clamp(0, i64::from(max_vus)) as u32;
@@ -1479,7 +1497,10 @@ pub async fn run_scenario_vu_curve(
             let slab_vu = slab.clone();
             let reqgen = reqgen.clone();
             let section_stats = section_stats.clone();
+            let end_guard = ended.clone().map(VuEnded);
             set.spawn(async move {
+                // 태스크가 어떻게 끝나든(panic 포함) future가 버려질 때 센다.
+                let _end_guard = end_guard;
                 if let Err(e) = run_vu_curve(
                     scenario,
                     index,
@@ -1655,6 +1676,15 @@ fn clear_slot(slab: &std::sync::Mutex<Vec<Option<CancellationToken>>>, index: u3
     slab.lock().expect("slab mutex")[index as usize] = None;
 }
 
+/// 곡선 VU 태스크 하나가 끝났음을 공유 계수에 올린다 — drop으로 올리므로 panic한 태스크도 센다.
+struct VuEnded(Arc<AtomicU32>);
+
+impl Drop for VuEnded {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::Release);
+    }
+}
+
 /// graceful ramp-down 상한(spec §5.3): 은퇴(index >= desired) 후 `cap`을 넘겨
 /// 여전히 active(slab Some)인 VU의 토큰을 취소한다. 취소된 VU는 스텝 경계에서
 /// `StepFlow::Aborted` → park(immediate와 동일 경로, `failed` 미증가). `retire_since`는
@@ -1742,6 +1772,8 @@ async fn run_vu_curve(
     let mut iter_id: u32 = 0;
     // 준비 상태는 park 밖 — 재활성화에서 다시 하지 않는다.
     let mut vu_setup = VuSetup::default();
+    // 본 스텝이 없으면 준비 구간 뒤 그 자리에서 끝난다(spec D16) — 자리는 다시 채워지지 않는다.
+    let no_main = scenario.steps.is_empty();
     let deadline_tokio = tokio::time::Instant::from_std(deadline);
     loop {
         // ── park: 3-way select — watch / run-cancel / deadline (spec §4.3) ──
@@ -1879,6 +1911,10 @@ async fn run_vu_curve(
                     }
                 }
             }
+            if no_main {
+                clear_slot(&slab, index);
+                return Ok(());
+            }
             let flow = match execute_steps(
                 &client,
                 &scenario.steps,
@@ -1955,6 +1991,9 @@ struct OpenSetup {
     stats: SharedSectionStats,
     /// 빠진 슬롯 수. `max_in_flight`에 닿으면 run이 `AllVusFailed`로 끝난다.
     retired: AtomicUsize,
+    /// 준비를 마친 슬롯 수. 본 스텝이 없는 run은 `ready + retired`가 `max_in_flight`에
+    /// 닿으면 스케줄러가 끝난다(spec D16).
+    ready: AtomicUsize,
     cause: OnceLock<String>,
 }
 
@@ -2027,9 +2066,12 @@ pub async fn run_scenario_open_loop(
         Some(Arc::new(OpenSetup {
             stats: SharedSectionStats::default(),
             retired: AtomicUsize::new(0),
+            ready: AtomicUsize::new(0),
             cause: OnceLock::new(),
         }))
     };
+    // 본 스텝이 없는 run은 슬롯마다 준비만 한 번 하고, 도착을 세지 않는다(spec D16).
+    let no_main = scenario.steps.is_empty();
     let section_stats: Option<SharedSectionStats> = open_setup.as_ref().map(|o| o.stats.clone());
 
     let mut set = JoinSet::new();
@@ -2156,6 +2198,16 @@ pub async fn run_scenario_open_loop(
         {
             break;
         }
+        // 위 「전부 빠짐」 검사 뒤에 둔다 — 모든 슬롯이 준비에 실패한 run은 `AllVusFailed`다.
+        if no_main {
+            let Some(o) = &open_setup else {
+                break;
+            };
+            if o.ready.load(Ordering::Acquire) + o.retired.load(Ordering::Relaxed) >= max_in_flight
+            {
+                break;
+            }
+        }
         let now = Instant::now();
         if now < next {
             // Clamp the wait to the run deadline (curve mode parks `next` at `deadline`
@@ -2168,6 +2220,11 @@ pub async fn run_scenario_open_loop(
             continue;
         }
         match slot_rx.try_recv() {
+            // 본 스텝이 없는 run에서 준비를 마친 슬롯을 받은 도착: 할 일이 없다 — 슬롯만 돌려준다.
+            // 방금 꺼낸 슬롯이라 큐에 자리가 있다.
+            Ok(slot) if no_main && slots[slot].ready.load(Ordering::Acquire) => {
+                let _ = slot_tx.try_send(slot);
+            }
             Ok(slot) => {
                 // 준비가 안 된 슬롯의 도착은 준비에 성공한 뒤 태스크가 센다.
                 if open_setup.is_none() || slots[slot].ready.load(Ordering::Acquire) {
@@ -2246,11 +2303,14 @@ pub async fn run_scenario_open_loop(
                 });
             }
             Err(_) => {
-                dropped += 1;
-                counters
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .record(CountKind::Dropped);
+                // 본 스텝이 없는 run은 보낼 요청이 없으므로 「보내지 않음」으로 세지 않는다.
+                if !no_main {
+                    dropped += 1;
+                    counters
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .record(CountKind::Dropped);
+                }
                 // Pool full while behind schedule: yield so in-flight arrivals (which
                 // free slots) get scheduled instead of tight-spinning the catch-up backlog.
                 tokio::task::yield_now().await;
@@ -2389,6 +2449,8 @@ async fn run_arrival(
     }
     // 준비가 있고 이 슬롯이 아직 준비 전이면 이 도착이 준비를 한다.
     let setup_open = open_setup.filter(|_| !slot_state.ready.load(Ordering::Acquire));
+    // 본 스텝이 없는 run의 도착은 준비만 하고 시작·완료 어디에도 세지 않는다(spec D16).
+    let no_main = scenario.steps.is_empty();
     let seed_vars = setup_open.map(|_| iter_vars.clone());
     let mut injected_rows: Vec<&BTreeMap<String, String>> = Vec::new();
     // Inject every binding in declared order (single arrival, no per-VU loop).
@@ -2411,7 +2473,7 @@ async fn run_arrival(
             // unique slice exhausted → signal the scheduler to stop new arrivals.
             None => {
                 exhausted.store(true, Ordering::Relaxed);
-                if setup_open.is_some() {
+                if setup_open.is_some() && !no_main {
                     // 스케줄러가 세지 않은 도착 — 지금처럼 「시작」으로 센다.
                     counters
                         .lock()
@@ -2457,10 +2519,13 @@ async fn run_arrival(
                 }
                 iter_vars = rebuilt;
                 slot_state.ready.store(true, Ordering::Release);
-                counters
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .record(CountKind::Launched);
+                o.ready.fetch_add(1, Ordering::Release);
+                if !no_main {
+                    counters
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .record(CountKind::Launched);
+                }
                 None
             }
             Ok(SectionRun::Failed(e)) | Err(e) => Some(e),
@@ -2488,6 +2553,9 @@ async fn run_arrival(
             }
             return Ok(());
         }
+    }
+    if no_main {
+        return Ok(());
     }
     // No run-level think time in open-loop (arrival rate governs inter-iteration pacing).
     let r = execute_steps(
