@@ -2388,10 +2388,8 @@ async fn run_arrival(
             .overlay(&mut iter_vars, &mut req);
     }
     // 준비가 있고 이 슬롯이 아직 준비 전이면 이 도착이 준비를 한다.
-    let setup_stats = open_setup
-        .map(|o| &o.stats)
-        .filter(|_| !slot_state.ready.load(Ordering::Acquire));
-    let seed_vars = setup_stats.map(|_| iter_vars.clone());
+    let setup_open = open_setup.filter(|_| !slot_state.ready.load(Ordering::Acquire));
+    let seed_vars = setup_open.map(|_| iter_vars.clone());
     let mut injected_rows: Vec<&BTreeMap<String, String>> = Vec::new();
     // Inject every binding in declared order (single arrival, no per-VU loop).
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
@@ -2400,7 +2398,7 @@ async fn run_arrival(
     for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
         match ds.select_index(vu_id, iter_id, counter.as_deref()) {
             Some(idx) => {
-                if setup_stats.is_some() {
+                if setup_open.is_some() {
                     injected_rows.push(&ds.rows[idx]);
                 }
                 for (k, v) in &ds.rows[idx] {
@@ -2413,7 +2411,7 @@ async fn run_arrival(
             // unique slice exhausted → signal the scheduler to stop new arrivals.
             None => {
                 exhausted.store(true, Ordering::Relaxed);
-                if setup_stats.is_some() {
+                if setup_open.is_some() {
                     // 스케줄러가 세지 않은 도착 — 지금처럼 「시작」으로 센다.
                     counters
                         .lock()
@@ -2424,7 +2422,8 @@ async fn run_arrival(
             }
         }
     }
-    if let (Some(stats), Some(mut rebuilt)) = (setup_stats, seed_vars) {
+    if let (Some(o), Some(mut rebuilt)) = (setup_open, seed_vars) {
+        let stats = &o.stats;
         let mut setup_vars = iter_vars.clone();
         let run = run_section(
             Section::Setup,
@@ -2474,7 +2473,7 @@ async fn run_arrival(
                 return Err(EngineError::Aborted);
             }
         };
-        if let (Some(e), Some(o)) = (failure, open_setup) {
+        if let Some(e) = failure {
             // 이 도착은 시작·완료·보내지 않음 어디에도 세지 않는다. 슬롯은 run에서 빠진다.
             slot_state.retired.store(true, Ordering::Release);
             if let Some(msg) = safe_cause(&e) {

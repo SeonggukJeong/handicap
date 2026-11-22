@@ -866,6 +866,73 @@ async fn open_all_slots_failed_fails_run() {
 }
 
 #[tokio::test]
+async fn open_unique_exhausted_on_unready_slot_counts_launched() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let ds = dataset(BindingPolicy::Unique, vec![row(&[("user", "good")])]);
+    let (res, flushes) = run(Mode::Open, &yaml, open_plan(10, 2, 1050, vec![ds])).await;
+    res.unwrap();
+    let (launched, completed, dropped) = open_seconds(&flushes);
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        launched,
+        completed + 1,
+        "launched={launched} completed={completed}"
+    );
+    assert_eq!(dropped, 0);
+}
+
+#[tokio::test]
+async fn open_run_cancel_during_setup_counts_interrupted_only() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(
+        &server.uri(),
+        &Yaml {
+            setup_think: "      think_time: { min_ms: 2500, max_ms: 2500 }",
+            ..Yaml::default()
+        },
+    );
+    let (res, flushes) = run_cancel_after(
+        Mode::Open,
+        &yaml,
+        open_plan(1, 1, 5000, vec![]),
+        Some(Duration::from_millis(800)),
+    )
+    .await;
+    assert!(matches!(res, Err(EngineError::Aborted)), "{res:?}");
+    let (launched, completed, dropped) = open_seconds(&flushes);
+    assert_eq!((launched, completed, dropped), (0, 0, 0));
+    let outcomes: Vec<_> = flushes.iter().flat_map(|f| &f.section_outcomes).collect();
+    assert_eq!(outcomes.iter().map(|o| o.interrupted).sum::<u64>(), 1);
+    assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn open_deadline_during_setup_counts_interrupted_only() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(
+        &server.uri(),
+        &Yaml {
+            setup_think: "      think_time: { min_ms: 2500, max_ms: 2500 }",
+            ..Yaml::default()
+        },
+    );
+    // 1/s, 실행 0.8초: 도착은 t=0 한 번뿐이고 준비 think가 deadline을 넘는다.
+    let (res, flushes) = run(Mode::Open, &yaml, open_plan(1, 1, 800, vec![])).await;
+    res.unwrap();
+    let (launched, completed, dropped) = open_seconds(&flushes);
+    assert_eq!((launched, completed, dropped), (0, 0, 0));
+    let outcomes: Vec<_> = flushes.iter().flat_map(|f| &f.section_outcomes).collect();
+    assert_eq!(outcomes.iter().map(|o| o.interrupted).sum::<u64>(), 1);
+    assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn curve_section_stats_flushed() {
     let seen = Arc::new(Seen::default());
     let server = server_with(&seen).await;
