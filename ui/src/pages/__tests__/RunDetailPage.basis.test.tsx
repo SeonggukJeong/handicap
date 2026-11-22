@@ -134,7 +134,7 @@ beforeEach(() => {
 });
 
 describe("RunDetailPage — 위쪽 카드의 「전체 구간」 표지", () => {
-  const badged = ["테스트 시간", "총 요청 수", "에러", "평균 RPS"];
+  const badged = ["실행 시간", "총 요청 수", "에러", "평균 RPS"];
 
   it("상승·버림이 있는 run은 run 전체 값 카드 넷에 표지가 붙는다", async () => {
     renderAt("/runs/R");

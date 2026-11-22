@@ -120,11 +120,16 @@ describe("Summary", () => {
     expect(screen.getByRole("note")).toHaveTextContent("95%");
   });
 
-  it("도움말이 없는 카드(총 요청·에러·테스트 시간)엔 도움말 버튼이 없다", () => {
+  it("요약 카드의 시간 라벨은 「측정 시간」이다", () => {
+    render(<Summary summary={baseSummary} />);
+    expect(screen.getByText("측정 시간")).toBeInTheDocument();
+  });
+
+  it("도움말이 없는 카드(총 요청·에러·측정 시간)엔 도움말 버튼이 없다", () => {
     render(<Summary summary={baseSummary} />);
     expect(screen.queryByRole("button", { name: "총 요청 설명" })).toBeNull();
     expect(screen.queryByRole("button", { name: "에러 설명" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "테스트 시간 설명" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "측정 시간 설명" })).toBeNull();
   });
 
   it("평균 RPS 카드에 RPS 용어 도움말이 있다", async () => {
