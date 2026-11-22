@@ -133,3 +133,7 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 ## 헤드리스 Chrome PDF 쪽 수 검증 — 스크립트 파일로 감쌀 것 (a4-print-report 2026-11-06)
 
 워크트리-격리 세션은 따옴표로 감싼 실행 파일 경로(`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless …`)와 `$VAR` 인자를 쓴 `python3` 호출을 "검증 불가"로 거부한다 → scratchpad에 Python 스크립트(`subprocess.run([CHROME, "--headless", f"--print-to-pdf={pdf}", "--no-pdf-header-footer", "--virtual-time-budget=10000", url])` + `pdfinfo`)를 Write하고 리터럴 경로로 단독 호출. 회색조 판독은 `pdftoppm -gray -png`로 이미지화해 Read.
+
+## 「글자가 두 줄로 꺾였다」 판정 — rect 높이 말고 `Range.getClientRects()` (steady-window-b 2026-11-22)
+
+flex 줄(`align-items: stretch` 기본)의 라벨 `span`은 옆 칸 값이 두 줄이 되면 rect 높이가 줄 높이를 따라 커진다 — `getBoundingClientRect().height`가 한 줄 높이의 두 배라고 「라벨이 꺾였다」고 읽으면 틀린다. `const r = document.createRange(); r.selectNodeContents(el); r.getClientRects().length`(줄마다 rect 하나)로 줄 수를 센다. 1em 폭 글꼴 흉내는 `letter-spacing: 0.12em` 주입(ui/CLAUDE.md 인쇄 보고서 절).
