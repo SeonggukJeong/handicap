@@ -179,6 +179,25 @@ steps:
     ]);
   });
 
+  it("준비 스텝의 주소 문제는 스텝으로 가는 항목이다", () => {
+    const parsed = parseScenarioDoc(`version: 1
+name: s
+setup:
+  steps:
+    - type: http
+      id: ${ULID_A}
+      name: prep
+      request:
+        method: GET
+        url: ""
+steps: []
+`);
+    if (!("model" in parsed)) throw new Error(parsed.error);
+    expect(collectProblems(parsed.model.steps, null, parsed.model.setup?.steps)).toEqual([
+      { kind: "step", stepId: ULID_A, message: ko.editor.problemEmptyUrl("prep") },
+    ]);
+  });
+
   it("steps가 null(pre-load)이고 yamlError도 없으면 빈 배열", () => {
     expect(collectProblems(null, null)).toEqual([]);
   });

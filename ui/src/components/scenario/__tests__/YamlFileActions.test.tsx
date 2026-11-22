@@ -78,6 +78,19 @@ describe("YamlFileActions — import", () => {
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
+  it("준비 스텝만 있는 시나리오도 덮어쓰기 확인을 묻는다", async () => {
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        'version: 1\nname: s\nsetup:\n  steps:\n    - id: "01HX0000000000000000000001"\n      name: 준비\n      type: http\n      request:\n        method: GET\n        url: "http://x/p"\nsteps: []\n',
+      );
+    expect(useScenarioEditor.getState().model?.steps).toEqual([]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { container } = render(<YamlFileActions />);
+    fireEvent.change(fileInput(container), { target: { files: [dummyFile()] } });
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+  });
+
   it("confirms before replacing when steps exist, and replaces on accept", async () => {
     useScenarioEditor.getState().loadFromString(EMPTY_YAML);
     useScenarioEditor.getState().addStep("Step one"); // guaranteed-valid http step

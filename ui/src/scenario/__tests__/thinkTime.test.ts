@@ -222,6 +222,26 @@ describe("buildThinkRows", () => {
   it("http leaf가 없으면 빈 배열", () => {
     expect(buildThinkRows(scenario([]))).toEqual([]);
   });
+
+  it("준비 스텝이 현황판 행의 맨 앞에 준비 표시와 함께 나온다", () => {
+    const sc = {
+      ...scenario([http(2, "본")]),
+      setup: { steps: [http(1, "준비")] },
+    } as Scenario;
+    const rows = buildThinkRows(sc);
+    expect(rows[0]).toMatchObject({ stepId: ID(1), setup: true, path: "", insideParallel: false });
+    expect(rows[1]).toMatchObject({ stepId: ID(2), setup: false });
+  });
+
+  it("준비 스텝도 시나리오 기본 think time을 상속한다", () => {
+    const sc = {
+      ...scenario([http(2, "본")], T),
+      setup: { steps: [http(1, "준비")] },
+    } as Scenario;
+    const rows = buildThinkRows(sc);
+    expect(rows[0].state).toBe("inherited");
+    expect(rows[0].effective).toEqual(T);
+  });
 });
 
 describe("resolveThinkDraft — 4분기 커밋 규칙 (R3, Inspector·ThinkTimeBoard 공용)", () => {

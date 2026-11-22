@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ko } from "../../../i18n/ko";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -39,6 +40,17 @@ ${HTTP("http://x/login")}steps:
     expect(msg.closest("button")).toBeNull();
     expect(screen.queryByText(ko.editor.problemGateIntro)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: ko.editor.problemGateAction })).toBeNull();
+  });
+
+  it("준비 스텝 항목을 누르면 그 스텝이 선택된다", async () => {
+    useScenarioEditor
+      .getState()
+      .loadFromString(`version: 1\nname: s\nsetup:\n  steps:\n${HTTP("/login")}steps: []\n`);
+    render(<ValidationBanner />);
+    await userEvent.click(
+      screen.getByRole("button", { name: ko.editor.problemUrlNeedsScheme("로그인") }),
+    );
+    expect(useScenarioEditor.getState().selectedStepId).toBe(ID);
   });
 
   it("스킴 없는 준비 스텝 URL도 경고한다", () => {

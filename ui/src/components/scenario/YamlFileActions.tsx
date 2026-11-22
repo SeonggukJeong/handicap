@@ -1,5 +1,6 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useScenarioEditor } from "../../scenario/store";
+import { allSteps } from "../../scenario/model";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { downloadYaml } from "../../api/downloadJson";
 import { sanitizeFilename } from "../../api/sanitizeFilename";
@@ -41,7 +42,7 @@ export function YamlFileActions() {
       return;
     }
     const s = useScenarioEditor.getState();
-    const hasContent = (s.model?.steps?.length ?? 0) > 0 || s.yamlError !== null;
+    const hasContent = (s.model ? allSteps(s.model).length : 0) > 0 || s.yamlError !== null;
     if (hasContent && !window.confirm(ko.editor.importReplaceConfirm)) return;
     s.loadFromString(content);
   };

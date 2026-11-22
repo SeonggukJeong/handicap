@@ -1038,10 +1038,12 @@ function ExtractEditor({ step, inSetup }: { step: HttpStep; inSetup: boolean }) 
                     <span className="mt-1 block">{ko.glossary.extractDefault3}</span>
                     <span className="mt-1 block">{ko.glossary.extractDefault4}</span>
                   </HelpTip>
-                  {inSetup && (
-                    <span className="text-xs text-amber-700">{ko.editor.setupDefaultUnused}</span>
-                  )}
                 </div>
+              )}
+              {x.from !== "status" && x.defaultOpen && inSetup && (
+                <span className="basis-full text-xs text-amber-700">
+                  {ko.editor.setupDefaultUnused}
+                </span>
               )}
               {x.from === "status" && (
                 <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>

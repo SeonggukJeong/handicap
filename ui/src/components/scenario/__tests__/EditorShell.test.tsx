@@ -458,3 +458,43 @@ steps:
     expect(screen.getByRole("status", { name: ko.editor.problemsBannerAria })).toBeInTheDocument();
   });
 });
+
+describe("EditorShell 준비 스텝 사용처 이동", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("변수 사용처에서 준비 스텝으로 이동하면 그 행이 선택되고 Inspector가 열린다", async () => {
+    const user = userEvent.setup();
+    const yaml = `version: 1
+name: x
+variables:
+  token: "t"
+setup:
+  steps:
+    - id: "01HX0000000000000000000001"
+      name: 준비 요청
+      type: http
+      request:
+        method: GET
+        url: "http://x/{{token}}"
+steps:
+  - id: "01HX0000000000000000000009"
+    name: 조회
+    type: http
+    request:
+      method: GET
+      url: "http://x/o"
+`;
+    render(<EditorShell initialYaml={yaml} />);
+    await user.click(
+      await screen.findByRole("button", { name: ko.editor.variableUsageNavAria("token") }),
+    );
+    await user.click(within(screen.getByRole("menu")).getByText("준비 요청"));
+    expect(screen.getByRole("option", { name: "스텝: 준비 요청" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByLabelText(ko.editor.fieldName)).toHaveValue("준비 요청");
+  });
+});

@@ -12,6 +12,7 @@ import {
   type ThinkState,
 } from "../../scenario/thinkTime";
 import { METHOD_BADGE } from "./methodBadge";
+import { SetupBadge } from "./SetupBadge";
 import { useThinkTimePair } from "./useThinkTimePair";
 import type { ThinkTime } from "../../scenario/model";
 
@@ -73,6 +74,7 @@ function BoardRow({
           >
             {row.method}
           </span>
+          {row.setup && <SetupBadge />}
           <span
             className="min-w-0 truncate"
             title={`${row.path ? `${row.path} / ` : ""}${row.name}`}

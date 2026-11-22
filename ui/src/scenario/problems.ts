@@ -21,7 +21,7 @@ export function collectProblems(
   }
   if (!steps) return [];
   const out: ScenarioProblem[] = [];
-  // 준비 스텝은 A1에서 선택할 수 없으므로 준비 스텝 관련 항목은 연결 없는 `plain`으로 낸다.
+  // id가 겹치면 어느 스텝을 가리킬지 정할 수 없어 연결 없는 `plain`으로 낸다.
   if (setupSteps.length > 0) {
     const seen = new Set<string>();
     const dup = new Set<string>();
@@ -33,9 +33,9 @@ export function collectProblems(
       out.push({ kind: "plain", message: ko.editor.problemDuplicateStepId(id) });
     }
   }
-  const urlProblems = (list: ReadonlyArray<HttpStep>, selectable: boolean): void => {
+  const urlProblems = (list: ReadonlyArray<HttpStep>): void => {
     const push = (s: HttpStep, message: string): void => {
-      out.push(selectable ? { kind: "step", stepId: s.id, message } : { kind: "plain", message });
+      out.push({ kind: "step", stepId: s.id, message });
     };
     for (const s of list) {
       const url = s.request.url.trim();
@@ -49,8 +49,8 @@ export function collectProblems(
       }
     }
   };
-  urlProblems(setupSteps, false);
-  urlProblems(flattenHttpSteps(steps), true);
+  urlProblems(setupSteps);
+  urlProblems(flattenHttpSteps(steps));
   return out;
 }
 

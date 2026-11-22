@@ -112,20 +112,22 @@ describe("collectProblems — 스텝 id 겹침", () => {
     expect(out).toContainEqual({ kind: "plain", message: ko.editor.problemDuplicateStepId(S1) });
   });
 
-  it("준비 스텝의 빈 URL·스킴 없는 URL도 문제로 낸다(스텝 선택 연결 없음)", () => {
+  it("준비 스텝의 빈 URL·스킴 없는 URL도 문제로 낸다(그 스텝으로 가는 항목)", () => {
     const m = modelOf(
       docYaml(`setup:\n  steps:\n${LOGIN.replace('"${BASE_URL}/login"', '"/login"')}`),
     );
     const out = collectProblems(m.steps, null, setupSteps(m));
     expect(out).toContainEqual({
-      kind: "plain",
+      kind: "step",
+      stepId: S1,
       message: ko.editor.problemUrlNeedsScheme("로그인"),
     });
     const empty = modelOf(
       docYaml(`setup:\n  steps:\n${LOGIN.replace('"${BASE_URL}/login"', '""')}`),
     );
     expect(collectProblems(empty.steps, null, setupSteps(empty))).toContainEqual({
-      kind: "plain",
+      kind: "step",
+      stepId: S1,
       message: ko.editor.problemEmptyUrl("로그인"),
     });
   });

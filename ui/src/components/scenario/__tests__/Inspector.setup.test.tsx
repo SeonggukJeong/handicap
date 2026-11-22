@@ -135,6 +135,18 @@ describe("Inspector 준비 스텝", () => {
     expect(screen.getByRole("button", { name: "준비 스텝으로 옮기기" })).toBeDisabled();
   });
 
+  it("깨진 YAML 버퍼 중에는 「본 스텝으로 옮기기」도 잠긴다", () => {
+    st().loadFromString(WITH_SETUP);
+    st().select(S1);
+    render(<Inspector />);
+    act(() => {
+      st().setPendingYamlText("steps: [unclosed");
+      st().commitPendingYaml();
+    });
+    expect(st().yamlError).not.toBeNull();
+    expect(screen.getByRole("button", { name: "본 스텝으로 옮기기" })).toBeDisabled();
+  });
+
   it("본 스텝이 하나뿐이어도 「준비 스텝으로 옮기기」가 눌린다", async () => {
     const user = userEvent.setup();
     st().loadFromString(ONE_MAIN);
@@ -161,7 +173,12 @@ ${HTTP(B1, "조회", DEFAULT_EXTRACT)}`;
     st().select(S1);
     const { unmount } = render(<Inspector />);
     await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
-    expect(screen.getByText("준비 스텝에서는 쓰이지 않습니다")).toBeInTheDocument();
+    const note = screen.getByText("준비 스텝에서는 쓰이지 않습니다");
+    expect(note).toBeInTheDocument();
+    const defaultRow = screen
+      .getByLabelText(ko.editor.extractDefaultAria(0))
+      .closest(".items-center");
+    expect(defaultRow).not.toContainElement(note);
     unmount();
     st().select(B1);
     render(<Inspector />);

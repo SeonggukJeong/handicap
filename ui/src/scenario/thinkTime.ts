@@ -1,5 +1,5 @@
 import { ko } from "../i18n/ko";
-import type { HttpStep, Scenario, Step, ThinkTime } from "./model";
+import { setupSteps, type HttpStep, type Scenario, type Step, type ThinkTime } from "./model";
 
 /** 스텝의 think-time 설정 상태 5종. 엔진(`runner.rs`/`trace.rs`)의 적용 규칙을 그대로
  *  미러한다 — 여기가 틀리면 현황판이 거짓 부하 정보를 보여준다.
@@ -25,6 +25,8 @@ export type ThinkRow = {
   /** parallel 분기 서브트리 안인가. 일괄 [상속으로]의 병렬 안내 카운트(R5)가 이걸 쓴다 —
    *  경로 문자열로 유추하면 안 된다(loop 안 if 경로에도 구분자가 들어간다). */
   insideParallel: boolean;
+  /** 준비 스텝인가 — 현황판이 이름 앞에 「준비」 표지를 단다. */
+  setup: boolean;
 };
 
 /** {0,0}은 출처와 무관하게 "대기없음"으로 정규화한다(R1-a2). 엔진의 `pace(0)`은
@@ -85,6 +87,7 @@ export function buildThinkRows(sc: Scenario): ThinkRow[] {
     steps: ReadonlyArray<Step>,
     path: ReadonlyArray<string>,
     insideParallel: boolean,
+    setup: boolean,
   ) => {
     for (const s of steps) {
       if (s.type === "http") {
@@ -99,23 +102,30 @@ export function buildThinkRows(sc: Scenario): ThinkRow[] {
           configured: s.think_time,
           effective: c.effective,
           insideParallel: c.insideParallel,
+          setup,
         });
       } else if (s.type === "loop") {
-        visit(s.do, [...path, s.name], insideParallel);
+        visit(s.do, [...path, s.name], insideParallel, setup);
       } else if (s.type === "parallel") {
         // 분기 서브트리에는 시나리오 기본값이 적용되지 않는다(ADR-0033) — insideParallel=true.
-        for (const b of s.branches) visit(b.steps, [...path, `${s.name}·${b.name}`], true);
+        for (const b of s.branches) visit(b.steps, [...path, `${s.name}·${b.name}`], true, setup);
       } else {
-        visit(s.then, [...path, `${s.name}·${ko.editor.condThen}`], insideParallel);
+        visit(s.then, [...path, `${s.name}·${ko.editor.condThen}`], insideParallel, setup);
         s.elif.forEach((e, i) =>
           // elifLabel은 1-based (Inspector.tsx:1440/1452 · FlowOutline.tsx:206과 동일).
-          visit(e.then, [...path, `${s.name}·${ko.editor.elifLabel(i + 1)}`], insideParallel),
+          visit(
+            e.then,
+            [...path, `${s.name}·${ko.editor.elifLabel(i + 1)}`],
+            insideParallel,
+            setup,
+          ),
         );
-        visit(s.else, [...path, `${s.name}·${ko.editor.condElse}`], insideParallel);
+        visit(s.else, [...path, `${s.name}·${ko.editor.condElse}`], insideParallel, setup);
       }
     }
   };
-  visit(sc.steps, [], false);
+  visit(setupSteps(sc), [], false, true);
+  visit(sc.steps, [], false, false);
   return out;
 }
 

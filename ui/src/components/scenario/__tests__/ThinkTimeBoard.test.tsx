@@ -172,6 +172,51 @@ steps: []
   });
 });
 
+const YAML_WITH_SETUP = `version: 1
+name: "demo-setup"
+cookie_jar: auto
+variables: {}
+setup:
+  steps:
+    - id: "01HX0000000000000000000011"
+      name: "준비 요청"
+      type: http
+      request:
+        method: POST
+        url: "http://x/prep"
+steps:
+  - id: "01HX0000000000000000000012"
+    name: "본 요청"
+    type: http
+    request:
+      method: GET
+      url: "http://x/main"
+`;
+
+describe("ThinkTimeBoard — 준비 스텝", () => {
+  it("준비 스텝 행에 「준비」 표지가 있다", () => {
+    useScenarioEditor.getState().loadFromString(YAML_WITH_SETUP);
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(within(row("준비 요청")).getByText(ko.editor.setupBadge)).toBeInTheDocument();
+    expect(within(row("본 요청")).queryByText(ko.editor.setupBadge)).not.toBeInTheDocument();
+  });
+
+  it("준비 스텝 행의 값을 고치면 그 스텝에 반영된다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(YAML_WITH_SETUP);
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.clear(minInput("준비 요청"));
+    await user.type(minInput("준비 요청"), "300");
+    await user.clear(maxInput("준비 요청"));
+    await user.type(maxInput("준비 요청"), "800");
+    fireEvent.blur(maxInput("준비 요청"));
+    expect(useScenarioEditor.getState().model?.setup?.steps[0].think_time).toEqual({
+      min_ms: 300,
+      max_ms: 800,
+    });
+  });
+});
+
 describe("ThinkTimeBoard — 행별 편집", () => {
   it("min/max를 채우고 blur하면 커밋된다", async () => {
     const user = userEvent.setup();

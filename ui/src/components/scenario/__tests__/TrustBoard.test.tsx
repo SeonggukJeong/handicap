@@ -3,7 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TrustBoard } from "../TrustBoard";
 import { ko } from "../../../i18n/ko";
-import type { TrustReport } from "../../../scenario/trust";
+import { evaluateTrust, type TrustReport } from "../../../scenario/trust";
+import { parseScenarioDoc } from "../../../scenario/yamlDoc";
 
 const GOOD: TrustReport = {
   level: "good",
@@ -195,6 +196,28 @@ describe("TrustBoard", () => {
     // 이 두 문구가 실제로 뜬다. testRunNever를 단언하면 픽스처가 대신 통과시켜 공허해진다.
     expect(screen.queryByText(ko.trust.testRunVerified)).not.toBeInTheDocument();
     expect(screen.queryByText(ko.trust.testRunScope)).not.toBeInTheDocument();
+  });
+});
+
+describe("TrustBoard 준비 스텝", () => {
+  it("준비 스텝 이름을 누르면 onSelectStep이 그 id로 불린다", async () => {
+    const parsed = parseScenarioDoc(`version: 1
+name: x
+setup:
+  steps:
+    - id: "01HX0000000000000000000001"
+      name: 준비 요청
+      type: http
+      request:
+        method: GET
+        url: "http://x/p"
+steps: []
+`);
+    if (!("model" in parsed)) throw new Error(parsed.error);
+    const onSelectStep = vi.fn();
+    board({ report: evaluateTrust(parsed.model), onSelectStep });
+    await userEvent.click(screen.getByRole("button", { name: "준비 요청" }));
+    expect(onSelectStep).toHaveBeenCalledWith("01HX0000000000000000000001");
   });
 });
 
