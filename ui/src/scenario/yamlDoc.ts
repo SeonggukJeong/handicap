@@ -75,6 +75,7 @@ export type Edit =
     }
   | { type: "setBranchName"; parallelId: string; branchIndex: number; name: string }
   | { type: "removeStep"; stepId: string }
+  | { type: "moveStepSection"; stepId: string; to: "setup" | "steps" }
   | { type: "moveStep"; stepId: string; toIndex: number }
   | { type: "reparentStep"; stepId: string; parentId: string | null; band: string; index: number }
   | {
@@ -511,6 +512,23 @@ export function applyEdit(doc: Document, edit: Edit): void {
       const path = findStepPath(doc, edit.stepId);
       if (path === null) return;
       doc.deleteIn(path);
+      if (path[0] === "setup") dropEmptySetup(doc);
+      return;
+    }
+    case "moveStepSection": {
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null || path.length !== (edit.to === "setup" ? 2 : 3)) return;
+      if ((path[0] === "setup") === (edit.to === "setup")) return;
+      const fromSeq = doc.getIn(path.slice(0, -1)) as YAMLSeq;
+      const [node] = fromSeq.items.splice(path[path.length - 1] as number, 1);
+      if (edit.to === "setup") {
+        const target = ensureSetupSeq(doc);
+        target.items.push(node);
+      } else {
+        ensureSeq(doc, ["steps"]);
+        (doc.getIn(["steps"]) as YAMLSeq).items.push(node);
+        dropEmptySetup(doc);
+      }
       return;
     }
     case "moveStep": {
@@ -792,7 +810,45 @@ function cleanCond(c: Condition): unknown {
 // and if branches (then / elif[].then / else). Returns the full doc path or null.
 // Callers no-op on null (stale stepIds can arrive after a step is removed).
 function findStepPath(doc: Document, stepId: string): Array<string | number> | null {
-  return searchSeq(doc.getIn(["steps"]), ["steps"], stepId);
+  return (
+    searchSeq(doc.getIn(["setup", "steps"]), ["setup", "steps"], stepId) ??
+    searchSeq(doc.getIn(["steps"]), ["steps"], stepId)
+  );
+}
+
+function dropEmptySetup(doc: Document): void {
+  const seq = doc.getIn(["setup", "steps"]);
+  if (isSeq(seq) && seq.items.length === 0) doc.deleteIn(["setup"]);
+}
+
+// `setup.steps` seq를 block 표기로 보장해 돌려준다. 없으면 루트 맵의 `steps` 키 앞에 만든다.
+function ensureSetupSeq(doc: Document): YAMLSeq {
+  const root = doc.contents;
+  if (!isMap(root)) throw new Error("scenario root must be a map");
+  const existing: unknown = root.get("setup", true);
+  let setup: YAMLMap;
+  if (isMap(existing)) {
+    setup = existing;
+  } else {
+    const at = root.items.findIndex((p) => isScalar(p.key) && p.key.value === "setup");
+    if (at >= 0) root.items.splice(at, 1);
+    const stepsAt = root.items.findIndex((p) => isScalar(p.key) && p.key.value === "steps");
+    setup = new YAMLMap();
+    root.items.splice(
+      stepsAt >= 0 ? stepsAt : root.items.length,
+      0,
+      doc.createPair("setup", setup),
+    );
+  }
+  setup.flow = false;
+  let seq: unknown = setup.get("steps", true);
+  if (!isSeq(seq)) {
+    seq = new YAMLSeq();
+    setup.set("steps", seq);
+  }
+  const out = seq as YAMLSeq;
+  out.flow = false;
+  return out;
 }
 
 function searchSeq(

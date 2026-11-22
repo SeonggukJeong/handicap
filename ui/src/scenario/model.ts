@@ -395,7 +395,7 @@ export function flattenHttpSteps(steps: ReadonlyArray<Step>): HttpStep[] {
  *  buildProfile field gate (spec §6.4). */
 export function scenarioHasThink(sc: Scenario): boolean {
   if (sc.default_think_time != null) return true;
-  return flattenHttpSteps(sc.steps).some((h) => h.think_time != null);
+  return flattenHttpSteps(allSteps(sc)).some((h) => h.think_time != null);
 }
 
 /** The sequence a step actually lives in — used by the inspector to clamp move
@@ -529,6 +529,11 @@ export type Scenario = z.infer<typeof ScenarioModel>;
 /** 준비 스텝(없으면 빈 배열). */
 export function setupSteps(s: Scenario): HttpStep[] {
   return s.setup?.steps ?? [];
+}
+
+/** 최상위 준비 스텝인가. */
+export function isSetupStep(s: Scenario, stepId: string): boolean {
+  return setupSteps(s).some((x) => x.id === stepId);
 }
 
 /** 준비 스텝 → 본 스텝 순서의 모든 스텝. */

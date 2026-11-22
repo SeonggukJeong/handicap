@@ -7,8 +7,10 @@ import {
   type Condition,
   type ThinkTime,
   findStepById,
+  allSteps,
   flattenHttpSteps,
   isParallelStep,
+  isSetupStep,
   topAncestorIndex,
 } from "./model";
 import { newStepId } from "./ulid";
@@ -98,6 +100,8 @@ export interface ScenarioEditorState {
     stepId: string,
     target: { parentId: string | null; band: string; index: number },
   ): void;
+  /** 최상위 http 스텝을 준비/본 구획 사이로 옮긴다(끝에 붙음). 선택은 그대로. */
+  moveStepToSection(stepId: string, to: "setup" | "steps"): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
   setStepAssert(stepId: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>): void;
   setStepExtract(stepId: string, extract: ReadonlyArray<Extract>): void;
@@ -192,7 +196,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     // http leaf 필터(필수 가드): findStepPath는 타입을 가리지 않으므로 컨테이너 id가
     // 섞이면 컨테이너 노드에 think_time을 써서 .strict() Zod가 거부하고,
     // dispatch는 doc을 이미 변형한 뒤라 doc-mutated/model-stale divergence가 남는다.
-    const allowed = new Set(flattenHttpSteps(model.steps).map((s) => s.id));
+    const allowed = new Set(flattenHttpSteps(allSteps(model)).map((s) => s.id));
     const filtered = stepIds.filter((id) => allowed.has(id));
     if (filtered.length === 0) return;
     dispatch(set, get, { type: "setStepsThinkTime", stepIds: filtered, value });
@@ -389,6 +393,26 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
       yamlError: null,
     });
   },
+  moveStepToSection(stepId, to) {
+    const { doc, model } = get();
+    if (!doc || !model) return;
+    if (get().yamlError !== null) return;
+    const ok =
+      to === "setup"
+        ? model.steps.some((s) => s.id === stepId && s.type === "http")
+        : isSetupStep(model, stepId);
+    if (!ok) return;
+    const clone = doc.clone();
+    applyEdit(clone, { type: "moveStepSection", stepId, to });
+    const reparsed = parseScenarioDoc(serializeDoc(clone));
+    if ("error" in reparsed) return;
+    set({
+      doc: reparsed.doc,
+      model: reparsed.model,
+      yamlText: serializeDoc(reparsed.doc),
+      yamlError: null,
+    });
+  },
   setStepField(stepId, path, value) {
     dispatch(set, get, { type: "setStepField", stepId, path, value });
   },
@@ -409,7 +433,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     }
     const model = get().model;
     if (!model) return;
-    const step = findStepById(model.steps, stepId);
+    const step = findStepById(allSteps(model), stepId);
     if (!step || step.type !== "http") return; // deleted or non-http target → no-op (R7)
     dispatch(set, get, {
       type: "setStepExtract",
@@ -530,6 +554,7 @@ const actions = (() => {
     removeStep: s.removeStep,
     moveStep: s.moveStep,
     reparentStep: s.reparentStep,
+    moveStepToSection: s.moveStepToSection,
     setStepField: s.setStepField,
     setStepAssert: s.setStepAssert,
     setStepExtract: s.setStepExtract,
