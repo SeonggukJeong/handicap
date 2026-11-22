@@ -265,7 +265,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           )}
         />
         {marks ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 mb-2">
             {ko.report.basis.chartLegend(
               marks.bands.some((b) => b.kind === "ramp"),
               marks.bands.some((b) => b.kind === "discard"),

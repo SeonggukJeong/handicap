@@ -34,12 +34,12 @@ export function ReportHeader({ doc }: { doc: PrintDoc }) {
         <div className="p-meta-basis">
           <div>
             <span>{D.metaBasis}</span>
-            {doc.meta.basis}
+            <div className="p-meta-basis-value">{doc.meta.basis}</div>
           </div>
           {doc.meta.basisOther && (
             <div>
               <span>{D.metaBasisOther}</span>
-              {doc.meta.basisOther}
+              <div className="p-meta-basis-value">{doc.meta.basisOther}</div>
             </div>
           )}
         </div>

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -244,6 +245,31 @@ describe("RunPrintPage — 머리 격자와 집계 기준 줄", () => {
       expect(block.children[0].textContent).toMatch(/^집계 기준유지 구간 · /);
       expect(block.children[1].textContent).toMatch(/^참고전체 구간: 초당 요청 40\.5/);
     }
+  });
+
+  it("p-meta-basis 줄은 라벨 span 하나 다음에 값 요소 하나 (줄바꿈·정렬은 CSS 텍스트로만 검사: jsdom은 레이아웃을 못 본다)", async () => {
+    renderPage("/runs/R1/print?basis=steady");
+    await waitFor(() => {
+      expect(document.querySelectorAll(".p-meta-basis").length).toBeGreaterThan(0);
+    });
+    for (const block of document.querySelectorAll(".p-meta-basis")) {
+      for (const row of block.children) {
+        expect([...row.children].map((c) => c.tagName + "." + c.className)).toEqual([
+          "SPAN.",
+          "DIV.p-meta-basis-value",
+        ]);
+        expect(row.children[1].textContent).not.toBe("");
+      }
+    }
+    const css = readFileSync(`${process.cwd()}/src/print/print.css`, "utf8");
+    const rule = (sel: string) => {
+      const i = css.indexOf(sel + " {");
+      expect(i).toBeGreaterThanOrEqual(0);
+      return css.slice(i, css.indexOf("}", i));
+    };
+    expect(rule(".p-root .p-meta-basis span")).toContain("white-space: nowrap");
+    expect(rule(".p-root .p-meta-basis span")).toContain("min-width: 15mm");
+    expect(rule(".p-root .p-meta-basis-value")).toContain("min-width: 0");
   });
 
   it("whole(not_reached) 리포트: 참고 줄 없이 한 줄", async () => {

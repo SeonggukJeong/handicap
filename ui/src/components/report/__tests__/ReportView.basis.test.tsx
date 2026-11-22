@@ -138,6 +138,14 @@ describe("ReportView — 시계열 띠 범례", () => {
     expect(screen.getAllByText(/점선 사이가 유지 구간입니다/)).toHaveLength(1);
   });
 
+  it("범례 문단은 첫 차트와 떨어지도록 mb-2", () => {
+    const basis = basisOf({
+      window: { start_ms: 1_005_000, end_ms: 1_060_000, measured_seconds: 55 },
+    });
+    render(<ReportView report={{ ...withWindows, basis }} profile={PROFILE} />);
+    expect(screen.getByText(/점선 사이가 유지 구간입니다/)).toHaveClass("mb-2");
+  });
+
   it("basis가 없으면 범례가 없다", () => {
     render(<ReportView report={withWindows} profile={PROFILE} />);
     expect(screen.queryByText(/점선 사이가 유지 구간입니다/)).toBeNull();

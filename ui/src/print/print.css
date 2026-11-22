@@ -136,8 +136,14 @@
 }
 .p-root .p-meta-basis span {
   flex-shrink: 0;
+  min-width: 15mm;
+  white-space: nowrap;
   color: var(--sub);
   font-size: 7.5pt;
+}
+.p-root .p-meta-basis-value {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 절 제목 */
