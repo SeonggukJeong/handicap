@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use handicap_engine::{
     BindingPolicy, DataSet, EngineError, MetricFlush, RampDown, RunPlan, Scenario, Stage,
-    run_scenario, run_scenario_vu_curve,
+    run_scenario, run_scenario_open_loop, run_scenario_vu_curve,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -20,6 +20,7 @@ const ORDERS_ID: &str = "01HX0000000000000000000002";
 enum Mode {
     Closed,
     Curve,
+    Open,
 }
 
 #[derive(Default)]
@@ -183,12 +184,29 @@ fn plan(vus: u32, dur_ms: u64, bindings: Vec<Arc<DataSet>>) -> RunPlan {
 }
 
 async fn run(mode: Mode, yaml: &str, plan: RunPlan) -> (Result<(), EngineError>, Vec<MetricFlush>) {
+    run_cancel_after(mode, yaml, plan, None).await
+}
+
+async fn run_cancel_after(
+    mode: Mode,
+    yaml: &str,
+    plan: RunPlan,
+    cancel_after: Option<Duration>,
+) -> (Result<(), EngineError>, Vec<MetricFlush>) {
     let scenario = Arc::new(Scenario::from_yaml(yaml).unwrap());
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(256);
     let cancel = CancellationToken::new();
+    if let Some(after) = cancel_after {
+        let c = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            c.cancel();
+        });
+    }
     let h = match mode {
         Mode::Closed => tokio::spawn(run_scenario(scenario, plan, tx, cancel)),
         Mode::Curve => tokio::spawn(run_scenario_vu_curve(scenario, plan, tx, cancel)),
+        Mode::Open => tokio::spawn(run_scenario_open_loop(scenario, plan, tx, cancel)),
     };
     let mut flushes = Vec::new();
     while let Some(f) = rx.recv().await {
@@ -210,6 +228,13 @@ fn curve_plan(stages: &[(u32, u32)], bindings: Vec<Arc<DataSet>>) -> RunPlan {
             .collect(),
     );
     p.ramp_down = RampDown::Immediate;
+    p
+}
+
+fn open_plan(rps: u32, slots: u32, dur_ms: u64, bindings: Vec<Arc<DataSet>>) -> RunPlan {
+    let mut p = plan(0, dur_ms, bindings);
+    p.target_rps = Some(rps);
+    p.max_in_flight = Some(slots);
     p
 }
 
@@ -588,7 +613,7 @@ async fn curve_retire_during_setup_redoes_setup() {
     let yaml = build_yaml(
         &server.uri(),
         &Yaml {
-            setup_think: "      think_time: { min_ms: 1500, max_ms: 1500 }",
+            setup_think: "      think_time: { min_ms: 2500, max_ms: 2500 }",
             ..Yaml::default()
         },
     );
@@ -599,13 +624,245 @@ async fn curve_retire_during_setup_redoes_setup() {
     )
     .await;
     res.unwrap();
-    assert!(seen.logins.load(Ordering::SeqCst) >= 2);
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 2);
     assert!(seen.orders_ok.load(Ordering::SeqCst) >= 1);
     assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
     let outcomes: Vec<_> = flushes.iter().flat_map(|f| &f.section_outcomes).collect();
     assert_eq!(outcomes.iter().map(|o| o.interrupted).sum::<u64>(), 0);
     assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
     assert!(outcomes.iter().map(|o| o.ok).sum::<u64>() >= 1);
+}
+
+#[tokio::test]
+async fn curve_run_cancel_during_setup_counts_interrupted() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(
+        &server.uri(),
+        &Yaml {
+            setup_think: "      think_time: { min_ms: 2500, max_ms: 2500 }",
+            ..Yaml::default()
+        },
+    );
+    let (res, flushes) = run_cancel_after(
+        Mode::Curve,
+        &yaml,
+        curve_plan(&[(1, 1), (1, 5)], vec![]),
+        Some(Duration::from_millis(1500)),
+    )
+    .await;
+    assert!(matches!(res, Err(EngineError::Aborted)), "{res:?}");
+    let outcomes: Vec<_> = flushes.iter().flat_map(|f| &f.section_outcomes).collect();
+    assert_eq!(outcomes.iter().map(|o| o.interrupted).sum::<u64>(), 1);
+    assert_eq!(outcomes.iter().map(|o| o.failed).sum::<u64>(), 0);
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 1);
+}
+
+fn open_seconds(flushes: &[MetricFlush]) -> (u64, u64, u64) {
+    flushes
+        .iter()
+        .flat_map(|f| &f.open_loop_seconds)
+        .fold((0, 0, 0), |a, s| {
+            (a.0 + s.launched, a.1 + s.completed, a.2 + s.dropped)
+        })
+}
+
+fn bad_account_in_slot_one() -> Vec<Arc<DataSet>> {
+    vec![dataset(
+        BindingPolicy::PerVu,
+        vec![
+            row(&[("user", "good")]),
+            row(&[("user", "bad")]),
+            row(&[("user", "good")]),
+            row(&[("user", "good")]),
+        ],
+    )]
+}
+
+fn count_bad_logins(received: &[Request]) -> usize {
+    received
+        .iter()
+        .filter(|r| {
+            r.url.path() == "/login" && String::from_utf8_lossy(&r.body).contains("user=bad")
+        })
+        .count()
+}
+
+#[tokio::test]
+async fn open_setup_runs_once_per_used_slot() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, _) = run(Mode::Open, &yaml, open_plan(20, 4, 1550, vec![])).await;
+    res.unwrap();
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 4);
+    assert!(seen.orders_ok.load(Ordering::SeqCst) >= 4);
+}
+
+#[tokio::test]
+async fn open_main_steps_get_slot_token() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, _) = run(Mode::Open, &yaml, open_plan(20, 4, 1550, vec![])).await;
+    res.unwrap();
+    assert!(seen.orders_ok.load(Ordering::SeqCst) >= 4);
+    assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
+    let tokens = seen.order_tokens.lock().unwrap().clone();
+    assert!(tokens.iter().all(|t| t.starts_with("tok-")), "{tokens:?}");
+}
+
+#[tokio::test]
+async fn open_cookie_carries_over() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .respond_with(ResponseTemplate::new(200).insert_header("Set-Cookie", "sid=abc; Path=/"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/orders"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        r#"version: 1
+name: t
+setup:
+  steps:
+    - type: http
+      id: {LOGIN_ID}
+      name: login
+      request: {{ method: POST, url: "{uri}/login" }}
+      assert:
+        - status: 200
+steps:
+  - type: http
+    id: {ORDERS_ID}
+    name: orders
+    request: {{ method: GET, url: "{uri}/orders" }}
+"#,
+        uri = server.uri()
+    );
+    let (res, _) = run(Mode::Open, &yaml, open_plan(10, 2, 1050, vec![])).await;
+    res.unwrap();
+    let received = server.received_requests().await.unwrap();
+    let orders: Vec<_> = received
+        .iter()
+        .filter(|r| r.url.path() == "/orders")
+        .collect();
+    assert!(orders.len() >= 5, "orders={}", orders.len());
+    assert!(orders.iter().all(|r| {
+        r.headers
+            .get("cookie")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|c| c.contains("sid=abc"))
+    }));
+}
+
+#[tokio::test]
+async fn open_main_window_has_no_setup_step_id() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, flushes) = run(Mode::Open, &yaml, open_plan(20, 4, 1050, vec![])).await;
+    res.unwrap();
+    let windows: Vec<_> = flushes.iter().flat_map(|f| &f.windows).collect();
+    assert!(windows.iter().any(|w| w.step_id == ORDERS_ID));
+    assert!(windows.iter().all(|w| w.step_id != LOGIN_ID));
+}
+
+#[tokio::test]
+async fn setup_failed_arrival_is_in_no_counter() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    // 10/s = 100ms 간격, 도착 11번(0..=1000ms) + 반 간격 — 마지막 도착이 deadline에 걸리지 않는다.
+    let (res, flushes) = run(
+        Mode::Open,
+        &yaml,
+        open_plan(10, 4, 1050, bad_account_in_slot_one()),
+    )
+    .await;
+    res.unwrap();
+    let (launched, completed, dropped) = open_seconds(&flushes);
+    assert_eq!(
+        launched, completed,
+        "launched={launched} completed={completed}"
+    );
+    assert_eq!(dropped, 0);
+    let failed: u64 = flushes
+        .iter()
+        .flat_map(|f| &f.section_outcomes)
+        .map(|o| o.failed)
+        .sum();
+    assert_eq!(failed, 1);
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(count_bad_logins(&received), 1);
+    let orders = received
+        .iter()
+        .filter(|r| r.url.path() == "/orders")
+        .count();
+    assert_eq!(launched as usize, orders);
+}
+
+#[tokio::test]
+async fn open_retired_slot_is_not_reused() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let (res, _) = run(
+        Mode::Open,
+        &yaml,
+        open_plan(10, 4, 1050, bad_account_in_slot_one()),
+    )
+    .await;
+    res.unwrap();
+    let received = server.received_requests().await.unwrap();
+    let orders: Vec<_> = received
+        .iter()
+        .filter(|r| r.url.path() == "/orders")
+        .collect();
+    assert!(!orders.is_empty());
+    assert!(
+        orders
+            .iter()
+            .all(|r| query_param(r, "u").as_deref() == Some("good"))
+    );
+    assert_eq!(count_bad_logins(&received), 1);
+}
+
+#[tokio::test]
+async fn open_all_slots_failed_fails_run() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = build_yaml(&server.uri(), &Yaml::default());
+    let ds = dataset(BindingPolicy::PerVu, vec![row(&[("user", "bad")])]);
+    let started = std::time::Instant::now();
+    let (res, flushes) = run(Mode::Open, &yaml, open_plan(20, 3, 5000, vec![ds])).await;
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    match res {
+        Err(EngineError::AllVusFailed {
+            failed,
+            total,
+            cause,
+        }) => {
+            assert_eq!((failed, total), (3, 3));
+            let cause = cause.expect("cause");
+            assert!(cause.contains("준비 스텝"), "{cause}");
+            assert!(cause.contains("status_assert"), "{cause}");
+        }
+        other => panic!("expected AllVusFailed, got {other:?}"),
+    }
+    assert_eq!(seen.logins.load(Ordering::SeqCst), 3);
+    assert_eq!(seen.orders_ok.load(Ordering::SeqCst), 0);
+    assert_eq!(seen.orders_bad.load(Ordering::SeqCst), 0);
+    let (launched, completed, _) = open_seconds(&flushes);
+    assert_eq!((launched, completed), (0, 0));
 }
 
 #[tokio::test]

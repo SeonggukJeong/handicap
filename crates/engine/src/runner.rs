@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use rand::RngCore;
@@ -1699,6 +1699,10 @@ fn retire_expired(
 ///  - retire-abort does NOT count into `failed` — NEW semantics vs run_scenario,
 ///    where Aborted also increments failed (harmless there: the run returns
 ///    Err(Aborted) anyway).
+///  - setup: `run_section` gets the activation token `act`; a retire during setup
+///    leaves setup undone (redone on the next activation) and is not counted as
+///    `interrupted`, a run-wide cancel is; every setup exit that ends the VU calls
+///    `clear_slot` first.
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip_all, fields(vu_id))]
 async fn run_vu_curve(
@@ -1937,6 +1941,23 @@ async fn run_vu_curve(
     }
 }
 
+/// open-loop 슬롯 하나의 준비 상태. 슬롯은 한 번에 한 도착만 쓰므로 `setup` 잠금은 대기가 없다.
+struct SlotState {
+    /// 준비 완료. 스케줄러는 이 값이 참일 때만 도착을 그 자리에서 `Launched`로 센다.
+    ready: AtomicBool,
+    /// 준비 실패로 run에서 빠진 슬롯 — `SlotGuard`가 큐로 돌려주지 않는다.
+    retired: AtomicBool,
+    setup: std::sync::Mutex<VuSetup>,
+}
+
+/// 준비 스텝이 있는 open-loop run이 공유하는 상태.
+struct OpenSetup {
+    stats: SharedSectionStats,
+    /// 빠진 슬롯 수. `max_in_flight`에 닿으면 run이 `AllVusFailed`로 끝난다.
+    retired: AtomicUsize,
+    cause: OnceLock<String>,
+}
+
 /// Drive open-loop arrival-rate load: schedule iteration *starts* at `target_rps`
 /// against a fixed pool of `max_in_flight` reusable VU clients (slot index = vu_id,
 /// cookie jar persists per slot). Arrivals that find no free slot are dropped and
@@ -1990,6 +2011,27 @@ pub async fn run_scenario_open_loop(
         slot_tx.try_send(i).expect("capacity == max_in_flight");
     }
 
+    let slots: Vec<Arc<SlotState>> = (0..max_in_flight)
+        .map(|_| {
+            Arc::new(SlotState {
+                ready: AtomicBool::new(false),
+                retired: AtomicBool::new(false),
+                setup: std::sync::Mutex::new(VuSetup::default()),
+            })
+        })
+        .collect();
+    // 준비 통계·빠진 슬롯 계수 — 준비 스텝이 있는 run만 만든다.
+    let open_setup: Option<Arc<OpenSetup>> = if scenario.setup_steps().is_empty() {
+        None
+    } else {
+        Some(Arc::new(OpenSetup {
+            stats: SharedSectionStats::default(),
+            retired: AtomicUsize::new(0),
+            cause: OnceLock::new(),
+        }))
+    };
+    let section_stats: Option<SharedSectionStats> = open_setup.as_ref().map(|o| o.stats.clone());
+
     let mut set = JoinSet::new();
 
     // Flusher: drain windows until the run ends. Sends dropped: 0 throughout; the
@@ -1999,6 +2041,7 @@ pub async fn run_scenario_open_loop(
     let flush_agg = agg.clone();
     let flush_counters = counters.clone();
     let flush_out = out.clone();
+    let flush_sections = section_stats.clone();
     let flusher = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_millis(500));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -2032,6 +2075,7 @@ pub async fn run_scenario_open_loop(
                         .drain_completed(now_s),
                 )
             };
+            let (section_step_stats, section_outcomes) = drain_shared(&flush_sections);
             let has_data = !drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
@@ -2039,7 +2083,9 @@ pub async fn run_scenario_open_loop(
                 || !phase_stats.is_empty()
                 || !error_kind_stats.is_empty()
                 || !loop_exit_stats.is_empty()
-                || !open_loop_seconds.is_empty();
+                || !open_loop_seconds.is_empty()
+                || !section_step_stats.is_empty()
+                || !section_outcomes.is_empty();
             if has_data {
                 debug!(
                     count = drained.len(),
@@ -2061,8 +2107,8 @@ pub async fn run_scenario_open_loop(
                         loop_exit_stats,
                         open_loop_seconds,
                         open_loop_started_at_ms: Some(started_at_ms),
-                        section_step_stats: vec![],
-                        section_outcomes: vec![],
+                        section_step_stats,
+                        section_outcomes,
                     })
                     .await
                     .is_err()
@@ -2104,6 +2150,12 @@ pub async fn run_scenario_open_loop(
         {
             break;
         }
+        if open_setup
+            .as_ref()
+            .is_some_and(|o| o.retired.load(Ordering::Relaxed) >= max_in_flight)
+        {
+            break;
+        }
         let now = Instant::now();
         if now < next {
             // Clamp the wait to the run deadline (curve mode parks `next` at `deadline`
@@ -2117,10 +2169,13 @@ pub async fn run_scenario_open_loop(
         }
         match slot_rx.try_recv() {
             Ok(slot) => {
-                counters
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .record(CountKind::Launched);
+                // 준비가 안 된 슬롯의 도착은 준비에 성공한 뒤 태스크가 센다.
+                if open_setup.is_none() || slots[slot].ready.load(Ordering::Acquire) {
+                    counters
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .record(CountKind::Launched);
+                }
                 let vu_id = vu_offset.saturating_add(slot as u32);
                 let iter_id = arrival_counter as u32;
                 arrival_counter += 1;
@@ -2135,19 +2190,30 @@ pub async fn run_scenario_open_loop(
                 let exhausted = exhausted.clone();
                 let counters = counters.clone();
                 let slot_tx = slot_tx.clone();
+                let slot_state = slots[slot].clone();
+                let open_setup = open_setup.clone();
                 set.spawn(async move {
-                    // Return the slot on ALL exit paths (including panics) via Drop.
+                    // Return the slot on ALL exit paths (including panics) via Drop —
+                    // except a slot retired by a failed setup, which leaves the pool.
                     // A permanently-leaked slot would shrink the pool, causing runaway drops.
                     struct SlotGuard {
                         slot: usize,
                         tx: mpsc::Sender<usize>,
+                        state: Arc<SlotState>,
                     }
                     impl Drop for SlotGuard {
                         fn drop(&mut self) {
+                            if self.state.retired.load(Ordering::Acquire) {
+                                return;
+                            }
                             let _ = self.tx.try_send(self.slot); // capacity guaranteed
                         }
                     }
-                    let _slot_guard = SlotGuard { slot, tx: slot_tx };
+                    let _slot_guard = SlotGuard {
+                        slot,
+                        tx: slot_tx,
+                        state: slot_state.clone(),
+                    };
                     let mut rng = match think_seed {
                         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, iter_id)),
                         None => StdRng::from_entropy(),
@@ -2168,6 +2234,9 @@ pub async fn run_scenario_open_loop(
                         measure_phases,
                         reqgen.as_ref(),
                         &counters,
+                        open_setup.as_deref(),
+                        &slot_state,
+                        slot,
                     )
                     .await
                     {
@@ -2236,6 +2305,7 @@ pub async fn run_scenario_open_loop(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .drain_all();
+    let (section_step_stats, section_outcomes) = drain_shared(&section_stats);
     // open-loop final flush is UNGUARDED (always sent — carries run-total `dropped`
     // unconditionally, pre-existing behavior). No `|| !error_kind_stats.is_empty()`
     // guard term here by design (spec 2026-08-01 §3.3 — the 5 send-guards exclude this site);
@@ -2253,8 +2323,8 @@ pub async fn run_scenario_open_loop(
             loop_exit_stats: final_loop_exits,
             open_loop_seconds: final_open_loop_seconds,
             open_loop_started_at_ms: Some(started_at_ms),
-            section_step_stats: vec![],
-            section_outcomes: vec![],
+            section_step_stats,
+            section_outcomes,
         })
         .await;
     drop(out);
@@ -2263,6 +2333,20 @@ pub async fn run_scenario_open_loop(
 
     if cancel.is_cancelled() {
         return Err(EngineError::Aborted);
+    }
+    if let Some(o) = &open_setup {
+        if o.retired.load(Ordering::Relaxed) >= max_in_flight {
+            warn!(
+                failed = max_in_flight,
+                total = max_in_flight,
+                "all open-loop slots failed setup"
+            );
+            return Err(EngineError::AllVusFailed {
+                failed: max_in_flight as u32,
+                total: max_in_flight as u32,
+                cause: o.cause.get().cloned(),
+            });
+        }
     }
     info!(dropped = total_dropped, "open-loop run finished");
     Ok(())
@@ -2285,6 +2369,9 @@ async fn run_arrival(
     measure_phases: bool,
     reqgen: Option<&Arc<RequestGenPlan>>,
     counters: &std::sync::Mutex<OpenLoopCounters>,
+    open_setup: Option<&OpenSetup>,
+    slot_state: &SlotState,
+    slot: usize,
 ) -> Result<()> {
     // 생성기 전용 rng — think_rng(호출자가 넘긴 `rng` 파라미터)와 분리 (spec §4).
     // arrival=1 반복이므로 per-arrival 생성이 곧 per-iteration 재평가.
@@ -2293,6 +2380,19 @@ async fn run_arrival(
         crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
     let mut blanked = BlankTable::new();
     let mut req = reqgen.map(|p| ReqGen::new(p.clone(), &mut gen_rng));
+    if open_setup.is_some() {
+        slot_state
+            .setup
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .overlay(&mut iter_vars, &mut req);
+    }
+    // 준비가 있고 이 슬롯이 아직 준비 전이면 이 도착이 준비를 한다.
+    let setup_stats = open_setup
+        .map(|o| &o.stats)
+        .filter(|_| !slot_state.ready.load(Ordering::Acquire));
+    let seed_vars = setup_stats.map(|_| iter_vars.clone());
+    let mut injected_rows: Vec<&BTreeMap<String, String>> = Vec::new();
     // Inject every binding in declared order (single arrival, no per-VU loop).
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
     // and drop this arrival (partial inject discarded). Side effect (spec §7): an
@@ -2300,6 +2400,9 @@ async fn run_arrival(
     for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
         match ds.select_index(vu_id, iter_id, counter.as_deref()) {
             Some(idx) => {
+                if setup_stats.is_some() {
+                    injected_rows.push(&ds.rows[idx]);
+                }
                 for (k, v) in &ds.rows[idx] {
                     iter_vars.insert(k.clone(), v.clone());
                 }
@@ -2310,8 +2413,81 @@ async fn run_arrival(
             // unique slice exhausted → signal the scheduler to stop new arrivals.
             None => {
                 exhausted.store(true, Ordering::Relaxed);
+                if setup_stats.is_some() {
+                    // 스케줄러가 세지 않은 도착 — 지금처럼 「시작」으로 센다.
+                    counters
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .record(CountKind::Launched);
+                }
                 return Ok(());
             }
+        }
+    }
+    if let (Some(stats), Some(mut rebuilt)) = (setup_stats, seed_vars) {
+        let mut setup_vars = iter_vars.clone();
+        let run = run_section(
+            Section::Setup,
+            scenario.setup_steps(),
+            client,
+            &mut setup_vars,
+            env,
+            vu_id,
+            iter_id,
+            deadline,
+            cancel,
+            rng,
+            scenario.default_think_time,
+            &mut req,
+            stats,
+        )
+        .await;
+        let failure = match run {
+            Ok(SectionRun::Done(extracted)) => {
+                let mut state = slot_state.setup.lock().unwrap_or_else(|e| e.into_inner());
+                *state = VuSetup {
+                    done: true,
+                    vars: extracted,
+                };
+                state.overlay(&mut rebuilt, &mut req);
+                drop(state);
+                for row in injected_rows {
+                    for (k, v) in row {
+                        rebuilt.insert(k.clone(), v.clone());
+                    }
+                }
+                iter_vars = rebuilt;
+                slot_state.ready.store(true, Ordering::Release);
+                counters
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .record(CountKind::Launched);
+                None
+            }
+            Ok(SectionRun::Failed(e)) | Err(e) => Some(e),
+            Ok(SectionRun::Deadline) => return Ok(()),
+            Ok(SectionRun::Aborted) => {
+                stats
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .record_interrupted(Section::Setup);
+                return Err(EngineError::Aborted);
+            }
+        };
+        if let (Some(e), Some(o)) = (failure, open_setup) {
+            // 이 도착은 시작·완료·보내지 않음 어디에도 세지 않는다. 슬롯은 run에서 빠진다.
+            slot_state.retired.store(true, Ordering::Release);
+            if let Some(msg) = safe_cause(&e) {
+                let _ = o.cause.set(msg);
+            }
+            o.retired.fetch_add(1, Ordering::Relaxed);
+            match &e {
+                EngineError::SetupFailed { step_id, kind, .. } => {
+                    warn!(slot, step_id = %step_id, kind = %kind, "setup failed; slot retired");
+                }
+                _ => warn!(slot, kind = "engine_error", "setup failed; slot retired"),
+            }
+            return Ok(());
         }
     }
     // No run-level think time in open-loop (arrival rate governs inter-iteration pacing).
