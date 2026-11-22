@@ -119,7 +119,41 @@ export function parseScenarioDoc(yamlText: string): ParseResult {
 }
 
 export function serializeDoc(doc: Document): string {
+  quoteFlowIndicatorScalars(doc);
   return String(doc);
+}
+
+/**
+ * flow 표기(`{ }`·`[ ]`) 안에서 `?`·`:`로 시작하는 평문 글자(키·값)를 큰따옴표로 감싼다.
+ * `yaml`(1.2)은 `{ sec-ch-ua-mobile: ?0 }`를 평문으로 쓰지만 서버의 serde_yaml(libyaml)은 flow 안의
+ * `?`·`:`를 키/값 표시로 읽어 파싱 오류를 내거나(`?0`·`:v`) 키를 조용히 바꾼다(`{ ?c: 1 }` → `c`).
+ * block 표기는 양쪽이 같게 읽으므로 건드리지 않는다.
+ */
+function quoteFlowIndicatorScalars(doc: Document): void {
+  const isFlow = (n: unknown): boolean => (isMap(n) || isSeq(n)) && n.flow === true;
+  // `setIn`·`set`으로 넣은 키·값은 노드가 아니라 날 문자열일 수 있다 — 그때는 노드로 바꿔 돌려준다.
+  const quoted = (v: unknown): unknown => {
+    const text = isScalar(v) ? v.value : v;
+    if (typeof text !== "string" || (text[0] !== "?" && text[0] !== ":")) return v;
+    if (isScalar(v)) {
+      if (v.type === undefined || v.type === Scalar.PLAIN) v.type = Scalar.QUOTE_DOUBLE;
+      return v;
+    }
+    const node = new Scalar(text);
+    node.type = Scalar.QUOTE_DOUBLE;
+    return node;
+  };
+  visit(doc, {
+    Pair(_key, pair, path) {
+      if (!path.some(isFlow)) return;
+      pair.key = quoted(pair.key);
+      pair.value = quoted(pair.value);
+    },
+    Seq(_key, seq, path) {
+      if (!isFlow(seq) && !path.some(isFlow)) return;
+      seq.items = seq.items.map(quoted);
+    },
+  });
 }
 
 /**
@@ -133,7 +167,7 @@ export function renameScenarioYaml(yamlText: string, newName: string): string {
     throw new Error(doc.errors.map((e) => e.message).join("; "));
   }
   doc.setIn(["name"], plainScalar(newName));
-  return String(doc);
+  return serializeDoc(doc);
 }
 
 export function applyEdit(doc: Document, edit: Edit): void {
@@ -792,15 +826,23 @@ function searchSeq(
   return null;
 }
 
+// 빈 flow 컬렉션(`steps: []`·`variables: {}`)에 첫 항목을 그대로 넣으면 그 아래 전체가 flow 표기로
+// 쓰인다(스텝 하나가 `[ { id: …, request: { … } } ]`). 채우기 직전에 block 표기로 돌린다.
 function ensureMap(doc: Document, path: ReadonlyArray<string | number>): void {
-  if (!isMap(doc.getIn(path))) {
+  const cur = doc.getIn(path);
+  if (!isMap(cur)) {
     doc.setIn(path, new YAMLMap());
+  } else if (cur.items.length === 0) {
+    cur.flow = false;
   }
 }
 
 function ensureSeq(doc: Document, path: ReadonlyArray<string | number>): void {
-  if (!isSeq(doc.getIn(path))) {
+  const cur = doc.getIn(path);
+  if (!isSeq(cur)) {
     doc.setIn(path, new YAMLSeq());
+  } else if (cur.items.length === 0) {
+    cur.flow = false;
   }
 }
 
@@ -1036,7 +1078,7 @@ export function prepareTemplateInsertion(
   }
   const firstId = reissueStepIdsInFragment(doc, genId);
   if (firstId === null) return { ok: false, error: "empty template" };
-  const preparedYaml = String(doc);
+  const preparedYaml = serializeDoc(doc);
   const gate = parseStepsFragment(preparedYaml);
   if ("error" in gate) return { ok: false, error: gate.error };
   return { ok: true, preparedYaml, firstId, steps: gate.steps };

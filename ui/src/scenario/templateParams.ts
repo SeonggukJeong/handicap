@@ -9,6 +9,7 @@
  * 주석/구조도 보존한다(reissueStepIdsInFragment와 동형).
  */
 import { parseDocument, visit, isScalar } from "yaml";
+import { serializeDoc } from "./yamlDoc";
 
 export type Substitution =
   | { kind: "keep" }
@@ -103,5 +104,5 @@ export function applyTokenSubstitutions(stepsYaml: string, subs: SubMap): string
       }
     },
   });
-  return String(doc);
+  return serializeDoc(doc);
 }
