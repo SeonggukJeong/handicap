@@ -1030,6 +1030,8 @@ mod tests {
             loop_exit_stats: vec![],
             open_loop_seconds: vec![],
             open_loop_started_at_ms: None,
+            section_step_stats: vec![],
+            section_outcomes: vec![],
         }
     }
 

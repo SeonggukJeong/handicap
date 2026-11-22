@@ -186,6 +186,44 @@ fn lock(stats: &SharedSectionStats) -> std::sync::MutexGuard<'_, SectionStats> {
     stats.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// 누적기가 있으면 델타를 꺼내고, 없으면 빈 벡터 둘.
+pub(crate) fn drain_shared(
+    stats: &Option<SharedSectionStats>,
+) -> (Vec<SectionStepStat>, Vec<SectionOutcome>) {
+    match stats {
+        Some(s) => lock(s).drain(),
+        None => (Vec::new(), Vec::new()),
+    }
+}
+
+/// VU(슬롯)의 준비 상태. 세 부하 진입점이 같이 쓴다.
+#[derive(Default)]
+pub(crate) struct VuSetup {
+    pub done: bool,
+    /// 준비가 추출한 이름과 값.
+    pub vars: BTreeMap<String, String>,
+}
+
+impl VuSetup {
+    /// 반복 머리 2단계: 준비 추출을 덮고 `req`에 「받은 값」 표시를 한다.
+    /// 준비가 안 됐거나 추출이 없으면 아무것도 하지 않는다.
+    pub(crate) fn overlay(
+        &self,
+        iter_vars: &mut BTreeMap<String, String>,
+        req: &mut Option<ReqGen>,
+    ) {
+        if !self.done || self.vars.is_empty() {
+            return;
+        }
+        for (k, v) in &self.vars {
+            iter_vars.insert(k.clone(), v.clone());
+        }
+        if let Some(rg) = req.as_mut() {
+            rg.mark_written(self.vars.keys());
+        }
+    }
+}
+
 /// 렌더 단계 엔진 오류 중 준비 실패로 분류하는 것: (종류, 변수 이름). 나머지는 `None`.
 fn classify_engine_error(e: &EngineError) -> Option<(&'static str, Option<String>)> {
     match e {
@@ -209,7 +247,6 @@ fn classify_engine_error(e: &EngineError) -> Option<(&'static str, Option<String
 /// 취소(`Aborted`)는 기록하지 않는다 — run이 끝나는 취소인지 호출자만 안다.
 /// `Err`는 준비 실패로 분류하지 않는 엔진 오류다.
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)] // Task 4가 호출부를 붙이면 제거한다
 pub(crate) async fn run_section(
     section: Section,
     steps: &[Step],
@@ -227,8 +264,13 @@ pub(crate) async fn run_section(
 ) -> Result<SectionRun> {
     let mut extracted_all = BTreeMap::new();
     for step in steps {
-        // 구간 스텝은 http뿐이다(`SetupSection` 역직렬화가 보장).
-        let Step::Http(http) = step else { continue };
+        let Step::Http(http) = step else {
+            return Err(<serde_yaml::Error as serde::de::Error>::custom(format!(
+                "section steps must be http (step {})",
+                step.id()
+            ))
+            .into());
+        };
         if Instant::now() >= deadline {
             lock(stats).record_interrupted(section);
             return Ok(SectionRun::Deadline);
@@ -500,6 +542,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn non_http_step_is_an_error_not_a_skip() {
+        let yaml = format!("- type: loop\n  id: {ID_A}\n  name: l\n  repeat: 1\n  do: []\n");
+        let parsed = steps(&yaml);
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let mut vars = BTreeMap::new();
+        let mut rng = StdRng::seed_from_u64(1);
+        let mut req = None;
+        let stats = shared();
+        let res = run_section(
+            Section::Setup,
+            &parsed,
+            &client,
+            &mut vars,
+            &BTreeMap::new(),
+            0,
+            0,
+            Instant::now() + Duration::from_secs(60),
+            &CancellationToken::new(),
+            &mut rng,
+            None,
+            &mut req,
+            &stats,
+        )
+        .await;
+        assert!(res.is_err());
+        let (st, outcomes) = lock(&stats).drain();
+        assert!(st.is_empty());
+        assert!(outcomes.is_empty());
+    }
+
+    #[test]
+    fn overlay_is_noop_until_done() {
+        let mut vars = BTreeMap::new();
+        let mut req = None;
+        let mut s = VuSetup::default();
+        s.vars.insert("t".into(), "1".into());
+        s.overlay(&mut vars, &mut req);
+        assert!(vars.is_empty());
+        s.done = true;
+        s.overlay(&mut vars, &mut req);
+        assert_eq!(vars.get("t").map(String::as_str), Some("1"));
+    }
+
+    #[tokio::test]
     async fn stops_at_first_failure() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -512,6 +598,12 @@ mod tests {
             .respond_with(ResponseTemplate::new(200))
             .mount(&server)
             .await;
+        let original = token_step(&server.uri());
+        let stripped = original.replace(
+            "extract:\n    - { from: body, var: token, path: \"$.token\" }",
+            "extract: []",
+        );
+        assert_ne!(stripped, original, "replace must strip the extract line");
         let yaml = format!(
             r#"{}
 - type: http
@@ -519,10 +611,7 @@ mod tests {
   name: me
   request: {{ method: GET, url: "{}/me" }}
 "#,
-            token_step(&server.uri()).replace(
-                "extract:\n    - { from: body, var: token, path: \"$.token\" }",
-                "extract: []"
-            ),
+            stripped,
             server.uri()
         );
         let ran = run_simple(&steps(&yaml)).await;

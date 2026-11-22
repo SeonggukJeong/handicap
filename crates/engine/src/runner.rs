@@ -27,6 +27,10 @@ use crate::open_loop_counters::{CountKind, OpenLoopCounters};
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::scenario::{Scenario, Step};
+use crate::section::{
+    Section, SectionOutcome, SectionRun, SectionStepStat, SharedSectionStats, VuSetup,
+    drain_shared, run_section,
+};
 use crate::template::TemplateContext;
 
 /// One stage of an open-loop rate curve: ramp the arrival rate to `target` (iterations/s)
@@ -137,6 +141,10 @@ pub struct MetricFlush {
     pub open_loop_seconds: Vec<OpenLoopSecond>,
     /// 스케줄 t=0의 epoch ms. open-loop 전 경로와 closed-loop 고정(`run_scenario`)이 모든 flush에 싣는다. VU 곡선 경로는 `None`.
     pub open_loop_started_at_ms: Option<i64>,
+    /// 준비 구간의 스텝 통계 델타 (본 창과 별개). 준비가 없는 run은 항상 빈 Vec.
+    pub section_step_stats: Vec<SectionStepStat>,
+    /// 준비 구간 실행 결과 수 델타. 준비가 없는 run은 항상 빈 Vec.
+    pub section_outcomes: Vec<SectionOutcome>,
 }
 
 /// 한 epoch 초의 open-loop 계수(계단 시험 a). `launched` = 슬롯을 얻어 시작한 도착,
@@ -195,6 +203,12 @@ pub async fn run_scenario(
     let seq_counters = make_seq_counters(&datasets);
     // refresh: request 판정 — run당 1회, VU 공유(spec §4.3). None이면 요청 경로는 지금과 같다.
     let reqgen = RequestGenPlan::build(&scenario);
+    // 준비 통계 누적기 — 준비 스텝이 있는 run만 만든다.
+    let section_stats: Option<SharedSectionStats> = if scenario.setup_steps().is_empty() {
+        None
+    } else {
+        Some(SharedSectionStats::default())
+    };
 
     let mut set = JoinSet::new();
 
@@ -209,6 +223,7 @@ pub async fn run_scenario(
     // VU spawn loop so metrics flow during ramp-up.
     let flush_agg = agg.clone();
     let flush_out = out.clone();
+    let flush_sections = section_stats.clone();
     let flusher = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_millis(500));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -235,6 +250,7 @@ pub async fn run_scenario(
                     g.drain_loop_exit_deltas(),
                 )
             };
+            let (section_step_stats, section_outcomes) = drain_shared(&flush_sections);
             if !drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
@@ -242,6 +258,8 @@ pub async fn run_scenario(
                 || !phase_stats.is_empty()
                 || !error_kind_stats.is_empty()
                 || !loop_exit_stats.is_empty()
+                || !section_step_stats.is_empty()
+                || !section_outcomes.is_empty()
             {
                 debug!(
                     count = drained.len(),
@@ -263,6 +281,8 @@ pub async fn run_scenario(
                         loop_exit_stats,
                         open_loop_seconds: vec![],
                         open_loop_started_at_ms: Some(started_at_ms),
+                        section_step_stats,
+                        section_outcomes,
                     })
                     .await
                     .is_err()
@@ -307,6 +327,7 @@ pub async fn run_scenario(
             let datasets = datasets.clone();
             let seq_counters = seq_counters.clone();
             let reqgen = reqgen.clone();
+            let section_stats = section_stats.clone();
             set.spawn(async move {
                 if let Err(e) = run_vu(
                     scenario,
@@ -323,6 +344,7 @@ pub async fn run_scenario(
                     measure_phases,
                     connect_timeout,
                     reqgen,
+                    section_stats,
                 )
                 .await
                 {
@@ -388,6 +410,7 @@ pub async fn run_scenario(
             g.drain_loop_exit_deltas(),
         )
     };
+    let (section_step_stats, section_outcomes) = drain_shared(&section_stats);
     if !final_windows.is_empty()
         || !final_loops.is_empty()
         || !final_branches.is_empty()
@@ -395,6 +418,8 @@ pub async fn run_scenario(
         || !final_phases.is_empty()
         || !final_error_kinds.is_empty()
         || !final_loop_exits.is_empty()
+        || !section_step_stats.is_empty()
+        || !section_outcomes.is_empty()
     {
         let _ = out
             .send(MetricFlush {
@@ -409,6 +434,8 @@ pub async fn run_scenario(
                 loop_exit_stats: final_loop_exits,
                 open_loop_seconds: vec![],
                 open_loop_started_at_ms: Some(started_at_ms),
+                section_step_stats,
+                section_outcomes,
             })
             .await;
     }
@@ -443,7 +470,7 @@ pub async fn run_scenario(
 
 #[allow(clippy::too_many_arguments)]
 #[instrument(
-    skip(scenario, agg, env, datasets, seq_counters, reqgen),
+    skip(scenario, agg, env, datasets, seq_counters, reqgen, section_stats),
     fields(vu_id)
 )]
 async fn run_vu(
@@ -461,6 +488,7 @@ async fn run_vu(
     measure_phases: bool,
     connect_timeout: Option<Duration>,
     reqgen: Option<Arc<RequestGenPlan>>,
+    section_stats: Option<SharedSectionStats>,
 ) -> Result<()> {
     let client = VuClient::with_timeout(
         scenario.cookie_jar,
@@ -475,6 +503,7 @@ async fn run_vu(
     // 생성기 전용 rng — think_rng와 분리 (spec §4: 난수열 교란·의도치 않은 재현성 방지).
     let mut gen_rng = StdRng::from_entropy();
     let mut iter_id: u32 = 0;
+    let mut vu_setup = VuSetup::default();
     while Instant::now() < deadline {
         if cancel.is_cancelled() {
             return Err(EngineError::Aborted);
@@ -487,6 +516,10 @@ async fn run_vu(
         let mut req = reqgen
             .as_ref()
             .map(|p| ReqGen::new(p.clone(), &mut gen_rng));
+        vu_setup.overlay(&mut iter_vars, &mut req);
+        let setup_stats = section_stats.as_ref().filter(|_| !vu_setup.done);
+        let seed_vars = setup_stats.map(|_| iter_vars.clone());
+        let mut injected_rows: Vec<&BTreeMap<String, String>> = Vec::new();
         // Inject every binding in declared order. The first binding whose Unique
         // slice is exhausted (None) stops this VU; the partial inject is discarded.
         // Side effect (spec §7): an earlier IterSequential binding's shared counter
@@ -496,6 +529,9 @@ async fn run_vu(
         for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
             match ds.select_index(vu_id, iter_id, counter.as_deref()) {
                 Some(idx) => {
+                    if setup_stats.is_some() {
+                        injected_rows.push(&ds.rows[idx]);
+                    }
                     for (k, v) in &ds.rows[idx] {
                         iter_vars.insert(k.clone(), v.clone());
                     }
@@ -512,6 +548,49 @@ async fn run_vu(
         }
         if stop {
             break;
+        }
+        if let (Some(stats), Some(mut rebuilt)) = (setup_stats, seed_vars) {
+            let mut setup_vars = iter_vars.clone();
+            let run = run_section(
+                Section::Setup,
+                scenario.setup_steps(),
+                &client,
+                &mut setup_vars,
+                &env,
+                vu_id,
+                iter_id,
+                deadline,
+                &cancel,
+                &mut think_rng,
+                scenario.default_think_time,
+                &mut req,
+                stats,
+            )
+            .await?;
+            match run {
+                SectionRun::Done(extracted) => {
+                    vu_setup = VuSetup {
+                        done: true,
+                        vars: extracted,
+                    };
+                    vu_setup.overlay(&mut rebuilt, &mut req);
+                    for row in injected_rows {
+                        for (k, v) in row {
+                            rebuilt.insert(k.clone(), v.clone());
+                        }
+                    }
+                    iter_vars = rebuilt;
+                }
+                SectionRun::Failed(e) => return Err(e),
+                SectionRun::Deadline => return Ok(()),
+                SectionRun::Aborted => {
+                    stats
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .record_interrupted(Section::Setup);
+                    return Err(EngineError::Aborted);
+                }
+            }
         }
         let flow = execute_steps(
             &client,
@@ -1347,6 +1426,8 @@ pub async fn run_scenario_vu_curve(
                         loop_exit_stats,
                         open_loop_seconds: vec![],
                         open_loop_started_at_ms: None,
+                        section_step_stats: vec![],
+                        section_outcomes: vec![],
                     })
                     .await
                     .is_err()
@@ -1516,6 +1597,8 @@ pub async fn run_scenario_vu_curve(
                 loop_exit_stats: final_loop_exits,
                 open_loop_seconds: vec![],
                 open_loop_started_at_ms: None,
+                section_step_stats: vec![],
+                section_outcomes: vec![],
             })
             .await;
     }
@@ -1896,6 +1979,8 @@ pub async fn run_scenario_open_loop(
                         loop_exit_stats,
                         open_loop_seconds,
                         open_loop_started_at_ms: Some(started_at_ms),
+                        section_step_stats: vec![],
+                        section_outcomes: vec![],
                     })
                     .await
                     .is_err()
@@ -2086,6 +2171,8 @@ pub async fn run_scenario_open_loop(
             loop_exit_stats: final_loop_exits,
             open_loop_seconds: final_open_loop_seconds,
             open_loop_started_at_ms: Some(started_at_ms),
+            section_step_stats: vec![],
+            section_outcomes: vec![],
         })
         .await;
     drop(out);

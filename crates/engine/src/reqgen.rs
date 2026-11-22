@@ -40,7 +40,7 @@ impl RequestGenPlan {
             return None;
         }
         let mut https: Vec<&HttpStep> = Vec::new();
-        collect_http(&scenario.steps, &mut https);
+        collect_http(scenario.all_steps(), &mut https);
         let index: HashMap<String, usize> = names
             .iter()
             .enumerate()
@@ -73,7 +73,7 @@ impl RequestGenPlan {
     }
 }
 
-fn collect_http<'a>(steps: &'a [Step], out: &mut Vec<&'a HttpStep>) {
+fn collect_http<'a>(steps: impl IntoIterator<Item = &'a Step>, out: &mut Vec<&'a HttpStep>) {
     for s in steps {
         match s {
             Step::Http(h) => out.push(h),
