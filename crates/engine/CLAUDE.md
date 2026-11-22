@@ -53,6 +53,8 @@
 
 - **시나리오-레벨 파라미터를 추가하면 부하 진입점 *3곳* 전부 배선 + 테스트도 각 진입점을 직접 타야 한다** (think-time-defaults): 워커가 프로파일에 따라 `run_scenario`(closed) / `run_scenario_vu_curve`(VU 곡선) / `run_scenario_open_loop`(open) 중 하나를 고르고(`worker/src/lib.rs`), 각각 `run_vu` / `run_vu_curve` / `run_arrival`이라는 **의도적으로 복제된** VU 루프를 돈다 → `execute_steps` 시그니처에 인자를 더하면 재귀 arm 말고 **비재귀 호출부 3곳**을 다 고쳐야 하고, `trace.rs::trace_steps`(test-run 쌍둥이)도 같이 간다. **함정**: `run_scenario`는 `vu_stages`/`target_rps`를 **무시**하므로, 테스트를 `run_scenario`로만 짜면 곡선·open-loop 배선을 빠뜨려도 green이다(= "절대 실패할 수 없는 테스트") — `tests/think_time.rs`의 `Mode::{Closed,Curve,Open}` 헬퍼처럼 진입점을 모드로 갈라 직접 spawn할 것(세 함수는 시그니처가 같아 `tokio::spawn` 타입이 일치).
 
+- **준비 구간(`section.rs`)은 부하 진입점 3곳에 각각 배선되고 통계는 `MetricFlush`의 별도 벡터다** (vu-setup-steps): ① `section_step_stats`·`section_outcomes`는 드레인 여섯 곳·송신 가드 전부·워커 건너뛰기 가드(`worker/src/lib.rs` `flush_to_batch`)에 「비었는가」 항이 필요 — 빠뜨리면 준비 통계만 든 flush가 버려져 시작 감시가 run을 죽인다 ② `run_vu`·`run_vu_curve`·`run_arrival`의 첫 반복 다시 짜기는 시드 맵·이미 고른 데이터셋 행을 재사용하고 `seed_iter_vars`/`select_index`를 다시 부르지 않는다(공유 카운터가 두 번 전진) ③ open-loop는 슬롯별 상태 — 준비 안 된 슬롯은 스케줄러가 아니라 태스크가 준비 성공 뒤 `Launched`를 기록하고, 실패한 슬롯은 큐로 돌려주지 않으며 모든 슬롯이 빠진 것은 스케줄러 루프 머리에서 확인한다 ④ `run_section`·trace 준비 패스는 `fill_missing_extracts`를 부르지 않는다(기본값 있어도 실패 — 빈 토큰으로 본 스텝을 보내지 않기 위해) ⑤ 실패 kind 문자열 단일 원천은 `KIND_*`·`is_section_failure_kind`·`ErrorKind::ALL`(컨트롤러 수신 필터가 같은 함수를 쓴다). 테스트는 `Mode::{Closed,Curve,Open}`로 진입점을 직접 탈 것.
+
 ## 오픈루프 (`run_scenario_open_loop`, S-C)
 
 - **closed-loop와 격리된 별도 함수** (S-C): `run_scenario`/`run_vu` 무변경(byte-identical 구조적 보장). `run_arrival`은 `run_vu` iteration-body의 의도된 복제(run-level think time 제외). `target_rps` 미지정 → `run_scenario`(기존) 호출 — open-loop 파일을 건드려도 closed-loop 회귀 0.
