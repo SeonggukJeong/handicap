@@ -1040,11 +1040,6 @@ function ExtractEditor({ step, inSetup }: { step: HttpStep; inSetup: boolean }) 
                   </HelpTip>
                 </div>
               )}
-              {x.from !== "status" && x.defaultOpen && inSetup && (
-                <span className="basis-full text-xs text-amber-700">
-                  {ko.editor.setupDefaultUnused}
-                </span>
-              )}
               {x.from === "status" && (
                 <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>
               )}
@@ -1060,6 +1055,11 @@ function ExtractEditor({ step, inSetup }: { step: HttpStep; inSetup: boolean }) 
                 <p id={alertId} role="alert" className="basis-full text-xs text-red-700">
                   {defaultAlert}
                 </p>
+              )}
+              {x.from !== "status" && x.defaultOpen && inSetup && (
+                <span className="basis-full text-xs text-amber-700">
+                  {ko.editor.setupDefaultUnused}
+                </span>
               )}
             </li>
           );

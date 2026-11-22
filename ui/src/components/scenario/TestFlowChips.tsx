@@ -5,6 +5,7 @@ import { branchText, deriveChipResults, type ChipResult } from "../../scenario/c
 import { loopCountLabel } from "../../scenario/loopLabel";
 import { METHOD_BADGE } from "./methodBadge";
 import { ko } from "../../i18n/ko";
+import { SetupBadge } from "./SetupBadge";
 
 // 결과 상태별 칩 표면 — 데이터-식별 도메인(accent 토큰 금지, TestRunPanel emerald/red 계열 통일).
 // border는 선택 링과 충돌하므로 표면과 분리: 선택 시 결과 border를 SELECTED_RING으로 *교체*
@@ -169,6 +170,7 @@ export function TestFlowChips({
   selectedStepId,
   onSelect,
   expandable = false,
+  setupCount = 0,
 }: {
   steps: ReadonlyArray<Step>;
   trace: ScenarioTrace | null;
@@ -176,6 +178,8 @@ export function TestFlowChips({
   onSelect: (id: string) => void;
   /** true(TestRunSection)면 overflow 시 펼치기 토글 — EditorShell(wide)은 미전달=하드 캡(펼치면 가림 복귀). */
   expandable?: boolean;
+  /** `steps`의 앞 `setupCount`개가 준비 스텝 — 첫 칩 앞에 「준비」 표지, 본 칩과는 `|`로 가른다. */
+  setupCount?: number;
 }) {
   const results = useMemo(() => (trace ? deriveChipResults(trace) : null), [trace]);
   // 훅은 전부 steps-empty early return 앞에 (rules-of-hooks).
@@ -231,13 +235,19 @@ export function TestFlowChips({
         data-testid="chip-strip-wrap"
         className={expanded ? WRAP_BASE : `${WRAP_BASE} max-h-24 overflow-y-auto`}
       >
+        {setupCount > 0 && <SetupBadge />}
         {steps.map((s, i) => (
           <Fragment key={s.id}>
-            {i > 0 && (
-              <span aria-hidden="true" className="text-slate-300">
-                →
-              </span>
-            )}
+            {i > 0 &&
+              (i === setupCount ? (
+                <span aria-hidden="true" className="px-0.5 text-slate-300">
+                  |
+                </span>
+              ) : (
+                <span aria-hidden="true" className="text-slate-300">
+                  →
+                </span>
+              ))}
             <ChipNode
               step={s}
               results={results}

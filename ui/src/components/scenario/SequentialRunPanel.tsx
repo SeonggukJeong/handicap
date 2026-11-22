@@ -48,6 +48,30 @@ export function SequentialRunPanel({
           {ko.editor.seqTruncated(requestedRows, completed)}
         </Callout>
       )}
+      {seq.setup_failed && (
+        <Callout variant="warn" className="mb-2">
+          {ko.editor.testRunSetupFailed}
+        </Callout>
+      )}
+      {seq.setup_steps && (
+        <>
+          <p className="mb-1 text-[13px] font-semibold text-slate-700">{ko.editor.seqSetupTitle}</p>
+          <div className="mb-2.5 border-b-2 border-accent-200">
+            <TraceStepList
+              trace={{
+                ok: !seq.setup_failed,
+                total_ms: seq.setup_ms ?? 0,
+                steps: seq.setup_steps,
+                final_vars: {},
+                truncated: false,
+                error: null,
+              }}
+              steps={steps}
+              onAddExtract={onAddExtract}
+            />
+          </div>
+        </>
+      )}
       <ul>
         {seq.rows.map((r) => {
           const open = expandedRow === r.row_index;

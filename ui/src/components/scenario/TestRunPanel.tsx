@@ -8,6 +8,7 @@ import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { traceErrorText } from "../../scenario/blockedText";
 import { Callout } from "../ui/Callout";
 import { LoopJudgeRow } from "./LoopJudgeRow";
+import { SetupBadge } from "./SetupBadge";
 import { BodyBlock } from "../response/BodyBlock";
 import { HeaderTable } from "../response/HeaderTable";
 import { ResponseBodyTree } from "./ResponseBodyTree";
@@ -44,11 +45,16 @@ function HttpRow({
   step,
   steps,
   onAddExtract,
+  divider = false,
 }: {
   step: StepTrace;
   steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
+  /** 바로 다음 행이 본 스텝 행인 준비 행 — 준비 구간과 본 구간 사이의 굵은 구분선. */
+  divider?: boolean;
 }) {
+  const isSetupRow = step.section === "setup";
+  const setupName = isSetupRow && steps ? findStepById(steps, step.step_id)?.name : undefined;
   const errorText = traceErrorText(step, (id) =>
     steps ? findStepById(steps, id)?.name : undefined,
   );
@@ -93,13 +99,17 @@ function HttpRow({
         }
       : undefined;
   return (
-    <li className="border-b border-slate-100 py-2">
+    <li
+      className={`${divider ? "border-b-2 border-accent-200" : "border-b border-slate-100"} py-2`}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex w-full flex-wrap items-center gap-2 text-left"
       >
         <span className="font-mono text-xs text-slate-400">{open ? "▾" : "▸"}</span>
+        {isSetupRow && <SetupBadge />}
+        {setupName !== undefined && <span className="text-sm font-medium">{setupName}</span>}
         {step.loop_index !== null && chip(`#${step.loop_index}`, "bg-slate-100 text-slate-600")}
         {chip(req?.method ?? "—", "bg-slate-800 text-white")}
         <span className="font-mono text-xs break-all">{req?.url ?? "(no request)"}</span>
@@ -308,7 +318,16 @@ export function TraceStepList({
               </li>
             );
           }
-          return <HttpRow key={key} step={step} steps={steps} onAddExtract={onAddExtract} />;
+          const next = trace.steps[i + 1];
+          return (
+            <HttpRow
+              key={key}
+              step={step}
+              steps={steps}
+              onAddExtract={onAddExtract}
+              divider={step.section === "setup" && next !== undefined && next.section !== "setup"}
+            />
+          );
         })}
       </ul>
     </>
@@ -324,6 +343,7 @@ export function TestRunPanel({
   steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
 }) {
+  const setupCount = trace.steps.filter((s) => s.section === "setup").length;
   return (
     <section
       aria-label={ko.editor.testRunResultAria}
@@ -336,10 +356,16 @@ export function TestRunPanel({
           trace.ok ? "bg-emerald-200 text-emerald-900" : "bg-red-200 text-red-900",
         )}
         <span className="text-xs text-slate-500">
-          {trace.total_ms}ms · {trace.steps.length} steps
+          {trace.total_ms}ms · {trace.steps.length - setupCount} steps
+          {setupCount > 0 && ` · ${ko.editor.testRunSetupCount(setupCount)}`}
         </span>
       </div>
       {trace.error && <div className="mb-2 text-sm text-red-700">{trace.error}</div>}
+      {trace.setup_failed && (
+        <Callout variant="warn" className="mb-2">
+          {ko.editor.testRunSetupFailed}
+        </Callout>
+      )}
       {trace.truncated && (
         <Callout variant="warn" className="mb-2">
           {ko.editor.testRunTruncated}

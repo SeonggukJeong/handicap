@@ -448,6 +448,75 @@ describe("TestRunPanel 보내지 않은 요청", () => {
   });
 });
 
+describe("TestRunPanel 준비 표지", () => {
+  const S_ID = "01HX0000000000000000000091";
+  const B_ID = "01HX0000000000000000000092";
+  const mk = (id: string, name: string): Step => ({
+    id,
+    name,
+    type: "http",
+    request: { method: "GET", url: `http://x/${name}`, headers: {} },
+    assert: [],
+    extract: [],
+  });
+  const STEPS: Step[] = [mk(S_ID, "준비 요청"), mk(B_ID, "조회")];
+  const row = (id: string, section?: string) => ({
+    ...TRACE.steps[1],
+    step_id: id,
+    loop_index: null,
+    error: null,
+    ...(section ? { section } : {}),
+  });
+  const SETUP_TRACE: ScenarioTrace = {
+    ...TRACE,
+    truncated: false,
+    steps: [row(S_ID, "setup"), row(B_ID)],
+  };
+
+  it("준비 행에만 「준비」 표지가 붙는다", () => {
+    render(<TestRunPanel trace={SETUP_TRACE} steps={STEPS} />);
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[0]).getByText("준비")).toBeInTheDocument();
+    expect(within(items[0]).getByText("준비 요청")).toBeInTheDocument();
+    expect(within(items[1]).queryByText("준비")).not.toBeInTheDocument();
+  });
+
+  it("머리의 스텝 수는 본 행만 세고 준비 수를 따로 적는다", () => {
+    const { unmount } = render(<TestRunPanel trace={SETUP_TRACE} steps={STEPS} />);
+    expect(screen.getByText(/ms · /)).toHaveTextContent(/1 steps · 준비 1$/);
+    unmount();
+    render(<TestRunPanel trace={{ ...SETUP_TRACE, steps: [row(B_ID), row(B_ID)] }} />);
+    const head = screen.getByText(/ms · /);
+    expect(head).toHaveTextContent(/2 steps$/);
+    expect(head).not.toHaveTextContent("준비");
+  });
+
+  it("준비 실패면 본 스텝을 실행하지 않았다고 알린다", () => {
+    const msg = "준비 스텝이 실패해 본 스텝을 실행하지 않았습니다";
+    const { unmount } = render(
+      <TestRunPanel
+        trace={{ ...SETUP_TRACE, setup_failed: true, steps: [row(S_ID, "setup")] }}
+        steps={STEPS}
+      />,
+    );
+    expect(screen.getByText(msg)).toBeInTheDocument();
+    unmount();
+    render(<TestRunPanel trace={SETUP_TRACE} steps={STEPS} />);
+    expect(screen.queryByText(msg)).not.toBeInTheDocument();
+  });
+
+  it("구분선은 바로 다음이 본 행인 준비 행에만 있다", () => {
+    const { unmount } = render(<TestRunPanel trace={SETUP_TRACE} steps={STEPS} />);
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).toHaveClass("border-b-2", "border-accent-200");
+    expect(items[0]).not.toHaveClass("border-slate-100");
+    expect(items[1]).toHaveClass("border-slate-100");
+    unmount();
+    render(<TestRunPanel trace={{ ...SETUP_TRACE, steps: [row(S_ID, "setup")] }} steps={STEPS} />);
+    expect(screen.getAllByRole("listitem")[0]).not.toHaveClass("border-accent-200");
+  });
+});
+
 describe("TestRunPanel 기본값 표지", () => {
   const withExtracted = (defaulted?: string[]): ScenarioTrace => ({
     ...TRACE,

@@ -173,6 +173,36 @@ steps:
       url: http://x/b
 `;
 
+const YAML_SETUP = `version: 1
+name: s
+setup:
+  steps:
+    - id: "${STEP_A}"
+      name: 준비 요청
+      type: http
+      request:
+        method: GET
+        url: http://x/a
+steps:
+  - id: "${STEP_B}"
+    name: 조회
+    type: http
+    request:
+      method: GET
+      url: http://x/b
+`;
+
+const YAML_1_STEP = `version: 1
+name: s
+steps:
+  - id: "${STEP_B}"
+    name: 조회
+    type: http
+    request:
+      method: GET
+      url: http://x/b
+`;
+
 /** YAML_2_STEPS와 동일한 시나리오 — 신뢰도 버킷 조회용 손-오라클(파서 재사용 아님). */
 function parsedTwoStepScenario(): Scenario {
   return ScenarioModel.parse({
@@ -522,6 +552,74 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  // ── 준비 스텝 (vu-setup-steps A2 Task 5) ──
+  it("준비 스텝이 칩과 결과에 이름과 표지로 나온다", async () => {
+    const user = userEvent.setup();
+    testRunResponse = {
+      ...TRACE_OK,
+      steps: [{ ...mkStepTrace(STEP_A, 200), section: "setup" }, mkStepTrace(STEP_B, 200)],
+    };
+    renderSection(YAML_SETUP);
+    const strip = screen.getByRole("group", { name: ko.editor.testFlowTitle });
+    expect(
+      within(strip)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["준비 요청", "조회"]);
+
+    await user.click(screen.getByRole("button", { name: ko.editor.testRunRun }));
+    const panel = await screen.findByRole("region", { name: ko.editor.testRunResultAria });
+    const setupLi = within(panel).getByText("준비 요청").closest("li")!;
+    expect(within(setupLi).getByText("준비")).toBeInTheDocument();
+  });
+
+  it("행 모드 요청 수 안내는 준비 요청도 센다", async () => {
+    const user = userEvent.setup();
+    const budget = async (yaml: string) => {
+      const view = renderSection(yaml);
+      await openDatasetSection(user);
+      await selectDataset(user);
+      await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+      const max = screen.getByLabelText(ko.editor.testRunMaxRequests);
+      await user.clear(max);
+      await user.type(max, "10");
+      await user.type(screen.getByLabelText(ko.editor.dsRowLimitLabel), "10");
+      return view;
+    };
+    const { unmount } = await budget(YAML_SETUP);
+    // 10행 × 본 스텝 1 + 준비 1 = 11 > 10
+    expect(screen.getByText(ko.editor.dsBudgetHint(11, 10))).toBeInTheDocument();
+    unmount();
+    await budget(YAML_1_STEP);
+    expect(screen.queryByText(/예상 요청 수/)).not.toBeInTheDocument();
+  });
+
+  it("행 모드에서 준비 칩이 setup_steps의 결과를 받는다", async () => {
+    const user = userEvent.setup();
+    testRunResponse = {
+      ok: true,
+      truncated: false,
+      total_ms: 9,
+      rows: [
+        {
+          row_index: 0,
+          trace: { ...ROW0_TRACE, steps: [mkStepTrace(STEP_B, 200)] },
+        },
+      ],
+      setup_steps: [{ ...mkStepTrace(STEP_A, 200), section: "setup" }],
+    };
+    renderSection(YAML_SETUP);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+    await user.click(screen.getByRole("button", { name: ko.editor.testRunRun }));
+    await screen.findByRole("region", { name: ko.editor.seqResultAria });
+    const strip = screen.getByRole("group", { name: ko.editor.testFlowTitle });
+    expect(
+      within(strip).getByRole("button", { name: ko.editor.chipAriaPass("준비 요청") }),
+    ).toBeInTheDocument();
   });
 
   // 순차 경로의 검증 기록 회귀 가드(T4 리뷰 fold). 기존 trust 테스트 3건은 단발

@@ -4,7 +4,8 @@ import { useEnvironment, useTestRun, useTestRunSequential } from "../../api/hook
 import { ko } from "../../i18n/ko";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { flattenHttpSteps, type Step } from "../../scenario/model";
+import { allSteps, flattenHttpSteps, setupSteps, type Step } from "../../scenario/model";
+import type { ScenarioTrace } from "../../api/schemas";
 import { useScenarioEditor } from "../../scenario/store";
 import { DRAFT_KEY, fingerprintHash, recordVerified } from "../../scenario/trustPrefs";
 import { Button } from "../Button";
@@ -39,17 +40,40 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
   const [seqRequested, setSeqRequested] = useState(0);
   const selectedEnv = useEnvironment(selectedEnvId ?? undefined);
   const baseVars = selectedEnv.data?.vars ?? {};
-  const traceSteps = useMemo<Step[]>(() => {
+  const { traceSteps, bodySteps, setupCount } = useMemo(() => {
     const parsed = parseScenarioDoc(yamlText);
-    return "model" in parsed ? parsed.model.steps : [];
+    if (!("model" in parsed)) {
+      return { traceSteps: [] as Step[], bodySteps: [] as Step[], setupCount: 0 };
+    }
+    return {
+      traceSteps: allSteps(parsed.model),
+      bodySteps: parsed.model.steps,
+      setupCount: setupSteps(parsed.model).length,
+    };
   }, [yamlText]);
-  const leafCount = useMemo(() => flattenHttpSteps(traceSteps).length, [traceSteps]);
+  // 행마다 도는 요청 수 = 본 스텝만. 준비 요청은 한 번뿐이라 setupCount로 따로 센다.
+  const leafCount = useMemo(() => flattenHttpSteps(bodySteps).length, [bodySteps]);
   const isPending = testRun.isPending || testRunSeq.isPending;
   const dsIncomplete = dsState?.kind === "incomplete";
   const seqData = testRunSeq.data ?? null;
-  const chipTrace = seqData
-    ? (seqData.rows.find((r) => r.row_index === expandedRow)?.trace ?? null)
-    : (testRun.data ?? null);
+  const chipTrace = useMemo<ScenarioTrace | null>(() => {
+    if (!seqData) return testRun.data ?? null;
+    const rowTrace = seqData.rows.find((r) => r.row_index === expandedRow)?.trace ?? null;
+    const setupRows = seqData.setup_steps ?? [];
+    if (rowTrace)
+      return setupRows.length > 0
+        ? { ...rowTrace, steps: [...setupRows, ...rowTrace.steps] }
+        : rowTrace;
+    if (setupRows.length === 0) return null;
+    return {
+      ok: !seqData.setup_failed,
+      total_ms: seqData.setup_ms ?? 0,
+      steps: setupRows,
+      final_vars: {},
+      truncated: false,
+      error: null,
+    };
+  }, [seqData, testRun.data, expandedRow]);
 
   const fire = () => {
     if (isPending || dsIncomplete) return;
@@ -107,6 +131,7 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
         <p className="text-sm text-slate-600">{ko.editor.testRunIntro}</p>
         <TestFlowChips
           steps={traceSteps}
+          setupCount={setupCount}
           trace={chipTrace}
           selectedStepId={selectedStepId ?? null}
           onSelect={(id) => useScenarioEditor.getState().select(id)}
@@ -122,6 +147,7 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
         <TestRunDatasetSection
           onChange={setDsState}
           expectedLeafCount={leafCount}
+          setupRequestCount={setupCount}
           maxRequests={maxRequests}
         />
         <label className="flex items-center gap-2 text-sm">

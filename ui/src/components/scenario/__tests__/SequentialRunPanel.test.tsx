@@ -66,6 +66,69 @@ describe("defaultExpandedRow", () => {
   });
 });
 
+describe("SequentialRunPanel 준비 구간", () => {
+  const noop = () => {};
+  const S_ID = "01HX0000000000000000000091";
+  const steps: Step[] = [
+    {
+      id: S_ID,
+      name: "준비 요청",
+      type: "http",
+      request: { method: "GET", url: "http://x/setup", headers: {} },
+      assert: [],
+      extract: [],
+    },
+  ];
+  const setupRow = (error: string | null = null): StepTrace => ({
+    ...httpStep("http://x/setup", error),
+    step_id: S_ID,
+    section: "setup",
+  });
+  const SETUP_TITLE = "준비 스텝 — 첫 행 앞에 한 번 실행";
+  const FAIL = "준비 스텝이 실패해 본 스텝을 실행하지 않았습니다";
+
+  it("준비 행을 행 목록 위에 한 번 보인다", () => {
+    render(
+      <SequentialRunPanel
+        seq={{ ...seq, setup_steps: [setupRow()] }}
+        steps={steps}
+        requestedRows={3}
+        expandedRow={0}
+        onExpandRow={noop}
+      />,
+    );
+    const title = screen.getByText(SETUP_TITLE);
+    const setupName = screen.getByText("준비 요청");
+    expect(
+      title.compareDocumentPosition(setupName) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const row1 = screen.getByRole("button", { name: /행 1/ });
+    expect(setupName.compareDocumentPosition(row1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText("준비 요청")).toHaveLength(1);
+  });
+
+  it("준비가 실패해 행이 없어도 준비 행과 실패 안내가 나온다", () => {
+    render(
+      <SequentialRunPanel
+        seq={{
+          ok: false,
+          truncated: false,
+          total_ms: 3,
+          rows: [],
+          setup_steps: [setupRow("boom")],
+          setup_failed: true,
+        }}
+        steps={steps}
+        requestedRows={3}
+        expandedRow={null}
+        onExpandRow={noop}
+      />,
+    );
+    expect(screen.getByText(FAIL)).toBeInTheDocument();
+    expect(screen.getByText("boom")).toBeInTheDocument();
+  });
+});
+
 describe("SequentialRunPanel", () => {
   const noop = () => {};
   it("펼친 행의 trace에 ended_by_loop가 있으면 종료 안내가 뜬다", () => {

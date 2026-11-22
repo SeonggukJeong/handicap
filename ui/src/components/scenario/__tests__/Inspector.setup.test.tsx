@@ -175,10 +175,13 @@ ${HTTP(B1, "조회", DEFAULT_EXTRACT)}`;
     await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
     const note = screen.getByText("준비 스텝에서는 쓰이지 않습니다");
     expect(note).toBeInTheDocument();
-    const defaultRow = screen
-      .getByLabelText(ko.editor.extractDefaultAria(0))
-      .closest(".items-center");
-    expect(defaultRow).not.toContainElement(note);
+    const removeBtn = screen.getByRole("button", { name: ko.editor.removeExtract(0) });
+    expect(removeBtn.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const defaultInput = screen.getByLabelText(ko.editor.extractDefaultAria(0));
+    const li = defaultInput.closest("li")!;
+    expect(li).toContainElement(note);
+    const defaultWrap = Array.from(li.children).find((c) => c.contains(defaultInput))!;
+    expect(defaultWrap).not.toContainElement(note);
     unmount();
     st().select(B1);
     render(<Inspector />);

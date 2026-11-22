@@ -30,10 +30,13 @@ interface MappingRow {
 export function TestRunDatasetSection({
   onChange,
   expectedLeafCount,
+  setupRequestCount = 0,
   maxRequests,
 }: {
   onChange: (state: DatasetDraftState | null) => void;
   expectedLeafCount: number;
+  /** 준비 스텝 수 — 한 번만 나가지만 요청 상한에는 들어간다. */
+  setupRequestCount?: number;
   maxRequests: number;
 }) {
   // latest-value ref — dep은 state 원자들만 (부모 콜백 identity churn과 무관하게 최신 콜백 사용).
@@ -143,6 +146,7 @@ export function TestRunDatasetSection({
           onMappingRowsChange={setMappingRows}
           derived={derived}
           expectedLeafCount={expectedLeafCount}
+          setupRequestCount={setupRequestCount}
           maxRequests={maxRequests}
           previewOpen={previewOpen}
           onPreviewToggle={() => setPreviewOpen((o) => !o)}
@@ -168,6 +172,7 @@ function DatasetBody({
   onMappingRowsChange,
   derived,
   expectedLeafCount,
+  setupRequestCount,
   maxRequests,
   previewOpen,
   onPreviewToggle,
@@ -187,6 +192,7 @@ function DatasetBody({
   onMappingRowsChange: (rows: MappingRow[] | null) => void;
   derived: DatasetDraftState | null;
   expectedLeafCount: number;
+  setupRequestCount: number;
   maxRequests: number;
   previewOpen: boolean;
   onPreviewToggle: () => void;
@@ -313,9 +319,12 @@ function DatasetBody({
                 </label>
               </div>
               {derived?.kind === "ready" &&
-                derived.requestedRows * expectedLeafCount > maxRequests && (
+                derived.requestedRows * expectedLeafCount + setupRequestCount > maxRequests && (
                   <span className="text-xs text-amber-700">
-                    {ko.editor.dsBudgetHint(derived.requestedRows * expectedLeafCount, maxRequests)}
+                    {ko.editor.dsBudgetHint(
+                      derived.requestedRows * expectedLeafCount + setupRequestCount,
+                      maxRequests,
+                    )}
                   </span>
                 )}
             </div>

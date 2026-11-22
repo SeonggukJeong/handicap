@@ -1061,6 +1061,9 @@ export const ko = {
     seqRowLabel: (n: number) => `행 ${n}`,
     seqTruncated: (requested: number, done: number) =>
       `상한 도달로 ${requested}행 중 ${done}행만 실행됨`,
+    testRunSetupCount: (n: number) => `준비 ${n}`,
+    testRunSetupFailed: "준비 스텝이 실패해 본 스텝을 실행하지 않았습니다",
+    seqSetupTitle: "준비 스텝 — 첫 행 앞에 한 번 실행",
     seqRowTruncated: "이 행은 상한 도달로 중간에 잘렸습니다",
     // ── 테스트 흐름 칩 스트립 (B13 슬라이스 2) ──
     testFlowTitle: "테스트 흐름",

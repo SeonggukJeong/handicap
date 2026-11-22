@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ScenarioTraceSchema } from "../schemas";
+import { ScenarioTraceSchema, SequentialTraceSchema } from "../schemas";
 
 const SAMPLE = {
   ok: false,
@@ -93,5 +93,42 @@ describe("ScenarioTraceSchema", () => {
     // backend always emits these; a missing one is a contract violation -> throw.
     delete (missing.steps[0] as Record<string, unknown>).unbound_vars;
     expect(() => ScenarioTraceSchema.parse(missing)).toThrow();
+  });
+});
+
+describe("준비 표지 (setup)", () => {
+  const withSection = (section?: string) => ({
+    ...SAMPLE,
+    steps: [{ ...SAMPLE.steps[1], ...(section === undefined ? {} : { section }) }],
+  });
+
+  it("준비 표지가 든 단일 trace를 읽고 키를 버리지 않는다", () => {
+    const t = ScenarioTraceSchema.parse({ ...withSection("setup"), setup_ms: 41 });
+    expect(t.steps[0].section).toBe("setup");
+    expect(t.setup_ms).toBe(41);
+    expect(t.setup_failed).toBeUndefined();
+  });
+
+  it("준비 키가 없는 trace도 읽는다", () => {
+    const t = ScenarioTraceSchema.parse(withSection());
+    expect(t.steps[0].section).toBeUndefined();
+  });
+
+  it("모르는 구간 이름이 와도 읽는다", () => {
+    const t = ScenarioTraceSchema.parse(withSection("teardown"));
+    expect(t.steps[0].section).toBe("teardown");
+  });
+
+  it("행 모드의 setup_steps를 읽는다", () => {
+    const s = SequentialTraceSchema.parse({
+      ok: false,
+      truncated: false,
+      total_ms: 5,
+      rows: [],
+      setup_steps: [{ ...SAMPLE.steps[1], section: "setup" }],
+      setup_failed: true,
+    });
+    expect(s.setup_steps).toHaveLength(1);
+    expect(s.setup_failed).toBe(true);
   });
 });

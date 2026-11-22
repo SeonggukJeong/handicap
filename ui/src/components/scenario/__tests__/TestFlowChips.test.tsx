@@ -5,6 +5,7 @@ import { TestFlowChips } from "../TestFlowChips";
 import { ko } from "../../../i18n/ko";
 import { parseScenarioDoc } from "../../../scenario/yamlDoc";
 import type { ScenarioTrace, StepTrace } from "../../../api/schemas";
+import type { Step } from "../../../scenario/model";
 
 // loop/if(elif·else 포함)/parallel 전 유형 fixture. id는 유효 ULID 필수(model.ts ULID_RE).
 const CHIP_YAML = `version: 1
@@ -441,6 +442,65 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     const toggle = screen.getByRole("button", { name: ko.editor.chipStripExpand });
     expect(toggle).toBeInTheDocument();
     expect(document.activeElement).toBe(toggle);
+  });
+});
+
+describe("TestFlowChips — 준비 칩", () => {
+  const S_ID = "01HX0000000000000000000091";
+  const B_ID = "01HX0000000000000000000092";
+  const mk = (id: string, name: string): Step => ({
+    id,
+    name,
+    type: "http",
+    request: { method: "GET", url: `http://x/${name}`, headers: {} },
+    assert: [],
+    extract: [],
+  });
+  const STEPS: Step[] = [mk(S_ID, "준비 요청"), mk(B_ID, "조회")];
+
+  it("준비 칩이 앞에 「준비」 표지와 함께 나오고 본 칩과 구분된다", () => {
+    render(
+      <TestFlowChips
+        steps={STEPS}
+        setupCount={1}
+        trace={null}
+        selectedStepId={null}
+        onSelect={noop}
+      />,
+    );
+    const wrap = screen.getByTestId("chip-strip-wrap");
+    expect(wrap.firstElementChild).toHaveTextContent("준비");
+    expect(
+      within(wrap)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["준비 요청", "조회"]);
+    const seps = Array.from(wrap.querySelectorAll('[aria-hidden="true"]'));
+    expect(seps.map((s) => s.textContent)).toEqual(["|"]);
+  });
+
+  it("setupCount가 없으면 지금과 같다", () => {
+    render(<TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} />);
+    const wrap = screen.getByTestId("chip-strip-wrap");
+    expect(within(wrap).queryByText("준비")).not.toBeInTheDocument();
+    expect(
+      Array.from(wrap.querySelectorAll('[aria-hidden="true"]')).map((s) => s.textContent),
+    ).toEqual(["→"]);
+  });
+
+  it("준비 칩도 결과 색을 받는다", () => {
+    render(
+      <TestFlowChips
+        steps={STEPS}
+        setupCount={1}
+        trace={mkTrace([httpRow(S_ID, { section: "setup" })])}
+        selectedStepId={null}
+        onSelect={noop}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: ko.editor.chipAriaPass("준비 요청") }),
+    ).toBeInTheDocument();
   });
 });
 

@@ -15,7 +15,7 @@ import { ScenarioNotesCallout } from "./ScenarioNotesCallout";
 import { ThinkTimeBoard } from "./ThinkTimeBoard";
 import { evaluateTrust, isTrustApplicable } from "../../scenario/trust";
 import { DRAFT_KEY, testRunStateFor } from "../../scenario/trustPrefs";
-import type { Step } from "../../scenario/model";
+import { allSteps, setupSteps, type Step } from "../../scenario/model";
 
 const EMPTY_STEPS: Step[] = []; // 셀렉터 안정 참조 — 인라인 `?? []` 금지(getSnapshot 함정)
 
@@ -31,7 +31,6 @@ export function EditorShell({
   const loadFromString = useScenarioEditor((s) => s.loadFromString);
   const yamlText = useScenarioEditor((s) => s.yamlText);
   const commitPendingYaml = useScenarioEditor((s) => s.commitPendingYaml);
-  const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
 
@@ -45,6 +44,9 @@ export function EditorShell({
   const { id } = useParams<{ id: string }>();
   const scenarioKey = id ?? DRAFT_KEY;
   const model = useScenarioEditor((s) => s.model);
+  // allSteps는 매번 새 배열이라 셀렉터 밖에서 model로 만든다.
+  const chipSteps = useMemo(() => (model ? allSteps(model) : EMPTY_STEPS), [model]);
+  const setupCount = model ? setupSteps(model).length : 0;
   const yamlError = useScenarioEditor((s) => s.yamlError);
   const testRunEpoch = useScenarioEditor((s) => s.testRunEpoch);
 
@@ -229,7 +231,8 @@ export function EditorShell({
           >
             <section aria-label={ko.editor.wideFlowStripAria} className="shrink-0">
               <TestFlowChips
-                steps={steps}
+                steps={chipSteps}
+                setupCount={setupCount}
                 trace={null}
                 selectedStepId={selectedStepId}
                 onSelect={jumpToStep}

@@ -943,6 +943,8 @@ export const StepTraceSchema = z.object({
   blocked: z.object({ vars: z.array(z.string()), by_step: z.string() }).optional(),
   // 기본값이 들어간 추출 이름 — 서버는 비면 키를 생략한다(null 아님).
   defaulted: z.array(z.string()).optional(),
+  // 준비 구간 행이면 "setup" — 서버는 본 행이면 키를 생략한다(null 아님). 모르는 구간 이름도 글자로 읽는다.
+  section: z.string().optional(),
 });
 export type StepTrace = z.infer<typeof StepTraceSchema>;
 
@@ -955,6 +957,9 @@ export const ScenarioTraceSchema = z.object({
   error: z.string().nullable(),
   // 조건 반복이 최대 횟수까지 풀리지 않아 끝난 경우의 loop 이름 — 서버는 없으면 키를 생략한다.
   ended_by_loop: z.string().optional(),
+  // 준비 구간이 있는 실행에서만 — 서버는 없으면 키를 생략한다.
+  setup_failed: z.boolean().optional(),
+  setup_ms: z.number().int().optional(),
 });
 export type ScenarioTrace = z.infer<typeof ScenarioTraceSchema>;
 
@@ -976,7 +981,8 @@ export interface TestRunDatasetConfig {
   row_limit?: number;
 }
 
-// sequential 응답 — 엔진 RowsTrace 직렬화 1:1 (전 필드 항상 emit → plain 타입, R16).
+// sequential 응답 — 엔진 RowsTrace 직렬화 1:1. ok/truncated/total_ms/rows는 항상 emit(plain 타입, R16),
+// 준비 키 셋(setup_steps/setup_failed/setup_ms)은 준비 구간이 있을 때만 emit하는 생략형(.optional()).
 export const RowTraceSchema = z.object({
   row_index: z.number().int(),
   trace: ScenarioTraceSchema,
@@ -988,6 +994,9 @@ export const SequentialTraceSchema = z.object({
   truncated: z.boolean(),
   total_ms: z.number().int(),
   rows: z.array(RowTraceSchema),
+  setup_steps: z.array(StepTraceSchema).optional(),
+  setup_failed: z.boolean().optional(),
+  setup_ms: z.number().int().optional(),
 });
 export type SequentialTrace = z.infer<typeof SequentialTraceSchema>;
 
