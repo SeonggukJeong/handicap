@@ -225,12 +225,34 @@ impl VuSetup {
     }
 }
 
+pub const KIND_READ_BODY: &str = "read_body";
+pub const KIND_STATUS_ASSERT: &str = "status_assert";
+pub const KIND_EXTRACT: &str = "extract";
+pub const KIND_UNKNOWN_VAR: &str = "unknown_var";
+pub const KIND_MALFORMED_TEMPLATE: &str = "malformed_template";
+pub const KIND_CAST_FAILED: &str = "cast_failed";
+
+/// 구간 실패 종류 중 전송 실패(`ErrorKind`)가 아닌 고정 분류 여섯.
+pub const SECTION_FIXED_FAILURE_KINDS: [&str; 6] = [
+    KIND_READ_BODY,
+    KIND_STATUS_ASSERT,
+    KIND_EXTRACT,
+    KIND_UNKNOWN_VAR,
+    KIND_MALFORMED_TEMPLATE,
+    KIND_CAST_FAILED,
+];
+
+/// 구간 통계의 `failure_kinds`에 실릴 수 있는 글자인가: 전송 실패 kind 전부 + 고정 분류 여섯.
+pub fn is_section_failure_kind(k: &str) -> bool {
+    SECTION_FIXED_FAILURE_KINDS.contains(&k) || ErrorKind::ALL.iter().any(|e| e.as_str() == k)
+}
+
 /// 렌더 단계 엔진 오류 중 준비 실패로 분류하는 것: (종류, 변수 이름). 나머지는 `None`.
 fn classify_engine_error(e: &EngineError) -> Option<(&'static str, Option<String>)> {
     match e {
-        EngineError::UnknownVar(name) => Some(("unknown_var", Some(name.clone()))),
-        EngineError::MalformedTemplate(_) => Some(("malformed_template", None)),
-        EngineError::CastFailed { var, .. } => Some(("cast_failed", Some(var.clone()))),
+        EngineError::UnknownVar(name) => Some((KIND_UNKNOWN_VAR, Some(name.clone()))),
+        EngineError::MalformedTemplate(_) => Some((KIND_MALFORMED_TEMPLATE, None)),
+        EngineError::CastFailed { var, .. } => Some((KIND_CAST_FAILED, Some(var.clone()))),
         EngineError::ScenarioParse(_)
         | EngineError::Http(_)
         | EngineError::AllVusFailed { .. }
@@ -308,14 +330,14 @@ pub(crate) async fn run_section(
                 if outcome.error.is_some() {
                     let kind = match (outcome.error_kind, outcome.error_class) {
                         (Some(k), _) => k.as_str(),
-                        (None, Some(ErrorClass::ReadBody)) => "read_body",
-                        (None, Some(ErrorClass::StatusAssert)) => "status_assert",
-                        (None, Some(ErrorClass::Extract)) => "extract",
+                        (None, Some(ErrorClass::ReadBody)) => KIND_READ_BODY,
+                        (None, Some(ErrorClass::StatusAssert)) => KIND_STATUS_ASSERT,
+                        (None, Some(ErrorClass::Extract)) => KIND_EXTRACT,
                         (None, Some(ErrorClass::Send) | None) => ErrorKind::Other.as_str(),
                     };
                     (kind, None)
                 } else if outcome.extracted.values().any(String::is_empty) {
-                    ("extract", None)
+                    (KIND_EXTRACT, None)
                 } else {
                     if let Some(rg) = req.as_mut() {
                         rg.mark_written(outcome.extracted.keys());
@@ -360,6 +382,29 @@ mod tests {
     use rand::SeedableRng;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn failure_kind_list_matches_wire_strings() {
+        assert_eq!(
+            SECTION_FIXED_FAILURE_KINDS,
+            [
+                "read_body",
+                "status_assert",
+                "extract",
+                "unknown_var",
+                "malformed_template",
+                "cast_failed"
+            ]
+        );
+        for k in ErrorKind::ALL {
+            assert!(is_section_failure_kind(k.as_str()), "{}", k.as_str());
+        }
+        for k in SECTION_FIXED_FAILURE_KINDS {
+            assert!(is_section_failure_kind(k));
+        }
+        assert!(!is_section_failure_kind("bogus"));
+        assert!(!is_section_failure_kind(""));
+    }
 
     const ID_A: &str = "01HX0000000000000000000001";
     const ID_B: &str = "01HX0000000000000000000002";

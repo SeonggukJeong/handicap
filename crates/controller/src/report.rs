@@ -91,15 +91,14 @@ pub struct SetupStepReport {
     pub failure_kinds: BTreeMap<String, u64>,
 }
 
-/// 시나리오에 준비 스텝이 없거나 YAML을 읽지 못하면 None.
+/// 준비 스텝(`Scenario::setup_steps()`)이 없으면 None. `setup` 구간의 행만 센다.
 /// 순서 = 시나리오의 준비 스텝 순서. 통계가 없는 스텝은 0행.
 pub fn build_setup_report(
-    scenario_yaml: &str,
+    setup: &[handicap_engine::Step],
     steps: &[crate::store::section::SectionStepRow],
     outcomes: &[crate::store::section::SectionOutcomeRow],
 ) -> Option<SetupReport> {
-    let sc = handicap_engine::Scenario::from_yaml(scenario_yaml).ok()?;
-    let setup = sc.setup_steps();
+    use handicap_engine::Section;
     if setup.is_empty() {
         return None;
     }
@@ -118,7 +117,10 @@ pub fn build_setup_report(
                 failure_kinds: BTreeMap::new(),
             };
             let mut hist = fresh_hist();
-            for r in steps.iter().filter(|r| r.step_id == id) {
+            for r in steps
+                .iter()
+                .filter(|r| r.section == Section::Setup.as_str() && r.step_id == id)
+            {
                 acc.count += r.count.max(0) as u64;
                 acc.errors += r.error_count.max(0) as u64;
                 add_status(
@@ -140,10 +142,15 @@ pub fn build_setup_report(
             acc
         })
         .collect();
+    let own = || {
+        outcomes
+            .iter()
+            .filter(|o| o.section == Section::Setup.as_str())
+    };
     Some(SetupReport {
-        ok: outcomes.iter().map(|o| o.ok.max(0) as u64).sum(),
-        failed: outcomes.iter().map(|o| o.failed.max(0) as u64).sum(),
-        interrupted: outcomes.iter().map(|o| o.interrupted.max(0) as u64).sum(),
+        ok: own().map(|o| o.ok.max(0) as u64).sum(),
+        failed: own().map(|o| o.failed.max(0) as u64).sum(),
+        interrupted: own().map(|o| o.interrupted.max(0) as u64).sum(),
         steps: out_steps,
     })
 }
@@ -2400,7 +2407,7 @@ steps:
     #[test]
     fn setup_report_none_without_setup() {
         let yaml = "version: 1\nname: s\nsteps:\n  - type: http\n    id: 01HX0000000000000000000B01\n    name: m\n    request: { method: GET, url: \"http://x/\" }\n";
-        assert!(build_setup_report(yaml, &[], &[]).is_none());
+        assert!(setup_report_of(yaml, &[], &[]).is_none());
         let rep = build_whole(&run_row(), &[]);
         let v = serde_json::to_value(&rep).unwrap();
         assert!(!v.as_object().unwrap().contains_key("setup"));
@@ -2434,7 +2441,7 @@ steps:
             sec_outcome("w2", 1, 0, 1),
             sec_outcome("w2", 3, 1, 2),
         ];
-        let r = build_setup_report(SETUP_YAML, &steps, &outcomes).unwrap();
+        let r = setup_report_of(SETUP_YAML, &steps, &outcomes).unwrap();
         assert_eq!((r.ok, r.failed, r.interrupted), (6, 2, 3));
         let s = &r.steps[0];
         assert_eq!(s.step_id, a);
@@ -2476,7 +2483,7 @@ steps:
                 &[1_000],
             ),
         ];
-        let r = build_setup_report(SETUP_YAML, &steps, &[]).unwrap();
+        let r = setup_report_of(SETUP_YAML, &steps, &[]).unwrap();
         let ids: Vec<&str> = r.steps.iter().map(|s| s.step_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -2495,7 +2502,7 @@ steps:
             "{}",
             &[2_000],
         )];
-        let r = build_setup_report(SETUP_YAML, &steps, &[]).unwrap();
+        let r = setup_report_of(SETUP_YAML, &steps, &[]).unwrap();
         assert_eq!((r.ok, r.failed, r.interrupted), (0, 0, 0));
         assert_eq!(r.steps.len(), 2);
         let z = &r.steps[1];
@@ -2509,16 +2516,44 @@ steps:
 
     #[test]
     fn setup_report_none_on_bad_yaml() {
-        assert!(build_setup_report("{{{ not yaml", &[], &[]).is_none());
+        assert!(setup_report_of("{{{ not yaml", &[], &[]).is_none());
     }
 
     #[test]
     fn setup_report_tolerates_bad_hdr_blob() {
         let mut bad = sec_step("w1", "01HX0000000000000000000A01", 2, 0, "{}", "{}", &[]);
         bad.hdr_histogram = vec![0xff, 0xff, 0xff, 0xff];
-        let r = build_setup_report(SETUP_YAML, &[bad], &[]).unwrap();
+        let r = setup_report_of(SETUP_YAML, &[bad], &[]).unwrap();
         assert_eq!(r.steps[0].count, 2);
         assert_eq!(r.steps[0].p50_ms, 0);
+    }
+
+    #[test]
+    fn setup_report_ignores_other_sections() {
+        let a = "01HX0000000000000000000A01";
+        let mut other_step = sec_step("w1", a, 7, 7, "{}", "{}", &[5_000]);
+        other_step.section = "teardown".into();
+        let mut other_outcome = sec_outcome("w1", 9, 9, 9);
+        other_outcome.section = "teardown".into();
+        let own_step = sec_step("w1", a, 1, 0, "{}", "{}", &[1_000]);
+        let own_outcome = sec_outcome("w1", 2, 1, 0);
+        let r = setup_report_of(
+            SETUP_YAML,
+            &[other_step, own_step],
+            &[other_outcome, own_outcome],
+        )
+        .unwrap();
+        assert_eq!((r.ok, r.failed, r.interrupted), (2, 1, 0));
+        assert_eq!((r.steps[0].count, r.steps[0].errors), (1, 0));
+    }
+
+    fn setup_report_of(
+        yaml: &str,
+        steps: &[crate::store::section::SectionStepRow],
+        outcomes: &[crate::store::section::SectionOutcomeRow],
+    ) -> Option<SetupReport> {
+        let sc = handicap_engine::Scenario::from_yaml(yaml).ok()?;
+        build_setup_report(sc.setup_steps(), steps, outcomes)
     }
 
     #[test]

@@ -2244,36 +2244,11 @@ pub(crate) async fn ingest_and_forward(state: &CoordinatorState, batch: pb::Metr
     }
 }
 
-/// 구간 통계의 `failure_kinds` 허용 글자(D6): ADR-0050 전송 실패 kind + 구간 실패 고정 분류.
-const SECTION_TRANSPORT_KINDS: [handicap_engine::ErrorKind; 9] = [
-    handicap_engine::ErrorKind::ConnectRefused,
-    handicap_engine::ErrorKind::ConnectionReset,
-    handicap_engine::ErrorKind::ConnectTimeout,
-    handicap_engine::ErrorKind::Timeout,
-    handicap_engine::ErrorKind::Dns,
-    handicap_engine::ErrorKind::Tls,
-    handicap_engine::ErrorKind::LocalPortExhaustion,
-    handicap_engine::ErrorKind::Other,
-    handicap_engine::ErrorKind::BlankVar,
-];
-const SECTION_FAILURE_KINDS: [&str; 6] = [
-    "read_body",
-    "status_assert",
-    "extract",
-    "unknown_var",
-    "malformed_template",
-    "cast_failed",
-];
-
-fn is_allowed_failure_kind(k: &str) -> bool {
-    SECTION_FAILURE_KINDS.contains(&k) || SECTION_TRANSPORT_KINDS.iter().any(|e| e.as_str() == k)
-}
-
 /// 허용 목록에 있는 키만 JSON 객체 글자로 — 워커가 보낸 다른 글자는 저장하지 않는다.
 fn sanitize_failure_kinds(m: &std::collections::HashMap<String, u64>) -> String {
     let kept: std::collections::BTreeMap<&str, u64> = m
         .iter()
-        .filter(|(k, _)| is_allowed_failure_kind(k))
+        .filter(|(k, _)| handicap_engine::is_section_failure_kind(k))
         .map(|(k, v)| (k.as_str(), *v))
         .collect();
     serde_json::to_string(&kept).unwrap_or_else(|_| "{}".to_string())
@@ -3880,6 +3855,55 @@ mod tests {
         assert!(!steps[0].failure_kinds.contains("secret"));
         assert_eq!(steps[0].status_counts, "{\"200\":1}");
         assert_eq!(steps[0].hdr_histogram, vec![9]);
+    }
+
+    #[tokio::test]
+    async fn ingest_accepts_every_kind_the_engine_can_produce() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let mut engine_kinds: Vec<&str> = handicap_engine::ErrorKind::ALL
+            .iter()
+            .map(|k| k.as_str())
+            .collect();
+        engine_kinds.extend(handicap_engine::SECTION_FIXED_FAILURE_KINDS);
+        let mut sent: Vec<(&str, u64)> = engine_kinds.iter().map(|k| (*k, 1)).collect();
+        sent.push(("not-a-kind", 1));
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            section_step_stats: vec![section_stat("setup", &sent)],
+            ..Default::default()
+        };
+        ingest_metrics(&coord, &batch).await;
+        let steps = crate::store::section::section_steps(&db, &run_id)
+            .await
+            .unwrap();
+        let kinds: std::collections::BTreeMap<String, u64> =
+            serde_json::from_str(&steps[0].failure_kinds).unwrap();
+        let got: std::collections::BTreeSet<&str> = kinds.keys().map(String::as_str).collect();
+        let want: std::collections::BTreeSet<&str> = engine_kinds.iter().copied().collect();
+        assert_eq!(got, want);
+    }
+
+    #[tokio::test]
+    async fn ingest_empty_section_fields_writes_no_section_rows() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            ..Default::default()
+        };
+        ingest_metrics(&coord, &batch).await;
+        for t in ["run_section_step_metrics", "run_section_outcomes"] {
+            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {t}"))
+                .fetch_one(&db)
+                .await
+                .unwrap();
+            assert_eq!(n, 0, "{t}");
+        }
     }
 
     #[tokio::test]

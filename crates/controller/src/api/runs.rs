@@ -1217,18 +1217,18 @@ pub async fn build_reports_for_run(
     };
     let scenario_yaml = row.scenario_yaml.clone();
     // 준비 스텝이 있는 시나리오만 구간 통계 두 표를 읽는다(없으면 조회 0회).
-    let has_setup = handicap_engine::Scenario::from_yaml(&scenario_yaml)
-        .is_ok_and(|sc| !sc.setup_steps().is_empty());
-    let (section_steps, section_outcomes) = if has_setup {
+    let parsed = handicap_engine::Scenario::from_yaml(&scenario_yaml).ok();
+    let setup_steps = parsed.as_ref().map_or(&[][..], |sc| sc.setup_steps());
+    let (section_steps, section_outcomes) = if setup_steps.is_empty() {
+        (Vec::new(), Vec::new())
+    } else {
         (
             crate::store::section::section_steps(db, run_id).await?,
             crate::store::section::section_outcomes(db, run_id).await?,
         )
-    } else {
-        (Vec::new(), Vec::new())
     };
     let setup_report =
-        crate::report::build_setup_report(&scenario_yaml, &section_steps, &section_outcomes);
+        crate::report::build_setup_report(setup_steps, &section_steps, &section_outcomes);
     let build = |scope: Option<&crate::report::SteadyScope<'_>>| {
         crate::report::build_report(
             &row,

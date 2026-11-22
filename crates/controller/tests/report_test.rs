@@ -1267,6 +1267,75 @@ async fn both_bases_carry_setup() {
     );
 }
 
+async fn seed_setup_outcome(db: &handicap_controller::store::Db, id: &str, last_done_ms: i64) {
+    use handicap_controller::store::section::{SectionOutcomeRow, insert_section_outcome_batch};
+    insert_section_outcome_batch(
+        db,
+        &[SectionOutcomeRow {
+            run_id: id.to_string(),
+            worker_id: "w0".into(),
+            section: "setup".into(),
+            ok: 1,
+            failed: 0,
+            interrupted: 0,
+            last_done_ms,
+        }],
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn closed_loop_steady_window_start_waits_for_setup_done() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = SteadySeed::closed();
+    seed.yaml = SETUP_SCENARIO_YAML;
+    let id = seed_steady(&db, seed).await;
+    // 정해진 시작: T0 + (ramp 10 + discard 5)초. 준비가 그보다 늦게 끝난다.
+    seed_setup_outcome(&db, &id, T0 + 25_000).await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let w = first.basis.unwrap().window.unwrap();
+    assert_eq!(w.start_ms, T0 + 25_000);
+}
+
+#[tokio::test]
+async fn open_loop_steady_window_start_ignores_setup_done() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = open_steady_seed();
+    seed.yaml = SETUP_SCENARIO_YAML;
+    let id = seed_steady(&db, seed).await;
+    seed_open_counts(&db, &id).await;
+    seed_setup_outcome(&db, &id, T0 + 25_000).await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let w = first.basis.unwrap().window.unwrap();
+    assert_eq!(w.start_ms, T0 + 15_000);
+}
+
+#[tokio::test]
+async fn unreadable_scenario_yaml_has_no_setup_block() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let mut seed = SteadySeed::closed();
+    seed.yaml = "{{{ not yaml";
+    let id = seed_steady(&db, seed).await;
+    seed_setup_outcome(&db, &id, T0 + 25_000).await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    assert!(first.setup.is_none());
+}
+
+#[tokio::test]
+async fn no_setup_scenario_ignores_stored_section_rows() {
+    use handicap_controller::api::runs::build_reports_for_run;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    seed_setup_outcome(&db, &id, T0 + 25_000).await;
+    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    assert!(first.setup.is_none());
+    assert_eq!(first.basis.unwrap().window.unwrap().start_ms, T0 + 15_000);
+}
+
 #[tokio::test]
 async fn no_setup_run_has_no_setup_block() {
     use handicap_controller::api::runs::build_reports_for_run;

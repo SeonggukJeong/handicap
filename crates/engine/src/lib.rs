@@ -53,7 +53,8 @@ pub use scenario::{
     IfStep, LoopStep, ParallelStep, Request, Scenario, SetupSection, Step,
 };
 pub use section::{
-    Section, SectionOutcome, SectionRun, SectionStats, SectionStepStat, SharedSectionStats,
+    SECTION_FIXED_FAILURE_KINDS, Section, SectionOutcome, SectionRun, SectionStats,
+    SectionStepStat, SharedSectionStats, is_section_failure_kind,
 };
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
 pub use trace::{

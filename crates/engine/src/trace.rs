@@ -588,7 +588,23 @@ async fn trace_section(
     let mut extracted_all = BTreeMap::new();
     for step in steps {
         let Step::Http(http) = step else {
-            continue;
+            state.steps.push(StepTrace {
+                step_id: step.id().to_string(),
+                kind: StepKind::Http,
+                loop_index: None,
+                branch: None,
+                request: None,
+                response: None,
+                extracted: BTreeMap::new(),
+                unbound_vars: Vec::new(),
+                error: Some(format!("setup: step {} must be http", step.id())),
+                branch_eval: Vec::new(),
+                timed_out: false,
+                blocked: None,
+                defaulted: Vec::new(),
+                section: Some(section),
+            });
+            return TraceSectionRun::Failed;
         };
         if state.requests >= opts.max_requests || Instant::now() >= deadline {
             state.truncated = true;
@@ -614,7 +630,7 @@ async fn trace_section(
                 t.error = Some("setup: empty extract".to_string());
             }
         }
-        let failed = t.error.is_some() || !t.unbound_vars.is_empty();
+        let failed = t.error.is_some();
         let extracted = t.extracted;
         state.steps.push(StepTrace {
             step_id: http.id.clone(),

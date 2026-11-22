@@ -19,6 +19,19 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
+    /// 모든 변형. 변형을 더하면 `tests::ordinal`의 exhaustive match가 컴파일되지 않는다.
+    pub const ALL: [ErrorKind; 9] = [
+        ErrorKind::ConnectRefused,
+        ErrorKind::ConnectionReset,
+        ErrorKind::ConnectTimeout,
+        ErrorKind::Timeout,
+        ErrorKind::Dns,
+        ErrorKind::Tls,
+        ErrorKind::LocalPortExhaustion,
+        ErrorKind::Other,
+        ErrorKind::BlankVar,
+    ];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             ErrorKind::ConnectRefused => "connect_refused",
@@ -113,6 +126,29 @@ pub fn classify_send_error(e: &reqwest::Error) -> ErrorKind {
 mod tests {
     use super::*;
     use std::fmt;
+
+    /// 변형마다 서로 다른 번호 — 변형을 더하면 이 match가 컴파일되지 않아 `ALL` 갱신을 강제한다.
+    fn ordinal(k: ErrorKind) -> usize {
+        match k {
+            ErrorKind::ConnectRefused => 0,
+            ErrorKind::ConnectionReset => 1,
+            ErrorKind::ConnectTimeout => 2,
+            ErrorKind::Timeout => 3,
+            ErrorKind::Dns => 4,
+            ErrorKind::Tls => 5,
+            ErrorKind::LocalPortExhaustion => 6,
+            ErrorKind::Other => 7,
+            ErrorKind::BlankVar => 8,
+        }
+    }
+
+    #[test]
+    fn all_lists_every_variant_once() {
+        let mut ords: Vec<usize> = ErrorKind::ALL.iter().map(|k| ordinal(*k)).collect();
+        ords.sort_unstable();
+        assert_eq!(ords, (0..ErrorKind::ALL.len()).collect::<Vec<_>>());
+        assert_eq!(ErrorKind::ALL.len(), 9);
+    }
 
     #[test]
     fn blank_var_wire_name() {
