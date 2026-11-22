@@ -26,6 +26,7 @@ import { AutoStopBadge } from "../components/AutoStopBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { ValidityBadge } from "../components/ValidityBadge";
 import { ReportView } from "../components/report/ReportView";
+import { WholeRunBadge } from "../components/report/WholeRunBadge";
 import type { Profile, RunStatus } from "../api/schemas";
 import { ko } from "../i18n/ko";
 import { markReportViewed } from "../onboarding/state";
@@ -130,6 +131,7 @@ export function RunDetailPage() {
   const totalErrors = metrics.data?.windows.reduce((acc, w) => acc + w.error_count, 0) ?? 0;
   // Curve runs (S-D) store duration_seconds: 0; the real length is the stage sum.
   const durationSeconds = profileDurationSeconds(r.profile);
+  const wholeCards = r.profile.steady != null;
   const rps = durationSeconds > 0 ? Math.round((totalCount / durationSeconds) * 10) / 10 : 0;
 
   function saveAsPreset() {
@@ -311,18 +313,28 @@ export function RunDetailPage() {
         </Callout>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 text-sm">
-        <Card label={ko.runDetail.cardVus}>
-          <RunVuCell profile={r.profile} />
-        </Card>
-        <Card label={ko.runDetail.cardDuration}>{durationSeconds}s</Card>
-        <Card label={ko.runDetail.cardTotalRequests}>{totalCount}</Card>
-        <Card label={ko.runDetail.cardErrors}>{totalErrors}</Card>
-      </div>
+      <div data-testid="run-cards">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 text-sm">
+          <Card label={ko.runDetail.cardVus}>
+            <RunVuCell profile={r.profile} />
+          </Card>
+          <Card label={ko.runDetail.cardDuration} whole={wholeCards}>
+            {durationSeconds}s
+          </Card>
+          <Card label={ko.runDetail.cardTotalRequests} whole={wholeCards}>
+            {totalCount}
+          </Card>
+          <Card label={ko.runDetail.cardErrors} whole={wholeCards}>
+            {totalErrors}
+          </Card>
+        </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-        <Card label={ko.runDetail.cardAvgRps}>{rps}</Card>
-        <Card label={ko.runDetail.cardCreated}>{new Date(r.created_at).toLocaleString()}</Card>
+        <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
+          <Card label={ko.runDetail.cardAvgRps} whole={wholeCards}>
+            {rps}
+          </Card>
+          <Card label={ko.runDetail.cardCreated}>{new Date(r.created_at).toLocaleString()}</Card>
+        </div>
       </div>
 
       {r.status === "failed" && typeof r.message === "string" && r.message.length > 0 && (
@@ -573,11 +585,28 @@ function ProfileLoadLines({
   );
 }
 
-function Card({ label, children }: { label: string; children: React.ReactNode }) {
+const CARD_WHOLE_HELP = {
+  label: ko.runDetail.cardWholeHelpLabel,
+  text: ko.runDetail.cardWholeHelp,
+};
+
+function Card({
+  label,
+  whole,
+  children,
+}: {
+  label: string;
+  /** 상승·버림이 있는 run에서 이 카드가 run 전체 값임을 알리는 표지. */
+  whole?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="border border-slate-200 rounded-md p-3 bg-white">
-      <div className="text-slate-500 text-xs">{label}</div>
-      <div className="text-lg font-semibold">{children}</div>
+    <div data-card className="flex flex-col border border-slate-200 rounded-md p-3 bg-white">
+      <div className="flex flex-wrap items-center gap-x-1 text-slate-500 text-xs">
+        <span>{label}</span>
+        {whole && <WholeRunBadge help={CARD_WHOLE_HELP} />}
+      </div>
+      <div className="mt-auto text-lg font-semibold">{children}</div>
     </div>
   );
 }

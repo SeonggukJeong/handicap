@@ -58,7 +58,7 @@ export const ko = {
     p50: "p50(중앙값) — 전체 요청의 50%가 이 시간 안에 응답했다는 뜻입니다. 낮을수록 좋습니다.",
     p95: "p95 — 전체 요청의 95%가 이 시간 안에 응답했다는 뜻입니다(꼬리 지연). 낮을수록 좋습니다.",
     p99: "p99 — 전체 요청의 99%가 이 시간 안에 응답했다는 뜻입니다(최악에 가까운 지연). 낮을수록 좋습니다.",
-    rampUp: "점진 시작(ramp-up) — 부하를 0에서 목표치까지 서서히 올리는 시간입니다.",
+    rampUp: "상승 시간(ramp-up) — 부하를 0에서 목표치까지 서서히 올리는 시간입니다.",
     closedLoop:
       "사용자 수 기준(closed-loop) — 가상 사용자 N명이 각자 응답을 받은 뒤 다음 요청을 보내는 방식입니다. 일반 시나리오에 적합합니다.",
     openLoop:
@@ -90,7 +90,7 @@ export const ko = {
     jsonCastTokens: "흐름 변수 {{var}}와 환경·시스템 변수 ${VAR} 둘 다 캐스트할 수 있습니다.",
     jsonCastRule:
       "따옴표 안에 캐스트 토큰 하나만 있어야 합니다. :json은 유효한 JSON이어야 하니(객체·배열·숫자·불리언·null·따옴표 친 문자열) 평범한 문자열엔 :str을 쓰세요.",
-    duration: "지속 시간 — 부하를 주는 총 시간(초)입니다. 짧게 시작해 점차 늘려보세요.",
+    duration: "실행 시간 — 부하를 주는 총 시간(초)입니다. 짧게 시작해 점차 늘려보세요.",
     genRefreshIntro:
       "켜면 이 변수를 쓰는 요청이 나갈 때마다 새 값을 뽑습니다. 끄면 반복(시나리오 1회 실행) 동안 같은 값을 씁니다.",
     genRefreshPriority: "같은 이름을 데이터셋이나 추출 값이 채우면 그 값이 우선합니다.",
@@ -145,7 +145,7 @@ export const ko = {
       { text: "명 · " },
       { text: time, bold: true },
     ],
-    summaryRampUp: (sec: number) => (sec > 0 ? `램프업 ${sec}초` : "램프업 없음"),
+    summaryRampUp: (sec: number) => (sec > 0 ? `상승 ${sec}초` : "상승 없음"),
     summaryOpen: (rate: number, total: string, time: string) => [
       { text: "도착률 초당 " },
       { text: String(rate), bold: true },
@@ -293,8 +293,9 @@ export const ko = {
     closedLoop: "사용자 수 기준 (closed-loop)",
     openLoop: "도착률 기준 (open-loop)",
     vus: "동시 사용자(VU)",
-    duration: "테스트 시간(초)",
-    rampUp: "점진 시작(초)",
+    duration: "실행 시간(초)",
+    durationHelpLabel: "실행 시간 설명",
+    rampUp: "상승 시간(초)",
     rampSeconds: "상승 시간(초)",
     discardSeconds: "앞부분 버림(초)",
     discardHelp: "목표 부하에 도달한 직후 몇 초는 불안정합니다. 그 초를 유지 구간 집계에서 뺍니다.",
@@ -372,7 +373,7 @@ export const ko = {
     observedRpsApply: "이 값으로",
   },
   validation: {
-    rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",
+    rampUp: "상승 시간은 실행 시간 이하여야 합니다.",
     targetRps: "도착률(iter/s)은 1 ~ 1,000,000 사이여야 합니다.",
     maxInFlight: "동시 요청 상한은 1 ~ 10,000 사이여야 합니다.",
     workerCount: "워커 수는 1~64 사이 정수여야 합니다.",
@@ -1709,6 +1710,9 @@ export const ko = {
     cardErrors: "에러",
     cardAvgRps: "평균 RPS",
     cardCreated: "생성 시각",
+    cardWholeHelpLabel: "전체 구간 값 설명",
+    cardWholeHelp:
+      "상승·버림 구간까지 포함한 run 전체 값입니다. 유지 구간만 센 값은 아래 리포트에서 볼 수 있습니다.",
     // ── 섹션 제목/aria-label ──
     liveSectionTitle: "라이브 궤적",
     profileLabel: "프로필",

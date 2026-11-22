@@ -116,7 +116,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const { onCreated } = renderDialog();
     await openFixedDetailed(user);
     await setNum(user, num(/도착률/), "40");
-    await setNum(user, screen.getByLabelText(/테스트 시간/), "60");
+    await setNum(user, screen.getByLabelText("실행 시간(초)"), "60");
     await setNum(user, num("상승 시간(초)"), "20");
     await setNum(user, num("앞부분 버림(초)"), "5");
     await user.click(screen.getByRole("button", { name: "실행하기" }));
@@ -137,8 +137,8 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const { onCreated } = renderDialog();
     await toDetailed(user);
     await setNum(user, screen.getByRole("spinbutton", { name: /동시 사용자/ }), "10");
-    await setNum(user, screen.getByLabelText(/테스트 시간/), "60");
-    await setNum(user, screen.getByLabelText(/점진 시작/), "10");
+    await setNum(user, screen.getByLabelText("실행 시간(초)"), "60");
+    await setNum(user, screen.getByLabelText("상승 시간(초)"), "10");
     await user.click(screen.getByRole("button", { name: "실행하기" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
     const p = postedProfile();
@@ -152,7 +152,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const user = userEvent.setup();
     renderDialog();
     await openFixedDetailed(user);
-    await setNum(user, screen.getByLabelText(/테스트 시간/), "12");
+    await setNum(user, screen.getByLabelText("실행 시간(초)"), "12");
     await setNum(user, num("앞부분 버림(초)"), "10");
     expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
   });
@@ -161,7 +161,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
     await toDetailed(user);
-    await setNum(user, screen.getByLabelText(/점진 시작/), "5");
+    await setNum(user, screen.getByLabelText("상승 시간(초)"), "5");
     expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "실행하기" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
@@ -173,7 +173,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
   it("간단 모드에서 VU 상승을 넣고 도착률로 바꿔도 도착률 상승은 0", async () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-    await setNum(user, screen.getByLabelText(/점진 시작/), "10");
+    await setNum(user, screen.getByLabelText("상승 시간(초)"), "10");
     await user.click(screen.getByRole("radio", { name: /도착률/ }));
     await user.click(screen.getByRole("button", { name: "실행하기" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
@@ -187,7 +187,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const user = userEvent.setup();
     renderDialog();
     await toDetailed(user);
-    await setNum(user, screen.getByLabelText(/테스트 시간/), "60");
+    await setNum(user, screen.getByLabelText("실행 시간(초)"), "60");
     await setNum(user, num("앞부분 버림(초)"), "5");
     await user.click(screen.getByRole("radio", { name: "간단" }));
     expect(screen.getByText("유지 60초 · 리포트 기본 기준은 뒤 55초")).toBeInTheDocument();
@@ -198,7 +198,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const user = userEvent.setup();
     renderDialog();
     await openFixedDetailed(user);
-    await setNum(user, screen.getByLabelText(/테스트 시간/), "60");
+    await setNum(user, screen.getByLabelText("실행 시간(초)"), "60");
     await setNum(user, num("상승 시간(초)"), "100");
     await user.click(screen.getByRole("radio", { name: "간단" }));
     expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
@@ -212,7 +212,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: /도착률/ })).toBeChecked();
     expect(num(/도착률/)).toHaveValue(40);
-    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
+    expect(screen.getByLabelText("실행 시간(초)")).toHaveValue(60);
     expect(num("상승 시간(초)")).toHaveValue(20);
     expect(num("앞부분 버림(초)")).toHaveValue(5);
   });
@@ -275,7 +275,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     await waitFor(() => expect(num("상승 시간(초)")).toHaveValue(20));
     expect(screen.getByRole("radio", { name: /도착률/ })).toBeChecked();
     expect(num(/도착률/)).toHaveValue(40);
-    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
+    expect(screen.getByLabelText("실행 시간(초)")).toHaveValue(60);
     expect(num("앞부분 버림(초)")).toHaveValue(5);
   });
 
@@ -283,7 +283,7 @@ describe("RunDialog — steady 칸 (상승·버림)", () => {
     const user = userEvent.setup();
     renderDialog();
     await openFixedDetailed(user);
-    await setNum(user, screen.getByLabelText(/테스트 시간/), "60");
+    await setNum(user, screen.getByLabelText("실행 시간(초)"), "60");
     for (const v of ["2.5", "-3"]) {
       fireEvent.change(num("앞부분 버림(초)"), { target: { value: v } });
       expect(num("앞부분 버림(초)")).toHaveValue(Number(v));

@@ -294,7 +294,7 @@ describe("RunDialog — env & ramp_up", () => {
     const { onCreated } = renderDialog();
     await toDetailed(user); // 환경 편집기는 상세 모드에서만 노출
 
-    const rampInput = screen.getByLabelText(/점진 시작/);
+    const rampInput = screen.getByLabelText("상승 시간(초)");
     await user.clear(rampInput);
     await user.type(rampInput, "2");
 
@@ -351,17 +351,17 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    const duration = screen.getByLabelText(/테스트 시간/);
+    const duration = screen.getByLabelText("실행 시간(초)");
     await user.clear(duration);
     await user.type(duration, "5");
 
-    const ramp = screen.getByLabelText(/점진 시작/);
+    const ramp = screen.getByLabelText("상승 시간(초)");
     await user.clear(ramp);
     await user.type(ramp, "6");
 
     const runBtn = screen.getByRole("button", { name: "실행하기" });
     expect(runBtn).toBeDisabled();
-    expect(screen.getByText(/점진 시작은 테스트 시간 이하여야 합니다/)).toBeInTheDocument();
+    expect(screen.getByText("상승 시간은 실행 시간 이하여야 합니다.")).toBeInTheDocument();
   });
 
   it("posts loop_breakdown_cap (default 256) on Run", async () => {
@@ -529,8 +529,8 @@ describe("RunDialog — initial prefill (A1)", () => {
   it("seeds vus / duration / ramp-up / loop cap from initial.profile", () => {
     renderWithInitial(initial);
     expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(7);
-    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(9);
-    expect(screen.getByLabelText(/점진 시작/)).toHaveValue(3);
+    expect(screen.getByLabelText("실행 시간(초)")).toHaveValue(9);
+    expect(screen.getByLabelText("상승 시간(초)")).toHaveValue(3);
     expect(screen.getByLabelText(/루프 집계 상한/)).toHaveValue(128);
     expect(screen.getByLabelText(/HTTP 타임아웃/)).toHaveValue(120);
   });
@@ -820,8 +820,8 @@ describe("RunDialog — load preset (A2)", () => {
     await waitFor(() =>
       expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(50),
     );
-    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
-    expect(screen.getByLabelText(/점진 시작/)).toHaveValue(5);
+    expect(screen.getByLabelText("실행 시간(초)")).toHaveValue(60);
+    expect(screen.getByLabelText("상승 시간(초)")).toHaveValue(5);
     expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
     expect(screen.getByLabelText("환경 변수 값 0")).toHaveValue("http://heavy");
   });
@@ -1387,7 +1387,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     expect(screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ })).toBeChecked();
     expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toBeInTheDocument();
-    expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
+    expect(screen.getByLabelText("상승 시간(초)")).toBeInTheDocument();
   });
 
   it("hides vus and ramp-up in open-loop mode and shows duration", async () => {
@@ -1395,8 +1395,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /도착률/ }));
     expect(screen.queryByRole("spinbutton", { name: /동시 사용자/ })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/테스트 시간/)).toBeInTheDocument();
+    expect(screen.getByLabelText("실행 시간(초)")).toBeInTheDocument();
   });
 
   it("curve mode: submits stages payload with duration_seconds 0 and no target_rps", async () => {
@@ -1561,7 +1560,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
 
     await user.click(screen.getByRole("radio", { name: /도착률/ }));
 
-    const durationInput = screen.getByLabelText(/테스트 시간/);
+    const durationInput = screen.getByLabelText("실행 시간(초)");
     await user.clear(durationInput);
     await user.type(durationInput, "10");
 
@@ -1730,7 +1729,7 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     const user = userEvent.setup();
     renderDialog(false);
     await toDetailed(user);
-    const rampInput = screen.getByLabelText(/점진 시작/);
+    const rampInput = screen.getByLabelText("상승 시간(초)");
     await user.clear(rampInput);
     await user.type(rampInput, "3");
 
@@ -2725,8 +2724,8 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
 
     // open+fixed 전환 후 설정
     await user.click(screen.getByRole("radio", { name: /도착률/ }));
-    await user.clear(screen.getByLabelText(/테스트 시간/));
-    await user.type(screen.getByLabelText(/테스트 시간/), "5");
+    await user.clear(screen.getByLabelText("실행 시간(초)"));
+    await user.type(screen.getByLabelText("실행 시간(초)"), "5");
     const targetRps = screen.getByRole("spinbutton", { name: /도착률/i });
     await user.clear(targetRps);
     await user.type(targetRps, "100");
@@ -2817,8 +2816,8 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
     renderDialog();
 
     await user.click(screen.getByRole("radio", { name: /도착률/ }));
-    await user.clear(screen.getByLabelText(/테스트 시간/));
-    await user.type(screen.getByLabelText(/테스트 시간/), "5");
+    await user.clear(screen.getByLabelText("실행 시간(초)"));
+    await user.type(screen.getByLabelText("실행 시간(초)"), "5");
     const targetRps = screen.getByRole("spinbutton", { name: /도착률/i });
     await user.clear(targetRps);
     await user.type(targetRps, "100");

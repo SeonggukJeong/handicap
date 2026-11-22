@@ -133,7 +133,7 @@ describe("LoadModelFields", () => {
   it("closed 모드: 동시 사용자/점진 시작 입력, 목표 도착률·동시 요청 상한 입력 없음", () => {
     setup({ loadModel: "closed" });
     expect(screen.getByLabelText(/동시 사용자/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
+    expect(screen.getByLabelText("상승 시간(초)")).toBeInTheDocument();
     expect(screen.queryByLabelText(/도착률\(iter\/s\)/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
   });
@@ -209,8 +209,8 @@ describe("LoadModelFields", () => {
     // 비노출 확인
     expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /빠른 입력/ })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/테스트 시간/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("상승 시간(초)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("실행 시간(초)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
   });
 
@@ -419,14 +419,14 @@ describe("LoadModelFields", () => {
   );
 
   // ── B4: duration HelpTip (신규) ───────────────────────────────────────────────
-  it("closed+fixed: duration HelpTip 존재 (지속 시간 설명 버튼)", () => {
+  it("closed+fixed: duration HelpTip 존재 (실행 시간 설명 버튼)", () => {
     renderFields({ loadModel: "closed", rateMode: "fixed" });
-    expect(screen.getByRole("button", { name: "지속 시간 설명" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행 시간 설명" })).toBeInTheDocument();
   });
 
-  it("open+fixed: duration HelpTip 존재 (지속 시간 설명 버튼)", () => {
+  it("open+fixed: duration HelpTip 존재 (실행 시간 설명 버튼)", () => {
     renderFields({ loadModel: "open", rateMode: "fixed" });
-    expect(screen.getByRole("button", { name: "지속 시간 설명" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행 시간 설명" })).toBeInTheDocument();
   });
 
   // ── B4: '추천' Badge는 더 이상 렌더하지 않는다 (prop 제거됨) ──────────────────────
@@ -875,7 +875,7 @@ describe("LoadModelFields — 계단", () => {
 
     it("VU 고정: 간단 모드에 상승 칸은 있고 버림 칸은 없다", () => {
       setup({ loadModel: "closed", rateMode: "fixed", simpleMode: true });
-      expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
+      expect(screen.getByLabelText("상승 시간(초)")).toBeInTheDocument();
       expect(screen.queryByRole("spinbutton", { name: "앞부분 버림(초)" })).toBeNull();
     });
 
@@ -1025,7 +1025,7 @@ describe("LoadModelFields — 계단", () => {
       }
     });
 
-    it("VU 고정: 점진 시작 오류와 steady 오류가 둘 다 있으면 두 id를 공백으로 잇는다", () => {
+    it("VU 고정: 상승이 실행 시간보다 길면 빨간 줄은 하나 — steady 줄을 겹쳐 띄우지 않는다", () => {
       setup({
         loadModel: "closed",
         rateMode: "fixed",
@@ -1034,10 +1034,38 @@ describe("LoadModelFields — 계단", () => {
         discard: 3,
         errs: { ...noErrs, rampInvalid: true, steadyInvalid: true },
       });
-      const lineId = screen.getByRole("alert").id;
-      expect(
-        screen.getByRole("spinbutton", { name: /점진 시작/ }).getAttribute("aria-describedby"),
-      ).toBe(`ramp-up-error ${lineId}`);
+      expect(screen.getByText("상승 시간은 실행 시간 이하여야 합니다.")).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByText(/상승이 실행 시간과 같거나 깁니다/)).toBeNull();
+      const ramp = screen.getByRole("spinbutton", { name: "상승 시간(초)" });
+      expect(ramp.getAttribute("aria-describedby")).toBe("ramp-up-error");
+      expect(ramp).toHaveAttribute("aria-invalid", "true");
+    });
+
+    it("VU 고정: 상승이 실행 시간보다 길고 버림 0이면 「전체 구간 기준」 안내도 띄우지 않는다", () => {
+      setup({
+        loadModel: "closed",
+        rateMode: "fixed",
+        duration: 12,
+        rampUp: 20,
+        discard: 0,
+        errs: { ...noErrs, rampInvalid: true },
+      });
+      expect(screen.getByText("상승 시간은 실행 시간 이하여야 합니다.")).toBeInTheDocument();
+      expect(screen.queryByText(/전체 구간 기준/)).toBeNull();
+    });
+
+    it("VU 고정: 상승이 실행 시간과 같으면 steady 줄 하나만 뜬다", () => {
+      setup({
+        loadModel: "closed",
+        rateMode: "fixed",
+        duration: 20,
+        rampUp: 20,
+        discard: 3,
+        errs: { ...noErrs, steadyInvalid: true },
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("상승이 실행 시간과 같거나 깁니다");
+      expect(screen.queryByText("상승 시간은 실행 시간 이하여야 합니다.")).toBeNull();
     });
 
     it("오류가 없으면 칸에 steady 줄 연결이 없다", () => {

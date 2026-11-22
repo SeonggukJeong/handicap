@@ -28,7 +28,7 @@ it("closed+fixed: main 세그먼트에 굵은 vus·time, sub=램프업", () => {
   expect(r.tone).toBe("ok");
   expect(r.main.map((s) => s.text).join("")).toBe("동시 사용자 100명 · 5분");
   expect(r.main.filter((s) => s.bold).map((s) => s.text)).toEqual(["100", "5분"]);
-  expect(r.sub).toBe("램프업 없음");
+  expect(r.sub).toBe("상승 없음");
 });
 
 it("open+fixed: 굵은 rate·total·time, sub=동시 요청 상한", () => {

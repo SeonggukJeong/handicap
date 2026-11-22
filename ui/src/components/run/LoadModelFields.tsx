@@ -170,7 +170,10 @@ export function LoadModelFields({
   // 고정 모드의 상승·버림이 서버 steady로 어떻게 나가는지 한 줄로 알린다(간단 모드에서도 그린다).
   const plan = steadyPlan({ loadModel, rateMode, duration, rampUp, rampOpen, discard, targetRps });
   const modeRamp = loadModel === "open" ? rampOpen : rampUp;
-  const errReason = errs.steadyInvalid && plan.kind === "error" ? plan.reason : null;
+  // VU 고정에서 상승이 실행 시간보다 길면 칸 바로 아래 줄(ko.validation.rampUp)이 같은 원인을 말한다.
+  const rampOverDuration = loadModel === "closed" && rateMode === "fixed" && errs.rampInvalid;
+  const errReason =
+    errs.steadyInvalid && plan.kind === "error" && !rampOverDuration ? plan.reason : null;
   const rampFlag =
     errReason === "not_whole_seconds"
       ? !isWholeSeconds(modeRamp)
@@ -193,7 +196,7 @@ export function LoadModelFields({
           )}
         </p>
       )}
-      {plan.kind === "fallback" && (
+      {plan.kind === "fallback" && !rampOverDuration && (
         <p id={ids.steadyLine} role="status" className="mb-3 text-sm text-amber-800">
           {ko.loadModel.steadyFallback} — {ko.loadModel.steadyReason[plan.reason]}
         </p>
@@ -707,7 +710,9 @@ export function LoadModelFields({
               <Field
                 label={ko.loadModel.duration}
                 htmlFor={ids.durationClosed}
-                help={<HelpTip label="지속 시간 설명">{ko.glossary.duration}</HelpTip>}
+                help={
+                  <HelpTip label={ko.loadModel.durationHelpLabel}>{ko.glossary.duration}</HelpTip>
+                }
               >
                 <Input
                   id={ids.durationClosed}
@@ -722,7 +727,7 @@ export function LoadModelFields({
                 label={ko.loadModel.rampUp}
                 htmlFor={ids.rampUp}
                 help={
-                  <HelpTip label="ramp-up 설명">
+                  <HelpTip label={ko.loadModel.rampHelpLabel}>
                     {ko.glossary.rampUp}
                     <span className="block">{ko.loadModel.rampHelpVuMax}</span>
                   </HelpTip>
@@ -941,7 +946,9 @@ export function LoadModelFields({
                 <Field
                   label={ko.loadModel.duration}
                   htmlFor={ids.durationOpen}
-                  help={<HelpTip label="지속 시간 설명">{ko.glossary.duration}</HelpTip>}
+                  help={
+                    <HelpTip label={ko.loadModel.durationHelpLabel}>{ko.glossary.duration}</HelpTip>
+                  }
                 >
                   <Input
                     id={ids.durationOpen}

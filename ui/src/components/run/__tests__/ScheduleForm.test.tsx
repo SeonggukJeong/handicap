@@ -529,7 +529,7 @@ describe("ScheduleForm — steady (상승·버림)", () => {
     );
     expect(screen.getByRole("radio", { name: /도착률/ })).toBeChecked();
     expect(screen.getByRole("spinbutton", { name: /도착률/ })).toHaveValue(40);
-    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
+    expect(screen.getByLabelText("실행 시간(초)")).toHaveValue(60);
     expect(screen.getByRole("spinbutton", { name: "상승 시간(초)" })).toHaveValue(20);
     expect(screen.getByRole("spinbutton", { name: "앞부분 버림(초)" })).toHaveValue(5);
     await user.click(screen.getByRole("button", { name: /저장/ }));

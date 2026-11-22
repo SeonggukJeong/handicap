@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -55,6 +55,8 @@ function reportFor(selected: "steady" | "whole") {
   };
 }
 
+let runProfile: Record<string, unknown> = PROFILE;
+
 const fetchMock = vi.fn();
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -86,6 +88,7 @@ const reportCalls = () =>
   fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/api/runs/R/report"));
 
 beforeEach(() => {
+  runProfile = PROFILE;
   window.localStorage.clear();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
@@ -97,7 +100,7 @@ beforeEach(() => {
           scenario_id: "S",
           scenario_yaml: YAML,
           status: "completed",
-          profile: PROFILE,
+          profile: runProfile,
           env: {},
           started_at: 100,
           ended_at: 400,
@@ -127,6 +130,29 @@ beforeEach(() => {
       );
     }
     return Promise.resolve(jsonResponse({}, 404));
+  });
+});
+
+describe("RunDetailPage — 위쪽 카드의 「전체 구간」 표지", () => {
+  const badged = ["테스트 시간", "총 요청 수", "에러", "평균 RPS"];
+
+  it("상승·버림이 있는 run은 run 전체 값 카드 넷에 표지가 붙는다", async () => {
+    renderAt("/runs/R");
+    const cards = await screen.findByTestId("run-cards");
+    for (const label of badged) {
+      const card = within(cards).getByText(label).closest("[data-card]") as HTMLElement;
+      expect(within(card).getByText("전체 구간")).toBeInTheDocument();
+      expect(within(card).getByRole("button", { name: "전체 구간 값 설명" })).toBeInTheDocument();
+    }
+    expect(within(cards).getAllByText("전체 구간")).toHaveLength(4);
+  });
+
+  it("상승·버림이 없는 run은 표지가 없다", async () => {
+    runProfile = { vus: 0, ramp_up_seconds: 0, duration_seconds: 300, target_rps: 80 };
+    renderAt("/runs/R");
+    const cards = await screen.findByTestId("run-cards");
+    expect(within(cards).getByText("총 요청 수")).toBeInTheDocument();
+    expect(within(cards).queryByText("전체 구간")).toBeNull();
   });
 });
 
