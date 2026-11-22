@@ -69,6 +69,20 @@
 
 ㉠의 비용: proto 필드·저장 표·마이그레이션이 는다. 준비 스텝의 1초 단위 시계열은 없다(스텝별 run 전체 합계만). ㉠으로도 **준비에 걸린 시간**은 다른 길로 본 숫자에 닿는다 — §4 D7이 길마다 처리를 정한다.
 
+### 2-1. 최소 버전과 뒤에 올 것 (사용자 요청 2026-11-22: 확장 가능성 고려)
+
+이 슬라이스는 최소 버전이다. 뒤에 올 것을 지금 만들지는 않되, 나중에 **형식을 깨지 않고** 더할 수 있게 다음을 지금 정한다.
+
+| 뒤에 올 것 | 지금 정해 두는 것 |
+|---|---|
+| 주기 재실행(N분마다) · 401 시 재실행 같은 구간 설정 | `setup`을 객체로 둔다 → `setup: { steps, every: 25m }`처럼 키만 더한다. 성공·실패 수를 「실행 횟수」로 정의한다 |
+| teardown(끝날 때 한 번) | 최상위에 `teardown: { steps }`를 같은 꼴로 더할 수 있다. 통계 메시지·저장 표·trace 표지에 구간 이름(`section`)을 둔다 → 새 표·새 proto 메시지 없이 받는다. 구간 실행 함수가 구간 이름을 받는다 |
+| run당 한 번(모든 VU가 토큰 하나를 공유) | `setup` 객체에 `scope` 키를 더할 수 있다(지금은 없음 = VU마다) |
+| 준비 구간의 loop·if | 엔진 타입은 `Vec<Step>`이고 거절은 읽기 단계 한 곳 → 형식은 그 한 곳만 풀면 된다. 구간 실행 함수와 구간 통계는 그때 넓혀야 한다 |
+| 모든 VU 준비 후 동시 출발 | 워커가 「마지막 준비 완료 시각」을 이미 보낸다(D8) |
+
+지금 만들지 않는 것은 위 표의 왼쪽 칸 전부다. 오른쪽 칸은 형식(YAML·proto·표)에 한정한다 — 쓰이지 않는 실행 코드는 넣지 않는다.
+
 ## 3. 시나리오 모델
 
 ### D1. `setup:` 키
@@ -77,12 +91,13 @@
 version: 1
 name: 주문 조회
 setup:                       # 선택. VU당 1회
-  - id: 01J...
-    name: 로그인
-    type: http
-    request: { method: POST, url: "${BASE_URL}/login", body: { json: { id: "{{user}}", pw: "{{password}}" } } }
-    assert: [ { status: 200 } ]
-    extract: [ { var: token, from: body, path: "$.token" } ]
+  steps:
+    - id: 01J...
+      name: 로그인
+      type: http
+      request: { method: POST, url: "${BASE_URL}/login", body: { json: { id: "{{user}}", pw: "{{password}}" } } }
+      assert: [ { status: 200 } ]
+      extract: [ { var: token, from: body, path: "$.token" } ]
 steps:                       # 반복 — 측정 대상
   - id: 01J...
     name: 주문 조회
@@ -90,13 +105,16 @@ steps:                       # 반복 — 측정 대상
     request: { method: GET, url: "${BASE_URL}/orders", headers: { Authorization: "Bearer {{token}}" } }
 ```
 
-- 엔진 `Scenario`에 `setup: Vec<Step>` 필드를 더한다. `#[serde(default, skip_serializing_if = "Vec::is_empty")]` — 비어 있으면 YAML에 키가 없고, 기존 시나리오의 `to_yaml` 출력은 글자 그대로다.
+- `setup`은 목록이 아니라 **객체**이고 스텝은 그 안의 `steps`에 둔다. 나중에 구간 설정(주기 재실행 간격 등)을 같은 객체에 키로 더할 수 있게 하기 위해서다(§2-1). 지금 허용하는 키는 `steps` 하나이고 모르는 키는 거절한다.
+- 엔진 `Scenario`에 `setup: Option<SetupSection>` 필드(`SetupSection { steps: Vec<Step> }`, `deny_unknown_fields`)를 더한다. `#[serde(default, skip_serializing_if = "Option::is_none")]` — 없으면 YAML에 키가 없고, 기존 시나리오의 `to_yaml` 출력은 글자 그대로다. `steps`가 빈 `setup`은 「준비 없음」과 같게 다룬다.
 - **준비 구간에는 http 스텝만 둔다.** 이유: 로그인은 http 한두 개다. 제어 흐름을 허용하면 조건 반복·분기 통계까지 준비용으로 따로 날라야 한다(§11).
-  - UI Zod: `setup: z.array(HttpStepModel).default([])` — http 아닌 스텝은 Zod가 문서 오류로 거절한다.
-  - 엔진: `Scenario`의 `setup` 필드를 읽을 때(`deserialize_with`) http 아닌 스텝이 있으면 역직렬화 오류를 낸다. `Scenario::from_yaml`을 부르는 모든 곳이 같은 방식으로 실패한다 — 시나리오 생성·수정은 기존 경로로 **400**, test-run은 기존 경로로 **422**, 보드 파일 가져오기·워커도 기존 파싱 실패 경로. 따로 검증 함수를 두지 않는다.
+  - UI Zod: `setup: z.object({ steps: z.array(HttpStepModel) }).strict().optional()` — http 아닌 스텝은 Zod가 문서 오류로 거절한다.
+  - 엔진: `SetupSection.steps`를 읽을 때(`deserialize_with`) http 아닌 스텝이 있으면 역직렬화 오류를 낸다. `Scenario::from_yaml`을 부르는 모든 곳이 같은 방식으로 실패한다 — 시나리오 생성·수정은 기존 경로로 **400**, test-run은 기존 경로로 **422**, 보드 파일 가져오기·워커도 기존 파싱 실패 경로. 따로 검증 함수를 두지 않는다.
 - **준비 스텝의 추출 기본값(`default:`)은 쓰지 않는다.** 준비 스텝에서 못 뽑으면 기본값이 있어도 실패다(D6). 「기본 토큰으로 본 스텝을 보내지 않는다」를 지키기 위해서다. UI는 준비 스텝의 Inspector에서 기본값 칸에 「준비 스텝에서는 쓰이지 않습니다」를 표시한다(A2).
 - 스텝 id는 `setup`과 `steps`를 통틀어 겹치면 안 된다. UI 검증(`collectProblems`)에 id 겹침을 더한다(A1). 서버에는 지금 스텝 id 유일성 검사가 없고, 이 슬라이스에서 새로 만들지 않는다.
-- UI에서 최상위 키를 더할 때의 세 곳(`ui/src/scenario/CLAUDE.md`): Zod `ScenarioModel`, `yamlDoc.ts`의 `normalizeForModel` 허용 목록, 그리고 문서 쓰기 경로. 쓰기 규칙 — 준비 스텝이 처음 생길 때만 YAML 문서에 `setup:` 키를 만들고, 마지막 준비 스텝이 지워지면 키를 지운다(빈 `setup: []`를 남기지 않는다).
+- UI에서 최상위 키를 더할 때의 세 곳(`ui/src/scenario/CLAUDE.md`): Zod `ScenarioModel`, `yamlDoc.ts`의 `normalizeForModel` 허용 목록, 그리고 문서 쓰기 경로. 쓰기 규칙 — 준비 스텝이 처음 생길 때만 YAML 문서에 `setup:` 키를 만들고, 마지막 준비 스텝이 지워지면 `setup:` 키를 통째로 지운다(빈 `setup`을 남기지 않는다). 준비 스텝의 YAML 경로는 `["setup", "steps", i]`다.
+- `setup:`만 쓰고 값이 없는 YAML(`null`)은 「준비 없음」으로 읽는다 — 엔진은 `None`, UI는 `normalizeForModel`이 없는 것으로 바꾼다. `steps` 키가 없는 `setup: {}`는 엔진과 UI 둘 다 거절한다(어느 쪽도 `steps`에 기본값을 두지 않는다).
+- 「준비가 있는가」는 어디서나 `setup_steps()`가 비었는지로 판단한다(`setup` 키의 유무가 아니다) — 엔진 진입점, 리포트의 `setup` 블록 유무, 화면 구획.
 - `cookie_jar: off`이면 쿠키는 이어지지 않는다(지금 반복 사이의 규칙과 같다).
 
 ### D2. `scenario.steps`를 훑는 코드의 분류
@@ -104,19 +122,19 @@ steps:                       # 반복 — 측정 대상
 - **모든 스텝이 대상**: 검증(think time·분기 이름), 변수 탐색, 스텝 이름 붙이기, think 제거(`maybe_strip_think`), 요청 단위 생성기 계획(`RequestGenPlan::build`), 실행 전 신뢰도 점검, 모니터의 스텝 훑기(`collect_http_steps`·`step_judge`·`unit.rs`), **모니터의 인증 변수 가림(`step_judge.rs`의 인증 출처 훑기)**, TUI 이름 훑기(`names.rs`).
 - **반복 본문만 대상**: 반복 시간 추정·사이징, SLO 스텝 기준의 대상 스텝, 「요청 없는 스텝」 인사이트, 유효성의 스텝 점검.
 
-엔진 `Scenario`에 `all_steps()`(setup → steps 순서)를 두고, UI `model.ts`에도 같은 뜻의 헬퍼를 둔다. 분류표는 plan이 §12의 전수 명령으로 만든다.
+엔진 `Scenario`에 `setup_steps()`(없으면 빈 조각)와 `all_steps()`(setup → steps 순서)를 두고, UI `model.ts`에도 같은 뜻의 헬퍼를 둔다. 분류표는 plan이 §12의 전수 명령으로 만든다.
 
 인증 변수 가림을 「모든 스텝」에 넣는 이유: 준비 구간이 로그인 추출의 표준 자리가 되므로, 훑기에서 빠지면 모니터 사유 글에 인증 값이 드러난다. 본문에서 뽑은 토큰(`$.token`)이 가림 대상이 아닌 것은 이 기능 전부터의 공백이다 — 이 슬라이스는 그 공백을 넓히지도 좁히지도 않으며, roadmap에 적는다(§11).
 
 ## 4. 엔진 동작
 
-### D3. 실행 시점 — VU가 처음 일을 시작할 때 한 번
+### D3. 실행 시점 — VU의 첫 반복 머리에서 한 번
 
 | 진입점 | 준비 실행 시점 | 준비 상태를 두는 곳 |
 |---|---|---|
-| `run_vu`(VU 고정·상승 시간) | VU 태스크가 뜬 직후, 첫 반복 전 | 태스크 지역 변수 |
-| `run_vu_curve`(VU 곡선) | 슬롯을 등록한 뒤 첫 활성화 때. park 뒤 재개 때는 다시 하지 않는다 | 태스크 지역 변수(park을 넘어 유지) |
-| `run_arrival`(open-loop) | 그 슬롯이 처음 쓰일 때 | 슬롯마다 `Mutex<SlotSetup>`(대기 없음 — 빈 슬롯 큐가 한 번에 한 도착에만 슬롯을 준다) |
+| `run_vu`(VU 고정·상승 시간) | 첫 반복의 변수를 만든 직후, 첫 본 스텝 전 | 태스크 지역 변수 |
+| `run_vu_curve`(VU 곡선) | 슬롯을 등록한 뒤 첫 활성화의 첫 반복 머리. park 뒤 재개 때는 다시 하지 않는다 | 태스크 지역 변수(park을 넘어 유지) |
+| `run_arrival`(open-loop) | 그 슬롯을 처음 받은 도착의 머리 | 슬롯마다 `Mutex<SlotSetup>`(대기 없음 — 빈 슬롯 큐가 한 번에 한 도착에만 슬롯을 준다) |
 
 - 준비는 run의 실행 시간 안에서 돌고 deadline·중단을 그대로 따른다. 준비 중 run의 deadline이나 중단이 오면 그 VU는 반복 없이 끝나고 「준비 중 종료」(`interrupted`)로 한 번 센다(준비 성공으로도 실패로도 세지 않는다).
 - VU 곡선에서 준비 도중 은퇴 취소(즉시 ramp-down·graceful 상한)가 오면 준비는 「안 됨」으로 남고, 다음 활성화 때 처음부터 다시 한다. 이것은 `interrupted`로 세지 않는다(그 VU는 아직 끝나지 않았다). 준비가 실패하면 그 VU는 `clear_slot` 뒤 끝난다(지금의 영구 종료 경로와 같다).
@@ -124,15 +142,18 @@ steps:                       # 반복 — 측정 대상
 - 준비 스텝의 스텝별 think time과 시나리오 기본 think time은 본 스텝과 같은 규칙으로 적용된다. `maybe_strip_think`는 준비 스텝도 뗀다.
 - 준비 스텝이 비어 있으면 세 진입점 모두 지금 코드 경로 그대로다.
 
-### D4. 준비 스텝이 보는 변수
+### D4. 준비 스텝이 보는 변수 — 그 VU의 첫 반복과 같다
 
-준비 실행의 변수 = 시나리오 `variables`(생성기는 그때 한 번 평가) + **`per_vu` 정책 데이터셋 바인딩의 그 VU 행**.
+준비는 **첫 반복의 머리에서, 첫 반복의 변수 그대로** 실행한다. 첫 반복의 변수 = 시나리오 `variables` + 그 반복이 받은 데이터셋 행(모든 바인딩, 정책 무관).
 
-- `iter_sequential`·`unique`는 공유 카운터를 전진시키고 `iter_random`은 반복 번호로 행을 고른다. 준비가 이들의 행을 쓰면 본 반복의 행 배정이 바뀌거나(카운터), 준비와 첫 반복이 같은 행을 쓴다. 그래서 준비에는 주지 않는다.
-- 준비 스텝이 그런 열을 참조하면 `UnknownVar`로 준비 실패가 된다(D6). 실패 사유에 변수 이름이 실린다. run 생성 창의 사전 경고는 A2(D14).
-- open-loop의 `per_vu`는 슬롯 번호로 행을 고른다(지금 `select_index(vu_id=슬롯, …)`와 같다).
-- `${vu_id}`는 그 VU(슬롯) 번호, `${iter_id}`는 0.
-- 요청 단위 재평가 변수(`refresh: request`): 생성기 계획이 준비 스텝도 포함하고(D2), 준비 실행은 자기 `ReqGen` 하나로 스텝마다 `refresh`를 부른다(반복 한 번과 같은 규칙).
+- 규칙이 하나다: 「준비 스텝은 그 VU의 첫 반복이 쓰는 값을 본다.」 데이터셋 정책에 따라 보이는 열이 달라지지 않고, 정책 때문에 준비가 실패하는 일이 없다.
+- 행은 반복마다 하던 선택을 그대로 한 번 한다. 준비를 위해 행을 따로 고르지 않으므로 `iter_sequential`·`unique`의 공유 카운터는 준비가 없을 때와 똑같이 전진한다. 첫 반복의 본 스텝은 준비가 쓴 것과 같은 행을 쓴다.
+- test-run도 같은 규칙이다(준비 = 첫 행, D11). test-run과 실제 run이 다르게 동작하는 경우가 없다.
+- `unique` 바인딩이 첫 선택에서 이미 소진됐으면 그 VU는 지금처럼 조용히 끝나고 준비도 실행하지 않는다. open-loop에서 준비 안 된 슬롯의 도착이 이 경우에 걸리면, 끝내기 전에 `Launched`를 기록한다(지금 그 도착이 「시작」으로 세어지는 것과 같게).
+- VU 곡선에서 준비 도중 은퇴 취소로 준비를 다시 하게 되면(D3) 다음 활성화의 첫 반복이 새로 받은 행으로 한다. 앞서 받은 행 하나는 버려진다(지금 deadline에 잘린 반복이 행을 버리는 것과 같은 크기).
+- `${vu_id}`·`${iter_id}`는 첫 반복의 값이다(VU 부하는 `iter_id` 0, open-loop는 그 도착의 번호).
+- 요청 단위 재평가 변수(`refresh: request`): 생성기 계획이 준비 스텝도 포함하고(D2), 준비는 첫 반복의 `ReqGen`으로 스텝마다 `refresh`를 부른다.
+- 계정처럼 VU마다 고정이어야 하는 값은 'VU별 고정'(`per_vu`) 바인딩이 맞다. 다른 정책이면 준비는 첫 행의 계정으로 로그인하고 뒤 반복은 다른 행의 값을 쓴다 — 실패는 아니지만 뜻한 바가 아닐 수 있어 run 생성 창이 알린다(D14).
 
 ### D5. 이어받기
 
@@ -142,6 +163,7 @@ steps:                       # 반복 — 측정 대상
   2. 준비 추출 변수를 덮는다. 그 반복의 `ReqGen`에 `mark_written`으로 「받은 값」 표시를 한다(같은 이름의 요청 단위 생성기가 덮지 않게).
   3. 데이터셋 바인딩(선언 순서)
   4. 반복 중 추출
+- **첫 반복**도 같은 순서다. 준비는 「1 + 3」으로 만든 변수의 사본 위에서 돌고, 끝나면 첫 반복의 변수를 「1 → 2 → 3」으로 다시 짠다 — 이때 **이미 만든 1의 결과와 이미 고른 3의 행을 다시 쓴다**(`seed_iter_vars`를 다시 부르지 않고 행을 다시 고르지 않는다). 생성기 값은 준비와 첫 반복이 같고, 공유 카운터는 한 번만 전진하고, 준비 추출과 데이터셋 열의 이름이 겹치면 다른 반복과 똑같이 데이터셋이 이긴다.
 - 반복 중에 같은 이름을 다시 추출하면 그 반복에서만 덮인다. 다음 반복은 준비 때 값으로 돌아간다.
 - 비움 표(`BlankTable`)는 지금처럼 반복마다 새로 만든다. 준비 추출 변수는 실제로 뽑은 값이라 표에 오르지 않는다. 준비 실행은 비움 표를 쓰지 않는다(엄격 추출 + 첫 실패에서 멈춤이라 비워진 값이 생기지 않는다).
 - 보관 비용: VU당 맵 하나, 반복마다 준비 추출 개수만큼 복제. 준비가 없으면 빈 맵 검사 한 번.
@@ -174,7 +196,7 @@ steps:                       # 반복 — 측정 대상
 
 ### D7. 준비가 본 숫자에 닿는 길과 처리
 
-**요청 통계**: 준비 실행은 본 `Aggregator`를 건드리지 않는다. 준비 전용 통계에 기록한다 — 스텝별 요청 수·오류 수·상태 코드별 수·지연 HDR·실패 종류별 수, 준비 성공 수·실패 수·중단 수, 마지막 준비 완료 시각. 따라서 `MetricWindow`·오류 종류·지연 단계·분기·반복 통계·`/metrics` 요약·실행 중 진행 차트는 코드 변경 없이 준비 요청을 보지 못한다. 제약: 본 스텝의 요청 경로(`execute_steps`의 http 가지)에 준비 여부 분기를 넣지 않는다. 준비는 별도 함수가 `execute_step_with`를 「기본값 없는 엄격」 추출 방식(D6)으로 직접 부른다.
+**요청 통계**: 준비 실행은 본 `Aggregator`를 건드리지 않는다. 준비 전용 통계에 기록한다 — 스텝별 요청 수·오류 수·상태 코드별 수·지연 HDR·실패 종류별 수, 준비 성공 수·실패 수·중단 수, 마지막 준비 완료 시각. 따라서 `MetricWindow`·오류 종류·지연 단계·분기·반복 통계·`/metrics` 요약·실행 중 진행 차트는 코드 변경 없이 준비 요청을 보지 못한다. 제약: 본 스텝의 요청 경로(`execute_steps`의 http 가지)에 준비 여부 분기를 넣지 않는다. 준비는 별도 함수가 `execute_step_with`를 「기본값 없는 엄격」 추출 방식(D6)으로 직접 부른다. 이 함수는 구간 이름과 스텝 목록을 받는 꼴로 만든다(지금 부르는 곳은 준비 하나).
 
 **시간이 닿는 길** — 길마다 정한다:
 
@@ -191,28 +213,35 @@ steps:                       # 반복 — 측정 대상
 
 ## 5. 와이어와 저장
 
-### D8. proto — `MetricBatch`에 필드 다섯
+### D8. proto — `MetricBatch`에 필드 둘
 
 ```proto
 message MetricBatch {
   …
-  repeated SetupStepStat setup_step_stats = 14;  // 준비 스텝 통계 (delta, controller가 더한다)
-  uint64 setup_ok = 15;                          // 준비를 마친 VU(슬롯) 수 (delta)
-  uint64 setup_failed = 16;                      // 준비에 실패한 VU(슬롯) 수 (delta)
-  uint64 setup_interrupted = 17;                 // 준비 중 deadline·중단으로 끝난 수 (delta)
-  int64 setup_last_done_ms = 18;                 // 이 배치 구간의 마지막 준비 완료 epoch ms, 0 = 없음
+  repeated SectionStepStat section_step_stats = 14;  // 반복 밖 구간(지금은 "setup")의 스텝 통계 (delta, controller가 더한다)
+  repeated SectionOutcome section_outcomes = 15;     // 구간 실행 결과 수 (delta). 보낼 것이 없으면 비운다
 }
-message SetupStepStat {
-  string step_id = 1;
-  uint64 count = 2;
-  uint64 error_count = 3;
-  map<string, uint64> status_counts = 4;   // "0" = 전송 실패
-  bytes hdr_histogram = 5;                 // 본 스텝과 같은 bound
-  map<string, uint64> failure_kinds = 6;   // D6의 kind별 수
+message SectionOutcome {
+  string section = 1;          // 지금은 "setup"만
+  uint64 ok = 2;               // 끝까지 성공한 실행 횟수
+  uint64 failed = 3;           // 실패한 실행 횟수
+  uint64 interrupted = 4;      // deadline·중단으로 끝난 실행 횟수
+  int64 last_done_ms = 5;      // 이 배치 구간에서 마지막으로 성공한 실행의 완료 epoch ms, 0 = 없음
+}
+message SectionStepStat {
+  string section = 1;                      // 지금은 "setup"만
+  string step_id = 2;
+  uint64 count = 3;
+  uint64 error_count = 4;
+  map<string, uint64> status_counts = 5;   // "0" = 전송 실패
+  bytes hdr_histogram = 6;                 // 본 스텝과 같은 bound
+  map<string, uint64> failure_kinds = 7;   // D6의 kind별 수
 }
 ```
 
-- 수는 메시지가 아니라 스칼라로 둔다 — 0이면 인코딩되지 않아 준비 없는 run의 배치 바이트가 변하지 않는다.
+- 두 메시지 모두 구간 이름(`section`)을 싣는다 — 나중에 다른 구간(teardown)이 같은 메시지와 같은 표를 쓴다. 엔진·컨트롤러 안에서는 문자열이 아니라 열거형(`Section::Setup`, 와이어 글자 `setup`)으로 다룬다. 컨트롤러는 모르는 구간 이름의 행을 버리고 경고를 남긴다.
+- 성공·실패·중단 수는 「구간 **실행** 횟수」다(지금은 VU당 한 번이라 VU 수와 같다). 주기 재실행이 생기면 같은 필드가 실행마다 는다.
+- 두 필드 모두 반복 필드라 비어 있으면 인코딩되지 않는다 — 준비 없는 run의 배치 바이트가 변하지 않는다. 세 수가 모두 0이고 `last_done_ms`도 0인 `SectionOutcome`은 보내지 않는다.
 - 값(변수 값·URL·응답 조각)은 어디에도 싣지 않는다. `failure_kinds`의 키는 D6의 고정 목록이다.
 - 엔진 `MetricFlush`에 준비 통계가 는다. 드레인 여섯 곳 전부, 송신 가드 전부(이번에는 open-loop 포함 — 주기 flush에도 실리므로), 워커 전달 건너뛰기 가드(`crates/worker/src/lib.rs`)에 「준비 통계가 비었는가」 항을 더한다. 가드를 빠뜨리면 준비 통계만 든 flush가 버려지고 시작 감시가 run을 죽인다.
 - `RunAssignment.scenario_yaml`은 문자열이라 시나리오 전달에는 proto 변경이 없다.
@@ -220,18 +249,19 @@ message SetupStepStat {
 ### D9. 저장 — 마이그레이션 0027 (추가만 하는 표 둘)
 
 ```sql
-CREATE TABLE IF NOT EXISTS run_setup_step_metrics (
-  run_id TEXT NOT NULL, worker_id TEXT NOT NULL DEFAULT '', step_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS run_section_step_metrics (
+  run_id TEXT NOT NULL, worker_id TEXT NOT NULL DEFAULT '',
+  section TEXT NOT NULL, step_id TEXT NOT NULL,
   count INTEGER NOT NULL, error_count INTEGER NOT NULL,
   status_counts TEXT NOT NULL, failure_kinds TEXT NOT NULL, hdr_histogram BLOB NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_run_setup_step_metrics_run ON run_setup_step_metrics(run_id);
-CREATE TABLE IF NOT EXISTS run_setup_outcomes (
-  run_id TEXT NOT NULL, worker_id TEXT NOT NULL DEFAULT '',
+CREATE INDEX IF NOT EXISTS idx_run_section_step_metrics_run ON run_section_step_metrics(run_id);
+CREATE TABLE IF NOT EXISTS run_section_outcomes (
+  run_id TEXT NOT NULL, worker_id TEXT NOT NULL DEFAULT '', section TEXT NOT NULL,
   ok INTEGER NOT NULL, failed INTEGER NOT NULL, interrupted INTEGER NOT NULL,
   last_done_ms INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_run_setup_outcomes_run ON run_setup_outcomes(run_id);
+CREATE INDEX IF NOT EXISTS idx_run_section_outcomes_run ON run_section_outcomes(run_id);
 ```
 
 - 배치마다 행을 **추가**하고 읽을 때 합친다(수·맵은 합, HDR은 merge, `last_done_ms`는 워커별 최대). `run_phase_metrics`와 같은 방식이다. 수신 때 읽고-고쳐-쓰기를 하지 않는다.
@@ -264,13 +294,12 @@ CREATE INDEX IF NOT EXISTS idx_run_setup_outcomes_run ON run_setup_outcomes(run_
 
 ### D11. trace
 
-- `trace_scenario`·`trace_scenario_with_seed`: 준비 스텝을 먼저 한 번 실행하고 본 스텝으로 간다. 준비 행은 `steps` 앞쪽에 `setup: true` 표지(`StepTrace`의 선택 필드, false면 없음)를 달고 들어간다.
+- `trace_scenario`·`trace_scenario_with_seed`: 준비 스텝을 먼저 한 번 실행하고 본 스텝으로 간다. 준비 행은 `steps` 앞쪽에 `section: "setup"` 표지(`StepTrace`의 선택 필드, 엔진 안에서는 열거형, 본 스텝이면 없음)를 달고 들어간다.
 - `trace_scenario_rows`: 준비는 **첫 행 앞에 한 번**. 준비 행은 `RowsTrace`의 새 선택 필드 `setup_steps`에 싣는다(행별 trace에 넣지 않는다).
-- 변수 순서는 부하 실행(D5)과 같게 한다: 준비는 「시나리오 변수 + 시드」로 돌고(시드 = 단일 실행이면 주어진 시드, 행 모드면 **첫 행**), 준비 추출을 보관했다가 본 패스(행)마다 「시나리오 변수 → 준비 추출 → 그 패스의 시드」로 시작한다.
+- 변수 순서는 부하 실행(D5)과 같게 한다: 준비는 「시나리오 변수 + 시드」로 돌고(시드 = 단일 실행이면 주어진 시드, 행 모드면 **첫 행**), 준비 추출을 보관했다가 본 패스(행)마다 「시나리오 변수 → 준비 추출 → 그 패스의 시드」로 시작한다. 첫 패스는 D5의 첫 반복 규칙대로 준비가 쓴 시나리오 변수 값을 다시 쓴다(다시 시드하지 않는다). 둘째 패스부터는 지금처럼 패스마다 새로 시드한다.
 - trace의 준비 실패 = 준비 행에 오류가 있거나, 그 행의 `unbound_vars`가 비어 있지 않음(trace는 너그러운 렌더라 `UnknownVar`가 오류로 나오지 않는다), 또는 선언한 추출을 못 뽑았거나 빈 값을 뽑음(D6과 같은 규칙, 기본값 안 씀). 실패하면 본 스텝을 실행하지 않고 `ScenarioTrace`의 새 선택 필드 `setup_failed: true`를 단다(`RowsTrace`도 같은 필드, 이때 `ok`는 false). 오류 없이 실패로 판정한 준비 행(미해결 변수·빈 추출)에는 trace가 고정 문구의 오류를 채운다 — `setup_failed`인 trace에는 오류를 가진 준비 행이 반드시 있다. `ScenarioTrace.error`는 쓰지 않는다. 모니터는 지금처럼 「오류가 있는 첫 http 행」에서 사유를 얻는다.
 - `ScenarioTrace.setup_ms`(선택): 준비에 걸린 시간. `total_ms`는 준비를 포함한다(D7).
 - 요청 상한(`max_requests`)과 시간 상한은 준비 요청도 센다. 준비 도중 상한에 닿으면 `truncated: true`로 끝내고 본 스텝을 실행하지 않는다(`setup_failed`는 달지 않는다 — 실패가 아니라 잘림이다).
-- **test-run과 실제 run의 차이 하나**: test-run의 데이터셋 시드에는 바인딩 정책이 없어서, 준비 스텝이 어떤 열이든 볼 수 있다. 실제 run에서는 `per_vu` 열만 본다(D4). test-run은 통과하고 run은 실패할 수 있다 — run 생성 창의 경고(D14)가 이 틈을 메운다. A1만 있는 동안에는 run의 실패 사유(`unknown_var (열 이름)`)가 알린다.
 - 운영 모니터는 `trace_scenario`를 쓰므로 점검 한 번이 준비 → 본 스텝 한 바퀴다. `setup_failed`인 점검은 실패로 판정한다(사유 = 그 준비 행의 사유). 모니터 칸 설정에서 준비 스텝을 고를 수 있게 하는 것(`PanelEditor`)은 A2.
 
 ## 7. 화면
@@ -314,7 +343,7 @@ CREATE INDEX IF NOT EXISTS idx_run_setup_outcomes_run ON run_setup_outcomes(run_
 - 준비 스텝이 있고 VU 고정이고 상승 시간이 0: 「준비 스텝(로그인 등)이 VU 수만큼 동시에 나갑니다. 상승 시간을 두면 나눠서 나갑니다.」(사용자 결정 「가」)
 - 준비 스텝이 쓰는 `per_vu` 데이터셋의 행 수가 VU 수(슬롯 수)보다 적음: 「계정 N개를 VU M개가 나눠 씁니다. 같은 계정으로 여러 번 로그인합니다.」
 - 준비 스텝이 있고 open-loop: 「준비 스텝은 슬롯마다 한 번 실행됩니다. 슬롯을 N개로 잡으면 로그인이 최대 N번 나갑니다.」
-- 준비 스텝이 `per_vu`가 아닌 바인딩의 열을 참조: 「준비 스텝이 쓰는 값 `user`는 'VU별 고정' 방식의 데이터셋에서 와야 합니다. 지금 설정으로는 준비가 실패합니다.」
+- 준비 스텝이 `per_vu`가 아닌 바인딩의 열을 참조: 「준비 스텝은 VU마다 첫 반복의 값으로 한 번만 실행됩니다. `user`가 로그인 계정이라면 데이터셋 방식을 'VU별 고정'으로 두세요.」
 
 ## 8. 호환성과 성능
 
@@ -338,7 +367,6 @@ CREATE INDEX IF NOT EXISTS idx_run_setup_outcomes_run ON run_setup_outcomes(run_
 
 - 모든 VU 준비 완료 후 동시 출발(「나」안) — 사용자 결정 2026-11-22: 지금은 안내만, 불편이 관측되면 재논의.
 - 준비 구간에 loop·if·parallel 허용.
-- 준비 스텝이 `per_vu` 아닌 바인딩 열을 쓰는 방법, run 생성 때 서버가 미리 거절하는 것.
 - 준비 스텝의 1초 단위 시계열.
 - teardown(§A13-f).
 - 본문에서 뽑은 인증 값의 모니터 가림(이 기능 전부터의 공백).
