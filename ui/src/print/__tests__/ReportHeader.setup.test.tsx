@@ -4,7 +4,7 @@ import { ReportHeader } from "../components/ReportHeader";
 import type { PrintDoc } from "../buildPrintDoc";
 
 const NOTE =
-  "요약·판정에는 준비 스텝이 들어 있지 않습니다. 본 스텝은 준비가 끝난(로그인된) 상태에서 측정했습니다.";
+  "요약·판정에는 준비 스텝이 들어 있지 않습니다. 본 스텝은 준비 스텝을 마친 상태에서 측정했습니다.";
 
 function docWith(meta: Partial<PrintDoc["meta"]>): PrintDoc {
   return {

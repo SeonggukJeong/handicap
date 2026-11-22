@@ -84,7 +84,7 @@ function renderIt(report: Report) {
 }
 
 const SUMMARY_LINE =
-  "요약·판정에는 준비 스텝이 들어 있지 않습니다. 본 스텝은 준비가 끝난(로그인된) 상태에서 측정했습니다.";
+  "요약·판정에는 준비 스텝이 들어 있지 않습니다. 본 스텝은 준비 스텝을 마친 상태에서 측정했습니다.";
 
 describe("ReportView 준비 스텝", () => {
   it("setup이 없으면 구획도 안내 줄도 없다", () => {
