@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useScenario, useScenarioRuns, useRunReport, useTestRun } from "../../api/hooks";
 import type { Run } from "../../api/schemas";
 import type { Scenario } from "../../scenario/model";
-import { pickLatestOpenRun, recommendSlots, iterationHoldMs } from "./sizing";
+import { pickLatestOpenRun, recommendSlots, iterationHoldMs, measuredIteration } from "./sizing";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 
@@ -92,9 +92,9 @@ export function SlotSizingHelper({
   // (÷R 없음 — apply_think_time:true로 발사해 think time까지 포함된 전체 반복 시간).
   const trace = testRun.data;
   const truncated = trace?.truncated ?? false;
-  const measuredR =
-    trace && !trace.truncated ? trace.steps.filter((s) => s.response !== null).length : 0;
-  const measuredHold = trace && !trace.truncated && trace.total_ms > 0 ? trace.total_ms : null;
+  const iteration = trace ? measuredIteration(trace) : null;
+  const measuredR = iteration ? iteration.requests : 0;
+  const measuredHold = iteration && iteration.holdMs > 0 ? iteration.holdMs : null;
 
   const anchorHold = anchor && anchor.kind !== "stall" ? anchor.holdMs : null;
   const estMsNum = Number(estMs);

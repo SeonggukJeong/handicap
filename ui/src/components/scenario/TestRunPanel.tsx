@@ -51,7 +51,8 @@ function HttpRow({
   step: StepTrace;
   steps?: ReadonlyArray<Step>;
   onAddExtract?: (stepId: string, extract: Extract) => void;
-  /** 바로 다음 행이 본 스텝 행인 준비 행 — 준비 구간과 본 구간 사이의 굵은 구분선. */
+  /** 굵은 구분선을 그리는 행 — 바로 다음 행이 본 스텝 행인 준비 행, 그리고 `setupEndDivider`가
+   *  넘어온 준비 행만 있는 목록의 마지막 행. */
   divider?: boolean;
   /** 목록에 준비 행이 있을 때만 — 모든 행 앞에 스텝 이름을 보인다. */
   showName?: boolean;

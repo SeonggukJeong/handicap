@@ -1,4 +1,4 @@
-import type { Run } from "../../api/schemas";
+import type { Run, ScenarioTrace } from "../../api/schemas";
 import { loopPassesForEstimate, type Step, type ThinkTime } from "../../scenario/model";
 import { formatDurationKo } from "../../i18n/duration";
 import { ko } from "../../i18n/ko";
@@ -166,6 +166,17 @@ export function iterationRequestRange(steps: ReadonlyArray<Step>): RequestRange 
     }
   }
   return { min, max };
+}
+
+/** test-run trace에서 반복 1회 측정값 — 준비 구간(행·시간)은 뺀다. 잘렸거나 준비가 실패한
+ *  trace는 측정이 아니므로 null. */
+export function measuredIteration(
+  trace: ScenarioTrace,
+): { requests: number; holdMs: number } | null {
+  if (trace.truncated || trace.setup_failed) return null;
+  const requests = trace.steps.filter((s) => s.section !== "setup" && s.response !== null).length;
+  const holdMs = Math.max(0, trace.total_ms - (trace.setup_ms ?? 0));
+  return { requests, holdMs };
 }
 
 export type SlotSizingResult = { recommendedSlots: number };

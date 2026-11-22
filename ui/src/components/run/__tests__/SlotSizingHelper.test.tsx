@@ -136,7 +136,9 @@ describe("SlotSizingHelper", () => {
     expect(screen.getByText(ko.slotSizing.title)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: ko.slotSizing.apply })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(ko.slotSizing.estMs)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: ko.slotSizing.measureBtn })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.slotSizing.measureBtn }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: ko.slotSizing.helpLabel })).not.toBeInTheDocument();
     expect(screen.queryByText(/max_in_flight를 최소/)).not.toBeInTheDocument();
     expect(screen.queryByText(ko.slotSizing.cannotCompute)).not.toBeInTheDocument();
@@ -281,6 +283,31 @@ describe("SlotSizingHelper", () => {
     render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="20" onApply={vi.fn()} />);
     expect(screen.getByText(/max_in_flight를 최소 ~23\(으\)로 설정하세요/)).toBeInTheDocument();
     expect(screen.getByText(/측정됨: 요청 1개 · 반복 1회 ~1105ms/)).toBeInTheDocument();
+  });
+
+  it("준비가 있는 시나리오의 측정 점유 시간은 준비를 뺀 값이다", () => {
+    setHooks({
+      runs: [],
+      report: undefined,
+      testRun: {
+        mutate: vi.fn(),
+        isPending: false,
+        isError: false,
+        data: {
+          truncated: false,
+          total_ms: 500,
+          setup_ms: 200,
+          steps: [
+            { section: "setup", response: { status: 200 } },
+            { response: { status: 200 } },
+            { response: { status: 200 } },
+          ],
+        },
+      },
+    });
+    render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="20" onApply={vi.fn()} />);
+    expect(screen.getByText(/측정됨: 요청 2개 · 반복 1회 ~300ms/)).toBeInTheDocument();
+    expect(screen.queryByText(/500ms/)).not.toBeInTheDocument();
   });
 
   it("측정 버튼 → apply_think_time:true로 발사; truncated면 측정 거부", async () => {

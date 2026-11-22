@@ -11,8 +11,9 @@ import {
   sizePresetsFor,
   iterationHoldMs,
   iterationRequestRange,
+  measuredIteration,
 } from "../sizing";
-import type { Run } from "../../../api/schemas";
+import type { Run, ScenarioTrace } from "../../../api/schemas";
 import type { Step } from "../../../scenario/model";
 import { ko } from "../../../i18n/ko";
 
@@ -475,5 +476,37 @@ describe("pickLatestFixedOpenRun (R10 — 곡선 prior 제외)", () => {
       },
     } as never;
     expect(pickLatestFixedOpenRun([steadyRun])?.id).toBe("S");
+  });
+});
+
+describe("measuredIteration", () => {
+  const row = (section?: string) => ({
+    response: { status: 200 },
+    ...(section ? { section } : {}),
+  });
+  const trace = (o: Record<string, unknown>) => o as unknown as ScenarioTrace;
+
+  it("준비 행과 준비 시간을 뺀다", () => {
+    const t = trace({
+      truncated: false,
+      total_ms: 500,
+      setup_ms: 200,
+      steps: [row("setup"), row(), row()],
+    });
+    expect(measuredIteration(t)).toEqual({ requests: 2, holdMs: 300 });
+  });
+
+  it("준비가 없으면 지금과 같다", () => {
+    const t = trace({ truncated: false, total_ms: 500, steps: [row(), row()] });
+    expect(measuredIteration(t)).toEqual({ requests: 2, holdMs: 500 });
+  });
+
+  it("잘렸거나 준비가 실패한 trace는 측정이 아니다", () => {
+    expect(measuredIteration(trace({ truncated: true, total_ms: 500, steps: [row()] }))).toBeNull();
+    expect(
+      measuredIteration(
+        trace({ truncated: false, setup_failed: true, total_ms: 500, steps: [row("setup")] }),
+      ),
+    ).toBeNull();
   });
 });

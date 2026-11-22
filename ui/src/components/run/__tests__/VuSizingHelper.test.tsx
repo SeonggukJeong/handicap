@@ -134,6 +134,33 @@ describe("VuSizingHelper", () => {
     expect(screen.getByText(/권장 VU: 최소 ~100개부터/)).toBeInTheDocument();
   });
 
+  it("준비가 있는 시나리오의 반복당 요청 수·반복 시간은 준비를 뺀 값이다", async () => {
+    const user = userEvent.setup();
+    setHooks({
+      runs: [],
+      reportRps: null,
+      testRun: {
+        mutate: vi.fn(),
+        isPending: false,
+        isError: false,
+        data: {
+          truncated: false,
+          total_ms: 500,
+          setup_ms: 200,
+          steps: [
+            { section: "setup", response: { status: 200 } },
+            { response: { status: 200 } },
+            { response: { status: 200 } },
+          ],
+        },
+      },
+    });
+    render(<VuSizingHelper scenarioId="s1" scenario={scenario} env={{}} onApply={vi.fn()} />);
+    await user.type(screen.getByLabelText("목표 RPS"), "400");
+    expect(screen.getByText(/요청 2개 · 300ms/)).toBeInTheDocument();
+    expect(screen.queryByText(/500ms/)).not.toBeInTheDocument();
+  });
+
   it("측정은 apply_think_time: true로 발사한다 (SlotSizingHelper와 같은 앵커 정의)", async () => {
     const mutate = vi.fn();
     const user = userEvent.setup();

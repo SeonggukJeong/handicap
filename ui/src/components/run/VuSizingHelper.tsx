@@ -3,7 +3,12 @@ import { useScenario, useScenarioRuns, useRunReport, useTestRun } from "../../ap
 import type { Run } from "../../api/schemas";
 import type { Scenario } from "../../scenario/model";
 import { flattenHttpSteps } from "../../scenario/model";
-import { pickLatestClosedRun, recommendVus, type ThroughputSource } from "./sizing";
+import {
+  measuredIteration,
+  pickLatestClosedRun,
+  recommendVus,
+  type ThroughputSource,
+} from "./sizing";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 
@@ -62,13 +67,8 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
 
   // test-run 측정(비-truncated): trace에서 정확한 요청수 R + 반복지연 T.
   const trace = testRun.data;
-  const measured =
-    trace && !trace.truncated
-      ? {
-          reqPerIter: trace.steps.filter((s) => s.response !== null).length,
-          iterMs: trace.total_ms,
-        }
-      : null;
+  const iteration = trace ? measuredIteration(trace) : null;
+  const measured = iteration ? { reqPerIter: iteration.requests, iterMs: iteration.holdMs } : null;
   const truncated = trace?.truncated ?? false;
 
   const staticReqPerIter = scenario ? flattenHttpSteps(scenario.steps).length : 0;
