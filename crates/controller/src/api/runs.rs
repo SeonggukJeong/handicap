@@ -653,6 +653,11 @@ fn maybe_strip_think(yaml: &str, profile: &Profile) -> String {
 fn strip_scenario_think(sc: &mut Scenario) -> bool {
     let root_default = sc.default_think_time.take();
     let mut changed = root_default.is_some();
+    if let Some(setup) = sc.setup.as_mut()
+        && strip_steps_think(&mut setup.steps, root_default.as_ref(), false)
+    {
+        changed = true;
+    }
     if strip_steps_think(&mut sc.steps, root_default.as_ref(), false) {
         changed = true;
     }
@@ -4096,6 +4101,44 @@ steps:
     name: s1
     request: { method: GET, url: "http://x/?f={{f}}" }
 "#;
+
+    const YAML_SETUP_THINK: &str = r#"
+version: 1
+name: t
+setup:
+  steps:
+    - id: 01HX0000000000000000000SSS
+      type: http
+      name: login
+      request: { method: POST, url: http://x/login }
+      think_time: { min_ms: 200, max_ms: 200 }
+steps:
+  - id: 01HX0000000000000000000AAA
+    type: http
+    name: s1
+    request: { method: GET, url: http://x/ }
+    think_time: { min_ms: 300, max_ms: 300 }
+"#;
+
+    #[test]
+    fn strip_think_strips_setup_steps() {
+        let out = maybe_strip_think(YAML_SETUP_THINK, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        assert_eq!(sc.setup_steps().len(), 1, "setup 구조는 남는다: {out}");
+        for s in sc.all_steps() {
+            let Step::Http(h) = s else {
+                panic!("http only")
+            };
+            assert!(h.think_time.is_none(), "{} think 남음: {out}", h.name);
+        }
+    }
+
+    #[test]
+    fn strip_think_without_setup_is_unchanged() {
+        const EXPECTED: &str = "version: 1\nname: t\nvariables: {}\ncookie_jar: auto\nsteps:\n- type: http\n  id: 01HX0000000000000000000AAA\n  name: s1\n  request:\n    method: GET\n    url: http://x/\n    headers: {}\n    body: null\n  assert: []\n  extract: []\n";
+        let out = maybe_strip_think(YAML_THINK, &open_profile(false));
+        assert_eq!(out, EXPECTED);
+    }
 
     #[test]
     fn open_ignore_strip_keeps_refresh_request() {

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ulid::Ulid;
 
-use super::check::collect_http_steps;
+use super::check::collect_scenario_http_steps;
 use super::config::{
     BoardConfig, LatencySource, MAX_PANELS, apply_group_mirror, check_counts, replace_forbidden,
     validate_and_normalize,
@@ -339,10 +339,9 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
         };
         let prefix = format!("시나리오 '{}': ", parsed.name);
         validate_parallel_branch_names(&parsed.steps).map_err(|m| format!("{prefix}{m}"))?;
-        validate_scenario_think_times(&parsed.steps, &parsed.default_think_time)
-            .map_err(|m| format!("{prefix}{m}"))?;
+        validate_scenario_think_times(&parsed).map_err(|m| format!("{prefix}{m}"))?;
         let mut all = Vec::new();
-        collect_http_steps(&parsed.steps, &mut all);
+        collect_scenario_http_steps(&parsed, &mut all);
         http_steps.insert(s.id.clone(), all.iter().map(|h| h.id.clone()).collect());
         scenarios.push(ValidScenario {
             id: s.id.clone(),

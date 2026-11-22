@@ -6,8 +6,8 @@ use std::time::Duration;
 use handicap_engine::{Scenario, ScenarioTrace, Step, TraceOptions, trace_scenario};
 
 use super::check::{
-    CheckResult, MONITOR_MAX_REQUESTS, REASON_LATENCY_STEP_MISSING, Verdict, collect_http_steps,
-    load_scenario_env, reason_timeout,
+    CheckResult, MONITOR_MAX_REQUESTS, REASON_LATENCY_STEP_MISSING, Verdict,
+    collect_scenario_http_steps, load_scenario_env, reason_timeout,
 };
 use super::config::{BoardConfig, PanelConfig};
 use super::step_judge::judge_unit;
@@ -107,7 +107,7 @@ pub fn apply_step_limits(sc: &mut Scenario, unit: &CheckUnit) -> (u32, HashMap<S
         }
     }
     let mut limits: HashMap<String, u32> = HashMap::new();
-    walk_http_mut(&mut sc.steps, &mut |h| {
+    let mut apply = |h: &mut handicap_engine::HttpStep| {
         let limit = match panel_limit.get(h.id.as_str()) {
             Some(&t) => t,
             None => match h.timeout_seconds {
@@ -117,7 +117,11 @@ pub fn apply_step_limits(sc: &mut Scenario, unit: &CheckUnit) -> (u32, HashMap<S
         };
         h.timeout_seconds = Some(limit);
         limits.insert(h.id.clone(), limit);
-    });
+    };
+    if let Some(setup) = sc.setup.as_mut() {
+        walk_http_mut(&mut setup.steps, &mut apply);
+    }
+    walk_http_mut(&mut sc.steps, &mut apply);
     let sum: u32 = limits.values().sum();
     (sum.min(FLOW_CAP_MAX_SECS), limits)
 }
@@ -169,7 +173,7 @@ pub async fn run_unit_check(db: &Db, unit: &CheckUnit) -> UnitOutcome {
     // 모든 칸의 스텝이 시나리오에 없으면 요청을 보내지 않는다(설정 오류에 부하를 쓰지 않음 —
     // 흐름 전체 칸과 같은 원칙). 판정은 `judge_unit`의 스텝 없음과 같다.
     let mut all = Vec::new();
-    collect_http_steps(&scenario.steps, &mut all);
+    collect_scenario_http_steps(&scenario, &mut all);
     let missing = |p: &PanelConfig| {
         let sid = p.step_id.as_deref().unwrap_or_default();
         !all.iter().any(|h| h.id == sid)
@@ -456,6 +460,25 @@ mod tests {
         y += "              - name: y\n                steps:\n";
         y += &ind(&step_yaml(6, "http://x/6", None), 16);
         Scenario::from_yaml(&y).unwrap()
+    }
+
+    #[test]
+    fn step_limits_cover_setup_steps() {
+        let y = format!(
+            "version: 1\nname: s\nsetup:\n  steps:\n{}steps:\n{}",
+            step_yaml(1, "http://x/1", None)
+                .replace("\n  ", "\n    ")
+                .replacen("  -", "    -", 1),
+            step_yaml(2, "http://x/2", None)
+        );
+        let mut sc = Scenario::from_yaml(&y).unwrap();
+        let (_, limits) = apply_step_limits(&mut sc, &unit(vec![sp("a", 2, 4)]));
+        assert_eq!(limits.get(&id(2)), Some(&4));
+        assert_eq!(limits.get(&id(1)), Some(&UNPANELED_STEP_TIMEOUT_SECS));
+        let Some(handicap_engine::Step::Http(h)) = sc.setup_steps().first() else {
+            panic!("setup http step")
+        };
+        assert_eq!(h.timeout_seconds, Some(UNPANELED_STEP_TIMEOUT_SECS));
     }
 
     #[test]

@@ -207,8 +207,9 @@ impl Names {
             .into_iter()
             .filter_map(|s| {
                 let sc = Scenario::from_yaml(&s.yaml).ok()?;
-                let steps = flatten_with_hint(&sc.steps)
+                let steps = flatten_with_hint(sc.setup_steps())
                     .into_iter()
+                    .chain(flatten_with_hint(&sc.steps))
                     .map(|(h, hint)| StepInfo {
                         id: h.id.clone(),
                         name: h.name.clone(),

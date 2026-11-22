@@ -62,11 +62,8 @@ pub(crate) fn think_time_in_range(tt: &ThinkTime) -> bool {
 /// `think_time` (recursing loop/if/parallel — the engine allows free nesting,
 /// and a parallel branch step's *explicit* think still degrades if out of range,
 /// so no step is exempt). Mirrors `validate_parallel_branch_names`' exhaustive walk.
-pub(crate) fn validate_scenario_think_times(
-    steps: &[Step],
-    default: &Option<ThinkTime>,
-) -> Result<(), String> {
-    if let Some(tt) = default {
+pub(crate) fn validate_scenario_think_times(sc: &Scenario) -> Result<(), String> {
+    if let Some(tt) = &sc.default_think_time {
         if !think_time_in_range(tt) {
             return Err(
                 "시나리오 기본 think time(default_think_time): min_ms <= max_ms <= 600000 (10분) 이어야 합니다"
@@ -74,7 +71,8 @@ pub(crate) fn validate_scenario_think_times(
             );
         }
     }
-    validate_steps_think(steps)
+    validate_steps_think(sc.setup_steps())?;
+    validate_steps_think(&sc.steps)
 }
 
 fn validate_steps_think(steps: &[Step]) -> Result<(), String> {
@@ -146,8 +144,7 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<ScenarioResponse>), ApiError> {
     let parsed = Scenario::from_yaml(&body.yaml)?;
     validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
-    validate_scenario_think_times(&parsed.steps, &parsed.default_think_time)
-        .map_err(ApiError::BadRequest)?;
+    validate_scenario_think_times(&parsed).map_err(ApiError::BadRequest)?;
     let group = crate::api::scenario_groups::normalize_group(body.group.as_deref())
         .map_err(ApiError::BadRequest)?;
     let row = scenarios::insert_grouped(&state.db, &parsed, &body.yaml, group.as_deref()).await?;
@@ -189,8 +186,7 @@ pub async fn update(
 ) -> Result<Json<ScenarioResponse>, ApiError> {
     let parsed = Scenario::from_yaml(&body.yaml)?;
     validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
-    validate_scenario_think_times(&parsed.steps, &parsed.default_think_time)
-        .map_err(ApiError::BadRequest)?;
+    validate_scenario_think_times(&parsed).map_err(ApiError::BadRequest)?;
     let outcome = scenarios::update(&state.db, &id, &parsed.name, &body.yaml, body.version).await?;
     match outcome {
         scenarios::UpdateOutcome::Updated(row) => Ok(Json(row.into())),
@@ -275,7 +271,7 @@ steps:
             min_ms: 5000,
             max_ms: 100,
         });
-        assert!(validate_scenario_think_times(&s.steps, &s.default_think_time).is_err());
+        assert!(validate_scenario_think_times(&s).is_err());
     }
 
     #[test]
@@ -285,7 +281,7 @@ steps:
             min_ms: 0,
             max_ms: 700_000,
         });
-        assert!(validate_scenario_think_times(&s.steps, &s.default_think_time).is_err());
+        assert!(validate_scenario_think_times(&s).is_err());
     }
 
     #[test]
@@ -307,7 +303,7 @@ steps:
         think_time: { min_ms: 900000, max_ms: 900000 }
 "#;
         let s = scn(yaml);
-        let err = validate_scenario_think_times(&s.steps, &s.default_think_time).unwrap_err();
+        let err = validate_scenario_think_times(&s).unwrap_err();
         assert!(
             err.contains("innerstep"),
             "error should name the step: {err}"
@@ -317,13 +313,13 @@ steps:
     #[test]
     fn accepts_in_range_and_absent() {
         let s = scn(HTTP);
-        assert!(validate_scenario_think_times(&s.steps, &s.default_think_time).is_ok()); // absent
+        assert!(validate_scenario_think_times(&s).is_ok()); // absent
         let mut s2 = scn(HTTP);
         s2.default_think_time = Some(handicap_engine::ThinkTime {
             min_ms: 100,
             max_ms: 500,
         });
-        assert!(validate_scenario_think_times(&s2.steps, &s2.default_think_time).is_ok());
+        assert!(validate_scenario_think_times(&s2).is_ok());
     }
 
     #[test]

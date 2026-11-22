@@ -272,7 +272,7 @@ fn condition_step_missing(
         return None;
     }
     let mut all = Vec::new();
-    collect_http_steps(&scenario.steps, &mut all);
+    collect_scenario_http_steps(scenario, &mut all);
     let c = panel
         .conditions
         .iter()
@@ -510,7 +510,13 @@ pub(crate) fn eval_conditions(
     None
 }
 
-/// 시나리오 정의의 http 스텝 전부(loop/if/parallel 재귀).
+/// 시나리오의 http 스텝 전부 — 준비 스텝 먼저, 그다음 본 스텝.
+pub(crate) fn collect_scenario_http_steps<'a>(scenario: &'a Scenario, out: &mut Vec<&'a HttpStep>) {
+    collect_http_steps(scenario.setup_steps(), out);
+    collect_http_steps(&scenario.steps, out);
+}
+
+/// 스텝 목록의 http 스텝 전부(loop/if/parallel 재귀).
 pub(crate) fn collect_http_steps<'a>(steps: &'a [Step], out: &mut Vec<&'a HttpStep>) {
     for s in steps {
         match s {
@@ -537,7 +543,7 @@ fn latency_step_exists(scenario: &Scenario, panel: &PanelConfig) -> bool {
         LatencySource::Total => true,
         LatencySource::Step { step_id } => {
             let mut all = Vec::new();
-            collect_http_steps(&scenario.steps, &mut all);
+            collect_scenario_http_steps(scenario, &mut all);
             all.iter().any(|h| &h.id == step_id)
         }
     }
@@ -614,7 +620,7 @@ pub fn judge(
         return CheckResult::with_reason(at_ms, Verdict::Fail, REASON_TRACE_ERROR);
     }
     let mut all = Vec::new();
-    collect_http_steps(&scenario.steps, &mut all);
+    collect_scenario_http_steps(scenario, &mut all);
 
     let first_error = trace
         .steps
@@ -936,6 +942,21 @@ steps:
             by_step: POLL.into(),
         });
         row
+    }
+
+    #[test]
+    fn monitor_check_fails_on_setup_failed() {
+        let y = format!(
+            "version: 1\nname: s\nsetup:\n  steps:\n    - id: \"{A}\"\n      name: 로그인\n      type: http\n      request: {{ method: POST, url: \"http://x/login\" }}\n      assert:\n        - status: 200\nsteps:\n  - id: \"{B}\"\n    name: 조회\n    type: http\n    request: {{ method: GET, url: \"http://x/b\" }}\n"
+        );
+        let s = Scenario::from_yaml(&y).unwrap();
+        let mut row = st(A, Some(resp(401, 3)), Some("assertion failed"));
+        row.section = Some(handicap_engine::Section::Setup);
+        let mut t = tr(vec![row]);
+        t.setup_failed = true;
+        let r = judge(&s, &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Fail, "{r:?}");
+        assert_eq!(r.reason.as_deref(), Some("HTTP 401 · 로그인"), "{r:?}");
     }
 
     #[test]

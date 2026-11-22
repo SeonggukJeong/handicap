@@ -502,6 +502,34 @@ async fn import_failure_rolls_back_all_tables() {
 }
 
 #[tokio::test]
+async fn board_import_rejects_non_http_setup() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let mut v: Value = serde_json::from_slice(&file).unwrap();
+    let yaml = v["scenarios"][0]["yaml"].as_str().unwrap().to_string();
+    let bad = yaml.replacen(
+        "steps:",
+        "setup:\n  steps:\n    - id: 01J0000000000000000000000B\n      name: l\n      type: loop\n      repeat: 1\n      do: []\nsteps:",
+        1,
+    );
+    assert_ne!(bad, yaml);
+    v["scenarios"][0]["yaml"] = json!(bad);
+    let b = new_pc().await;
+    let before = counts(&b.db).await;
+    let (st, body) = post_bytes(&b.app, ANALYZE, serde_json::to_vec(&v).unwrap()).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(
+        as_json(&body)["error"]
+            .as_str()
+            .unwrap()
+            .contains("YAML 형식이 올바르지 않습니다")
+    );
+    let (st, _) = import_file(&b.app, &serde_json::to_vec(&v).unwrap()).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert_eq!(counts(&b.db).await, before);
+}
+
+#[tokio::test]
 async fn analyze_400_has_reason() {
     let a = new_pc().await;
     let (file, _) = make_export(&a).await;

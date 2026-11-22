@@ -256,3 +256,30 @@ steps:
         .collect();
     assert_eq!(hints, [Some("바깥분기"), Some("바깥분기"), None]);
 }
+
+#[test]
+fn tui_names_include_setup_steps() {
+    let yaml = r#"
+version: 1
+name: 준비
+setup:
+  steps:
+    - { id: "01J00000000000000000000S01", name: 로그인, type: http, request: { method: POST, url: "/login" }, assert: [] }
+steps:
+  - { id: "01J00000000000000000000A01", name: 조회, type: http, request: { method: GET, url: "/a" }, assert: [] }
+"#;
+    let names = Names::from_bundle(&bundle(serde_json::json!([{ "id": "S1", "yaml": yaml }])));
+    let order: Vec<&str> = names
+        .step_infos("S1")
+        .unwrap()
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    assert_eq!(order, ["로그인", "조회"]);
+    assert_eq!(
+        names
+            .step_info("S1", "01J00000000000000000000A01")
+            .map(|(n, _)| n),
+        Some(2)
+    );
+}

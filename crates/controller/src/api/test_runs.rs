@@ -291,8 +291,7 @@ pub async fn create(
     }
     let scenario = Scenario::from_yaml(&body.scenario_yaml)
         .map_err(|e| ApiError::Unprocessable(format!("scenario parse: {e}")))?;
-    validate_scenario_think_times(&scenario.steps, &scenario.default_think_time)
-        .map_err(ApiError::Unprocessable)?;
+    validate_scenario_think_times(&scenario).map_err(ApiError::Unprocessable)?;
 
     let opts = TraceOptions {
         env: body.env,

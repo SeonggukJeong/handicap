@@ -15,8 +15,9 @@ use handicap_engine::{
 use super::check::{
     CheckResult, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
     REASON_LATENCY_STEP_MISSING, REASON_LOOP_EXHAUSTED, REASON_NO_VALUE, REASON_TRACE_ERROR,
-    REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values,
-    eval_conditions, loop_exhausted, reason_timeout, shown, step_label, truncated_reason,
+    REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict, classify, collect_scenario_http_steps,
+    display_values, eval_conditions, loop_exhausted, reason_timeout, shown, step_label,
+    truncated_reason,
 };
 use super::config::{AUTH_HEADERS, PanelConfig};
 
@@ -75,6 +76,7 @@ fn auth_var_names(scenario: &Scenario) -> HashSet<String> {
         }
     }
     let mut out = HashSet::new();
+    walk(scenario.setup_steps(), &mut out);
     walk(&scenario.steps, &mut out);
     out
 }
@@ -166,6 +168,7 @@ fn ancestors(scenario: &Scenario) -> HashMap<&str, Vec<Anc<'_>>> {
         }
     }
     let mut out = HashMap::new();
+    walk(scenario.setup_steps(), &mut Vec::new(), &mut out);
     walk(&scenario.steps, &mut Vec::new(), &mut out);
     out
 }
@@ -428,7 +431,7 @@ pub fn judge_unit(
             .collect();
     }
     let mut all = Vec::new();
-    collect_http_steps(&scenario.steps, &mut all);
+    collect_scenario_http_steps(scenario, &mut all);
     let find_http = |id: &str| all.iter().copied().find(|h| h.id == id);
     let anc = ancestors(scenario);
     let auth_vars = auth_var_names(scenario);
@@ -1689,6 +1692,19 @@ mod tests {
         let r = skipped_reason(&sc, "{{isRaceDay}}");
         assert_eq!(r.reason.as_deref(), Some("isRaceDay = (인증 값)"));
         assert_no_secret(&r);
+    }
+
+    #[test]
+    fn auth_var_names_sees_setup_steps() {
+        let y = format!(
+            "version: 1\nname: s\nsetup:\n  steps:\n    - id: \"{L1}\"\n      name: login\n      type: http\n      request: {{ method: POST, url: \"http://x/login\" }}\n      extract:\n        - {{ from: header, var: tokenvar, name: Authorization }}\n        - {{ from: cookie, var: sessvar, name: SESSION }}\n        - {{ from: header, var: plainvar, name: X-Plain }}\nsteps:\n{}",
+            http_yaml(L2, "main", 2)
+        );
+        let sc = Scenario::from_yaml(&y).unwrap();
+        let names = auth_var_names(&sc);
+        assert!(names.contains("tokenvar"), "{names:?}");
+        assert!(names.contains("sessvar"), "{names:?}");
+        assert!(!names.contains("plainvar"), "{names:?}");
     }
 
     #[test]
