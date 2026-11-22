@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>준비 스텝 B1 화면 목업</title>
+<style>
+/* 실제 앱의 색·치수(Tailwind slate / indigo=accent / amber)를 그대로 옮긴 정적 목업. A2 목업(a2-screens.html)의 CSS를 이어 쓴다. 밝은 바탕 고정. */
+:root {
+  --bg:#f8fafc; --surface:#fff; --fg:#0f172a; --s700:#334155; --s600:#475569; --s500:#64748b; --s400:#94a3b8;
+  --s300:#cbd5e1; --s200:#e2e8f0; --s100:#f1f5f9; --s50:#f8fafc;
+  --a50:#eef2ff; --a100:#e0e7ff; --a200:#c7d2fe; --a300:#a5b4fc; --a500:#6366f1; --a600:#4f46e5; --a800:#3730a3;
+  --am50:#fffbeb; --am300:#fcd34d; --am700:#b45309; --am800:#92400e;
+  --r700:#b91c1c;
+  --font: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:14px; line-height:1.5; }
+.wrap { max-width:1080px; margin:0 auto; padding:28px 16px 64px; display:flex; flex-direction:column; gap:40px; }
+h1 { font-size:20px; margin:0; }
+.lead { color:var(--s600); margin:6px 0 0; max-width:70ch; }
+.scene > h2 { font-size:15px; margin:0 0 2px; }
+.scene > p { margin:0 0 12px; color:var(--s600); max-width:80ch; }
+.ask { background:var(--am50); border:1px solid var(--am300); color:var(--am800); border-radius:6px; padding:6px 10px; font-size:13px; margin:0 0 12px; max-width:80ch; }
+.screen { background:var(--surface); border:1px solid var(--s200); border-radius:10px; padding:16px; }
+.cols { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.col { flex:1 1 300px; min-width:0; }
+.cap { font-size:12px; font-weight:600; color:var(--s500); margin:0 0 6px; }
+.tag { font-size:11px; font-weight:700; letter-spacing:.02em; color:var(--a600); }
+.note { font-size:12px; color:var(--s600); margin:6px 0 0; }
+
+/* 아웃라인 (A2와 같은 값) */
+.panel { border:1px solid var(--s200); border-radius:6px; background:#fff; padding:12px; }
+.rows { display:flex; flex-direction:column; gap:4px; }
+.row { display:flex; gap:8px; align-items:center; border:1px solid var(--s200); border-radius:6px; background:#fff; padding:6px 8px; font-size:14px; min-width:0; }
+.row.sel { border-color:var(--a500); box-shadow:0 0 0 1px var(--a500); }
+.row.ghost { opacity:.35; }
+.row.lift { box-shadow:0 6px 16px rgba(15,23,42,.18); border-color:var(--s300); transform:translate(18px,-6px); position:relative; z-index:1; }
+.grip { color:var(--s400); flex:none; cursor:grab; }
+.m { flex:none; border-radius:4px; padding:2px 6px; font-size:11px; font-weight:700; }
+.m.post { background:#fef3c7; color:#92400e; } .m.get { background:#d1fae5; color:#065f46; }
+.m.loop { background:var(--s100); color:var(--s700); }
+.nm { display:flex; flex-direction:column; min-width:0; }
+.nm b { font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nm span { font-size:12px; color:var(--s500); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sec-label { font-size:11px; font-weight:600; color:var(--s400); padding:0 2px; margin:0 0 4px; }
+.setup-box { border:1px solid var(--a200); background:var(--a50); border-radius:8px; padding:8px; margin-bottom:10px; }
+.setup-box .sec-label { color:var(--a800); }
+.setup-box .sec-label small { font-weight:400; color:var(--s600); }
+.addbar { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+.addbar button { font:inherit; font-size:14px; border:1px solid var(--s300); background:#fff; border-radius:4px; padding:6px 12px; color:var(--s500); }
+.addbar button:first-child { border-color:var(--s400); color:var(--fg); font-weight:500; }
+.addbar button.setup-add { border-color:var(--a200); color:var(--a800); }
+.addbar button.new { outline:2px solid var(--am300); outline-offset:2px; }
+
+/* B1에서 새로 생기는 것 */
+.box-add { font:inherit; font-size:12px; margin-top:6px; border:1px dashed var(--a300); background:transparent; color:var(--a800); border-radius:6px; padding:4px 10px; }
+.setup-box.empty { border-style:dashed; }
+.setup-box.empty .hint { font-size:12px; color:var(--s600); margin:0; }
+.setup-box.empty .line { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.dropzone { border:1.5px dashed var(--a500); background:var(--a50); color:var(--a800); border-radius:8px; padding:10px; font-size:12px; font-weight:500; text-align:center; margin-bottom:10px; }
+.dropzone.over { background:var(--a100); box-shadow:0 0 0 2px var(--a200); }
+.indicator { height:2px; background:var(--a500); border-radius:2px; margin:1px 0; }
+.setup-box.target { box-shadow:0 0 0 2px var(--a300); }
+.setup-box.refuse { opacity:.55; }
+.refuse-note { font-size:12px; color:var(--s600); margin:6px 0 0; }
+.band { margin:4px 0 0 18px; padding-left:8px; border-left:2px solid var(--s200); }
+
+/* Inspector */
+.insp { display:flex; flex-direction:column; gap:12px; font-size:14px; }
+.insp header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.insp h3 { margin:0; font-size:14px; font-weight:600; color:var(--s700); }
+.btns { display:flex; gap:4px; }
+.sm { font:inherit; font-size:12px; padding:4px 8px; border:1px solid var(--s300); border-radius:4px; background:#fff; color:var(--s700); }
+.sm.danger { border-color:#fca5a5; color:var(--r700); }
+.sm:disabled { opacity:.4; }
+.sm.new { outline:2px solid var(--am300); outline-offset:2px; }
+.moveline { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.moveline.setup { background:var(--a50); border:1px solid var(--a200); border-radius:6px; padding:6px 8px; }
+.moveline .hint { font-size:12px; color:var(--a800); }
+.field label { display:block; font-size:12px; color:var(--s500); margin-bottom:2px; }
+.field input { font:inherit; width:100%; border:1px solid var(--s300); border-radius:6px; padding:5px 8px; }
+.legend { font-size:12px; color:var(--s600); }
+.legend i { display:inline-block; width:12px; height:12px; outline:2px solid var(--am300); outline-offset:1px; border-radius:2px; vertical-align:-2px; margin-right:4px; }
+</style>
+
+<div class="wrap">
+  <div>
+    <h1>준비 스텝 B1 — 에디터 화면 목업</h1>
+    <p class="lead">B1이 아웃라인과 Inspector에 더하는 것입니다. 색·글자 크기·간격은 실제 앱의 값이고, 준비 구획 상자와 행 모양은 A2 목업에서 승인된 그대로입니다. <span class="legend"><i></i>노란 테두리 = B1에서 새로 생기는 조작부(실제 화면에는 테두리가 없습니다).</span></p>
+  </div>
+
+  <section class="scene">
+    <h2>1. 준비 스텝이 하나도 없을 때</h2>
+    <p>첫 준비 스텝을 만드는 길과 끌어 놓을 자리입니다. 세 안 가운데 하나를 고릅니다.</p>
+    <p class="ask">결정(사용자 2026-11-23): <b>다</b> 채택 — 평소 숨김 + 아래 「+ 준비 스텝」 버튼 + http 스텝을 끄는 동안에만 맨 위에 놓을 자리. 「가」·「나」·「다-2」는 비교용으로 남긴 기각안입니다(다-2 기각 이유: 시나리오가 길면 놓을 자리가 한눈에 들어오지 않음). 장면 2–4는 그대로 승인. <b>나타나는 시점 변경(사용자 2026-11-23)</b>: 놓을 자리는 끌자마자가 아니라 <b>포인터를 목록 맨 위로 가져갔을 때만</b> 열리고, 내려오면 닫힙니다(끌자마자 열면 목록이 밀려 제자리에 놓아도 준비 스텝이 되고, 본 스텝끼리 순서 바꾸기도 달라짐). 모양은 이 목업 그대로.</p>
+    <div class="screen cols">
+      <div class="col">
+        <p class="cap"><span class="tag">가</span> 빈 상자를 항상 보임</p>
+        <div class="panel">
+          <div class="setup-box empty">
+            <p class="sec-label">준비 스텝 <small>— VU마다 한 번만 실행</small></p>
+            <div class="line"><button class="box-add">+ 준비 스텝</button><p class="hint">스텝을 여기로 끌어 놓을 수도 있습니다.</p></div>
+          </div>
+          <p class="sec-label">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button></div>
+        </div>
+        <p class="note">눈에 가장 잘 띕니다. 준비가 필요 없는 시나리오에도 상자와 「본 스텝」 머리 줄이 늘 있습니다.</p>
+      </div>
+
+      <div class="col">
+        <p class="cap"><span class="tag">나</span> 평소 숨김 — 아래 버튼만</p>
+        <div class="panel">
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button><button class="setup-add new">+ 준비 스텝</button></div>
+        </div>
+        <p class="note">지금 화면과 거의 같습니다. 첫 준비 스텝은 끌어서 만들 수 없고, 이 버튼이나 Inspector의 「준비 스텝으로 옮기기」로 만듭니다.</p>
+      </div>
+
+      <div class="col">
+        <p class="cap"><span class="tag">다</span> 「나」 + 끄는 동안에만 놓을 자리</p>
+        <div class="panel">
+          <div class="dropzone over">여기에 놓으면 준비 스텝이 됩니다</div>
+          <div class="rows">
+            <div class="row ghost"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row lift"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button><button class="setup-add new">+ 준비 스텝</button></div>
+        </div>
+        <p class="note">「토큰 발급」을 끄는 중인 모습입니다. 평소에는 「나」와 같고, http 스텝을 집어 <b>목록 맨 위로 가져가면</b> 맨 위에 점선 자리가 열립니다(이때 목록이 한 줄만큼 아래로 밀리고, 포인터가 내려가면 닫힙니다 — 위 결정 메모). 반복·조건·병렬을 집으면 열리지 않습니다.</p>
+      </div>
+    </div>
+    <p class="ask" style="margin-top:16px">기각안 <b>다-2</b>(2026-11-23) — 놓을 자리를 새로 만들지 않고, 아래 「+ 준비 스텝」 버튼이 끄는 동안 놓을 자리로 바뀌는 안. 구현 기준이 아닙니다.</p>
+    <div class="screen cols">
+      <div class="col">
+        <p class="cap"><span class="tag">다-2</span> 평소 — 「나」와 같음</p>
+        <div class="panel">
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button><button class="setup-add new">+ 준비 스텝</button></div>
+        </div>
+      </div>
+      <div class="col">
+        <p class="cap"><span class="tag">다-2</span> http 스텝을 끄는 중 — 버튼이 놓을 자리가 됨</p>
+        <div class="panel">
+          <div class="rows">
+            <div class="row ghost"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button><button class="setup-add" style="border:1.5px dashed var(--a500);background:var(--a50);font-weight:500">여기에 놓으면 준비 스텝</button></div>
+        </div>
+        <p class="note">목록은 움직이지 않습니다. 버튼 줄은 목록 스크롤 밖에 고정돼 있어 스텝이 많아도 늘 보입니다. 버튼 글자가 길어지며 버튼만 넓어집니다(줄이 꽉 차 있으면 버튼이 다음 줄로 넘어갈 수 있음).</p>
+      </div>
+      <div class="col">
+        <p class="cap"><span class="tag">다-2</span> 버튼 위에 올렸을 때</p>
+        <div class="panel">
+          <div class="rows">
+            <div class="row ghost"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button><button class="setup-add" style="border:1.5px dashed var(--a500);background:var(--a100);font-weight:500;box-shadow:0 0 0 2px var(--a200)">여기에 놓으면 준비 스텝</button></div>
+        </div>
+        <p class="note">놓으면 맨 위에 준비 상자가 생기고 그 스텝이 들어갑니다. 아쉬운 점: 준비 구획은 위에 생기는데 놓는 자리는 아래입니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>2. 준비 스텝이 있을 때 — 손잡이와 추가 버튼</h2>
+    <p>준비 행에도 끌기 손잡이(⠿)가 생기고, 상자 안 맨 아래에 추가 버튼이 붙습니다. 누르면 준비 구획 끝에 새 http 스텝이 생기고 선택됩니다. 세 안 모두 같습니다.</p>
+    <div class="screen cols">
+      <div class="col">
+        <p class="cap">평소</p>
+        <div class="panel">
+          <div class="setup-box">
+            <p class="sec-label">준비 스텝 <small>— VU마다 한 번만 실행</small></p>
+            <div class="rows">
+              <div class="row sel"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+              <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>내 정보 확인</b><span>${BASE_URL}/me</span></div></div>
+            </div>
+            <button class="box-add" style="outline:2px solid var(--am300);outline-offset:2px">+ 준비 스텝</button>
+          </div>
+          <p class="sec-label">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>주문 생성</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button></div>
+        </div>
+        <p class="note">준비 스텝이 있으면 아래 버튼 줄의 「+ 준비 스텝」은 내지 않습니다(상자 안 버튼 하나만). 나중에 준비 구획이 반복·조건을 받게 되면 상자 안 버튼 옆에 같은 모양으로 늘어납니다.</p>
+      </div>
+
+      <div class="col">
+        <p class="cap">본 스텝을 준비 구획으로 끄는 중</p>
+        <div class="panel">
+          <div class="setup-box target">
+            <p class="sec-label">준비 스텝 <small>— VU마다 한 번만 실행</small></p>
+            <div class="rows">
+              <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+              <div class="indicator"></div>
+              <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>내 정보 확인</b><span>${BASE_URL}/me</span></div></div>
+            </div>
+            <button class="box-add">+ 준비 스텝</button>
+          </div>
+          <p class="sec-label">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row ghost"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+            <div class="row lift"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>주문 목록 조회</b><span>${BASE_URL}/orders</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>주문 생성</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+        </div>
+        <p class="note">놓일 자리에 파란 줄(지금 구획 사이 끌기에 쓰는 표시와 같음), 받는 상자에 테두리 강조. 반대 방향(준비 → 본 스텝, 반복·조건 안 포함)도 같은 표시입니다.</p>
+      </div>
+
+      <div class="col">
+        <p class="cap">반복을 끄는 중 — 준비 구획은 받지 않음</p>
+        <div class="panel">
+          <div class="setup-box refuse">
+            <p class="sec-label">준비 스텝 <small>— VU마다 한 번만 실행</small></p>
+            <div class="rows">
+              <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>토큰 발급</b><span>${BASE_URL}/auth/token</span></div></div>
+            </div>
+            <button class="box-add">+ 준비 스텝</button>
+          </div>
+          <p class="sec-label">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row lift"><span class="grip">⠿</span><span class="m loop">반복</span><div class="nm"><b>주문 3회</b><span>3회 반복</span></div></div>
+            <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>주문 생성</b><span>${BASE_URL}/orders</span></div></div>
+          </div>
+        </div>
+        <p class="note">http가 아닌 스텝을 집으면 준비 상자가 흐려지고 놓을 자리가 생기지 않습니다(지금 「놓을 수 없는 자리」와 같은 방식 — 놓아도 아무 일도 일어나지 않음).</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>3. Inspector — 준비 스텝의 ↑↓</h2>
+    <p>준비 스텝을 고르면 본 스텝과 같은 자리에 ↑↓가 나옵니다. 준비 구획 안에서만 움직이고, 맨 위·맨 아래에서는 꺼집니다. 「본 스텝으로 옮기기」 줄은 A2 그대로입니다.</p>
+    <div class="screen cols">
+      <div class="col" style="max-width:340px">
+        <div class="insp">
+          <header><h3>HTTP 스텝</h3><div class="btns"><button class="sm new" disabled>↑</button><button class="sm new">↓</button><button class="sm danger">삭제</button></div></header>
+          <div class="moveline setup"><span class="hint">준비 스텝 — VU마다 한 번만 실행됩니다</span><button class="sm">본 스텝으로 옮기기</button></div>
+          <div class="field"><label>이름</label><input value="토큰 발급"></div>
+          <div class="field"><label>URL</label><input value="${BASE_URL}/auth/token"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene">
+    <h2>4. 새 시나리오 갤러리 — 「로그인 흐름」을 고른 직후</h2>
+    <p>지금은 본 스텝 2개로 시작합니다. B1부터는 「로그인」이 준비 스텝, 「내 정보 조회」가 본 스텝으로 시작합니다. 갤러리 카드의 이름·설명은 바꾸지 않습니다.</p>
+    <div class="screen cols">
+      <div class="col" style="max-width:360px">
+        <div class="panel">
+          <div class="setup-box">
+            <p class="sec-label">준비 스텝 <small>— VU마다 한 번만 실행</small></p>
+            <div class="rows">
+              <div class="row"><span class="grip">⠿</span><span class="m post">POST</span><div class="nm"><b>로그인</b><span>${BASE_URL}/login</span></div></div>
+            </div>
+            <button class="box-add">+ 준비 스텝</button>
+          </div>
+          <p class="sec-label">본 스텝 — 반복 실행</p>
+          <div class="rows">
+            <div class="row"><span class="grip">⠿</span><span class="m get">GET</span><div class="nm"><b>내 정보 조회</b><span>${BASE_URL}/me</span></div></div>
+          </div>
+          <div class="addbar"><button>+ HTTP 스텝</button><button>+ 반복</button><button>+ 조건</button><button>+ 병렬</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</html>
