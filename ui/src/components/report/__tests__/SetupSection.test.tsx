@@ -58,6 +58,7 @@ describe("SetupSection", () => {
     await userEvent.setup().click(btn);
     expect(btn).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("로그인")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "준비 스텝 통계" })).toBeInTheDocument();
     expect(screen.getByText("41")).toBeInTheDocument();
     expect(screen.getByText("200: 98")).toBeInTheDocument();
     expect(screen.getByText(`${ko.report.errorKinds.labels.status_assert}: 2`)).toBeInTheDocument();

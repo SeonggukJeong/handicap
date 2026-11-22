@@ -6,7 +6,7 @@
 grep -rnE '\.steps\b|"steps"' ui/src --include='*.ts' --include='*.tsx'
 ```
 
-520건 = 프로덕션 코드 파일 57개 + 테스트 파일 46개(`__tests__`). 아래 표는 프로덕션 파일을 줄 단위로 분류한다. 테스트 파일의 매치는 전부 픽스처·단언이라 「시나리오와 무관」이 아니라 **각 대상 코드의 분류를 따른다**(대상이 A2면 그 테스트도 A2에서 고친다).
+위 명령을 이 커밋 시점에 다시 돌린 결과: 521건 = 프로덕션 코드 파일 56개 + 테스트 파일 46개(`__tests__`·`.test.`), 파일 합계 102개(파일 수 명령: `grep -rlE … | wc -l`, 프로덕션만 `| grep -vcE '__tests__|\.test\.'`). 아래 표는 프로덕션 파일을 줄 단위로 분류한다. 테스트 파일의 매치는 전부 픽스처·단언이라 「시나리오와 무관」이 아니라 **각 대상 코드의 분류를 따른다**(대상이 A2면 그 테스트도 A2에서 고친다).
 
 분류 — **모두**: 준비 스텝도 훑어야 하는 「모든 스텝」 · **본문**: 반복 본문만 · **무관**: 시나리오 스텝이 아님(리포트·계단·trace 행 등).
 처리 — **A1**: 이 task에서 고쳤다 · **A2**: A2에서 고친다 · **-**: 고칠 것 없음.
@@ -38,7 +38,8 @@ grep -rnE '\.steps\b|"steps"' ui/src --include='*.ts' --include='*.tsx'
 | `components/scenario/ValidationBanner.tsx:16` | 모두 | A1 | 준비 스텝을 `collectProblems`에 넘김 |
 | `components/scenario/FlowOutline.tsx:536,537` | 본문 | A1 | 아웃라인은 본문 그대로, 준비 스텝 수 한 줄만 더함 |
 | `components/scenario/FlowOutline.tsx:286` | 무관 | - | parallel 분기 |
-| `components/scenario/VariablesPanel.tsx:568,579` | 모두 | A1 | 사용처 목록·삭제 확인이 준비 스텝 이름을 찾도록 `allSteps` |
+| `components/scenario/VariablesPanel.tsx` (`steps={allSteps(model)}` 2곳) | 모두 | A1 | 사용처 목록·삭제 확인이 준비 스텝 이름을 찾도록 `allSteps` 사용(이 grep에는 더는 안 걸린다) |
+| `components/scenario/VarUsagePopover.tsx` 사용처 점프 (`onJump` → `jumpToStep` → `select(setupId)`, `EditorShell`) | 모두 | A2 | 변수 사용처에 준비 스텝 id가 들어오는데, 점프하면 아웃라인도 Inspector도 못 찾는 준비 스텝 id를 선택한다(A1에서는 준비 스텝을 고를 수 없음). A2에서 준비 구획 행 선택·Inspector와 함께 해결 |
 | `components/scenario/Inspector.tsx:68,158,201,1176` | 본문 | A2 | 준비 스텝을 고를 수 없는 동안(A1)은 대상 아님. A2에서 준비 스텝 선택 시 Inspector(기본값 칸 안내 등) |
 | `components/scenario/TestRunSection.tsx:44` | 모두 | A2 | `traceSteps` — trace 행의 이름·조건 요약 찾기. 준비 행 이름 표시 |
 | `components/scenario/TestRunPanel.tsx:267–339` | 무관 | A2 | trace 행 렌더. 준비 행에 「준비」 표시(D11) |

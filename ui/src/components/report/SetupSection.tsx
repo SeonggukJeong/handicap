@@ -42,7 +42,7 @@ export function SetupSection({ setup, stepMeta, loadModel, steadyNote }: Props) 
           {setup.interrupted > 0 && (
             <p className="mb-2 text-sm text-slate-600">{t.interrupted(setup.interrupted)}</p>
           )}
-          <table className="min-w-full text-sm">
+          <table aria-label={t.stepsLabel} className="min-w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-600">
               <tr>
                 <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>

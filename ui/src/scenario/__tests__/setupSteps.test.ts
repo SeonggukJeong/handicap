@@ -112,6 +112,29 @@ describe("collectProblems — 스텝 id 겹침", () => {
     expect(out).toContainEqual({ kind: "plain", message: ko.editor.problemDuplicateStepId(S1) });
   });
 
+  it("준비 스텝의 빈 URL·스킴 없는 URL도 문제로 낸다(스텝 선택 연결 없음)", () => {
+    const m = modelOf(
+      docYaml(`setup:\n  steps:\n${LOGIN.replace('"${BASE_URL}/login"', '"/login"')}`),
+    );
+    const out = collectProblems(m.steps, null, setupSteps(m));
+    expect(out).toContainEqual({
+      kind: "plain",
+      message: ko.editor.problemUrlNeedsScheme("로그인"),
+    });
+    const empty = modelOf(
+      docYaml(`setup:\n  steps:\n${LOGIN.replace('"${BASE_URL}/login"', '""')}`),
+    );
+    expect(collectProblems(empty.steps, null, setupSteps(empty))).toContainEqual({
+      kind: "plain",
+      message: ko.editor.problemEmptyUrl("로그인"),
+    });
+  });
+
+  it("변수로 시작하는 준비 스텝 URL은 경고하지 않는다", () => {
+    const m = modelOf(WITH_SETUP);
+    expect(collectProblems(m.steps, null, setupSteps(m))).toEqual([]);
+  });
+
   it("겹치지 않으면 문제가 없다", () => {
     const m = modelOf(WITH_SETUP);
     expect(collectProblems(m.steps, null, setupSteps(m))).toEqual([]);
@@ -175,10 +198,7 @@ describe("trust — 준비 스텝", () => {
   });
 
   it("본 스텝에 없을 때와 같은 항목 모양이다", () => {
-    const inBody = docYaml(
-      "",
-      LOGIN.replace("    assert:\n      - status: 200\n", "").replace("로그인", "로그인"),
-    );
+    const inBody = docYaml("", LOGIN.replace("    assert:\n      - status: 200\n", ""));
     const a = evaluateTrust(modelOf(inBody)).checks.find((c) => c.id === "response_validation");
     expect(a?.status).toBe("fail");
     expect(a?.steps.map((s) => s.id)).toEqual([S1]);

@@ -21,7 +21,7 @@ export function collectProblems(
   }
   if (!steps) return [];
   const out: ScenarioProblem[] = [];
-  // 준비 스텝은 A1에서 선택할 수 없으므로 연결 없는 항목(gate)으로 낸다.
+  // 준비 스텝은 A1에서 선택할 수 없으므로 준비 스텝 관련 항목은 연결 없는 `plain`으로 낸다.
   if (setupSteps.length > 0) {
     const seen = new Set<string>();
     const dup = new Set<string>();
@@ -33,17 +33,24 @@ export function collectProblems(
       out.push({ kind: "plain", message: ko.editor.problemDuplicateStepId(id) });
     }
   }
-  for (const s of flattenHttpSteps(steps)) {
-    const url = s.request.url.trim();
-    if (url === "") {
-      out.push({ kind: "step", stepId: s.id, message: ko.editor.problemEmptyUrl(s.name) });
-    } else if (startsWithVar(url)) {
-      // ${...}/{{...}} 로 시작 = 변수 — 런타임 해석값을 모르므로 flag 안 함 (false-negative-safe, R6).
-    } else if (!/^https?:\/\//i.test(url)) {
-      // 변수-prefix가 아닌 리터럴인데 http(s):// 스킴이 없음 → 엔진 fail-fast(status 0). /login·//host·example.com/api·api/users 포괄 (R5/R7).
-      out.push({ kind: "step", stepId: s.id, message: ko.editor.problemUrlNeedsScheme(s.name) });
+  const urlProblems = (list: ReadonlyArray<HttpStep>, selectable: boolean): void => {
+    const push = (s: HttpStep, message: string): void => {
+      out.push(selectable ? { kind: "step", stepId: s.id, message } : { kind: "plain", message });
+    };
+    for (const s of list) {
+      const url = s.request.url.trim();
+      if (url === "") {
+        push(s, ko.editor.problemEmptyUrl(s.name));
+      } else if (startsWithVar(url)) {
+        // ${...}/{{...}} 로 시작 = 변수 — 런타임 해석값을 모르므로 flag 안 함 (false-negative-safe, R6).
+      } else if (!/^https?:\/\//i.test(url)) {
+        // 변수-prefix가 아닌 리터럴인데 http(s):// 스킴이 없음 → 엔진 fail-fast(status 0). /login·//host·example.com/api·api/users 포괄 (R5/R7).
+        push(s, ko.editor.problemUrlNeedsScheme(s.name));
+      }
     }
-  }
+  };
+  urlProblems(setupSteps, false);
+  urlProblems(flattenHttpSteps(steps), true);
   return out;
 }
 
