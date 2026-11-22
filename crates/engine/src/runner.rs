@@ -2198,7 +2198,8 @@ pub async fn run_scenario_open_loop(
         {
             break;
         }
-        // 위 「전부 빠짐」 검사 뒤에 둔다 — 모든 슬롯이 준비에 실패한 run은 `AllVusFailed`다.
+        // 본 스텝이 없는 run: 모든 슬롯이 준비를 마쳤거나 빠졌으면 끝낸다. 전부 빠진 run의
+        // `AllVusFailed`는 어느 break로 나왔든 루프 뒤 `retired` 재검사가 정한다.
         if no_main {
             let Some(o) = &open_setup else {
                 break;

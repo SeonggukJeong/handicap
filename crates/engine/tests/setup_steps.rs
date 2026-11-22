@@ -1029,12 +1029,16 @@ async fn setup_only_curve_waits_for_late_peak() {
     assert!(elapsed >= Duration::from_secs(3), "{elapsed:?}");
 }
 
+/// 준비 think 425ms, 슬롯 4·초당 20(도착 간격 50ms)과 함께 쓴다: 슬롯 k(도착 50k ms)는
+/// 425+50k ms 뒤에 비므로 도착 200·250·300·350·400 ms 다섯 번은 빈 슬롯이 없고(가장 가까운
+/// 해제까지 25ms), 450 ms부터는 늘 빈 슬롯이 있다(가장 가까운 해제 뒤 25ms) — 도착 시각과
+/// 해제 시각이 겹치지 않아 빈 슬롯 없는 도착 수가 매번 5로 같다. 마지막 슬롯 준비 ≈ 575ms.
 fn setup_only_slow_yaml(uri: &str) -> String {
     build_yaml(
         uri,
         &Yaml {
             no_main: true,
-            setup_think: "      think_time: { min_ms: 200, max_ms: 200 }",
+            setup_think: "      think_time: { min_ms: 425, max_ms: 425 }",
             ..Yaml::default()
         },
     )
@@ -1085,7 +1089,25 @@ async fn setup_only_open_loop_partial_failure_ends_ok() {
     .await;
     let elapsed = started.elapsed();
     res.unwrap();
+    // 좋은 계정 슬롯 셋이 모두 준비를 마친 뒤에 끝났다.
+    assert_eq!(issued(&seen), 3);
     assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+}
+
+#[tokio::test]
+async fn setup_only_open_loop_unique_exhausted_counts_nothing() {
+    let seen = Arc::new(Seen::default());
+    let server = server_with(&seen).await;
+    let yaml = setup_only_yaml(&server.uri());
+    // 행 2개 = 슬롯 둘만 준비하고, 셋째 슬롯의 도착에서 소진된다.
+    let ds = dataset(
+        BindingPolicy::Unique,
+        vec![row(&[("user", "good")]), row(&[("user", "good")])],
+    );
+    let (res, flushes) = run(Mode::Open, &yaml, open_plan(20, 4, 5000, vec![ds])).await;
+    res.unwrap();
+    assert_eq!(issued(&seen), 2);
+    assert_eq!(open_seconds(&flushes), (0, 0, 0));
 }
 
 #[tokio::test]
