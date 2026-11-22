@@ -39,8 +39,49 @@ steps:
                 var: s
 `;
 
+const SETUP = `version: 1
+name: t
+cookie_jar: auto
+variables: {}
+setup:
+  steps:
+    - id: 01HX0000000000000000000060
+      name: login
+      type: http
+      request: { method: POST, url: "/login", headers: {} }
+      extract:
+        - from: body
+          path: $.token
+          var: token
+steps:
+  - id: 01HX0000000000000000000061
+    name: me
+    type: http
+    request:
+      method: GET
+      url: "/me"
+      headers:
+        Authorization: "Bearer {{token}}"
+`;
+
 describe("store.renameVariable", () => {
   beforeEach(reset);
+
+  it("renames a setup-only extract and its main-step reference together", () => {
+    useScenarioEditor.getState().loadFromString(SETUP);
+    const err = useScenarioEditor.getState().renameVariable("token", "auth");
+    expect(err).toBeNull();
+    const st = useScenarioEditor.getState();
+    expect(st.yamlError).toBeNull();
+    const setupStep = st.model?.setup?.steps[0];
+    expect(setupStep?.extract.map((e) => e.var)).toEqual(["auth"]);
+    const main = st.model?.steps[0];
+    expect(main?.type === "http" && main.request.headers).toEqual({
+      Authorization: "Bearer {{auth}}",
+    });
+    expect(st.yamlText).not.toContain("{{token");
+    expect(st.yamlText).not.toContain("var: token");
+  });
 
   it("happy: renames declaration key + all references (cast preserved), commits transactionally", () => {
     const s = useScenarioEditor.getState();

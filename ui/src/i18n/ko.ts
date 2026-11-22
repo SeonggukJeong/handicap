@@ -1208,7 +1208,8 @@ export const ko = {
         `VU ${n}개가 준비 스텝에 실패해 본 스텝을 실행하지 않았습니다. 실제 부하는 설정보다 적었습니다.`,
       warnOpen: (n: number) =>
         `슬롯 ${n}개가 준비 스텝에 실패해 run에서 빠졌습니다. 그만큼 보내지 못한 요청이 늘었을 수 있습니다.`,
-      interrupted: (n: number) => `VU ${n}개는 준비 도중 run이 끝났습니다.`,
+      interrupted: (n: number, open: boolean) =>
+        `${open ? "슬롯" : "VU"} ${n}개는 준비 도중 run이 끝났습니다.`,
       steadyNote: "유지 구간 안에서도 준비가 실행됐을 수 있습니다.",
       summaryLine:
         "요약·판정에는 준비 스텝이 들어 있지 않습니다. 본 스텝은 준비가 끝난(로그인된) 상태에서 측정했습니다.",

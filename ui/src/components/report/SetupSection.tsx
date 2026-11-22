@@ -12,6 +12,12 @@ type Props = {
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
+/** 실패 종류 글자 → 한국어 이름. 표에 없는 글자(프로토타입 이름 포함)는 그대로. */
+function kindLabel(k: string): string {
+  const labels: Record<string, string> = ko.report.errorKinds.labels;
+  return Object.hasOwn(labels, k) ? labels[k] : k;
+}
+
 export function SetupSection({ setup, stepMeta, loadModel, steadyNote }: Props) {
   const t = ko.report.setup;
   const open = loadModel === "open";
@@ -40,7 +46,7 @@ export function SetupSection({ setup, stepMeta, loadModel, steadyNote }: Props) 
       {expanded && (
         <div className="mt-2">
           {setup.interrupted > 0 && (
-            <p className="mb-2 text-sm text-slate-600">{t.interrupted(setup.interrupted)}</p>
+            <p className="mb-2 text-sm text-slate-600">{t.interrupted(setup.interrupted, open)}</p>
           )}
           <table aria-label={t.stepsLabel} className="min-w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-600">
@@ -86,7 +92,7 @@ export function SetupSection({ setup, stepMeta, loadModel, steadyNote }: Props) 
               <h4 className="mb-1 text-sm font-semibold text-slate-700">{t.failureKinds}</h4>
               <ul className="list-disc space-y-0.5 pl-5 text-sm">
                 {[...kinds].map(([k, n]) => (
-                  <li key={k}>{`${ko.report.errorKinds.labels[k] ?? k}: ${n}`}</li>
+                  <li key={k}>{`${kindLabel(k)}: ${n}`}</li>
                 ))}
               </ul>
             </div>

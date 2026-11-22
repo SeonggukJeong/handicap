@@ -93,6 +93,20 @@ describe("SetupSection", () => {
     expect(screen.getByText("VU 3개는 준비 도중 run이 끝났습니다.")).toBeInTheDocument();
   });
 
+  it("interrupted > 0 문구 — open-loop은 슬롯", async () => {
+    renderIt(mk({ interrupted: 3 }), { loadModel: "open" });
+    await userEvent.setup().click(screen.getByRole("button", { name: /준비 스텝/ }));
+    expect(screen.getByText("슬롯 3개는 준비 도중 run이 끝났습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/VU 3개는/)).not.toBeInTheDocument();
+  });
+
+  it("Object 프로토타입 이름의 실패 종류는 글자 그대로 보인다", async () => {
+    const base = mk();
+    renderIt(mk({ steps: [{ ...base.steps[0], failure_kinds: { constructor: 1 } }] }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /준비 스텝/ }));
+    expect(screen.getByText("constructor: 1")).toBeInTheDocument();
+  });
+
   it("steadyNote 문구", async () => {
     renderIt(mk(), { steadyNote: true });
     await userEvent.setup().click(screen.getByRole("button", { name: /준비 스텝/ }));

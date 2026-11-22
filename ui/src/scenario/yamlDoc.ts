@@ -625,7 +625,8 @@ export function applyEdit(doc: Document, edit: Edit): void {
           }
         }
       }
-      // (b) 구조적: 전 스텝 트리의 extract[].var === oldName → newName (bare-scalar-any-match 금지).
+      // (b) 구조적: 준비 스텝 + 전 스텝 트리의 extract[].var === oldName → newName (bare-scalar-any-match 금지).
+      renameExtractVars(doc.getIn(["setup", "steps"]), oldName, newName);
       renameExtractVars(doc.getIn(["steps"]), oldName, newName);
       // (c)+(d) 텍스트: 모든 스칼라 VALUE의 {{old}}/{{old:cast}} base만 재작성(cast·공백·나머지 byte 보존).
       // lookahead는 splitFlowToken(flowToken.ts)의 base 판정과 대칭이어야 한다 — 콜론/공백
