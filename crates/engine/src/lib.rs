@@ -16,6 +16,7 @@ pub mod percentiles;
 mod reqgen;
 pub mod runner;
 pub mod scenario;
+mod section;
 pub mod template;
 pub mod trace;
 
@@ -50,6 +51,9 @@ pub use runner::{
 pub use scenario::{
     Assertion, Body, Branch, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep,
     IfStep, LoopStep, ParallelStep, Request, Scenario, SetupSection, Step,
+};
+pub use section::{
+    Section, SectionOutcome, SectionRun, SectionStats, SectionStepStat, SharedSectionStats,
 };
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
 pub use trace::{

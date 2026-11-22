@@ -28,6 +28,12 @@ pub enum EngineError {
         cast: &'static str,
         value: String,
     },
+    #[error("준비 스텝 {step_id} 실패: {kind}{}", .var.as_ref().map(|v| format!(" ({v})")).unwrap_or_default())]
+    SetupFailed {
+        step_id: String,
+        kind: &'static str,
+        var: Option<String>,
+    },
     #[error("aborted")]
     Aborted,
 }
@@ -64,6 +70,8 @@ pub fn safe_cause(e: &EngineError) -> Option<String> {
         | EngineError::UnknownVar(_)
         | EngineError::MalformedTemplate(_)
         | EngineError::Histogram(_) => Some(e.to_string()),
+        // 스텝 id + 고정 분류 글자 + 변수 이름뿐이다(값 없음).
+        EngineError::SetupFailed { .. } => Some(e.to_string()),
         // Name + target type only — never the resolved value. `value` is the
         // post-render, fully-resolved secret this function exists to drop
         // (see executor.rs::render_json_value).
