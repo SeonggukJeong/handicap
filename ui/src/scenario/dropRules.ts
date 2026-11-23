@@ -238,6 +238,17 @@ export function showSetupZone(a: {
   );
 }
 
+/** 준비 놓을 자리가 이번 충돌 계산의 대상인가. dnd-kit은 over를 overId가 바뀔 때만 다시 찾으므로
+ *  droppable이 등록·측정되기 전에 그 id를 돌려주면 over가 null로 굳는다 — 준비될 때까지 "none"(행으로도 새지 않게). */
+export function setupZoneCollision(a: {
+  open: boolean;
+  registered: boolean;
+  measured: boolean;
+}): "normal" | "none" | "zone" {
+  if (!a.open) return "normal";
+  return a.registered && a.measured ? "zone" : "none";
+}
+
 /** 본 스텝이 0개일 때, 준비 스텝을 끄는 동안 본 스텝 자리의 놓을 자리를 그릴지. */
 export function showTopZone(a: { mainCount: number; draggingSetupStep: boolean }): boolean {
   return a.mainCount === 0 && a.draggingSetupStep;

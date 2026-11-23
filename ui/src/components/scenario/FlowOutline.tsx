@@ -48,6 +48,7 @@ import {
   parseDropId,
   SETUP_BAND,
   SETUP_DROP_ID,
+  setupZoneCollision,
   showSetupZone,
   showTopZone,
   TOP_BAND,
@@ -594,7 +595,13 @@ export function FlowOutline({
   // 후보 중 드롭 대상은 nearestByHeader(헤더 근접) 유지. 판정 half를 ref에 기록(R4).
   const collisionDetection = useCallback<CollisionDetection>(
     (args) => {
-      if (setupZoneRef.current) return [{ id: SETUP_DROP_ID }];
+      const zone = setupZoneCollision({
+        open: setupZoneRef.current,
+        registered: args.droppableContainers.some((c) => c.id === SETUP_DROP_ID),
+        measured: args.droppableRects.has(SETUP_DROP_ID),
+      });
+      if (zone === "zone") return [{ id: SETUP_DROP_ID }];
+      if (zone === "none") return [];
       const dragId = args.active.id as string;
       const pointerY = args.pointerCoordinates?.y;
       const allIds = args.droppableContainers.map((c) => c.id as string);

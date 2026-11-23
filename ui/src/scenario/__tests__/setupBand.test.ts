@@ -17,6 +17,7 @@ import {
   setupZoneOpen,
   showSetupZone,
   showTopZone,
+  setupZoneCollision,
 } from "../dropRules";
 import { resolveDrop } from "../reorder";
 import { StepModel, type Step } from "../model";
@@ -218,6 +219,21 @@ describe("setupZoneOpen", () => {
     expect(setupZoneOpen(20, 23)).toBe(false);
     expect(setupZoneOpen(14, 23)).toBe(true);
     expect(setupZoneOpen(23, 23)).toBe(false);
+  });
+});
+
+describe("setupZoneCollision", () => {
+  it("열려 있지 않으면 보통 계산", () => {
+    expect(setupZoneCollision({ open: false, registered: true, measured: true })).toBe("normal");
+    expect(setupZoneCollision({ open: false, registered: false, measured: false })).toBe("normal");
+  });
+  it("열렸어도 등록·측정이 안 끝났으면 대상 없음(행으로 새지 않는다)", () => {
+    expect(setupZoneCollision({ open: true, registered: false, measured: false })).toBe("none");
+    expect(setupZoneCollision({ open: true, registered: true, measured: false })).toBe("none");
+    expect(setupZoneCollision({ open: true, registered: false, measured: true })).toBe("none");
+  });
+  it("열렸고 등록·측정이 끝나면 놓을 자리", () => {
+    expect(setupZoneCollision({ open: true, registered: true, measured: true })).toBe("zone");
   });
 });
 
