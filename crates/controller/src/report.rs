@@ -1347,6 +1347,7 @@ pub fn build_report(
         insight_target,
         insight_scheduled,
         &error_kinds_rolled,
+        &no_sample_steps,
     );
     crate::insights::refine_saturation_stall(
         &mut insights,

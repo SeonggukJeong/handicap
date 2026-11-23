@@ -1574,6 +1574,12 @@ mod tests {
                 n.p99_us
             );
         }
+        // 판정 상태도 같다 — 실행 중 판정과 종료 뒤 계단 표가 같은 표본을 본다.
+        let mon_states = judge(&mon, &c).states;
+        assert_eq!(mon_states.len(), rep.steps.len());
+        for (i, st) in mon_states.iter().enumerate() {
+            assert_eq!(*st, rep.steps[i].state, "step {i} state");
+        }
     }
 
     /// 단일 워커 한 배치. 초 `from..=to`의 창을 전체 = `all_us`(표본들), 실패 칸 = `failed`로 채운다.

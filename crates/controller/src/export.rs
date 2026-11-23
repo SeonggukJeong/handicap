@@ -1454,14 +1454,17 @@ pub fn report_to_stairs_csv(report: &ReportJson) -> Option<Vec<u8>> {
     for (i, s) in st.steps.iter().enumerate() {
         let measured = s.state.shows_numbers();
         let num = |v: String| if measured { v } else { String::new() };
+        // 분포의 바닥이 1µs라 p99 0은 표본 없음뿐이다 — 화면 계단 표와 같은 규칙.
+        let timed = measured && s.p99_us > 0;
+        let ms = |us: u64| if timed { stair_ms(us) } else { String::new() };
         w.write_record([
             s.index.to_string(),
             s.target.to_string(),
             num(s.achieved.map(|a| format!("{a:.2}")).unwrap_or_default()),
             num(format!("{:.2}", s.throughput_rps)),
-            num(stair_ms(s.p50_us)),
-            num(stair_ms(s.p95_us)),
-            num(stair_ms(s.p99_us)),
+            ms(s.p50_us),
+            ms(s.p95_us),
+            ms(s.p99_us),
             num(stair_rate(s.error_rate)),
             num(s.dropped.map(|d| d.to_string()).unwrap_or_default()),
             num(stair_iso(s.measure_start_ms)),
@@ -1516,9 +1519,12 @@ fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
                 ws.write_number(r, 3, l).expect("w");
             }
             ws.write_number(r, 4, s.throughput_rps).expect("w");
-            ws.write_number(r, 5, s.p50_us as f64 / 1000.0).expect("w");
-            ws.write_number(r, 6, s.p95_us as f64 / 1000.0).expect("w");
-            ws.write_number(r, 7, s.p99_us as f64 / 1000.0).expect("w");
+            // p99 0 = 표본 없음(CSV와 같은 규칙) — 세 칸을 비운다.
+            if s.p99_us > 0 {
+                ws.write_number(r, 5, s.p50_us as f64 / 1000.0).expect("w");
+                ws.write_number(r, 6, s.p95_us as f64 / 1000.0).expect("w");
+                ws.write_number(r, 7, s.p99_us as f64 / 1000.0).expect("w");
+            }
             ws.write_number(r, 8, s.error_rate).expect("w");
             if let Some(d) = s.dropped {
                 ws.write_number(r, 9, d as f64).expect("w");
@@ -2691,6 +2697,60 @@ mod tests {
             "1,200,186.00,200.00,4.001,5.000,1234.000,0.020000,12,2023-11-14T22:13:21Z,2023-11-14T22:13:41Z,saturated,달성 93.0% · dropped 12 · 오류 2.0% · p99 3.4×"
         );
         assert_eq!(lines[5], "2,300,,,,,,,,,,not_measured,");
+    }
+
+    /// 측정된 계단인데 통과한 요청이 없다(`p99_us == 0`) — 응답 시간 세 칸은 0.000이 아니라 빈 칸.
+    /// 나머지 숫자 칸은 그대로 쓴다. 화면 `StairTable`과 같은 규칙(`p99_us > 0` = 표본 있음).
+    fn no_sample_stair_report() -> crate::stair::StairReport {
+        use crate::stair::{HeadlineKind, StepState};
+        let mut empty = stair_step(1, 200, StepState::Ok, 0, vec![]);
+        empty.p50_us = 0;
+        empty.p95_us = 0;
+        empty.error_rate = 1.0;
+        stair_report(
+            HeadlineKind::Saturated,
+            Some(200),
+            Some(100),
+            None,
+            false,
+            vec![stair_step(0, 100, StepState::Ok, 40_010, vec![]), empty],
+        )
+    }
+
+    #[test]
+    fn stairs_csv_blank_latency_when_no_passed_sample() {
+        let mut r = report_with_steps(vec![step("a", 1, 1)]);
+        r.stair = Some(no_sample_stair_report());
+        let csv = String::from_utf8(report_to_stairs_csv(&r).unwrap()).unwrap();
+        let rows: Vec<&str> = csv.lines().skip_while(|l| !l.is_empty()).skip(2).collect();
+        assert!(rows[0].contains(",4.001,5.000,40.010,"), "{}", rows[0]);
+        let cells: Vec<&str> = rows[1].split(',').collect();
+        assert_eq!(&cells[4..7], &["", "", ""], "{}", rows[1]);
+        assert_eq!(cells[3], "200.00", "처리량은 그대로");
+        assert_eq!(cells[7], "1.000000", "오류율은 그대로");
+    }
+
+    #[test]
+    fn xlsx_stairs_blank_latency_when_no_passed_sample() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.stair = Some(no_sample_stair_report());
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(report_to_xlsx(&r, None))).unwrap();
+        let ws = wb.worksheet_range("Stairs").unwrap();
+        // 머리말 1줄 + 빈 행 + 머리글 → 계단 0은 3행, 계단 1은 4행.
+        assert_eq!(ws.get_value((2, 0)), Some(&Data::String("index".into())));
+        assert_eq!(ws.get_value((3, 7)), Some(&Data::Float(40.01)));
+        for c in [5u32, 6, 7] {
+            assert!(
+                matches!(ws.get_value((4, c)), None | Some(Data::Empty)),
+                "col {c}: {:?}",
+                ws.get_value((4, c))
+            );
+        }
+        assert_eq!(ws.get_value((4, 4)), Some(&Data::Float(200.0)));
+        assert_eq!(ws.get_value((4, 8)), Some(&Data::Float(1.0)));
     }
 
     #[test]

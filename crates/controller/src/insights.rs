@@ -387,8 +387,8 @@ fn dominant_error_kind(error_kinds: &[crate::report::ErrorKindCount]) -> Option<
         .then(|| best.kind.clone())
 }
 
-// 11 인자: A9 사이징(max_in_flight/target_rps/scheduled_arrivals)에 E2의 error_kinds가
-// 더해져 clippy 임계(7)를 넘는다.
+// 12 인자: A9 사이징(max_in_flight/target_rps/scheduled_arrivals)에 E2의 error_kinds와
+// 통과한 요청 없는 스텝 집합이 더해져 clippy 임계(7)를 넘는다.
 // 모두 별개 read-only 컨텍스트라 struct 묶음은 호출부만 번잡해진다(단일 prod 호출부 + 테스트).
 #[allow(clippy::too_many_arguments)]
 pub fn derive_insights(
@@ -405,6 +405,9 @@ pub fn derive_insights(
     // E1이 운반한 run-level transport 실패 분류(count desc → kind asc 정렬).
     // 비어 있을 수 있다: 과거 run·구 워커 혼합 fan-out(§8 proto additive 거동).
     error_kinds: &[crate::report::ErrorKindCount],
+    // 나눌 수 있는 run에서 통과한 요청이 없는 스텝 — p95가 값이 아니라 slowest_step 후보에서 뺀다.
+    // 나눌 수 없는 run은 비어 있다.
+    latency_missing: &BTreeSet<String>,
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
@@ -414,9 +417,10 @@ pub fn derive_insights(
     //
     // runner_up은 top을 **인덱스로** 제외한 나머지의 최대다. 값으로 제외하면
     // (`p95 != top`) 동률 top에서 3위가 runner_up이 되어 잘못 발행된다.
+    let timed = |s: &ReportStep| !latency_missing.contains(&s.step_id);
     let mut top_idx: Option<usize> = None;
     for (i, s) in steps.iter().enumerate() {
-        if top_idx.is_none_or(|cur| s.p95_ms > steps[cur].p95_ms) {
+        if timed(s) && top_idx.is_none_or(|cur| s.p95_ms > steps[cur].p95_ms) {
             top_idx = Some(i);
         }
     }
@@ -425,7 +429,7 @@ pub fn derive_insights(
         let runner_up = steps
             .iter()
             .enumerate()
-            .filter_map(|(i, s)| (i != ti).then_some(s.p95_ms))
+            .filter_map(|(i, s)| (i != ti && timed(s)).then_some(s.p95_ms))
             .max();
         if let Some(ru) = runner_up {
             let gap = top.p95_ms.saturating_sub(ru);
@@ -784,6 +788,38 @@ mod tests {
     use super::*;
     use crate::report::ReportStep;
 
+    /// 테스트 호출부용 — 「통과한 요청이 없는 스텝」 집합을 비워 넘긴다(나눌 수 없는 run과 같다).
+    /// 집합을 채우는 경우는 `super::derive_insights`를 직접 부른다.
+    #[allow(clippy::too_many_arguments)]
+    fn derive_insights(
+        summary: &ReportSummary,
+        steps: &[ReportStep],
+        windows: &[ReportWindow],
+        status_distribution: &BTreeMap<String, u64>,
+        verdict: Option<&Verdict>,
+        scenario_yaml: &str,
+        dropped: u64,
+        max_in_flight: Option<u32>,
+        target_rps: Option<u32>,
+        scheduled_arrivals: Option<f64>,
+        error_kinds: &[crate::report::ErrorKindCount],
+    ) -> Vec<Insight> {
+        super::derive_insights(
+            summary,
+            steps,
+            windows,
+            status_distribution,
+            verdict,
+            scenario_yaml,
+            dropped,
+            max_in_flight,
+            target_rps,
+            scheduled_arrivals,
+            error_kinds,
+            &BTreeSet::new(),
+        )
+    }
+
     fn step(id: &str, p95: u64) -> ReportStep {
         ReportStep {
             step_id: id.to_string(),
@@ -1024,6 +1060,49 @@ mod tests {
             "D10 판별자: runner_up을 값이 아닌 *인덱스*로 제외해야 미발행. \
              값으로 제외하면 runner_up=40이 되어 잘못 발행된다"
         );
+    }
+
+    /// 나눌 수 있는 run에서 통과한 요청이 없는 스텝(`missing`)은 p95가 0이라도 값이 아니다 —
+    /// 1위·2위 후보에서 뺀다.
+    fn slowest_with_missing(steps: &[ReportStep], missing: &[&str]) -> Option<Insight> {
+        let missing: BTreeSet<String> = missing.iter().map(|s| s.to_string()).collect();
+        super::derive_insights(
+            &summary(),
+            steps,
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+            &[],
+            &missing,
+        )
+        .into_iter()
+        .find(|i| i.kind == "slowest_step")
+    }
+
+    #[test]
+    fn slowest_step_skips_steps_without_passed_requests() {
+        let mut b = step("b", 0);
+        b.error_count = b.count;
+        // B는 전부 실패 — 2위는 C(10)다. B의 0이 2위로 들어가면 runner_up 0.
+        let got = slowest_with_missing(&[step("a", 44), b.clone(), step("c", 10)], &["b"])
+            .expect("A 44 vs C 10 — 격차 34 · 4.4배");
+        assert_eq!(got.step_id.as_deref(), Some("a"));
+        assert_eq!(got.runner_up_ms, Some(10.0));
+
+        // 남는 후보가 A 하나 — 2위가 없으니 내지 않는다.
+        assert!(
+            slowest_with_missing(&[step("a", 44), b.clone()], &["b"]).is_none(),
+            "값이 있는 스텝이 하나뿐이면 slowest_step 없음"
+        );
+
+        // 나눌 수 없는 run(집합이 빔)은 지금 그대로 — 0도 2위가 된다.
+        let old = slowest_with_missing(&[step("a", 44), b], &[]).expect("옛 동작 유지");
+        assert_eq!(old.runner_up_ms, Some(0.0));
     }
 
     fn win(ts: i64, status: &[(&str, u64)]) -> ReportWindow {
