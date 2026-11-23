@@ -228,6 +228,11 @@
 ### A17. 판정 기준·응답 시간 통계 — LoadRunner 수준 이상 — **후보 (2026-11-23 등록)**
 - **방향 (사용자 결정 2026-11-23)**: handicap이 LoadRunner보다 부족해도 되는 것은 **지원 프로토콜뿐**이다. 그 밖의 기능은 LoadRunner 이상을 목표로 한다. 판정 기준은 「사람들이 일반적으로 판정 기준으로 삼는 것」을 모두 걸 수 있어야 한다(정본 `docs/dev/working-rules.md` §11).
 - **왜**: 실무가이드가 「평균 응답 시간 3초 이내」처럼 **평균**으로 권고하는데, handicap 판정은 p50·p95·p99만 받는다. LoadRunner Analysis는 평균이 기본 지표다(요약 보고서의 최소·평균·최대·표준편차·90 Percent, Average Transaction Response Time 그래프, 평균·백분위 SLA).
+- **진행 순서 (사용자 결정 2026-11-23 — 네 슬라이스 사이에는 릴리즈하지 않는다)**:
+  - **① 통과/실패 분리 (passed-latency)** — 응답 시간 값 전부를 통과한 요청 기준으로, 실패한 요청·전체도 볼 수 있게. 워커가 실패한 요청의 응답 시간 분포를 따로 보낸다(엔진·proto·마이그레이션). 사용자 말: "평균에 LoadRunner하고 동일하게 통과 트랜잭션만 평균내는게 맞지 않아?" spec `docs/superpowers/specs/2026-11-23-passed-latency-design.md`, 목업 `docs/superpowers/specs/2026-11-23-passed-latency-mockups/screens.html`. 이번에는 본 스텝만 — 준비 스텝·병렬 묶음·다운로드/대기·조건 반복 분리는 「실패 포함」 표지를 달고 다음 일로(사용자 결정).
+  - **② 4xx·5xx를 기본으로 오류로 세기** — 지금은 상태 코드 검사(`assert: status`)가 없는 스텝의 4xx·5xx 응답이 오류가 아니라서, 검사를 빼먹으면 서버가 전부 500을 내도 오류율 0%·판정 통과로 나온다(`crates/engine/src/executor.rs`의 `Assertion::Status` 루프가 유일한 상태 코드 판정). 다른 도구는 기본이 실패다. 규칙: 검사가 없는 스텝에서 400 이상은 오류, 검사가 있는 스텝은 그 검사를 따른다(4xx가 정상인 스텝은 기대 상태 코드를 적는다). 「이 스텝은 상태 코드를 보지 않음」을 고를 길을 둔다. 함께 맞출 곳: 미리 실행, 운영 모니터 판정, 실행 전 신뢰도 점검, 리포트의 「응답은 오류인데 오류로 안 셌다」 경고(`silent_http_errors`). 기존 시나리오의 오류율이 다음 실행부터 올라갈 수 있다(끝난 run은 그대로) — 릴리즈 노트에 적는다. 자체 US 필요(에디터 화면 포함).
+  - **③ 평균·최대·임의 백분위 판정 + 리포트 통계 칸 (verdict-stats A)** — 아래 항목 1·2·4. spec 초안 `docs/superpowers/specs/2026-11-23-verdict-stats-a-design.md`(보류 — 1차 검토 지적 10건이 §11에 있다. ①·② 위에서 다시 쓴다), 목업 `docs/superpowers/specs/2026-11-23-verdict-stats-a-mockups/a-screens.html`.
+  - **④ 시간대별 평균 응답 시간 그래프 + 인쇄 본문·CSV/XLSX·비교의 통계 칸 (verdict-stats B)** — 아래 항목 3과 항목 4의 나머지 표면.
 - **항목**:
   1. **평균 응답 시간으로 판정** — 전체와 스텝별 판정 기준에 「평균 응답 시간 ≤ N ms」. LoadRunner SLA의 "Average Transaction Response Time" 목표에 대응.
   2. **백분위를 골라서 판정** — 지금은 p50·p95·p99 고정. p90 등 원하는 백분위를 기준으로 걸 수 있게(LoadRunner SLA의 백분위 기준).

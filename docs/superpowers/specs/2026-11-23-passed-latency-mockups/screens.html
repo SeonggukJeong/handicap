@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>passed-latency — 화면 목업</title>
+<style>
+  :root { --s50:#f8fafc; --s100:#f1f5f9; --s200:#e2e8f0; --s300:#cbd5e1; --s400:#94a3b8; --s500:#64748b; --s600:#475569; --s900:#0f172a; --accent:#4f46e5; --accent-bg:#eef2ff; --red:#b91c1c; --green:#047857; --amber-bg:#fffbeb; --amber-bd:#fcd34d; --amber-tx:#92400e; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--s50); color:var(--s900); font:14px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:36px 0 8px; color:var(--s600); }
+  .note { color:var(--s500); font-size:12px; margin:0 0 12px; max-width:900px; }
+  .card { background:#fff; border:1px solid var(--s200); border-radius:8px; padding:16px; max-width:980px; overflow-x:auto; }
+  .new { outline:2px dashed #a5b4fc; outline-offset:3px; border-radius:6px; }
+  .bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:8px 12px; border:1px solid var(--s200); border-radius:6px; background:var(--s50); margin-bottom:10px; }
+  .bar .lbl { font-size:13px; color:var(--s600); font-weight:500; }
+  .seg { display:inline-flex; border:1px solid var(--s300); border-radius:6px; overflow:hidden; background:#fff; }
+  .seg button { font:inherit; font-size:13px; padding:4px 12px; border:0; background:#fff; color:var(--s600); cursor:pointer; border-right:1px solid var(--s300); }
+  .seg button:last-child { border-right:0; }
+  .seg button[aria-pressed="true"] { background:var(--accent-bg); color:var(--accent); font-weight:600; }
+  .hint { font-size:12px; color:var(--s500); }
+  .q { display:inline-block; width:16px; height:16px; border-radius:50%; border:1px solid var(--s400); color:var(--s500); font-size:11px; text-align:center; line-height:14px; }
+  .callout { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:8px 12px; font-size:13px; margin:0 0 10px; }
+  .cards { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; }
+  .kpi { border:1px solid var(--s200); border-radius:6px; padding:8px 10px; } .kpi .l { font-size:12px; color:var(--s500); } .kpi .v { font-size:16px; font-weight:600; }
+  table { border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--s600); font-weight:500; padding:8px 16px 8px 0; border-bottom:1px solid var(--s200); white-space:nowrap; }
+  td { padding:8px 16px 8px 0; border-bottom:1px solid var(--s100); white-space:nowrap; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .muted { color:var(--s400); } .pass { color:var(--green); } .fail { color:var(--red); }
+  .badge { display:inline-block; border-radius:4px; padding:1px 6px; font-size:11px; font-weight:500; background:var(--s100); color:var(--s600); border:1px solid var(--s200); margin-left:6px; vertical-align:middle; }
+  .vb { display:inline-block; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:500; background:#fecaca; color:#7f1d1d; }
+  h3 { margin:0 0 8px; font-size:16px; }
+  @media (max-width:640px){ .cards{ grid-template-columns:repeat(2,1fr);} }
+</style>
+</head>
+<body>
+<h1>passed-latency — 화면 목업</h1>
+<p class="note">점선 테두리 = 이번에 새로 생기는 것. 숫자는 예시(정상 응답 약 40ms, 요청의 20%가 2ms 만에 실패, 일부는 30초 시간 초과).</p>
+
+<h2>1. 리포트 머리 — 기본: 「통과한 요청」 (이번 변경 뒤에 돌린 run)</h2>
+<div class="card">
+  <div class="bar new">
+    <span class="lbl">응답 시간 표본</span>
+    <span class="seg" role="group" aria-label="응답 시간 표본">
+      <button aria-pressed="true">통과한 요청</button><button aria-pressed="false">실패한 요청</button><button aria-pressed="false">전체</button>
+    </span>
+    <span class="q" title="오류로 세지 않은 요청입니다. 상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.">?</span>
+    <span class="hint">응답 시간은 통과한 요청만으로 계산했습니다.</span>
+  </div>
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">24,300</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
+    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
+    <div class="kpi"><div class="l">p50</div><div class="v">41 ms</div></div>
+    <div class="kpi"><div class="l">p95</div><div class="v">58 ms</div></div>
+    <div class="kpi"><div class="l">p99</div><div class="v">77 ms</div></div>
+  </div>
+</div>
+
+<h2>2. 「실패한 요청」으로 바꿨을 때</h2>
+<div class="card">
+  <div class="bar new">
+    <span class="lbl">응답 시간 표본</span>
+    <span class="seg" role="group" aria-label="응답 시간 표본">
+      <button aria-pressed="false">통과한 요청</button><button aria-pressed="true">실패한 요청</button><button aria-pressed="false">전체</button>
+    </span>
+    <span class="q">?</span>
+    <span class="hint">실패한 요청이 실패할 때까지 걸린 시간입니다.</span>
+  </div>
+  <div class="callout new">응답 시간 숫자만 실패한 요청 기준으로 바꿔 보여 줍니다. 판정·인사이트·속도 구간·계단 표는 통과한 요청 기준 그대로입니다.</div>
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">24,300</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
+    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
+    <div class="kpi"><div class="l">p50</div><div class="v">2 ms</div></div>
+    <div class="kpi"><div class="l">p95</div><div class="v">3 ms</div></div>
+    <div class="kpi"><div class="l">p99</div><div class="v">30,001 ms</div></div>
+  </div>
+</div>
+
+<h2>3. 이번 변경 전에 돌린 run (나눌 데이터 없음) — 전환 없이 안내만</h2>
+<div class="card">
+  <div class="bar new">
+    <span class="lbl">응답 시간 표본</span>
+    <span class="badge" style="margin-left:0">전체 (실패한 요청 포함)</span>
+    <span class="hint">이 run은 통과한 요청과 실패한 요청의 응답 시간을 따로 기록하지 않았습니다. 응답 시간에 실패한 요청이 들어 있습니다.</span>
+  </div>
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">24,300</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
+    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
+    <div class="kpi"><div class="l">p50</div><div class="v">39 ms</div></div>
+    <div class="kpi"><div class="l">p95</div><div class="v">57 ms</div></div>
+    <div class="kpi"><div class="l">p99</div><div class="v">30,001 ms</div></div>
+  </div>
+</div>
+
+<h2>4. 판정 표 — 통과한 요청이 하나도 없을 때</h2>
+<div class="card">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0">판정 기준 결과</h3><span class="vb">실패</span></div>
+  <table>
+    <thead><tr><th>지표</th><th>기준</th><th>실측</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr class="new"><td>p95</td><td>≤ 3000 ms</td><td class="fail">통과한 요청 없음</td><td class="fail">✗</td></tr>
+      <tr><td>Error rate</td><td>≤ 1.00%</td><td>100.00%</td><td class="fail">✗</td></tr>
+      <tr class="new"><td><span class="muted">③ 결제 · </span>p95</td><td>≤ 1200 ms</td><td class="fail">통과한 요청 없음</td><td class="fail">✗</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>5. 스텝별 표 — 통과한 요청이 없는 스텝은 「—」</h2>
+<div class="card">
+  <h3>스텝별 결과</h3>
+  <table>
+    <thead><tr><th>스텝</th><th>Method</th><th>URL</th><th class="num">요청</th><th class="num">오류</th><th class="num">p50 ms</th><th class="num">p95 ms</th><th class="num">p99 ms</th></tr></thead>
+    <tbody>
+      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td class="num">40,000</td><td class="num">300</td><td class="num">40</td><td class="num">55</td><td class="num">71</td></tr>
+      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td class="num">40,000</td><td class="num">8,000</td><td class="num">42</td><td class="num">60</td><td class="num">80</td></tr>
+      <tr class="new"><td>③ 결제 (전부 실패)</td><td>POST</td><td>/api/pay</td><td class="num">40,000</td><td class="num">40,000</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>6. 아직 나누지 않은 구획 — 「실패 포함」 표지 (준비 스텝·병렬 묶음·다운로드/대기·조건 반복 분리)</h2>
+<div class="card">
+  <h3>준비 스텝 <span class="badge new">실패 포함</span></h3>
+  <table>
+    <thead><tr><th>스텝</th><th class="num">요청</th><th class="num">오류</th><th class="num">p50 ms</th><th class="num">p95 ms</th><th class="num">최대 ms</th></tr></thead>
+    <tbody><tr><td>로그인</td><td class="num">200</td><td class="num">4</td><td class="num">120</td><td class="num">340</td><td class="num">2,010</td></tr></tbody>
+  </table>
+  <p class="hint" style="margin-top:8px">표지에 마우스를 올리면: 「이 구획의 응답 시간은 실패한 요청도 포함합니다.」</p>
+</div>
+</body>
+</html>
