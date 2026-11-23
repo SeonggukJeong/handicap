@@ -40,10 +40,13 @@ import { loopWarnings } from "../../scenario/loopWarnings";
 import {
   bandIndex,
   bandKey,
+  dropId,
   filterDropCandidates,
   findParentBand,
   keyboardCandidateIds,
   legalTargetBands,
+  parseDropId,
+  SETUP_BAND,
   TOP_BAND,
   type BandRef,
 } from "../../scenario/dropRules";
@@ -69,10 +72,10 @@ const IDLE_DRAG: DragCtx = {
 };
 
 // 빈 else 밴드의 드롭 타깃(spec R4③ — else만 빈-가능 밴드). 드래그 중·합법일 때만 렌더.
-function EmptyBandDrop({ parentId, band }: { parentId: string; band: string }) {
+function EmptyBandDrop({ id }: { id: string }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: `band:${parentId}:${band}`,
-    data: { parentId, band, index: 0 },
+    id,
+    data: { index: 0 },
   });
   return (
     <div
@@ -344,7 +347,9 @@ function OutlineRow({
     "aria-label": ko.editor.outlineRowAria(step.name),
     tabIndex: 0,
     "data-depth": String(depth),
-    ...(view?.wide || view?.onActivate ? { "data-step-id": step.id } : {}),
+    ...(view?.wide || view?.onActivate || band.band === SETUP_BAND.band
+      ? { "data-step-id": step.id }
+      : {}),
     onClick: (e: React.MouseEvent) => {
       select(step.id);
       activate(e.target);
@@ -433,7 +438,7 @@ function OutlineRow({
                   ))}
                 </SortableContext>
                 {children.length === 0 && drag.activeId !== null && legalHere && (
-                  <EmptyBandDrop parentId={childBand.parentId} band={childBand.band} />
+                  <EmptyBandDrop id={dropId(childBand)} />
                 )}
               </div>
             );
@@ -450,39 +455,6 @@ function OutlineRow({
       className={`${rowClassBase} items-center ${hidden} ${indicator}`}
     >
       {dragHandle}
-      <RowContent step={step} wide={view?.wide ?? false} />
-    </div>
-  );
-}
-
-// 준비 구획의 행. 끄는 대상도 놓는 대상도 아니다(useSortable·useDroppable·손잡이 없음).
-function SetupRow({ step, view }: { step: Step; view?: RowView }) {
-  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
-  const select = useScenarioEditor((s) => s.select);
-  const selected = step.id === selectedStepId;
-  const accent = selected ? "border-accent-500 ring-1 ring-accent-500" : "border-slate-200";
-  const activate = () => view?.onActivate?.(step.id);
-  return (
-    <div
-      role="option"
-      aria-selected={selected}
-      aria-label={ko.editor.outlineRowAria(step.name)}
-      tabIndex={0}
-      data-depth="0"
-      data-step-id={step.id}
-      onClick={() => {
-        select(step.id);
-        activate();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          select(step.id);
-          activate();
-        }
-      }}
-      className={`flex items-center gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`}
-    >
       <RowContent step={step} wide={view?.wide ?? false} />
     </div>
   );
@@ -586,7 +558,9 @@ export function FlowOutline({
   const dragCalcRef = useRef<{ legal: Set<string>; index: Map<string, string> } | null>(null);
   // R4 pointer-half: DragEndEvent엔 포인터 좌표가 없어 충돌 콜백이 판정을 기록.
   const halfRef = useRef<{ overId: string; half: "above" | "below" } | null>(null);
-  const activeStep = activeId ? findStepById(steps, activeId) : null;
+  const all = useMemo(() => [...setup, ...steps], [setup, steps]);
+  const addSetupStep = useScenarioEditor((s) => s.addSetupStep);
+  const activeStep = activeId ? findStepById(all, activeId) : null;
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -601,7 +575,7 @@ export function FlowOutline({
       const pointerY = args.pointerCoordinates?.y;
       const allIds = args.droppableContainers.map((c) => c.id as string);
       if (pointerY == null) {
-        const kb = new Set(keyboardCandidateIds(steps, dragId, allIds));
+        const kb = new Set(keyboardCandidateIds(steps, dragId, allIds, setup));
         const candidates = args.droppableContainers.filter((c) => kb.has(c.id as string));
         return closestCenter({ ...args, droppableContainers: candidates });
       }
@@ -609,14 +583,14 @@ export function FlowOutline({
       const candidateIds = new Set(
         calc
           ? filterDropCandidates(allIds, calc.legal, calc.index)
-          : keyboardCandidateIds(steps, dragId, allIds),
+          : keyboardCandidateIds(steps, dragId, allIds, setup),
       );
       const candidates = args.droppableContainers.filter((c) => candidateIds.has(c.id as string));
       if (candidates.length === 0) return [];
       const items = candidates.flatMap((c) => {
         const rect = args.droppableRects.get(c.id);
         if (!rect) return [];
-        const cStep = findStepById(steps, c.id as string);
+        const cStep = findStepById(all, c.id as string);
         const isContainer =
           cStep != null && (isLoopStep(cStep) || isIfStep(cStep) || isParallelStep(cStep));
         return [{ id: c.id as string, top: rect.top, height: rect.height, isContainer }];
@@ -630,13 +604,16 @@ export function FlowOutline({
       }
       return [{ id: overId }];
     },
-    [steps],
+    [steps, setup, all],
   );
 
   const handleDragStart = (event: DragStartEvent) => {
     const id = event.active.id as string;
     setActiveId(id);
-    dragCalcRef.current = { legal: legalTargetBands(steps, id), index: bandIndex(steps) };
+    dragCalcRef.current = {
+      legal: legalTargetBands(steps, id, setup),
+      index: bandIndex(steps, setup),
+    };
     halfRef.current = null;
     setOverInfo(null);
   };
@@ -659,7 +636,7 @@ export function FlowOutline({
       overId !== null && halfRef.current?.overId === overId ? halfRef.current.half : null;
     dragCalcRef.current = null;
     halfRef.current = null;
-    const res = resolveDrop(steps, dragId, overId, half);
+    const res = resolveDrop(steps, dragId, overId, half, setup);
     if (res?.kind === "move") moveStep(res.stepId, res.toIndex);
     else if (res?.kind === "reparent") reparentStep(res.stepId, res.target);
   };
@@ -677,11 +654,11 @@ export function FlowOutline({
 
   const overBandKey = useMemo(() => {
     if (!overInfo) return null;
-    const ph = /^band:([^:]+):(.+)$/.exec(overInfo.id);
-    if (ph) return `${ph[1]}:${ph[2]}`;
-    const b = findParentBand(steps, overInfo.id);
+    const ph = parseDropId(overInfo.id);
+    if (ph) return bandKey(ph);
+    const b = findParentBand(steps, overInfo.id, setup);
     return b ? bandKey(b) : null;
-  }, [overInfo, steps]);
+  }, [overInfo, steps, setup]);
   // 드래그 소스가 속한 밴드(N1 핀: same-band는 half 무시·verbatim 착지) —
   // 인디케이터/하이라이트를 교차-밴드로만 게이트하는 기준(최종리뷰 F1).
   const activeBandKey =
@@ -693,6 +670,13 @@ export function FlowOutline({
     overBandKey,
     activeBandKey,
   };
+  const setupBoxDrag =
+    activeId === null
+      ? ""
+      : `${overBandKey === bandKey(SETUP_BAND) && activeBandKey !== bandKey(SETUP_BAND) ? " ring-2 ring-accent-300" : ""}${
+          drag.legal && !drag.legal.has(bandKey(SETUP_BAND)) ? " opacity-[0.55]" : ""
+        }`;
+  const addSetupClick = () => select(addSetupStep(`Setup ${setup.length + 1}`));
   const view = useMemo<RowView>(
     () => ({ wide, onActivate: onActivateStep }),
     [wide, onActivateStep],
@@ -721,17 +705,37 @@ export function FlowOutline({
               <div
                 role="group"
                 aria-label={`${ko.editor.setupSectionName} ${ko.editor.setupSectionNote}`}
-                className="mb-2.5 rounded-lg border border-accent-200 bg-accent-50 p-2"
+                className={`mb-2.5 rounded-lg border border-accent-200 bg-accent-50 p-2${setupBoxDrag}`}
               >
                 <p className="mb-1 px-0.5 text-[11px] font-semibold text-accent-800">
                   {ko.editor.setupSectionName}{" "}
                   <span className="font-normal text-slate-600">{ko.editor.setupSectionNote}</span>
                 </p>
                 <div className="flex flex-col gap-1">
-                  {setup.map((s) => (
-                    <SetupRow key={s.id} step={s} view={view} />
-                  ))}
+                  <SortableContext
+                    items={setup.map((s) => s.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {setup.map((s, i) => (
+                      <OutlineRow
+                        key={s.id}
+                        step={s}
+                        depth={0}
+                        band={SETUP_BAND}
+                        index={i}
+                        drag={drag}
+                        view={view}
+                      />
+                    ))}
+                  </SortableContext>
                 </div>
+                <button
+                  type="button"
+                  className="mt-1.5 rounded-md border border-dashed border-accent-300 px-2.5 py-1 text-xs text-accent-800"
+                  onClick={addSetupClick}
+                >
+                  {ko.editor.addSetupStep}
+                </button>
               </div>
               <p className="mb-1 px-0.5 text-[11px] font-semibold text-slate-400">
                 {ko.editor.mainSectionTitle}
@@ -791,6 +795,15 @@ export function FlowOutline({
           >
             {ko.editor.addParallel}
           </button>
+          {setup.length === 0 && (
+            <button
+              type="button"
+              className="rounded border border-accent-200 px-3 py-1.5 text-sm text-accent-800 hover:bg-slate-100"
+              onClick={addSetupClick}
+            >
+              {ko.editor.addSetupStep}
+            </button>
+          )}
         </div>
         <p className="mt-1 text-xs text-slate-400">{ko.editor.containerCaption}</p>
       </div>

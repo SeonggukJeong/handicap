@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { FlowOutline } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
 import { resolveDrop } from "../../../scenario/reorder";
+import { setupSteps } from "../../../scenario/model";
+import { ko } from "../../../i18n/ko";
 
 const reset = () => useScenarioEditor.setState(useScenarioEditor.getInitialState());
 
@@ -67,12 +69,14 @@ describe("FlowOutline 준비 구획", () => {
     expect(row).toHaveAttribute("aria-selected", "true");
   });
 
-  it("준비 행에는 끌기 손잡이가 없다", () => {
+  it("준비 행에도 끌기 손잡이가 있다", () => {
     useScenarioEditor.getState().loadFromString(WITH_SETUP);
     render(<FlowOutline />);
     const setupRow = screen.getByRole("option", { name: "스텝: 준비 요청" });
     const mainRow = screen.getByRole("option", { name: "스텝: 조회" });
-    expect(within(setupRow).queryByRole("button")).not.toBeInTheDocument();
+    expect(
+      within(setupRow).getByRole("button", { name: ko.editor.dragHandleAria("준비 요청") }),
+    ).toBeInTheDocument();
     expect(within(mainRow).getByRole("button")).toBeInTheDocument();
   });
 
@@ -114,10 +118,75 @@ describe("FlowOutline 준비 구획", () => {
     ).toBeInTheDocument();
   });
 
-  it("끌기 계산은 준비 스텝 id를 모른다", () => {
+  it("끌기 계산이 준비 스텝을 안다", () => {
     useScenarioEditor.getState().loadFromString(WITH_SETUP);
     const model = useScenarioEditor.getState().model!;
-    expect(resolveDrop(model.steps, B1, S1, "below")).toBeNull();
+    expect(model.steps).toHaveLength(1);
+    expect(resolveDrop(model.steps, B1, S1, "below", setupSteps(model))).toEqual({
+      kind: "reparent",
+      stepId: B1,
+      target: { parentId: null, band: "setup", index: 1 },
+    });
+  });
+
+  it("준비가 있으면 상자 안에 추가 버튼이 있고 아래 줄에는 없다", () => {
+    useScenarioEditor.getState().loadFromString(WITH_SETUP);
+    expect(useScenarioEditor.getState().model).not.toBeNull();
+    render(<FlowOutline />);
+    const box = screen.getByRole("group", { name: GROUP_NAME });
+    expect(within(box).getByRole("button", { name: "+ 준비 스텝" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "+ 준비 스텝" })).toHaveLength(1);
+  });
+
+  it("상자 안 추가 버튼: 준비 구획 끝에 새 스텝이 생기고 선택된다", async () => {
+    useScenarioEditor.getState().loadFromString(WITH_SETUP);
+    render(<FlowOutline />);
+    const box = screen.getByRole("group", { name: GROUP_NAME });
+    await userEvent.click(within(box).getByRole("button", { name: "+ 준비 스텝" }));
+    const st = useScenarioEditor.getState();
+    const list = setupSteps(st.model!);
+    expect(list).toHaveLength(2);
+    expect(list[1].id).toBe(st.selectedStepId);
+    expect(list[1].name).toBe("Setup 2");
+  });
+
+  it("준비가 없으면 아래 버튼 줄에 추가 버튼이 있다", async () => {
+    useScenarioEditor.getState().loadFromString(`version: 1\nname: x\n${BODY}`);
+    expect(useScenarioEditor.getState().model).not.toBeNull();
+    render(<FlowOutline />);
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).not.toBeInTheDocument();
+    const btns = screen.getAllByRole("button", { name: "+ 준비 스텝" });
+    expect(btns).toHaveLength(1);
+    await userEvent.click(btns[0]);
+    const list = setupSteps(useScenarioEditor.getState().model!);
+    expect(list).toHaveLength(1);
+    expect(list[0].name).toBe("Setup 1");
+    expect(screen.getByRole("group", { name: GROUP_NAME })).toBeInTheDocument();
+  });
+
+  it("YAML 오류 상태에서 추가 버튼을 눌러도 준비 스텝이 안 생긴다", async () => {
+    useScenarioEditor.getState().loadFromString(WITH_SETUP);
+    useScenarioEditor.getState().setPendingYamlText("version: [");
+    useScenarioEditor.getState().commitPendingYaml();
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+    render(<FlowOutline />);
+    const box = screen.getByRole("group", { name: GROUP_NAME });
+    await userEvent.click(within(box).getByRole("button", { name: "+ 준비 스텝" }));
+    expect(setupSteps(useScenarioEditor.getState().model!)).toHaveLength(1);
+  });
+
+  it("준비 행의 손잡이를 움직이지 않고 눌러도 순서와 YAML은 안 바뀐다", async () => {
+    useScenarioEditor.getState().loadFromString(WITH_SETUP);
+    render(<FlowOutline />);
+    const before = useScenarioEditor.getState().yamlText;
+    const user = userEvent.setup();
+    const row = screen.getByRole("option", { name: "스텝: 준비 요청" });
+    await user.click(
+      within(row).getByRole("button", { name: ko.editor.dragHandleAria("준비 요청") }),
+    );
+    const st = useScenarioEditor.getState();
+    expect(setupSteps(st.model!).map((s) => s.id)).toEqual([S1]);
+    expect(st.yamlText).toBe(before);
   });
 
   it("A1의 읽기 전용 줄은 없다", () => {

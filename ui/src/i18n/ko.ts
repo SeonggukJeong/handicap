@@ -878,6 +878,8 @@ export const ko = {
     moveToMain: "본 스텝으로 옮기기",
     setupStepHint: "VU마다 한 번만 실행됩니다.",
     setupBadge: "준비",
+    addSetupStep: "+ 준비 스텝",
+    setupDropHint: "여기에 놓으면 준비 스텝이 됩니다",
     setupDefaultUnused: "준비 스텝에서는 쓰이지 않습니다",
     problemGateIntro: "YAML이 유효하지 않아 에디터가 마지막 정상 상태로 표시될 수 있습니다.",
     editBlockedWhileInvalid: "YAML 오류를 고칠 때까지 아웃라인·인스펙터 편집이 차단됩니다.",
