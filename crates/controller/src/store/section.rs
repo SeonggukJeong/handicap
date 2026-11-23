@@ -127,6 +127,39 @@ pub async fn section_outcomes(db: &Db, run_id: &str) -> sqlx::Result<Vec<Section
         .collect())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SectionTotals {
+    pub ok: i64,
+    pub failed: i64,
+    pub interrupted: i64,
+}
+
+/// 한 구간의 모든 워커·배치 행을 합친 VU 결과 수. 행이 없으면 `None`.
+pub async fn section_outcome_totals(
+    db: &Db,
+    run_id: &str,
+    section: &str,
+) -> sqlx::Result<Option<SectionTotals>> {
+    let r = sqlx::query(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(failed),0) AS failed, \
+         COALESCE(SUM(interrupted),0) AS interrupted \
+         FROM run_section_outcomes WHERE run_id = ? AND section = ?",
+    )
+    .bind(run_id)
+    .bind(section)
+    .fetch_one(db)
+    .await?;
+    let n: i64 = r.get("n");
+    if n == 0 {
+        return Ok(None);
+    }
+    Ok(Some(SectionTotals {
+        ok: r.get("ok"),
+        failed: r.get("failed"),
+        interrupted: r.get("interrupted"),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +213,84 @@ mod tests {
         assert_eq!(outs, vec![outcome("R1", 5), outcome("R1", 5)]);
         assert_eq!(section_steps(&db, "R2").await.unwrap().len(), 1);
         assert!(section_outcomes(&db, "R2").await.unwrap().is_empty());
+    }
+
+    fn outcome_row(
+        run: &str,
+        worker: &str,
+        section: &str,
+        ok: i64,
+        failed: i64,
+    ) -> SectionOutcomeRow {
+        SectionOutcomeRow {
+            run_id: run.to_string(),
+            worker_id: worker.to_string(),
+            section: section.to_string(),
+            ok,
+            failed,
+            interrupted: 0,
+            last_done_ms: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn section_outcome_totals_none_without_rows() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        assert_eq!(
+            section_outcome_totals(&db, "R1", "setup").await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn section_outcome_totals_sums_workers_and_batches() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        insert_section_outcome_batch(
+            &db,
+            &[
+                outcome_row("R1", "w0", "setup", 10, 0),
+                outcome_row("R1", "w0", "setup", 20, 1),
+                outcome_row("R1", "w1", "setup", 7, 1),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            section_outcome_totals(&db, "R1", "setup").await.unwrap(),
+            Some(SectionTotals {
+                ok: 37,
+                failed: 2,
+                interrupted: 0
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn section_outcome_totals_ignores_other_sections_and_runs() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        insert_section_outcome_batch(
+            &db,
+            &[
+                outcome_row("R1", "w0", "other", 5, 5),
+                outcome_row("R2", "w0", "setup", 9, 9),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            section_outcome_totals(&db, "R1", "setup").await.unwrap(),
+            None
+        );
+        insert_section_outcome_batch(&db, &[outcome_row("R1", "w0", "setup", 1, 0)])
+            .await
+            .unwrap();
+        assert_eq!(
+            section_outcome_totals(&db, "R1", "setup").await.unwrap(),
+            Some(SectionTotals {
+                ok: 1,
+                failed: 0,
+                interrupted: 0
+            })
+        );
     }
 }

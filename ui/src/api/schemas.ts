@@ -425,6 +425,13 @@ export const PreviewNextSchema = z.object({ next: z.array(z.number()) });
 
 // ── End Run 스케줄러 ─────────────────────────────────────────────────────────
 
+export const SetupLiveSchema = z.object({
+  ok: z.number().int(),
+  failed: z.number().int(),
+  interrupted: z.number().int(),
+});
+export type SetupLive = z.infer<typeof SetupLiveSchema>;
+
 export const RunSchema = z.object({
   id: z.string(),
   scenario_id: z.string(),
@@ -454,6 +461,8 @@ export const RunSchema = z.object({
   auto_stop: AutoStopRecordSchema.optional(),
   // 실행 중 계단 run의 요약: 서버가 없으면 키 생략 → .optional().
   auto_stop_live: StairLiveSchema.optional(),
+  // 실행 중 준비 구간 VU 결과 합: 서버가 없으면 키 생략 → .optional().
+  setup_live: SetupLiveSchema.optional(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

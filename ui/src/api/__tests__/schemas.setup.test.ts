@@ -1,5 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { ReportSchema } from "../schemas";
+import { ReportSchema, RunSchema } from "../schemas";
+
+describe("RunSchema.setup_live", () => {
+  const run = {
+    id: "R1",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+    status: "running",
+    profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+    env: {},
+    started_at: 100,
+    ended_at: null,
+    created_at: 99,
+  };
+
+  it("키가 없는 응답을 받는다", () => {
+    expect(RunSchema.parse(run).setup_live).toBeUndefined();
+  });
+
+  it("키가 있는 응답을 받는다", () => {
+    const r = RunSchema.parse({
+      ...run,
+      setup_live: { ok: 37, failed: 2, interrupted: 0 },
+    });
+    expect(r.setup_live?.ok).toBe(37);
+    expect(r.setup_live?.failed).toBe(2);
+  });
+
+  it("setup_live: null 은 받지 않는다(서버는 키를 생략한다)", () => {
+    expect(RunSchema.safeParse({ ...run, setup_live: null }).success).toBe(false);
+  });
+});
 
 describe("ReportSchema.setup", () => {
   const base = {

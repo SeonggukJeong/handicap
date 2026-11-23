@@ -60,6 +60,16 @@ pub struct RunResponse {
     /// 계단 run 실행 중 요약 — `GET /api/runs/{id}`가 running 계단 run에만 싣는다(아니면 키 생략).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_stop_live: Option<crate::stair_live::LiveState>,
+    /// 실행 중 run의 준비 구간 VU 결과 합 — `GET /api/runs/{id}`가 running이고 행이 있을 때만(아니면 키 생략).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_live: Option<SetupLive>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SetupLive {
+    pub ok: u64,
+    pub failed: u64,
+    pub interrupted: u64,
 }
 
 pub(crate) fn loop_cap_ok(cap: u32, max: u32) -> bool {
@@ -1105,8 +1115,23 @@ pub async fn get(
     } else {
         None
     };
+    let setup_live = if row.status == RunStatus::Running {
+        crate::store::section::section_outcome_totals(
+            &state.db,
+            &id,
+            handicap_engine::Section::Setup.as_str(),
+        )
+        .await?
+    } else {
+        None
+    };
     let mut resp = to_response(row, None);
     resp.auto_stop_live = live;
+    resp.setup_live = setup_live.map(|t| SetupLive {
+        ok: t.ok.max(0) as u64,
+        failed: t.failed.max(0) as u64,
+        interrupted: t.interrupted.max(0) as u64,
+    });
     Ok(Json(resp))
 }
 
@@ -1786,6 +1811,7 @@ fn to_response(r: runs::RunRow, last_metric_ts: Option<i64>) -> RunResponse {
         label: r.label,
         auto_stop,
         auto_stop_live: None,
+        setup_live: None,
     }
 }
 
@@ -4065,6 +4091,90 @@ steps:
         );
         let v = get_json(&state, &id).await;
         assert!(!v.as_object().unwrap().contains_key("auto_stop_live"));
+    }
+
+    async fn seed_setup_rows(state: &AppState, id: &str) {
+        let row = |worker: &str, ok: i64, failed: i64| crate::store::section::SectionOutcomeRow {
+            run_id: id.to_string(),
+            worker_id: worker.to_string(),
+            section: "setup".to_string(),
+            ok,
+            failed,
+            interrupted: 0,
+            last_done_ms: 1,
+        };
+        crate::store::section::insert_section_outcome_batch(
+            &state.db,
+            &[row("w0", 10, 0), row("w0", 20, 1), row("w1", 7, 1)],
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn get_running_run_with_setup_rows_includes_setup_live() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let mut p = unique_profile("unused".into(), 1);
+        p.data_binding = None;
+        let id = seed_run_with(&state, p, RunStatus::Running, false).await;
+        seed_setup_rows(&state, &id).await;
+        let v = get_json(&state, &id).await;
+        assert_eq!(
+            v["setup_live"],
+            serde_json::json!({"ok":37,"failed":2,"interrupted":0})
+        );
+    }
+
+    #[tokio::test]
+    async fn get_running_run_without_setup_rows_has_no_setup_live_key() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let mut p = unique_profile("unused".into(), 1);
+        p.data_binding = None;
+        let id = seed_run_with(&state, p, RunStatus::Running, false).await;
+        let v = get_json(&state, &id).await;
+        assert!(!v.as_object().unwrap().contains_key("setup_live"));
+    }
+
+    #[tokio::test]
+    async fn get_completed_run_with_setup_rows_has_no_setup_live_key() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let mut p = unique_profile("unused".into(), 1);
+        p.data_binding = None;
+        let id = seed_run_with(&state, p, RunStatus::Completed, false).await;
+        seed_setup_rows(&state, &id).await;
+        let v = get_json(&state, &id).await;
+        assert!(!v.as_object().unwrap().contains_key("setup_live"));
+    }
+
+    #[tokio::test]
+    async fn get_pending_run_has_no_setup_live_key() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(&state.db, &sc, yaml)
+            .await
+            .unwrap();
+        let mut p = unique_profile("unused".into(), 1);
+        p.data_binding = None;
+        let id = runs::insert(
+            &state.db,
+            &scenario.id,
+            yaml,
+            &p,
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+        seed_setup_rows(&state, &id).await;
+        let v = get_json(&state, &id).await;
+        assert_eq!(v["status"], "pending");
+        assert!(!v.as_object().unwrap().contains_key("setup_live"));
     }
 
     #[tokio::test]
