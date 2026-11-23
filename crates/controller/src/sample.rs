@@ -173,17 +173,29 @@ impl<'r> SplitHist<'r> {
 
     /// resolve와 같은 결과를 소유권으로. 빼기가 필요 없으면 복사 없이 옮긴다.
     pub fn into_hist(self, s: Sample) -> Option<Histogram<u64>> {
-        if !self.fed {
-            return None;
+        match self.into_resolved(s) {
+            Resolved::Hist(c) => Some(c.into_owned()),
+            _ => None,
         }
-        let keep = |h: Option<Histogram<u64>>| h.filter(|h| !h.is_empty());
+    }
+
+    /// `resolve`와 같은 결과를 소유권으로(`Empty`·`Broken` 구분 유지). 빼기가 필요 없으면 복사 없이 옮긴다.
+    pub fn into_resolved(self, s: Sample) -> Resolved<'static> {
+        if !self.fed {
+            return Resolved::Broken;
+        }
+        let owned = |h: Option<Histogram<u64>>| match h {
+            Some(h) if !h.is_empty() => Resolved::Hist(Cow::Owned(h)),
+            _ => Resolved::Empty,
+        };
         match s {
-            Sample::All => keep(self.all),
-            Sample::Failed => keep(self.failed),
-            Sample::Passed if self.failed.is_none() => keep(self.all),
+            Sample::All => owned(self.all),
+            Sample::Failed => owned(self.failed),
+            Sample::Passed if self.failed.is_none() => owned(self.all),
             Sample::Passed => match self.resolve(Sample::Passed) {
-                Resolved::Hist(c) => Some(c.into_owned()),
-                _ => None,
+                Resolved::Hist(c) => Resolved::Hist(Cow::Owned(c.into_owned())),
+                Resolved::Empty => Resolved::Empty,
+                Resolved::Broken => Resolved::Broken,
             },
         }
     }

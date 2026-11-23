@@ -1,4 +1,4 @@
-use crate::sample::{Sample, SampleBlock, SplitHist};
+use crate::sample::{Resolved, Sample, SampleBlock, SplitHist};
 use crate::store::metrics::{
     GroupMetricRow, IfBranchRow, LoopMetricRow, PhaseMetricRow, WindowWithHdr,
 };
@@ -1175,19 +1175,6 @@ pub fn build_report(
         None
     };
 
-    // 통과한 요청이 하나도 없는 자리(`Empty`만 — 계산 실패 `Broken`은 아니다). 나눌 수 있는 run의 기본 표본에서만.
-    let no_sample_steps: BTreeSet<String> = if split {
-        per_step
-            .iter()
-            .filter(|(id, sh)| {
-                per_step_count.get(*id).is_some_and(|c| c.0 > 0)
-                    && sh.resolve(Sample::Passed).is_empty_sample()
-            })
-            .map(|(id, _)| id.clone())
-            .collect()
-    } else {
-        BTreeSet::new()
-    };
     let no_sample_run = split && total_count > 0 && overall_judging.is_empty_sample();
     // 스텝마다 표본별 분포를 한 번씩만 만든다: 보여 주는 표본이 기본 표본과 다를 때만 빌려서 계산하고,
     // 기본 표본(판정·속도 구간)은 소유권으로 옮겨 속도 구간 입력이 된다.
@@ -1205,10 +1192,21 @@ pub fn build_report(
                 })
                 .collect()
         });
-    let per_step_hists: BTreeMap<String, Histogram<u64>> = per_step
-        .into_iter()
-        .filter_map(|(id, sh)| sh.into_hist(default_sample).map(|h| (id, h)))
-        .collect();
+    // 기본 표본은 스텝마다 한 번만 풀어(빼기 한 번) 판정용 분포와 「통과한 요청 없음」 집합을 함께 만든다.
+    // 집합에는 `Empty`만 들어간다 — 계산 실패 `Broken`은 아니다. 나눌 수 있는 run에서만.
+    let mut no_sample_steps: BTreeSet<String> = BTreeSet::new();
+    let mut per_step_hists: BTreeMap<String, Histogram<u64>> = BTreeMap::new();
+    for (id, sh) in per_step {
+        match sh.into_resolved(default_sample) {
+            Resolved::Hist(h) => {
+                per_step_hists.insert(id, h.into_owned());
+            }
+            Resolved::Empty if split && per_step_count.get(&id).is_some_and(|c| c.0 > 0) => {
+                no_sample_steps.insert(id);
+            }
+            _ => {}
+        }
+    }
 
     let mut steps: Vec<ReportStep> = per_step_count
         .into_iter()
@@ -3586,6 +3584,7 @@ steps:
         for id in ["a", "b"] {
             let r = criterion_row(&v, Some(id));
             assert!(r.no_sample && !r.passed, "step {id}");
+            assert_eq!(r.actual, 0.0, "step {id}");
         }
         let c = criterion_row(&v, Some("c"));
         assert!(!c.no_sample && c.passed);
@@ -3596,11 +3595,9 @@ steps:
 
     #[test]
     fn broken_step_gets_no_no_sample() {
+        // 실패한 요청(40ms)이 전체 분포(2ms)에 없다 — 합쳐서도 행마다도 빼기가 안 돼 `Broken`.
         let rows = vec![
-            WindowWithHdr {
-                hdr_histogram: vec![0xff; 4],
-                ..step_win(100, "a", 5, &[2_000; 5], &[2_000; 5])
-            },
+            step_win(100, "a", 5, &[2_000; 5], &[40_000; 5]),
             step_win(100, "c", 0, &[40_000; 5], &[]),
         ];
         let rep = report_with_run(&verdict_run(), &rows, None);
@@ -3610,6 +3607,25 @@ steps:
         assert_eq!(a.actual, 0.0);
         let json = serde_json::to_value(a).unwrap();
         assert!(!json.as_object().unwrap().contains_key("no_sample"));
+    }
+
+    #[test]
+    fn build_report_every_request_failed_fails_run_latency_criterion() {
+        let rows = vec![
+            step_win(100, "a", 5, &[2_000; 5], &[2_000; 5]),
+            step_win(100, "b", 5, &[], &[]),
+        ];
+        let mut run = run_row();
+        run.profile.criteria = Some(Criteria {
+            max_p95_ms: Some(3000),
+            ..Default::default()
+        });
+        let rep = report_with_run(&run, &rows, None);
+        let v = rep.verdict.expect("verdict");
+        let r = criterion_row(&v, None);
+        assert!(r.no_sample && !r.passed);
+        assert_eq!(r.actual, 0.0);
+        assert!(!v.passed);
     }
 
     #[test]

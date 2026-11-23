@@ -283,3 +283,36 @@ fn resolved_and_decoded_row_are_debug() {
     let _ = format!("{row:?}");
     let _ = format!("{:?}", SplitHist::default().resolve(Sample::All));
 }
+
+#[test]
+fn into_resolved_keeps_the_resolve_variant_for_every_sample() {
+    let kind = |r: &Resolved<'_>| match r {
+        Resolved::Hist(_) => "hist",
+        Resolved::Empty => "empty",
+        Resolved::Broken => "broken",
+    };
+    // (전체, 실패): 일부 통과 · 전부 실패 · 실패 없음 · 빼기가 안 되는 쌍(전체 2ms, 실패 40ms)
+    let cases = [
+        (vec![2_000, 40_000], Some(vec![2_000]), "hist"),
+        (vec![2_000], Some(vec![2_000]), "empty"),
+        (vec![2_000], None, "hist"),
+        (vec![2_000, 2_000], Some(vec![40_000, 40_000]), "broken"),
+    ];
+    for (all, failed, passed_kind) in cases {
+        let (a, f) = (blob(&all), failed.as_deref().map(blob));
+        for s in [Sample::All, Sample::Failed, Sample::Passed] {
+            let mut sh = SplitHist::default();
+            feed(&mut sh, &a, f.as_deref());
+            let want = kind(&sh.resolve(s));
+            if s == Sample::Passed {
+                assert_eq!(want, passed_kind, "{all:?} {failed:?}");
+            }
+            assert_eq!(kind(&sh.into_resolved(s)), want, "{all:?} {failed:?} {s:?}");
+        }
+    }
+    let never_fed = SplitHist::default();
+    assert!(matches!(
+        never_fed.into_resolved(Sample::Passed),
+        Resolved::Broken
+    ));
+}
