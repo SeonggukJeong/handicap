@@ -31,7 +31,9 @@ import type { Profile, RunStatus } from "../api/schemas";
 import { ko } from "../i18n/ko";
 import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
-import { flattenHttpSteps } from "../scenario/model";
+import { flattenHttpSteps, setupSteps } from "../scenario/model";
+import { SetupLiveLine } from "../components/run/SetupLiveLine";
+import { setupLiveView } from "../components/run/setupLive";
 import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/run/RunVuCell";
 import { deriveLoadMode, fixedTarget } from "../components/run/loadModel";
@@ -93,6 +95,13 @@ export function RunDetailPage() {
       url: s.request.url,
     }));
   }, [scenario.data?.yaml]);
+
+  const hasSetup = useMemo(() => {
+    const yaml = run.data?.scenario_yaml;
+    if (!yaml) return false;
+    const parsed = parseScenarioDoc(yaml);
+    return "model" in parsed ? setupSteps(parsed.model).length > 0 : false;
+  }, [run.data?.scenario_yaml]);
 
   const stepMap = useMemo(() => {
     const m = new Map<string, StepMeta>();
@@ -336,6 +345,10 @@ export function RunDetailPage() {
           <Card label={ko.runDetail.cardCreated}>{new Date(r.created_at).toLocaleString()}</Card>
         </div>
       </div>
+
+      {r.status === "running" && hasSetup && (
+        <SetupLiveLine view={setupLiveView(r.profile, r.setup_live)} />
+      )}
 
       {r.status === "failed" && typeof r.message === "string" && r.message.length > 0 && (
         <Callout variant="error" role="alert" className="mb-4">

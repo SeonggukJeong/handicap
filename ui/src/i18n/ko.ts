@@ -1726,6 +1726,17 @@ export const ko = {
     },
   },
   runDetail: {
+    setupLive: {
+      label: "준비 스텝",
+      ofTotal: (total: string, slot: boolean) =>
+        slot ? ` / ${total} 슬롯 완료` : ` / ${total}명 완료`,
+      doneSuffix: (slot: boolean) => (slot ? " 슬롯 완료" : "명 완료"),
+      failed: (n: string, slot: boolean) => (slot ? `실패 ${n} 슬롯` : `실패 ${n}명`),
+      hintVu:
+        "준비에 실패한 사용자는 본 스텝을 실행하지 않습니다. 끝난 뒤 리포트의 「준비 스텝」에서 원인을 볼 수 있습니다.",
+      hintSlot:
+        "준비에 실패한 슬롯은 run에서 빠집니다. 끝난 뒤 리포트의 「준비 스텝」에서 원인을 볼 수 있습니다.",
+    },
     stairLive: {
       title: "계단 진행",
       chipsLabel: "계단별 판정",

@@ -327,6 +327,8 @@ function setupScene(
     s ? { ...m, report: { ...m.report, setup: s } } : m;
   const bm = withSetup(before, b.setup);
   const am = withSetup(after, a.setup);
+  expect(bm.profile === null).toBe(b.profile?.vus === "x");
+  expect(am.profile === null).toBe(a.profile?.vus === "x");
   const pairs = stepPairs(bm, am);
   const rows = metricRows(bm.report.summary, am.report.summary, {
     errorRateReference: hasStar(pairs),
