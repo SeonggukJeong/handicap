@@ -450,6 +450,14 @@ fn merged_failure_kinds(s: &SetupReport) -> std::collections::BTreeMap<String, u
     out
 }
 
+/// Excel 셀 한 칸은 32,767자까지다(그 위는 rust_xlsxwriter가 거절).
+fn xlsx_text(s: &str) -> &str {
+    match s.char_indices().nth(32_767) {
+        Some((i, _)) => &s[..i],
+        None => s,
+    }
+}
+
 /// `Setup` 시트: 요약 3행 → 빈 행 → 스텝 표 → (실패 종류가 있으면) 빈 행 → 실패 종류 표.
 fn write_setup_sheet(
     wb: &mut Workbook,
@@ -486,9 +494,9 @@ fn write_setup_sheet(
     }
     let mut r = 5u32;
     for st in &s.steps {
-        ws.write_string(r, 0, &st.step_id).expect("w");
+        ws.write_string(r, 0, xlsx_text(&st.step_id)).expect("w");
         if let Some(name) = names.get(&st.step_id) {
-            ws.write_string(r, 1, name).expect("w");
+            ws.write_string(r, 1, xlsx_text(name)).expect("w");
         }
         ws.write_number(r, 2, st.count as f64).expect("w");
         ws.write_number(r, 3, st.errors as f64).expect("w");
@@ -3455,6 +3463,22 @@ steps:
         );
         assert_eq!(cell(&ws, 10, 1), Some(&Data::Float(2.0)));
         assert!(is_blank(cell(&ws, 11, 0)));
+    }
+
+    #[test]
+    fn xlsx_setup_sheet_truncates_overlong_step_name() {
+        use calamine::{Data, Reader};
+        for ch in ['a', '가'] {
+            let mut r = report_with_setup();
+            let long: String = std::iter::repeat_n(ch, 40_000).collect();
+            r.scenario_yaml = r.scenario_yaml.replace("sign-in", &long);
+            let mut wb = read_xlsx(report_to_xlsx(&r, None));
+            let ws = wb.worksheet_range("Setup").unwrap();
+            let want: String = std::iter::repeat_n(ch, 32_767).collect();
+            assert_eq!(cell(&ws, 5, 1), Some(&Data::String(want)));
+            assert_eq!(cell(&ws, 5, 2), Some(&Data::Float(50.0)));
+            assert_eq!(cell(&ws, 5, 6), Some(&Data::Float(5004.0)));
+        }
     }
 
     #[test]

@@ -36,8 +36,13 @@ const model = (rows: SetupRow[]): SetupPrintModel => ({
 const TITLE = "3. 준비 스텝 결과";
 
 describe("SetupPrintTable", () => {
+  it("표의 접근 이름은 넘긴 title", () => {
+    render(<SetupPrintTable title={TITLE} model={model([row({ stepId: "a" })])} from={0} to={1} />);
+    expect(screen.getByRole("table", { name: "3. 준비 스텝 결과" })).toBeInTheDocument();
+  });
+
   it("머리 칸 글자", () => {
-    render(<SetupPrintTable model={model([row({ stepId: "a" })])} from={0} to={1} />);
+    render(<SetupPrintTable title={TITLE} model={model([row({ stepId: "a" })])} from={0} to={1} />);
     const heads = screen.getAllByRole("columnheader");
     expect(heads.map((h) => h.childNodes[0]?.textContent)).toEqual([
       "준비 스텝",
@@ -66,7 +71,7 @@ describe("SetupPrintTable", () => {
       }),
       row({ stepId: "b", no: 2, name: "권한", count: 0, p50Ms: null, p95Ms: null, maxMs: null }),
     ]);
-    const { container } = render(<SetupPrintTable model={m} from={0} to={2} />);
+    const { container } = render(<SetupPrintTable title={TITLE} model={m} from={0} to={2} />);
     const trs = container.querySelectorAll("tbody tr");
     expect(trs).toHaveLength(2);
     expect(trs[0]).toHaveClass("p-row--bad");
@@ -86,7 +91,7 @@ describe("SetupPrintTable", () => {
       row({ stepId: "b", name: "나" }),
       row({ stepId: "c", name: "다" }),
     ]);
-    const { container } = render(<SetupPrintTable model={m} from={1} to={2} />);
+    const { container } = render(<SetupPrintTable title={TITLE} model={m} from={1} to={2} />);
     const trs = container.querySelectorAll("tbody tr");
     expect(trs).toHaveLength(1);
     expect(trs[0].textContent).toContain("나");
@@ -103,7 +108,7 @@ describe("SetupPrintTable", () => {
         ],
       }),
     ]);
-    const { container } = render(<SetupPrintTable model={m} from={0} to={1} />);
+    const { container } = render(<SetupPrintTable title={TITLE} model={m} from={0} to={1} />);
     const cell = container.querySelector("tbody tr")!.children[6];
     const pairs = Array.from(cell.querySelectorAll(".p-setup-code"));
     expect(pairs.map((p) => p.textContent)).toEqual(["응답 없음: 1", "200: 47", "503: 2"]);
@@ -112,7 +117,13 @@ describe("SetupPrintTable", () => {
 
   it("측정 시트에서는 행마다 data-measure", () => {
     const { container } = render(
-      <SetupPrintTable model={model([row({ stepId: "a" })])} from={0} to={1} measure />,
+      <SetupPrintTable
+        title={TITLE}
+        model={model([row({ stepId: "a" })])}
+        from={0}
+        to={1}
+        measure
+      />,
     );
     expect(container.querySelector('[data-measure="setup:row:a"]')).not.toBeNull();
     expect(container.querySelector('[data-measure="setup:header"]')).not.toBeNull();

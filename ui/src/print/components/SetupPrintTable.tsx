@@ -90,7 +90,7 @@ export function SetupPrintTable(props: {
   model: SetupPrintModel;
   from: number;
   to: number;
-  title?: string;
+  title: string;
   measure?: boolean;
 }) {
   const { model, from, to, title, measure } = props;
