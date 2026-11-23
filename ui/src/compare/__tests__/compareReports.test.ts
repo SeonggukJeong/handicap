@@ -159,6 +159,20 @@ describe("compareReports setup rows", () => {
     expect(r.setup[0].id).toBeUndefined();
   });
 
+  it("setup rows: order follows the chosen baseline, not array position", () => {
+    const r = compareReports([A(), B(), C()], "B");
+    expect(r.setup.map((x) => [x.label, x.metric])).toEqual([
+      ["setup_ok", "setup_ok"],
+      ["setup_failed", "setup_failed"],
+      ["s3", "p95_ms"],
+      ["s3", "setup_errors"],
+      ["s1", "p95_ms"],
+      ["s1", "setup_errors"],
+      ["s2", "p95_ms"],
+      ["s2", "setup_errors"],
+    ]);
+  });
+
   it("setup rows: run without setup → null cells, no delta", () => {
     const r = compareReports([A(), B(), C()], "A");
     for (const row of r.setup) expect(row.cells[2]).toEqual({ value: null, delta: null });

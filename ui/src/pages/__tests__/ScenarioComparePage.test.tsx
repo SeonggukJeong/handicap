@@ -304,6 +304,17 @@ describe("ScenarioComparePage", () => {
       expect(screen.getByText("POST /login 오류")).toBeInTheDocument();
     });
 
+    it("prefers the baseline's name when runs name the same setup step differently", async () => {
+      mockReports(
+        { scenario_yaml: yamlWith([{ id: S1, name: "sign-in" }]), setup: setupOf([S1]) },
+        { scenario_yaml: yamlWith([{ id: S1, name: "other-name" }]), setup: setupOf([S1]) },
+      );
+      renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+      expect(await screen.findByText("sign-in p95 ms")).toBeInTheDocument();
+      expect(screen.getByText("sign-in 오류")).toBeInTheDocument();
+      expect(screen.queryByText(/other-name/)).not.toBeInTheDocument();
+    });
+
     it("uses another run's name when the baseline lacks the step, else the step id", async () => {
       mockReports(
         { scenario_yaml: yamlWith([{ id: S1, name: "sign-in" }]), setup: setupOf([S1]) },
