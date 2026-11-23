@@ -40,6 +40,7 @@ import { bySecond } from "../../report/bySecond";
 import { Callout } from "../ui/Callout";
 import { PageSection } from "../ui/PageSection";
 import { BasisBar } from "./BasisBar";
+import { SampleBar } from "./SampleBar";
 import { steadyMarks } from "./steadyMarks";
 import { deriveLoadMode } from "../run/loadModel";
 
@@ -53,6 +54,7 @@ type Props = {
 export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
   const sample = reportSample(report).selected;
+  const mixedSample = reportSample(report).split;
   const latency = useMemo(() => ({ sample, counts: summaryCounts(report) }), [sample, report]);
   const marks = useMemo(
     () => steadyMarks(report.basis, seconds[0]?.ts_second ?? null),
@@ -160,6 +162,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           sample={sample}
         />
       )}
+      <SampleBar report={report} />
       <div className={pending ? "opacity-60 transition-opacity" : "transition-opacity"}>
         <ReportHeadline
           summary={report.summary}
@@ -341,6 +344,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           retriedStepIds={retriedStepIds}
           wholeRunBadge={wholeRunBadge}
           sample={sample}
+          mixedSample={mixedSample}
         />
         {report.setup && (
           <SetupSection
@@ -348,6 +352,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
             stepMeta={stepMeta}
             loadModel={rampLoad.loadModel === "open" ? "open" : "vu"}
             steadyNote={rampLoad.loadModel === "open" && report.basis != null}
+            mixedSample={mixedSample}
           />
         )}
         <LoopExitSummary views={loopExitViews} wholeRunBadge={wholeRunBadge} />
@@ -361,6 +366,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           breakdown={report.group_latency ?? []}
           meta={groupMeta}
           wholeRunBadge={wholeRunBadge}
+          mixedSample={mixedSample}
         />
         <ScenarioSnapshot yaml={report.scenario_yaml} />
       </div>

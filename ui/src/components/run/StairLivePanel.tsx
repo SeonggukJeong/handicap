@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import type { StairConfig, StairLive } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { HelpTip } from "../HelpTip";
 import {
   liveEmergencyText,
   liveForecastText,
@@ -102,7 +103,16 @@ function StairLivePanelImpl({ live, stair }: { live: StairLive; stair: StairConf
           );
         })}
       </ol>
-      {texts.emergency && <p className="text-sm text-slate-700">{texts.emergency}</p>}
+      {texts.emergency && (
+        <p className="text-sm text-slate-700">
+          {texts.emergency}
+          {live.emergency_now != null && !live.emergency_now.held && (
+            <HelpTip label={ko.report.sample.stairP99HelpLabel}>
+              {ko.report.sample.stairP99Help}
+            </HelpTip>
+          )}
+        </p>
+      )}
       {live.suspended_seconds > 0 && (
         <p className="text-sm text-slate-500">
           {ko.report.stair.stopSuspendedLine(live.suspended_seconds)}

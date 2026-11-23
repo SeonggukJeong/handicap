@@ -761,7 +761,7 @@ describe("CompareDocument 응답 속도 구간 비교 절", () => {
     expect(container.querySelector('.p-sheet [data-measure="cmp:speed"]')).not.toBeNull();
     await ready(root);
     expect(
-      screen.getByRole("heading", { name: "6. 응답 속도 구간 비교 (전체 요청)" }),
+      screen.getByRole("heading", { name: "6. 응답 속도 구간 비교 (모든 단계)" }),
     ).toBeInTheDocument();
     const table = container.querySelector(".p-page table.p-cmp-spd") as HTMLElement;
     expect(table).not.toBeNull();

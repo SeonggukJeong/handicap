@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ReportSetup } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { MixedSampleBadge } from "./MixedSampleBadge";
 
 type Props = {
   setup: ReportSetup;
@@ -8,6 +9,8 @@ type Props = {
   loadModel: "vu" | "open";
   /** open-loop이고 리포트에 유지 구간 기준(basis)이 있을 때만 true. */
   steadyNote: boolean;
+  /** 응답 시간 표본을 나눈 run이면 이 구획의 값이 실패한 요청도 포함함을 표지로 알린다. */
+  mixedSample?: boolean;
 };
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -18,7 +21,7 @@ function kindLabel(k: string): string {
   return Object.hasOwn(labels, k) ? labels[k] : k;
 }
 
-export function SetupSection({ setup, stepMeta, loadModel, steadyNote }: Props) {
+export function SetupSection({ setup, stepMeta, loadModel, steadyNote, mixedSample }: Props) {
   const t = ko.report.setup;
   const open = loadModel === "open";
   const [expanded, setExpanded] = useState(setup.failed > 0);
@@ -29,15 +32,18 @@ export function SetupSection({ setup, stepMeta, loadModel, steadyNote }: Props) 
 
   return (
     <section aria-label={t.title} className="mb-6">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="text-left text-sm font-semibold text-slate-700 hover:underline"
-      >
-        <span aria-hidden="true">{expanded ? "▾" : "▸"} </span>
-        {t.headline(setup.steps.length, setup.ok, open)}
-      </button>
+      <div className="flex flex-wrap items-center gap-x-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="text-left text-sm font-semibold text-slate-700 hover:underline"
+        >
+          <span aria-hidden="true">{expanded ? "▾" : "▸"} </span>
+          {t.headline(setup.steps.length, setup.ok, open)}
+        </button>
+        {mixedSample && <MixedSampleBadge />}
+      </div>
       {setup.failed > 0 && (
         <p className="mt-1 text-sm text-amber-800">
           {open ? t.warnOpen(setup.failed) : t.warnVu(setup.failed)}

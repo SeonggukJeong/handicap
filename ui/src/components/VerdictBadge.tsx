@@ -1,6 +1,6 @@
 import { useId } from "react";
 import type { Verdict } from "../api/schemas";
-import { METRIC_LABEL, fmt } from "./report/verdictFormat";
+import { METRIC_LABEL, actualText, fmt } from "./report/verdictFormat";
 import { usePopover } from "./usePopover";
 import { ko } from "../i18n/ko";
 
@@ -48,8 +48,10 @@ function FailBadge({ verdict }: { verdict: Verdict }) {
             // step-level criterion이면 같은 metric이 여러 target에 나와 key={c.metric} 충돌 →
             // metric+target+idx 합성. 배지엔 step명을 안 붙임(원시 target degrade, spec §5.3).
             <span key={`${c.metric}-${c.target ?? ""}-${idx}`} className="block">
-              {METRIC_LABEL[c.metric] ?? c.metric} {fmt(c.metric, c.actual)}{" "}
-              {c.direction === "max" ? ">" : "<"} {fmt(c.metric, c.threshold)}
+              {METRIC_LABEL[c.metric] ?? c.metric}{" "}
+              {c.no_sample
+                ? actualText(c)
+                : `${actualText(c)} ${c.direction === "max" ? ">" : "<"} ${fmt(c.metric, c.threshold)}`}
             </span>
           ))}
         </span>

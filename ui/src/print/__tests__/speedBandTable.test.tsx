@@ -55,7 +55,7 @@ describe("SpeedBandTable", () => {
     // total
     const total = rows[5];
     expect(total.classList.contains("p-speed-row--total")).toBe(true);
-    expect(text(total.querySelector("td"))).toBe("전체 요청");
+    expect(text(total.querySelector("td"))).toBe("모든 단계");
   });
 
   it("합친 칸은 colSpan 2", () => {

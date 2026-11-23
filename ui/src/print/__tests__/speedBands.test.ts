@@ -131,7 +131,7 @@ describe("buildSpeedModel", () => {
     expect(m.rows[3].rowBad).toBe(false);
     const total = m.rows[5];
     expect(total.total).toBe(true);
-    expect(total.label).toBe("전체 요청");
+    expect(total.label).toBe("모든 단계");
     expect(total.over).toMatchObject({ text: "7.0%", mark: "bad", glyph: "" });
     expect(total.fail).toMatchObject({ text: "5.4%", mark: "bad", glyph: "" });
     expect(total.ownNote).toBeNull();
@@ -139,7 +139,7 @@ describe("buildSpeedModel", () => {
     expect(m.ruleBoxFail).toBe(true);
     const rule = joined(m.rule?.segs ?? []);
     expect(rule).toBe(
-      "기준 「95% 응답시간 3,000ms 이하」는 3초 초과가 5% 이하여야 통과입니다. 이번 측정은 전체 요청의 7.00%가 3초를 넘어 이 기준은 미달입니다.",
+      "기준 「95% 응답시간 3,000ms 이하」는 3초 초과가 5% 이하여야 통과입니다. 이번 측정은 모든 단계를 합친 요청의 7.00%가 3초를 넘어 이 기준은 미달입니다.",
     );
     expect(rule).not.toContain("넘어 미달");
     expect(m.rule?.segs.find((g) => g.text === "이 기준은 미달")).toMatchObject({
@@ -354,7 +354,7 @@ describe("buildSpeedModel", () => {
     const ranked = [rr(0, "로그인", {}, criteria), rr(1, "첨부 업로드", {}, criteria)];
     const m = build({ bands, ranked, summary: summ(10000, 0), criteria, failing: null });
     const rule = joined(m.rule?.segs ?? []);
-    expect(rule.endsWith("전체 요청의 7.00%가 3초를 넘었습니다.")).toBe(true);
+    expect(rule.endsWith("모든 단계를 합친 요청의 7.00%가 3초를 넘었습니다.")).toBe(true);
     expect(rule).not.toContain("이 기준은");
     expect(rule).not.toContain("미달");
     expect(m.rule?.fail).toBe(false);

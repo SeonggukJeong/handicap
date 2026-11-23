@@ -5,6 +5,7 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { RetryBadge } from "./LoopExitSummary";
+import { MixedSampleBadge } from "./MixedSampleBadge";
 import { WholeRunBadge } from "./WholeRunBadge";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
@@ -17,6 +18,8 @@ type Props = {
   wholeRunBadge?: boolean;
   /** 응답 시간을 계산한 표본 — 그 표본에 요청이 없으면 「—」. */
   sample?: ReportSampleName;
+  /** 응답 시간 표본을 나눈 run이면 아직 나누지 않은 열·행에 「실패 포함」 표지를 단다. */
+  mixedSample?: boolean;
 };
 
 // 하나도 보내지 않은 스텝에는 잰 시간이 없다 — 0으로 찍지 않는다.
@@ -31,6 +34,7 @@ export function StepStatsTable({
   retriedStepIds,
   wholeRunBadge,
   sample = "all",
+  mixedSample,
 }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -79,6 +83,7 @@ export function StepStatsTable({
                 {ko.report.phaseWait} p50
                 <HelpTip label={ko.report.phaseWait}>{ko.report.phaseWaitHelp}</HelpTip>
                 {wholeRunBadge && <WholeRunBadge className="ml-1" />}
+                {mixedSample && <MixedSampleBadge className="ml-1" />}
               </th>
             )}
             {anyDownload && (
@@ -86,6 +91,7 @@ export function StepStatsTable({
                 <th className="py-2 pr-4 font-medium">
                   {ko.report.phaseDownload} p50 ms
                   {wholeRunBadge && <WholeRunBadge className="ml-1" />}
+                  {mixedSample && <MixedSampleBadge className="ml-1" />}
                 </th>
                 <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p95 ms</th>
                 <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p99 ms</th>
@@ -154,6 +160,7 @@ export function StepStatsTable({
                             </HelpTip>
                           )}
                           {k === "final" && wholeRunBadge && <WholeRunBadge className="ml-1" />}
+                          {k === "final" && mixedSample && <MixedSampleBadge className="ml-1" />}
                         </td>
                         <td className="py-2 pr-4" />
                         <td className="py-2 pr-4" />

@@ -55,9 +55,9 @@ export const ko = {
       "기본값이 쓰였는지는 시험 실행과 모니터 기록의 「기본값」 표시로 봅니다. 부하 실행 리포트에는 표시되지 않습니다.",
     vu: "동시 사용자(VU) — 동시에 요청을 보내는 가상 사용자 수입니다.",
     rps: "RPS — 초당 요청 수(Requests Per Second)입니다.",
-    p50: "p50(중앙값) — 전체 요청의 50%가 이 시간 안에 응답했다는 뜻입니다. 낮을수록 좋습니다.",
-    p95: "p95 — 전체 요청의 95%가 이 시간 안에 응답했다는 뜻입니다(꼬리 지연). 낮을수록 좋습니다.",
-    p99: "p99 — 전체 요청의 99%가 이 시간 안에 응답했다는 뜻입니다(최악에 가까운 지연). 낮을수록 좋습니다.",
+    p50: "p50(중앙값) — 요청의 50%가 이 시간 안에 응답했다는 뜻입니다. 낮을수록 좋습니다.",
+    p95: "p95 — 요청의 95%가 이 시간 안에 응답했다는 뜻입니다(꼬리 지연). 낮을수록 좋습니다.",
+    p99: "p99 — 요청의 99%가 이 시간 안에 응답했다는 뜻입니다(최악에 가까운 지연). 낮을수록 좋습니다.",
     rampUp: "상승 시간(ramp-up) — 부하를 0에서 목표치까지 서서히 올리는 시간입니다.",
     closedLoop:
       "사용자 수 기준(closed-loop) — 가상 사용자 N명이 각자 응답을 받은 뒤 다음 요청을 보내는 방식입니다. 일반 시나리오에 적합합니다.",
@@ -1286,6 +1286,25 @@ export const ko = {
       rampOnlyLine: (ramp: number) => `상승 ${ramp}초 포함 전체 구간 값`,
       latencyNote:
         "응답 시간은 응답이 끝난 초에 기록됩니다. 상승 끝에 보낸 느린 요청은 유지 구간 첫 초들에 들어갈 수 있어 앞부분 버림으로 뺍니다.",
+    },
+    // 응답 시간 표본 줄·「실패 포함」 표지 (passed-latency)
+    sample: {
+      barLabel: "응답 시간 표본",
+      passed: "통과한 요청",
+      all: "모든 요청 (실패한 요청 포함)",
+      passedHint:
+        "응답 시간은 통과한 요청만으로 계산했습니다. 실패한 요청은 오류 수에 들어 있습니다.",
+      allHint:
+        "이 run은 통과한 요청과 실패한 요청의 응답 시간을 따로 기록하지 않았습니다. 응답 시간에 실패한 요청이 들어 있습니다.",
+      passedHelp:
+        "오류로 세지 않은 요청입니다. 상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.",
+      helpLabel: "통과한 요청 설명",
+      mixedBadge: "실패 포함",
+      mixedTitle: "이 구획의 응답 시간은 실패한 요청도 포함합니다.",
+      mixedHelpLabel: "실패 포함 표지 설명",
+      noSample: "통과한 요청 없음",
+      stairP99Help: "통과한 요청의 p99입니다.",
+      stairP99HelpLabel: "p99 표본 설명",
     },
     // 계단 시험 결과 섹션 (stage-saturation-table) — 보간 인자는 이미 형식화된 문자열.
     // 머리말·사유 문구는 crates/controller/src/export.rs `stair_headline_text`와 같은 뜻(이중 소스).
@@ -2823,7 +2842,7 @@ export const ko = {
           `(측정 시간이 다릅니다: 이전 ${before}, 이후 ${after})`,
       },
       speed: {
-        aria: "이전·이후 전체 요청의 응답 속도 구간 비교",
+        aria: "이전·이후 모든 단계의 응답 속도 구간 비교",
         colRun: "측정",
         boundary: (b: string) => `${b} 기준`,
         warn: "▲ 두 측정의 응답 시간 기준이 달라 구간을 그대로 비교할 수 없습니다.",
@@ -2985,7 +3004,7 @@ export const ko = {
           dumbbell: "단계별 95% 응답시간 변화",
           errors: "단계별 오류 변화",
           overlay: "시간에 따른 변화 — 겹쳐 보기",
-          speed: "응답 속도 구간 비교 (전체 요청)",
+          speed: "응답 속도 구간 비교 (모든 단계)",
           cond: "측정 조건 대조",
           issues: "남은 문제",
         },
@@ -3253,7 +3272,7 @@ export const ko = {
     glossary: {
       throughput: { term: "처리량", text: "1초에 처리한 요청 수" },
       mean: { term: "평균 응답시간", text: "응답까지 걸린 시간의 평균" },
-      p95: { term: "95% 응답시간", text: "전체 요청의 95%가 이 시간 안에 응답한 기준선" },
+      p95: { term: "95% 응답시간", text: "요청의 95%가 이 시간 안에 응답한 기준선" },
       errorRate: { term: "오류율", text: "도구가 오류로 판정한 요청의 비율" },
       class2xx: "2xx(성공 계열)",
       class3xx: "3xx(이동 계열)",
@@ -3361,7 +3380,7 @@ export const ko = {
       colBar: "응답 속도 비율",
       colFail: "실패",
       dash: "—",
-      totalRow: "전체 요청",
+      totalRow: "모든 단계",
       failSub: "막대와 별개",
       overSubOver: "기준 넘음",
       overSubNoCriteria: "기준 없는 단계는 3초",
@@ -3385,7 +3404,7 @@ export const ko = {
       ): Array<{ text: string; strong?: boolean; bad?: boolean }> => [
         { text: `기준 「${crit}」는 ` },
         { text: `${b} 초과가 ${allow} 이하`, strong: true },
-        { text: "여야 통과입니다. 이번 측정은 전체 요청의 " },
+        { text: "여야 통과입니다. 이번 측정은 모든 단계를 합친 요청의 " },
         { text: pct, strong: true },
         ...(verdict === null
           ? [{ text: `가 ${b}를 넘었습니다.` }]
@@ -3418,7 +3437,7 @@ export const ko = {
       stepRulesRest: (n: number) => `그 밖의 단계 기준 ${n}건은 「그 밖의 기준」 표를 보십시오.`,
       noteDefault: "※ 이 측정에는 응답 시간 기준이 없어 1초·3초로 나눠 보였습니다(판정과 무관).",
       noteDefaultMixed:
-        "※ 응답 시간 기준이 없는 단계와 전체 요청은 1초·3초로 나눠 보였습니다(판정과 무관).",
+        "※ 응답 시간 기준이 없는 단계와 모든 단계 합계는 1초·3초로 나눠 보였습니다(판정과 무관).",
       noteBars: "※ 막대에는 실패한 응답의 시간도 들어 있습니다.",
       noteNamed: (
         glyph: string,

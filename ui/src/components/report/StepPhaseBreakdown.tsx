@@ -4,6 +4,7 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { RetryBadge } from "./LoopExitSummary";
 import { StepStatsTable } from "./StepStatsTable";
+import { MixedSampleBadge } from "./MixedSampleBadge";
 import { WholeRunBadge } from "./WholeRunBadge";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
@@ -15,6 +16,8 @@ type Props = {
   wholeRunBadge?: boolean;
   /** 응답 시간 표본 — 표(StepStatsTable)에 그대로 넘긴다. */
   sample?: ReportSampleName;
+  /** 표본을 나눈 run이면 대기·다운로드·분리 줄에 「실패 포함」 표지를 단다. */
+  mixedSample?: boolean;
 };
 type View = "waterfall" | "chips";
 
@@ -27,10 +30,12 @@ function SplitLine({
   label,
   stats,
   badge,
+  mixed,
 }: {
   label: string;
   stats: LoopSplit["final"];
   badge?: boolean;
+  mixed?: boolean;
 }) {
   const pct = (v: number) => (stats.count === 0 ? "—" : fmt(v));
   return (
@@ -45,11 +50,19 @@ function SplitLine({
         pct(stats.p99_ms),
       )}
       {badge && <WholeRunBadge className="ml-1" />}
+      {mixed && <MixedSampleBadge className="ml-1" />}
     </div>
   );
 }
 
-export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge, sample }: Props) {
+export function StepPhaseBreakdown({
+  steps,
+  meta,
+  retriedStepIds,
+  wholeRunBadge,
+  sample,
+  mixedSample,
+}: Props) {
   const [view, setView] = useState<View>("waterfall");
   const anyPhase = steps.some((s) => s.wait != null || s.download != null);
   if (!anyPhase) {
@@ -61,6 +74,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge,
         retriedStepIds={retriedStepIds}
         wholeRunBadge={wholeRunBadge}
         sample={sample}
+        mixedSample={mixedSample}
       />
     );
   }
@@ -102,6 +116,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge,
           retriedStepIds={retriedStepIds}
           wholeRunBadge={wholeRunBadge}
           sample={sample}
+          mixedSample={mixedSample}
         />
       ) : (
         <div>
@@ -146,6 +161,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge,
                       label={ko.report.loopExit.splitFinal}
                       stats={s.loop_split.final}
                       badge={wholeRunBadge}
+                      mixed={mixedSample}
                     />
                     <SplitLine label={ko.report.loopExit.splitRetry} stats={s.loop_split.retry} />
                   </div>
@@ -169,6 +185,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge,
               {ko.report.phaseDownload}
             </span>
             {wholeRunBadge && <WholeRunBadge />}
+            {mixedSample && <MixedSampleBadge />}
           </div>
         </div>
       )}

@@ -888,7 +888,7 @@ export const ReportSchema = z
 export type Report = z.infer<typeof ReportSchema>;
 
 /** `sample`이 없는 옛 리포트는 나눌 수 없는 run과 같이 「모든 요청」으로 본다. */
-export function reportSample(report: Report): {
+export function reportSample(report: Pick<Report, "sample">): {
   selected: ReportSampleName;
   default: ReportSampleName;
   split: boolean;
