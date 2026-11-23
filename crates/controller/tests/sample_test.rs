@@ -184,3 +184,83 @@ fn per_window_rule() {
     assert!(window_hist_per_window(&all_failed, Some(&f)).is_none());
     assert!(window_hist_per_window(b"garbage-bytes", None).is_none());
 }
+
+#[test]
+fn fallback_keeps_clean_rows_values() {
+    let (a1, f1) = (blob(&[40_000]), blob(&[40_000, 50_000]));
+    let a2 = blob(&[39_000]);
+    let (a3, f3) = (blob(&[41_000, 2_000]), blob(&[2_000]));
+    let mut sh = SplitHist::default();
+    feed(&mut sh, &a1, Some(&f1));
+    feed(&mut sh, &a2, Some(&[]));
+    feed(&mut sh, &a3, Some(&f3));
+    let want = hist(&[39_000, 41_000]);
+    same(sh.resolve(Sample::Passed).hist().unwrap(), &want);
+    same(&sh.into_hist(Sample::Passed).unwrap(), &want);
+}
+
+fn blob_with(high: u64, sigfig: u8, values: &[u64]) -> Vec<u8> {
+    let mut h = Histogram::<u64>::new_with_bounds(1, high, sigfig).unwrap();
+    for v in values {
+        h.record(*v).unwrap();
+    }
+    let mut out = Vec::new();
+    V2Serializer::new().serialize(&h, &mut out).unwrap();
+    out
+}
+
+#[test]
+fn row_with_wider_header_but_values_in_range_is_kept() {
+    let a = blob_with(120_000_000, 3, &[40_000]);
+    let row = decode_row(&a, None).expect("in-range values must be kept");
+    assert_eq!(row.all.len(), 1);
+    let mut sh = SplitHist::default();
+    sh.add(&row, None);
+    assert_eq!(sh.resolve(Sample::All).hist().unwrap().len(), 1);
+}
+
+#[test]
+fn row_above_the_fixed_range_is_dropped_not_panicking() {
+    let a = blob_with(200_000_000, 3, &[70_000_000]);
+    assert!(decode_row(&a, None).is_none());
+    let ok = blob(&[40_000]);
+    assert!(decode_row(&ok, Some(&a)).is_none());
+}
+
+#[test]
+fn row_with_max_value_60s_is_kept() {
+    let a = blob(&[60_000_000]);
+    let f = blob(&[60_000_000]);
+    let row = decode_row(&a, Some(&f)).expect("60_000_000 is the fixed top");
+    let mut sh = SplitHist::default();
+    sh.add(&row, Some((&a, &f)));
+    assert_eq!(sh.resolve(Sample::All).hist().unwrap().len(), 1);
+}
+
+#[test]
+fn failed_samples_without_raw_are_still_counted_as_failed() {
+    let (a, f) = (blob(&[40_000, 2_000]), blob(&[2_000]));
+    let row = decode_row(&a, Some(&f)).unwrap();
+    let mut sh = SplitHist::default();
+    sh.add(&row, None);
+    assert_eq!(sh.resolve(Sample::Failed).hist().unwrap().len(), 1);
+    same(sh.resolve(Sample::Passed).hist().unwrap(), &hist(&[40_000]));
+}
+
+#[test]
+fn inconsistent_row_without_raw_makes_the_slot_broken() {
+    let (a1, f1) = (blob(&[40_000]), blob(&[40_000, 50_000]));
+    let a2 = blob(&[39_000]);
+    let mut sh = SplitHist::default();
+    sh.add(&decode_row(&a1, Some(&f1)).unwrap(), None);
+    feed(&mut sh, &a2, Some(&[]));
+    assert!(matches!(sh.resolve(Sample::Passed), Resolved::Broken));
+}
+
+#[test]
+fn resolved_and_decoded_row_are_debug() {
+    let a = blob(&[40_000]);
+    let row = decode_row(&a, None).unwrap();
+    let _ = format!("{row:?}");
+    let _ = format!("{:?}", SplitHist::default().resolve(Sample::All));
+}

@@ -5,6 +5,7 @@
 //! 행 단위로 다시 계산하고, 그래도 안 되는 행만 버린다.
 
 use std::borrow::Cow;
+use std::sync::OnceLock;
 
 use handicap_engine::percentiles::decode_hdr;
 use hdrhistogram::Histogram;
@@ -34,6 +35,23 @@ fn empty_hist() -> Histogram<u64> {
     Histogram::new_with_bounds(LOW, HIGH, SIGFIG).expect("fixed bounds are valid")
 }
 
+/// 고정 범위 분포(`empty_hist`)에 `add`가 받아 주는 가장 큰 `max()`.
+/// `add`는 원본의 `max()`만 이 값과 견준다(원본의 `high()`는 보지 않는다).
+fn fixed_top() -> u64 {
+    static TOP: OnceLock<u64> = OnceLock::new();
+    *TOP.get_or_init(|| {
+        empty_hist()
+            .iter_all()
+            .last()
+            .map_or(HIGH, |v| v.value_iterated_to())
+    })
+}
+
+fn fits_fixed_range(h: &Histogram<u64>) -> bool {
+    h.is_empty() || h.max() <= fixed_top()
+}
+
+#[derive(Debug)]
 pub struct DecodedRow {
     pub all: Histogram<u64>,
     /// 실패한 요청의 분포. 실패 칸을 읽지 않았거나 비어 있으면 None.
@@ -44,14 +62,14 @@ pub struct DecodedRow {
 /// `failed`에 None을 넘기면 실패 칸을 읽지 않는다(나눌 수 없는 run).
 pub fn decode_row(all: &[u8], failed: Option<&[u8]>) -> Option<DecodedRow> {
     let all = decode_hdr(all).ok()?.unwrap_or_else(empty_hist);
-    if all.high() > HIGH {
+    if !fits_fixed_range(&all) {
         return None;
     }
     let failed = match failed {
         None => None,
         Some(b) => {
             let h = decode_hdr(b).ok()?;
-            if h.as_ref().is_some_and(|h| h.high() > HIGH) {
+            if h.as_ref().is_some_and(|h| !fits_fixed_range(h)) {
                 return None;
             }
             h
@@ -60,6 +78,7 @@ pub fn decode_row(all: &[u8], failed: Option<&[u8]>) -> Option<DecodedRow> {
     Some(DecodedRow { all, failed })
 }
 
+#[derive(Debug)]
 pub enum Resolved<'a> {
     /// 표본이 1개 이상
     Hist(Cow<'a, Histogram<u64>>),
@@ -103,17 +122,24 @@ pub struct SplitHist<'r> {
     fed: bool,
     clean_rows: usize,
     fail_rows: Vec<(&'r [u8], &'r [u8])>,
+    /// 실패 표본이 있는데 `raw`를 받지 못한 행의 수.
+    rows_without_raw: usize,
 }
 
 impl<'r> SplitHist<'r> {
     /// 디코드된 행을 합친다. `raw`는 그 행에 실패 표본이 있을 때만 (전체 BLOB, 실패 BLOB)을 넘긴다.
+    /// 실패 표본은 `raw`와 상관없이 실패 분포에 합쳐진다. `raw` 없이 들어온 실패 행은 행 단위로
+    /// 다시 계산할 수 없으므로, 합친 분포끼리 빼기가 실패하면 이 자리의 통과 표본은 `Broken`이다.
     pub fn add(&mut self, row: &DecodedRow, raw: Option<(&'r [u8], &'r [u8])>) {
         self.fed = true;
         merge(&mut self.all, &row.all);
-        match (&row.failed, raw) {
-            (Some(f), Some(raw)) if !f.is_empty() => {
+        match &row.failed {
+            Some(f) if !f.is_empty() => {
                 merge(&mut self.failed, f);
-                self.fail_rows.push(raw);
+                match raw {
+                    Some(raw) => self.fail_rows.push(raw),
+                    None => self.rows_without_raw += 1,
+                }
             }
             _ => self.clean_rows += 1,
         }
@@ -159,6 +185,9 @@ impl<'r> SplitHist<'r> {
         let Some(mut acc) = self.all.clone() else {
             return Resolved::Broken;
         };
+        if self.rows_without_raw > 0 {
+            return Resolved::Broken;
+        }
         for (a, _) in &self.fail_rows {
             match decode_hdr(a) {
                 Ok(Some(h)) => {
