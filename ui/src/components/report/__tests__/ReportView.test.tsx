@@ -122,7 +122,48 @@ describe("ReportView", () => {
     );
   });
 
-  it("steady_run_reads_as_fixed_everywhere: 버림이 전체 값이면 버림 비율 분모는 other.count", () => {
+  it("표본을 바꿔 본 리포트도 인쇄 링크 주소에 sample이 없다 (R13)", () => {
+    const switched: Report = {
+      ...FIXTURE,
+      sample: { selected: "failed", default: "passed", split: true },
+    };
+    render(<ReportView report={switched} profile={TEST_PROFILE} requestedSample="failed" />);
+    expect(screen.getByRole("link", { name: "보고서 인쇄" })).toHaveAttribute(
+      "href",
+      "/runs/R1/print",
+    );
+  });
+
+  it("표본을 바꿔 본 리포트도 CSV·XLSX 주소에 sample이 없다 (R13)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(downloadFile).mockClear();
+    const switched: Report = {
+      ...FIXTURE,
+      sample: { selected: "failed", default: "passed", split: true },
+    };
+    render(<ReportView report={switched} profile={TEST_PROFILE} requestedSample="failed" />);
+    await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+    await user.click(screen.getByRole("menuitem", { name: "CSV" }));
+    await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+    await user.click(screen.getByRole("menuitem", { name: "XLSX" }));
+    const urls = vi.mocked(downloadFile).mock.calls.map((c) => String(c[0]));
+    expect(urls).toHaveLength(2);
+    for (const u of urls) expect(u).not.toContain("sample");
+  });
+
+  it("표본 단추를 누르면 onSelectSample을 부른다", async () => {
+    const user = userEvent.setup();
+    const onSelectSample = vi.fn();
+    const split: Report = {
+      ...FIXTURE,
+      sample: { selected: "passed", default: "passed", split: true },
+    };
+    render(<ReportView report={split} profile={TEST_PROFILE} onSelectSample={onSelectSample} />);
+    await user.click(screen.getByRole("radio", { name: "실패한 요청" }));
+    expect(onSelectSample).toHaveBeenCalledWith("failed");
+  });
+
+  it("steady_run_reads_as_fixed_everywhere:버림이 전체 값이면 버림 비율 분모는 other.count", () => {
     const steady = { ramp_seconds: 0, hold_seconds: 300, discard_seconds: 5 };
     const report: Report = {
       ...FIXTURE,

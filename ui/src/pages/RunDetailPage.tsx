@@ -19,7 +19,7 @@ import {
   normalizeProfile,
   profileDurationSeconds,
 } from "../api/runPrefill";
-import { DEFAULT_HTTP_TIMEOUT_SECONDS } from "../api/schemas";
+import { DEFAULT_HTTP_TIMEOUT_SECONDS, reportSample } from "../api/schemas";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
 import { AutoStopBadge } from "../components/AutoStopBadge";
@@ -27,7 +27,7 @@ import { VerdictBadge } from "../components/VerdictBadge";
 import { ValidityBadge } from "../components/ValidityBadge";
 import { ReportView } from "../components/report/ReportView";
 import { WholeRunBadge } from "../components/report/WholeRunBadge";
-import type { Profile, RunStatus } from "../api/schemas";
+import type { Profile, ReportSampleName, RunStatus } from "../api/schemas";
 import { ko } from "../i18n/ko";
 import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
@@ -68,11 +68,22 @@ export function RunDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const basisParam = searchParams.get("basis");
   const basis = basisParam === "steady" || basisParam === "whole" ? basisParam : undefined;
-  const report = useRunReport(id, terminal, basis);
+  const sampleParam = searchParams.get("sample");
+  const sample: ReportSampleName | undefined =
+    sampleParam === "passed" || sampleParam === "failed" || sampleParam === "all"
+      ? sampleParam
+      : undefined;
+  const report = useRunReport(id, terminal, basis, sample);
   const selectBasis = (b: "steady" | "whole") => {
     const next = new URLSearchParams(searchParams);
     if (b === report.data?.basis?.default) next.delete("basis");
     else next.set("basis", b);
+    setSearchParams(next, { replace: true });
+  };
+  const selectSample = (s: ReportSampleName) => {
+    const next = new URLSearchParams(searchParams);
+    if (report.data && s === reportSample(report.data).default) next.delete("sample");
+    else next.set("sample", s);
     setSearchParams(next, { replace: true });
   };
   const scenario = useScenario(run.data?.scenario_id);
@@ -366,6 +377,8 @@ export function RunDetailPage() {
           report={report.data}
           profile={normalizeProfile(r.profile)}
           onSelectBasis={selectBasis}
+          requestedSample={sample}
+          onSelectSample={selectSample}
           pending={report.isPlaceholderData}
         />
       ) : (

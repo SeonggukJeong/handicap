@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { reportSample, type Profile, type Report } from "../../api/schemas";
+import { reportSample, type Profile, type Report, type ReportSampleName } from "../../api/schemas";
 import { summaryCounts } from "../../report/hasLatency";
 import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
@@ -48,10 +48,19 @@ type Props = {
   report: Report;
   profile: Profile;
   onSelectBasis?: (b: "steady" | "whole") => void;
+  requestedSample?: ReportSampleName;
+  onSelectSample?: (s: ReportSampleName) => void;
   pending?: boolean;
 };
 
-export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
+export function ReportView({
+  report,
+  profile,
+  onSelectBasis,
+  requestedSample,
+  onSelectSample,
+  pending,
+}: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
   const sample = reportSample(report).selected;
   const mixedSample = reportSample(report).split;
@@ -162,7 +171,12 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           sample={sample}
         />
       )}
-      <SampleBar report={report} />
+      <SampleBar
+        report={report}
+        requested={requestedSample}
+        pending={pending}
+        onSelect={onSelectSample}
+      />
       <div className={pending ? "opacity-60 transition-opacity" : "transition-opacity"}>
         <ReportHeadline
           summary={report.summary}
