@@ -1,6 +1,6 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
-use crate::report::ReportJson;
+use crate::report::{ReportJson, SetupReport};
 use crate::steady::{Basis, BasisState};
 use rust_xlsxwriter::{Color, Format, Workbook, Worksheet};
 use serde::Serialize;
@@ -344,6 +344,99 @@ pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8>
     w.into_inner().expect("flush")
 }
 
+/// 준비 스텝 `id → name`. 시나리오를 못 읽으면 빈 맵.
+fn setup_step_names(scenario_yaml: &str) -> std::collections::HashMap<String, String> {
+    match handicap_engine::Scenario::from_yaml(scenario_yaml) {
+        Ok(sc) => sc
+            .setup_steps()
+            .iter()
+            .map(|s| (s.id().to_string(), s.name().to_string()))
+            .collect(),
+        Err(_) => std::collections::HashMap::new(),
+    }
+}
+
+/// `"0: 1, 200: 47, 503: 2"` — 맵 순서대로.
+fn status_counts_text(m: &std::collections::BTreeMap<String, u64>) -> String {
+    m.iter()
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 준비 스텝들의 `failure_kinds` 합.
+fn merged_failure_kinds(s: &SetupReport) -> std::collections::BTreeMap<String, u64> {
+    let mut out = std::collections::BTreeMap::new();
+    for st in &s.steps {
+        for (k, v) in &st.failure_kinds {
+            *out.entry(k.clone()).or_insert(0) += v;
+        }
+    }
+    out
+}
+
+/// `Setup` 시트: 요약 3행 → 빈 행 → 스텝 표 → (실패 종류가 있으면) 빈 행 → 실패 종류 표.
+fn write_setup_sheet(
+    wb: &mut Workbook,
+    s: &SetupReport,
+    names: &std::collections::HashMap<String, String>,
+) {
+    let ws = wb.add_worksheet();
+    ws.set_name("Setup").expect("sheet name");
+    for (i, (k, v)) in [
+        ("setup_ok", s.ok),
+        ("setup_failed", s.failed),
+        ("setup_interrupted", s.interrupted),
+    ]
+    .iter()
+    .enumerate()
+    {
+        ws.write_string(i as u32, 0, *k).expect("w");
+        ws.write_number(i as u32, 1, *v as f64).expect("w");
+    }
+    for (c, h) in [
+        "step_id",
+        "name",
+        "count",
+        "error_count",
+        "p50_ms",
+        "p95_ms",
+        "max_ms",
+        "status_counts",
+    ]
+    .iter()
+    .enumerate()
+    {
+        ws.write_string(4, c as u16, *h).expect("w");
+    }
+    let mut r = 5u32;
+    for st in &s.steps {
+        ws.write_string(r, 0, &st.step_id).expect("w");
+        if let Some(name) = names.get(&st.step_id) {
+            ws.write_string(r, 1, name).expect("w");
+        }
+        ws.write_number(r, 2, st.count as f64).expect("w");
+        ws.write_number(r, 3, st.errors as f64).expect("w");
+        ws.write_number(r, 4, st.p50_ms as f64).expect("w");
+        ws.write_number(r, 5, st.p95_ms as f64).expect("w");
+        ws.write_number(r, 6, st.max_ms as f64).expect("w");
+        ws.write_string(r, 7, status_counts_text(&st.status_counts))
+            .expect("w");
+        r += 1;
+    }
+    let kinds = merged_failure_kinds(s);
+    if !kinds.is_empty() {
+        r += 1;
+        ws.write_string(r, 0, "failure_kind").expect("w");
+        ws.write_string(r, 1, "count").expect("w");
+        for (k, v) in &kinds {
+            r += 1;
+            ws.write_string(r, 0, k).expect("w");
+            ws.write_number(r, 1, *v as f64).expect("w");
+        }
+    }
+}
+
 /// Single-run CSV = the per-step headline table (fixed columns).
 pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
     let mut w = csv::Writer::from_writer(Vec::new());
@@ -364,6 +457,42 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
             &s.p50_ms.to_string(),
             &s.p95_ms.to_string(),
             &s.p99_ms.to_string(),
+        ])
+        .expect("csv row");
+    }
+    let mut out = w.into_inner().expect("csv flush");
+    let Some(s) = &report.setup else {
+        return out;
+    };
+    out.push(b'\n');
+    let mut w = csv::Writer::from_writer(out);
+    w.write_record(["setup_ok", "setup_failed", "setup_interrupted"])
+        .expect("csv header");
+    w.write_record([
+        s.ok.to_string(),
+        s.failed.to_string(),
+        s.interrupted.to_string(),
+    ])
+    .expect("csv row");
+    let out = w.into_inner().expect("csv flush");
+    let mut w = csv::Writer::from_writer(out);
+    w.write_record([
+        "setup_step_id",
+        "count",
+        "error_count",
+        "p50_ms",
+        "p95_ms",
+        "max_ms",
+    ])
+    .expect("csv header");
+    for st in &s.steps {
+        w.write_record([
+            st.step_id.clone(),
+            st.count.to_string(),
+            st.errors.to_string(),
+            st.p50_ms.to_string(),
+            st.p95_ms.to_string(),
+            st.max_ms.to_string(),
         ])
         .expect("csv row");
     }
@@ -608,6 +737,10 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
     let ws = wb.add_worksheet();
     ws.set_name("Steps").expect("sheet name");
     write_steps_table(ws, 0, &report.steps);
+
+    if let Some(s) = &report.setup {
+        write_setup_sheet(&mut wb, s, &setup_step_names(&report.scenario_yaml));
+    }
 
     // --- Windows sheet ---
     let ws = wb.add_worksheet();
@@ -3006,6 +3139,216 @@ mod tests {
         assert_eq!(
             lines,
             vec!["포화 계단 200 iter/s · 마지막 정상 100 iter/s".to_string()]
+        );
+    }
+
+    const SETUP_ID_A: &str = "01HZZZZZZZZZZZZZZZZZZZZZA1";
+    const SETUP_ID_B: &str = "01HZZZZZZZZZZZZZZZZZZZZZB2";
+
+    fn setup_yaml() -> String {
+        format!(
+            "version: 1
+name: s
+setup:
+  steps:
+    - type: http
+      id: {SETUP_ID_A}
+      name: sign-in
+      request: {{ method: POST, url: \"http://x/login\" }}
+    - type: http
+      id: {SETUP_ID_B}
+      name: roles
+      request: {{ method: GET, url: \"http://x/roles\" }}
+steps:
+  - type: http
+    id: 01HZZZZZZZZZZZZZZZZZZZZZC3
+    name: main
+    request: {{ method: GET, url: \"http://x/\" }}
+"
+        )
+    }
+
+    fn setup_step_report(
+        id: &str,
+        count: u64,
+        errors: u64,
+        ms: (u64, u64, u64),
+        status: &[(&str, u64)],
+        kinds: &[(&str, u64)],
+    ) -> SetupStepReport {
+        SetupStepReport {
+            step_id: id.into(),
+            count,
+            errors,
+            p50_ms: ms.0,
+            p95_ms: ms.1,
+            max_ms: ms.2,
+            status_counts: status.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            failure_kinds: kinds.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        }
+    }
+
+    pub fn report_with_setup() -> ReportJson {
+        let mut r = report_with_steps(vec![step("a", 10, 50), step("b", 20, 99)]);
+        r.scenario_yaml = setup_yaml();
+        r.setup = Some(SetupReport {
+            ok: 47,
+            failed: 3,
+            interrupted: 0,
+            steps: vec![
+                setup_step_report(
+                    SETUP_ID_A,
+                    50,
+                    3,
+                    (92, 410, 5004),
+                    &[("0", 1), ("200", 47), ("503", 2)],
+                    &[("status_assert", 2), ("connect_timeout", 1)],
+                ),
+                setup_step_report(SETUP_ID_B, 47, 0, (33, 51, 70), &[("200", 47)], &[]),
+            ],
+        });
+        r
+    }
+
+    fn cell(ws: &calamine::Range<calamine::Data>, r: u32, c: u32) -> Option<&calamine::Data> {
+        ws.get_value((r, c))
+    }
+
+    #[test]
+    fn xlsx_setup_sheet_follows_steps_and_holds_setup_numbers() {
+        use calamine::{Data, Reader};
+        let mut wb = read_xlsx(report_to_xlsx(&report_with_setup(), None));
+        assert_eq!(
+            wb.sheet_names(),
+            vec!["Summary", "Steps", "Setup", "Windows", "Status"]
+        );
+        let ws = wb.worksheet_range("Setup").unwrap();
+        for (row, key, v) in [
+            (0, "setup_ok", 47.0),
+            (1, "setup_failed", 3.0),
+            (2, "setup_interrupted", 0.0),
+        ] {
+            assert_eq!(cell(&ws, row, 0), Some(&Data::String(key.into())));
+            assert_eq!(cell(&ws, row, 1), Some(&Data::Float(v)), "{key}");
+        }
+        assert!(is_blank(cell(&ws, 3, 0)));
+        let head = [
+            "step_id",
+            "name",
+            "count",
+            "error_count",
+            "p50_ms",
+            "p95_ms",
+            "max_ms",
+            "status_counts",
+        ];
+        for (c, h) in head.iter().enumerate() {
+            assert_eq!(cell(&ws, 4, c as u32), Some(&Data::String((*h).into())));
+        }
+        let rows: [(&str, &str, [f64; 5], &str); 2] = [
+            (
+                SETUP_ID_A,
+                "sign-in",
+                [50.0, 3.0, 92.0, 410.0, 5004.0],
+                "0: 1, 200: 47, 503: 2",
+            ),
+            (
+                SETUP_ID_B,
+                "roles",
+                [47.0, 0.0, 33.0, 51.0, 70.0],
+                "200: 47",
+            ),
+        ];
+        for (i, (id, name, nums, status)) in rows.iter().enumerate() {
+            let r = 5 + i as u32;
+            assert_eq!(cell(&ws, r, 0), Some(&Data::String((*id).into())));
+            assert_eq!(cell(&ws, r, 1), Some(&Data::String((*name).into())));
+            for (j, n) in nums.iter().enumerate() {
+                assert_eq!(cell(&ws, r, 2 + j as u32), Some(&Data::Float(*n)));
+            }
+            assert_eq!(cell(&ws, r, 7), Some(&Data::String((*status).into())));
+        }
+        assert!(is_blank(cell(&ws, 7, 0)));
+        assert_eq!(cell(&ws, 8, 0), Some(&Data::String("failure_kind".into())));
+        assert_eq!(cell(&ws, 8, 1), Some(&Data::String("count".into())));
+        assert_eq!(
+            cell(&ws, 9, 0),
+            Some(&Data::String("connect_timeout".into()))
+        );
+        assert_eq!(cell(&ws, 9, 1), Some(&Data::Float(1.0)));
+        assert_eq!(
+            cell(&ws, 10, 0),
+            Some(&Data::String("status_assert".into()))
+        );
+        assert_eq!(cell(&ws, 10, 1), Some(&Data::Float(2.0)));
+        assert!(is_blank(cell(&ws, 11, 0)));
+    }
+
+    #[test]
+    fn xlsx_setup_sheet_omits_failure_kind_table_when_no_kinds() {
+        use calamine::Reader;
+        let mut r = report_with_setup();
+        for s in &mut r.setup.as_mut().unwrap().steps {
+            s.failure_kinds.clear();
+        }
+        let mut wb = read_xlsx(report_to_xlsx(&r, None));
+        let ws = wb.worksheet_range("Setup").unwrap();
+        for row in 7..12 {
+            for c in 0..2 {
+                assert!(is_blank(cell(&ws, row, c)), "row {row} col {c}");
+            }
+        }
+    }
+
+    #[test]
+    fn xlsx_setup_sheet_name_blank_when_scenario_unreadable() {
+        use calamine::{Data, Reader};
+        let mut r = report_with_setup();
+        r.scenario_yaml = "{{{ not yaml".into();
+        let mut wb = read_xlsx(report_to_xlsx(&r, None));
+        let ws = wb.worksheet_range("Setup").unwrap();
+        assert_eq!(cell(&ws, 5, 0), Some(&Data::String(SETUP_ID_A.into())));
+        assert!(is_blank(cell(&ws, 5, 1)));
+        assert_eq!(cell(&ws, 5, 2), Some(&Data::Float(50.0)));
+        assert_eq!(cell(&ws, 6, 3), Some(&Data::Float(0.0)));
+    }
+
+    #[test]
+    fn xlsx_without_setup_has_no_setup_sheet() {
+        use calamine::Reader;
+        let r = report_with_steps(vec![step("a", 10, 50)]);
+        let wb = read_xlsx(report_to_xlsx(&r, None));
+        assert!(!wb.sheet_names().iter().any(|n| n == "Setup"));
+        assert_eq!(
+            wb.sheet_names(),
+            vec!["Summary", "Steps", "Windows", "Status"]
+        );
+    }
+
+    #[test]
+    fn csv_setup_section_follows_steps_after_blank_line() {
+        let csv = String::from_utf8(report_to_csv(&report_with_setup())).unwrap();
+        let expected = format!(
+            "step_id,count,error_count,p50_ms,p95_ms,p99_ms\n\
+             a,10,0,1,50,50\n\
+             b,20,0,1,99,99\n\
+             \n\
+             setup_ok,setup_failed,setup_interrupted\n\
+             47,3,0\n\
+             setup_step_id,count,error_count,p50_ms,p95_ms,max_ms\n\
+             {SETUP_ID_A},50,3,92,410,5004\n\
+             {SETUP_ID_B},47,0,33,51,70\n"
+        );
+        assert_eq!(csv, expected);
+    }
+
+    #[test]
+    fn csv_without_setup_is_unchanged() {
+        let r = report_with_steps(vec![step("a", 10, 50), step("b", 20, 99)]);
+        let csv = String::from_utf8(report_to_csv(&r)).unwrap();
+        assert_eq!(
+            csv,
+            "step_id,count,error_count,p50_ms,p95_ms,p99_ms\na,10,0,1,50,50\nb,20,0,1,99,99\n"
         );
     }
 }
