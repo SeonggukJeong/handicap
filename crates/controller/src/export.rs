@@ -89,7 +89,7 @@ fn summary_metric(s: &crate::report::ReportSummary, metric: &str) -> f64 {
 /// 통과한 요청이 하나도 없어 응답 시간이 「값 없음」인가. 통과 = `count − errors`
 /// (「보내지 않음」도 오류에 든다). 나눌 수 없는 옛 run은 `default == All`이라 늘 거짓.
 fn latency_missing(sample: &SampleBlock, count: u64, errors: u64) -> bool {
-    sample.default == Sample::Passed && count > 0 && count == errors
+    sample.default == Sample::Passed && count == errors
 }
 
 /// 비교용 요약 값. 응답 시간 지표가 값 없음이면 `None`.
@@ -861,7 +861,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         if mark_basis {
             ws.write_string(row, 6, basis_label(r)).expect("w");
         }
-        ws.write_string(row, sample_col, sample_label(r.sample.selected))
+        ws.write_string(row, sample_col, sample_label(r.sample.default))
             .expect("w");
         ws.write_string(row, 0, &r.run.id).expect("w");
         ws.write_string(row, 1, r.run.label.as_deref().unwrap_or(""))
@@ -947,7 +947,7 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
         }
     }
     ws.write_string(next_row, 0, "latency_sample").expect("w");
-    ws.write_string(next_row, 1, sample_label(report.sample.selected))
+    ws.write_string(next_row, 1, sample_label(report.sample.default))
         .expect("w");
 
     // --- Steps sheet ---
@@ -3941,6 +3941,19 @@ steps:
             Some(&Data::String("latency_sample".into()))
         );
         assert_eq!(ws.get_value((last, 1)), Some(&Data::String("all".into())));
+        // 내보내기는 기본 표본만 쓴다: 표시 표본이 달라도 적는 값은 default다.
+        let mut shown = split_run("s", false, 40);
+        shown.sample.selected = crate::sample::Sample::Failed;
+        let mut wb = read_xlsx(report_to_xlsx(&shown, None));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        let (last, _) = ws.end().unwrap();
+        assert_eq!(
+            ws.get_value((last, 1)),
+            Some(&Data::String("passed".into()))
+        );
+        let mut wb = read_xlsx(comparison_to_xlsx(&[shown], 0));
+        let runs = wb.worksheet_range("Runs").unwrap();
+        assert_eq!(runs.get_value((1, 6)), Some(&Data::String("passed".into())));
     }
 
     #[test]
@@ -3990,7 +4003,7 @@ steps:
         let csv = String::from_utf8(report_to_csv(&r)).unwrap();
         assert_eq!(csv.lines().nth(1).unwrap(), "s,5,5,,,");
         // 단일 XLSX Summary: 라벨은 있고 값 칸은 빈 칸.
-        let mut wb = read_xlsx(report_to_xlsx(&r, Some(&r)));
+        let mut wb = read_xlsx(report_to_xlsx(&r, None));
         let ws = wb.worksheet_range("Summary").unwrap();
         for row in 4..=6u32 {
             assert!(matches!(ws.get_value((row, 0)), Some(Data::String(_))));
@@ -4009,7 +4022,27 @@ steps:
             assert!(is_blank(win.get_value((1, col))), "window col {col}");
         }
         assert_eq!(win.get_value((2, 4)), Some(&Data::Float(7.0)));
-        // Other basis 시트: 그 리포트 자신의 sample 블록으로 판정한다.
+        // Other basis 시트: 그 리포트 자신의 sample 블록으로 판정한다. 본 리포트(옛 run, 같은
+        // 숫자)는 값을 그대로 두고, 다른 기준(나눌 수 있는 run)만 빈 칸이다.
+        let mut main = split_run("m", true, 40);
+        main.sample = Default::default();
+        let mut wb = read_xlsx(report_to_xlsx(&main, Some(&r)));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        for row in 4..=6u32 {
+            assert_eq!(
+                ws.get_value((row, 1)),
+                Some(&Data::Float(0.0)),
+                "main {row}"
+            );
+        }
+        let steps = wb.worksheet_range("Steps").unwrap();
+        for col in 3..=5u32 {
+            assert_eq!(
+                steps.get_value((1, col)),
+                Some(&Data::Float(0.0)),
+                "main {col}"
+            );
+        }
         let other = wb.worksheet_range("Other basis").unwrap();
         for row in 5..=7u32 {
             assert!(is_blank(other.get_value((row, 1))), "other row {row}");
@@ -4018,6 +4051,28 @@ steps:
             assert!(is_blank(other.get_value((10, col))), "other steps {col}");
         }
         assert_eq!(other.get_value((10, 2)), Some(&Data::Float(5.0)));
+        // 요청이 0건인 요약·스텝·초도 통과한 요청이 없다: 0이 아니라 빈 칸.
+        let mut z = split_run("z", false, 40);
+        z.summary.count = 0;
+        z.steps = vec![step("z", 0, 40)];
+        z.windows.truncate(1);
+        z.windows[0].count = 0;
+        z.windows[0].error_count = 0;
+        let csv = String::from_utf8(report_to_csv(&z)).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "z,0,0,,,");
+        let mut wb = read_xlsx(report_to_xlsx(&z, None));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        for row in 4..=6u32 {
+            assert!(is_blank(ws.get_value((row, 1))), "zero summary row {row}");
+        }
+        let steps = wb.worksheet_range("Steps").unwrap();
+        for col in 3..=5u32 {
+            assert!(is_blank(steps.get_value((1, col))), "zero step col {col}");
+        }
+        let win = wb.worksheet_range("Windows").unwrap();
+        for col in 4..=6u32 {
+            assert!(is_blank(win.get_value((1, col))), "zero window col {col}");
+        }
         // 옛 run(default == all)은 같은 숫자라도 칸을 비우지 않는다.
         let mut old = split_run("o", true, 40);
         old.sample = Default::default();
@@ -4137,7 +4192,9 @@ steps:
                             );
                             assert_eq!(
                                 format!("{:?}", d.polarity).to_lowercase(),
-                                exp["polarity"].as_str().unwrap()
+                                exp["polarity"].as_str().unwrap(),
+                                "{}: {metric} polarity {i}",
+                                case.name
                             );
                         }
                         _ => assert!(exp.is_null(), "{}: {metric} delta {i}", case.name),
