@@ -1177,8 +1177,9 @@ pub async fn build_report_for_run(
     db: &crate::store::Db,
     run_id: &str,
     basis: Option<crate::steady::Basis>,
+    sample: Option<crate::sample::Sample>,
 ) -> Result<crate::report::ReportJson, ApiError> {
-    build_reports_for_run(db, run_id, basis)
+    build_reports_for_run(db, run_id, basis, sample)
         .await
         .map(|(r, _)| r)
 }
@@ -1190,6 +1191,7 @@ pub async fn build_reports_for_run(
     db: &crate::store::Db,
     run_id: &str,
     basis: Option<crate::steady::Basis>,
+    sample: Option<crate::sample::Sample>,
 ) -> Result<(crate::report::ReportJson, Option<crate::report::ReportJson>), ApiError> {
     let row = runs::get(db, run_id).await?.ok_or(ApiError::NotFound)?;
     let rows = crate::store::metrics::windows_with_hdr(db, run_id).await?;
@@ -1276,7 +1278,7 @@ pub async fn build_reports_for_run(
             &open_loop_totals,
             setup_report.as_ref(),
             scope,
-            None,
+            sample,
         )
     };
     let whole = build(None);
@@ -1408,6 +1410,20 @@ fn needs_open_loop_totals(profile: &Profile, dropped: i64) -> bool {
 #[derive(Deserialize)]
 pub struct ReportParams {
     basis: Option<String>,
+    sample: Option<String>,
+}
+
+fn parse_sample(raw: Option<&str>) -> Result<Option<crate::sample::Sample>, ApiError> {
+    use crate::sample::Sample;
+    match raw {
+        None => Ok(None),
+        Some("passed") => Ok(Some(Sample::Passed)),
+        Some("failed") => Ok(Some(Sample::Failed)),
+        Some("all") => Ok(Some(Sample::All)),
+        Some(_) => Err(ApiError::BadRequest(
+            "sample은 passed, failed, all 중 하나여야 합니다".into(),
+        )),
+    }
 }
 
 fn parse_basis(raw: Option<&str>) -> Result<Option<crate::steady::Basis>, ApiError> {
@@ -1427,7 +1443,10 @@ pub async fn report(
     axum::extract::Query(params): axum::extract::Query<ReportParams>,
 ) -> Result<Json<crate::report::ReportJson>, ApiError> {
     let basis = parse_basis(params.basis.as_deref())?;
-    Ok(Json(build_report_for_run(&state.db, &id, basis).await?))
+    let sample = parse_sample(params.sample.as_deref())?;
+    Ok(Json(
+        build_report_for_run(&state.db, &id, basis, sample).await?,
+    ))
 }
 
 fn file_response(content_type: &str, filename: &str, bytes: Vec<u8>) -> axum::response::Response {
@@ -1474,7 +1493,7 @@ pub async fn report_csv(
     let basis = parse_basis(params.basis.as_deref())?;
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id, basis).await?;
+    let report = build_report_for_run(&state.db, &id, basis, None).await?;
     let bytes = crate::export::report_to_csv(&report);
     Ok(file_response(
         "text/csv; charset=utf-8",
@@ -1491,7 +1510,7 @@ pub async fn report_xlsx(
     let basis = parse_basis(params.basis.as_deref())?;
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let (report, other) = build_reports_for_run(&state.db, &id, basis).await?;
+    let (report, other) = build_reports_for_run(&state.db, &id, basis, None).await?;
     let bytes = crate::export::report_to_xlsx(&report, other.as_ref());
     Ok(file_response(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1508,7 +1527,7 @@ pub async fn report_insights_csv(
     let basis = parse_basis(params.basis.as_deref())?;
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id, basis).await?;
+    let report = build_report_for_run(&state.db, &id, basis, None).await?;
     let bytes = crate::export::report_to_insights_csv(&report);
     Ok(file_response(
         "text/csv; charset=utf-8",
@@ -1523,7 +1542,7 @@ pub async fn report_stairs_csv(
 ) -> Result<axum::response::Response, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     ensure_terminal(&row)?;
-    let report = build_report_for_run(&state.db, &id, None).await?;
+    let report = build_report_for_run(&state.db, &id, None, None).await?;
     let bytes = crate::export::report_to_stairs_csv(&report).ok_or(ApiError::NotFound)?;
     Ok(file_response(
         "text/csv; charset=utf-8",
@@ -1580,7 +1599,7 @@ async fn resolve_comparison(
             )));
         }
         ensure_terminal(&row)?;
-        reports.push(build_report_for_run(&state.db, id, None).await?);
+        reports.push(build_report_for_run(&state.db, id, None, None).await?);
     }
     Ok((reports, baseline_idx))
 }

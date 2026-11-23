@@ -1194,7 +1194,7 @@ async fn both_reports_are_consistent() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let id = seed_steady(&db, SteadySeed::closed()).await;
 
-    let (first, second) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, second) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     assert_eq!(first.basis.as_ref().unwrap().selected, Basis::Steady);
     let second = second.expect("steady run has the opposite report");
     let whole = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
@@ -1202,7 +1202,7 @@ async fn both_reports_are_consistent() {
     assert_eq!(serde_json::to_value(&second).unwrap(), whole);
     assert_eq!(serde_json::to_value(&first).unwrap(), steady);
 
-    let (first, second) = build_reports_for_run(&db, &id, Some(Basis::Whole))
+    let (first, second) = build_reports_for_run(&db, &id, Some(Basis::Whole), None)
         .await
         .unwrap();
     assert_eq!(first.basis.as_ref().unwrap().selected, Basis::Whole);
@@ -1210,7 +1210,9 @@ async fn both_reports_are_consistent() {
     assert_eq!(serde_json::to_value(second.unwrap()).unwrap(), steady);
 
     let plain = seed_steady(&db, SteadySeed::without_steady()).await;
-    let (first, second) = build_reports_for_run(&db, &plain, None).await.unwrap();
+    let (first, second) = build_reports_for_run(&db, &plain, None, None)
+        .await
+        .unwrap();
     assert!(second.is_none());
     assert!(first.basis.is_none());
 }
@@ -1256,7 +1258,7 @@ async fn both_bases_carry_setup() {
     .await
     .unwrap();
 
-    let (first, second) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, second) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     let second = second.expect("steady run has both bases");
     assert!(first.basis.is_some() && second.basis.is_some());
     let a = first.setup.as_ref().expect("selected basis carries setup");
@@ -1300,7 +1302,7 @@ async fn closed_loop_steady_window_start_waits_for_setup_done() {
     let id = seed_steady(&db, seed).await;
     // 정해진 시작: T0 + (ramp 10 + discard 5)초. 준비가 그보다 늦게 끝난다.
     seed_setup_outcome(&db, &id, T0 + 25_000).await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     let w = first.basis.unwrap().window.unwrap();
     assert_eq!(w.start_ms, T0 + 25_000);
 }
@@ -1347,7 +1349,7 @@ async fn steady_window_start_uses_per_worker_max_rounded_up() {
         ],
     )
     .await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     let w = first.basis.unwrap().window.unwrap();
     assert_eq!(w.start_ms, T0 + 26_000);
 }
@@ -1366,7 +1368,7 @@ async fn steady_window_start_ignores_other_section_rows() {
         &[("w0", "setup", T0 + 1_000), ("w0", "teardown", T0 + 25_000)],
     )
     .await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     let w = first.basis.unwrap().window.unwrap();
     assert_eq!(w.start_ms, T0 + 15_000);
 }
@@ -1399,7 +1401,7 @@ async fn vu_curve_steady_window_start_ignores_setup_done() {
     .await
     .unwrap();
     seed_outcome_rows(&db, &id, &[("w0", "setup", T0 + 25_400)]).await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     let w = first.basis.unwrap().window.unwrap();
     assert_eq!(w.start_ms, T0 + 15_000);
 }
@@ -1413,7 +1415,7 @@ async fn open_loop_steady_window_start_ignores_setup_done() {
     let id = seed_steady(&db, seed).await;
     seed_open_counts(&db, &id).await;
     seed_setup_outcome(&db, &id, T0 + 25_000).await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     let w = first.basis.unwrap().window.unwrap();
     assert_eq!(w.start_ms, T0 + 15_000);
 }
@@ -1426,7 +1428,7 @@ async fn unreadable_scenario_yaml_has_no_setup_block() {
     seed.yaml = "{{{ not yaml";
     let id = seed_steady(&db, seed).await;
     seed_setup_outcome(&db, &id, T0 + 25_000).await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     assert!(first.setup.is_none());
 }
 
@@ -1436,7 +1438,7 @@ async fn no_setup_scenario_ignores_stored_section_rows() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let id = seed_steady(&db, SteadySeed::closed()).await;
     seed_setup_outcome(&db, &id, T0 + 25_000).await;
-    let (first, _) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, _) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     assert!(first.setup.is_none());
     assert_eq!(first.basis.unwrap().window.unwrap().start_ms, T0 + 15_000);
 }
@@ -1446,7 +1448,7 @@ async fn no_setup_run_has_no_setup_block() {
     use handicap_controller::api::runs::build_reports_for_run;
     let db = store::connect("sqlite::memory:").await.unwrap();
     let id = seed_steady(&db, SteadySeed::closed()).await;
-    let (first, second) = build_reports_for_run(&db, &id, None).await.unwrap();
+    let (first, second) = build_reports_for_run(&db, &id, None, None).await.unwrap();
     assert!(first.setup.is_none());
     assert!(second.unwrap().setup.is_none());
     let v = serde_json::to_value(&first).unwrap();
@@ -1485,4 +1487,65 @@ async fn xlsx_route_carries_both_bases() {
     let steps = wb.worksheet_range("Steps").unwrap();
     assert_eq!(steps.get_value((1, 1)), Some(&Data::Float(whole_count)));
     assert_eq!(other.get_value((10, 1)), Some(&Data::Float(steady_count)));
+}
+
+/// 통과한 요청 4건(40 ms)과 실패한 요청 6건(2 ms)이 섞인 run. `split`이면 실패 칸을 채운다.
+async fn seed_sample_run(db: &handicap_controller::store::Db, split: bool) -> String {
+    let mut seed = SteadySeed::without_steady();
+    seed.seconds = 0;
+    let id = seed_steady(db, seed).await;
+    let mut all = vec![40_000_u64; 4];
+    all.extend(vec![2_000_u64; 6]);
+    let rows: Vec<MetricRow> = (0..2)
+        .map(|o| MetricRow {
+            failed_hdr_histogram: split.then(|| make_hdr_bytes(&[2_000; 6])),
+            run_id: id.clone(),
+            ts_second: T0 / 1000 + o,
+            step_id: "s".to_string(),
+            worker_id: "w0".to_string(),
+            count: 10,
+            error_count: 6,
+            hdr_histogram: make_hdr_bytes(&all),
+            status_counts: r#"{"200":4,"500":6}"#.to_string(),
+        })
+        .collect();
+    insert_batch(db, &rows).await.unwrap();
+    id
+}
+
+#[tokio::test]
+async fn sample_param_selects_latency_sample() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_sample_run(&db, true).await;
+    let base = format!("/api/runs/{id}/report");
+    let default = report_json(&db, &base).await;
+    assert_eq!(default["sample"]["selected"], "passed");
+    assert_eq!(default["sample"]["split"], true);
+    let all = report_json(&db, &format!("{base}?sample=all")).await;
+    assert_eq!(all["sample"]["selected"], "all");
+    assert_ne!(all["summary"]["p50_ms"], default["summary"]["p50_ms"]);
+    let failed = report_json(&db, &format!("{base}?sample=failed")).await;
+    assert_eq!(failed["sample"]["selected"], "failed");
+    let both = report_json(&db, &format!("{base}?sample=all&basis=whole")).await;
+    assert_eq!(both["sample"]["selected"], "all");
+}
+
+#[tokio::test]
+async fn invalid_sample_param_is_400() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_sample_run(&db, true).await;
+    let (st, body) = get_report(&db, &format!("/api/runs/{id}/report?sample=bogus")).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(String::from_utf8_lossy(&body).contains("sample"));
+}
+
+#[tokio::test]
+async fn sample_param_on_unsplittable_run_reports_all() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_sample_run(&db, false).await;
+    let json = report_json(&db, &format!("/api/runs/{id}/report?sample=passed")).await;
+    assert_eq!(
+        json["sample"],
+        serde_json::json!({"selected": "all", "default": "all", "split": false})
+    );
 }

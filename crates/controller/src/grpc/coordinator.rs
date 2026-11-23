@@ -1437,7 +1437,7 @@ impl CoordinatorState {
     /// 빌드 실패는 finalize를 막지 않는다(run은 이미 Completed) — warn! + skip(배지가 NULL로
     /// 남을 뿐, run은 Completed).
     async fn persist_verdict(&self, run_id: &str) {
-        match crate::api::runs::build_report_for_run(&self.db, run_id, None).await {
+        match crate::api::runs::build_report_for_run(&self.db, run_id, None, None).await {
             Ok(report) => {
                 if let Some(verdict) = &report.verdict {
                     if let Err(e) = runs::set_verdict(&self.db, run_id, verdict).await {
