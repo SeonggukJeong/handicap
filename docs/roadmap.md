@@ -225,6 +225,21 @@
 - 현재 우회: 계단마다 run을 따로 돌리고 run 비교로 본다. 또는 stages run의 1s 차트를 눈으로 계단별로 읽는다(p99 정확도 낮음).
 - 출처: 2026-11-17 사용자 — "계단식으로 부하를 주면서 어느 부분부터 지연이 발생하기 시작하는지 측정 … handicap이 그걸 잡아내는데 최적화되어 있는지는 잘 모르겠네", 이어서 "말해준 기능 추가는 roadmap에 넣어주고". 시험 계획서 초안(계단 기록표 포함)은 리포 밖 문서(사용자 보관).
 
+### A17. 판정 기준·응답 시간 통계 — LoadRunner 수준 이상 — **후보 (2026-11-23 등록)**
+- **방향 (사용자 결정 2026-11-23)**: handicap이 LoadRunner보다 부족해도 되는 것은 **지원 프로토콜뿐**이다. 그 밖의 기능은 LoadRunner 이상을 목표로 한다. 판정 기준은 「사람들이 일반적으로 판정 기준으로 삼는 것」을 모두 걸 수 있어야 한다(정본 `docs/dev/working-rules.md` §11).
+- **왜**: 실무가이드가 「평균 응답 시간 3초 이내」처럼 **평균**으로 권고하는데, handicap 판정은 p50·p95·p99만 받는다. LoadRunner Analysis는 평균이 기본 지표다(요약 보고서의 최소·평균·최대·표준편차·90 Percent, Average Transaction Response Time 그래프, 평균·백분위 SLA).
+- **항목**:
+  1. **평균 응답 시간으로 판정** — 전체와 스텝별 판정 기준에 「평균 응답 시간 ≤ N ms」. LoadRunner SLA의 "Average Transaction Response Time" 목표에 대응.
+  2. **백분위를 골라서 판정** — 지금은 p50·p95·p99 고정. p90 등 원하는 백분위를 기준으로 걸 수 있게(LoadRunner SLA의 백분위 기준).
+  3. **시간대별 평균 응답 시간 그래프** — 전체와 스텝별로 시간 흐름에 따른 평균 응답 시간(LoadRunner "Average Transaction Response Time" 그래프). 종료 리포트·인쇄 보고서에 싣고, 실행 중 진행 차트에 넣을지는 설계 때 정한다(ADR-0051 범위 안).
+  4. **통계 칸 채우기** — 스텝별·전체에 최소·평균·최대·표준편차·p90을 화면·인쇄 보고서·CSV/XLSX·비교에.
+  5. **일반적 판정 기준 조사** — 착수 때 LoadRunner SLA·JMeter·k6 thresholds·Gatling assertions가 받는 판정 항목을 표로 대조해 빠진 것을 이 절에 추가한다(예: 최대 응답 시간, 초당 처리량 하한, 구간별 판정).
+- **현재 상태 (2026-11-23 확인)**: run 판정 기준 = `max_p50_ms`·`max_p95_ms`·`max_p99_ms`·오류율·RPS 하한·4xx/5xx 비율·건수, 스텝별 기준 metric = `p50_ms|p95_ms|p99_ms|error_rate|4xx_rate|5xx_rate|4xx_count|5xx_count`(`crates/controller/src/store/runs.rs` `Criteria`·`Criterion`). 평균은 run 전체 요약 `mean_ms`만 있다(`crates/controller/src/report.rs` `ReportSummary`). 확인 명령: `grep -rn "struct Criteria" -A 30 crates/controller/src/store/runs.rs`, `grep -n "mean_ms\|max_ms" crates/controller/src/report.rs`.
+- **구현 스케치·설계 질문**: ① 워커가 응답 시간을 분포(HDR)로 모아 보내므로 평균·최소·표준편차·임의 백분위는 컨트롤러가 가진 분포에서 계산할 수 있을 것으로 본다 — 스텝별·초별 경로에서도 되는지는 착수 때 코드로 확인(미확인). 된다면 엔진·워커·proto 무변경. ② HDR에서 낸 평균은 칸 폭만큼 근사값이다 — 오차 크기를 재고, 판정 경계에서 어긋나면 워커가 합계를 따로 보내는 안을 검토. ③ 평균은 유지 구간 기준(ADR-0061 `?basis=`)을 따른다. ④ 판정 입력 화면은 QA 입문자 기준 — 평균과 백분위의 차이를 한 줄로 풀어 쓴다.
+- 유형: user-path (리포트 깊이 A4 + SLO criteria ADR-0028 접점). 판정 항목을 넓히는 일이라 정식 파이프라인(US 초안부터).
+- 현재 우회: 「평균 3초」 권고는 p95 ≤ 3000ms로 걸고 리포트의 평균값을 눈으로 대조한다.
+- 출처: 2026-11-23 사용자 — 신규 시스템 성능 시험의 목표 응답 속도를 정하다가 "LoadRunner가 제공하는거는 다 제공해야지", "일반적으로 사람들이 판정 기준으로 삼는걸 할 수 있어야", "우리는 LoadRunner 보다 지원하는 프로토콜이 부족할 뿐, 이외의 기능은 그 이상을 목표로 해야해".
+
 ## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
 
 각 항목은 출처 슬라이스 기준으로 "왜 연기했나 + 어느 슬라이스에서 자연히 풀리나"를 적는다. 어느 슬라이스를 하든 그 슬라이스 plan 작성 시 이 목록을 훑어 관련 항목을 흡수한다.
