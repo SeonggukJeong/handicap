@@ -85,6 +85,18 @@ describe("buildSetupModel 요약 줄", () => {
     );
   });
 
+  it("open-loop 중단만", () => {
+    expect(partsText(lead(setupOf(198, 0, 2), true))).toBe(
+      "슬롯 200개 중 198개가 준비를 마쳤습니다. 2개는 준비 도중 측정이 끝났습니다. 준비 스텝은 슬롯마다 한 번 실행하며, 위 단계별 결과와 요약 숫자에는 들어가지 않습니다.",
+    );
+  });
+
+  it("open-loop 실패 + 중단", () => {
+    expect(partsText(lead(setupOf(177, 20, 3), true))).toBe(
+      "슬롯 200개 중 177개가 준비를 마쳤고 20개가 실패했습니다. 실패한 슬롯은 run에서 빠졌습니다. 3개는 준비 도중 측정이 끝났습니다. 준비 스텝은 슬롯마다 한 번 실행하며, 위 단계별 결과와 요약 숫자에는 들어가지 않습니다.",
+    );
+  });
+
   it("큰 수는 천 단위 구분", () => {
     expect(partsText(lead(setupOf(123456, 0, 0)))).toContain("123,456");
   });

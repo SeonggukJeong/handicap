@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Report } from "../../../api/schemas";
+import type { Report, ReportSetup } from "../../../api/schemas";
+import { partsText } from "../../../i18n/lineParts";
 import { metricRows } from "../change";
 import { biggestCodeChange, hasStar, stepPairs } from "../errorCells";
 import { buildFairness } from "../fairness";
@@ -205,7 +206,11 @@ describe("buildHeadline (spec §6.3 표)", () => {
   });
 
   it("비교 불가는 조건이 달라도 – 비교 불가", () => {
-    const h = head(BEFORE, { ...BEFORE, count: 0, errors: 0 }, { incomparable: true, anyDiff: true });
+    const h = head(
+      BEFORE,
+      { ...BEFORE, count: 0, errors: 0 },
+      { incomparable: true, anyDiff: true },
+    );
     expect(h.glyph).toBe("–");
     expect(h.word).toBe("비교 불가");
   });
@@ -302,6 +307,124 @@ function scene(b: Partial<SceneRun>, a: Partial<SceneRun>) {
   const partsOf = (id: number) => lines.find((l) => l.id === id)?.parts;
   return { lines, byId, partsOf, headline, rows };
 }
+
+const setupWith = (failed: number): ReportSetup => ({ ok: 10, failed, interrupted: 0, steps: [] });
+
+function setupScene(
+  b: { setup?: ReportSetup; profile?: Record<string, unknown>; answer?: "same" | "incomparable" },
+  a: { setup?: ReportSetup; profile?: Record<string, unknown> },
+) {
+  const incomparable = b.answer === "incomparable";
+  const zero = { ...BEFORE, count: 0, errors: 0 };
+  const before = sceneModel({
+    id: "bbbbbb",
+    profile: b.profile ?? critProfile(),
+    summary: incomparable ? zero : BEFORE,
+    ...(incomparable ? { rep: [] } : {}),
+  });
+  const after = sceneModel({ id: "aaaaaa", profile: a.profile ?? critProfile(), summary: BEFORE });
+  const withSetup = (m: typeof before, s?: ReportSetup) =>
+    s ? { ...m, report: { ...m.report, setup: s } } : m;
+  const bm = withSetup(before, b.setup);
+  const am = withSetup(after, a.setup);
+  const pairs = stepPairs(bm, am);
+  const rows = metricRows(bm.report.summary, am.report.summary, {
+    errorRateReference: hasStar(pairs),
+    incomparable,
+  });
+  const fairness = buildFairness(bm, am);
+  const headline = buildHeadline({
+    rows,
+    beforeBox: bm.box,
+    afterBox: am.box,
+    criteriaSame: fairness.criteriaSame,
+    anyDiff: fairness.anyDiff,
+    incomparable,
+  });
+  const lines = cmpSummaryLines({
+    headline,
+    rows,
+    before: bm,
+    after: am,
+    fairness,
+    codeChange: biggestCodeChange(pairs),
+  });
+  expectTextFromParts(lines);
+  return lines;
+}
+
+const OPEN = () => critProfile({ target_rps: 50 });
+const last = (l: CmpSummaryLine[]) => l[l.length - 1];
+
+describe("cmpSummaryLines 5번 줄 (준비 실패 수 차이)", () => {
+  it("둘 다 closed: 늘었습니다 / 줄었습니다", () => {
+    const up = last(setupScene({ setup: setupWith(0) }, { setup: setupWith(3) }));
+    expect(up.id).toBe(5);
+    expect(up.text).toBe("준비에 실패한 사용자가 0명에서 3명으로 늘었습니다.");
+    const down = last(setupScene({ setup: setupWith(5) }, { setup: setupWith(2) }));
+    expect(down.id).toBe(5);
+    expect(down.text).toBe("준비에 실패한 사용자가 5명에서 2명으로 줄었습니다.");
+  });
+
+  it("둘 다 open: 슬롯/개", () => {
+    const l = last(
+      setupScene(
+        { setup: setupWith(1), profile: OPEN() },
+        { setup: setupWith(4), profile: OPEN() },
+      ),
+    );
+    expect(l.id).toBe(5);
+    expect(l.text).toBe("준비에 실패한 슬롯이 1개에서 4개로 늘었습니다.");
+  });
+
+  it("부하 방식이 다르면 단위 없는 문장, 조사는 숫자 끝소리", () => {
+    const t = (x: number, y: number) =>
+      last(
+        setupScene(
+          { setup: setupWith(x), profile: critProfile() },
+          { setup: setupWith(y), profile: OPEN() },
+        ),
+      ).text;
+    expect(t(0, 3)).toBe("준비 실패가 0에서 3으로 늘었습니다.");
+    expect(t(1, 6)).toBe("준비 실패가 1에서 6으로 늘었습니다.");
+    expect(t(2, 0)).toBe("준비 실패가 2에서 0으로 줄었습니다.");
+  });
+
+  it("프로필을 읽지 못한 run이 한쪽이라도 있으면 단위 없는 문장", () => {
+    const l = last(
+      setupScene({ setup: setupWith(0), profile: { vus: "x" } }, { setup: setupWith(3) }),
+    );
+    expect(l.id).toBe(5);
+    expect(l.text).toBe("준비 실패가 0에서 3으로 늘었습니다.");
+    const r = last(
+      setupScene({ setup: setupWith(0) }, { setup: setupWith(3), profile: { vus: "x" } }),
+    );
+    expect(r.text).toBe("준비 실패가 0에서 3으로 늘었습니다.");
+  });
+
+  it("실패 수가 같거나 한쪽만 준비가 있거나 비교 불가면 5번 줄이 없다", () => {
+    const ids = (l: CmpSummaryLine[]) => l.map((x) => x.id);
+    expect(ids(setupScene({ setup: setupWith(2) }, { setup: setupWith(2) }))).not.toContain(5);
+    expect(ids(setupScene({ setup: setupWith(0) }, {}))).not.toContain(5);
+    expect(ids(setupScene({}, { setup: setupWith(3) }))).not.toContain(5);
+    expect(
+      ids(setupScene({ setup: setupWith(0), answer: "incomparable" }, { setup: setupWith(3) })),
+    ).not.toContain(5);
+  });
+
+  it("5번 줄의 parts를 이으면 text와 같다", () => {
+    const l = last(setupScene({ setup: setupWith(0) }, { setup: setupWith(3) }));
+    expect(partsText(l.parts)).toBe(l.text);
+  });
+
+  it("준비 없는 두 run의 기존 줄은 그대로", () => {
+    const s = scene({ summary: BEFORE, verdict: failV }, { summary: AFTER_GOOD, verdict: passV });
+    expect(s.lines.map((l) => [l.id, l.text])).toEqual([
+      [1, "판정이 ✕ 부적합 → ● 적합으로 바뀌었습니다. 기준 3개를 모두 지켰습니다."],
+      [2, "오류율 2.6% → 0.3% (88% 감소)."],
+    ]);
+  });
+});
 
 /** 모든 줄의 text는 parts를 이어 붙인 글과 같다(문장마다 한 번씩, 이 파일의 모든 장면에서). */
 function expectTextFromParts(lines: CmpSummaryLine[]) {

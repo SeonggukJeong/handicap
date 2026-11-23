@@ -4,6 +4,7 @@ import type { Report } from "../../../api/schemas";
 import { PX_PER_MM } from "../../paginate";
 import type { Heights } from "../../buildPrintDoc";
 import { CompareDocument } from "../CompareDocument";
+import { VerdictRow } from "../components/HeadlineBox";
 import {
   CMP_IDS,
   CMP_LAST_LEVEL,
@@ -795,5 +796,37 @@ describe("CompareDocument 겹쳐 보기 절", () => {
     const { root } = renderDoc(makeDoc(), "summary");
     await ready(root);
     expect(screen.queryByText(/겹쳐 보기/)).toBeNull();
+  });
+});
+
+describe("HeadlineBox 준비 실패 수 줄(5번)", () => {
+  const withSetup = (failed: number) => (m: ReturnType<typeof sceneModel>) => ({
+    ...m,
+    report: { ...m.report, setup: { ok: 10, failed, interrupted: 0, steps: [] } },
+  });
+  const setupDoc = () =>
+    buildCompareDoc({
+      before: withSetup(0)(sceneModel({ id: "01HBEFORE000abc111", summary: BEFORE })),
+      after: withSetup(3)(sceneModel({ id: "01HAFTER0000def222", summary: AFTER })),
+      fallbackScenarioName: null,
+      now: NOON,
+    });
+  const LINE = "준비에 실패한 사용자가 0명에서 3명으로 늘었습니다.";
+  const itemsOf = (c: HTMLElement) =>
+    [...c.querySelectorAll(".p-cmp-summary li")].map((li) => li.textContent);
+
+  it("긴 판에는 li로 그려지고 key 경고가 없다", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const doc = setupDoc();
+    expect(doc.lines.some((l) => l.id === 5)).toBe(true);
+    const { container } = render(<VerdictRow doc={doc} short={false} clamp={false} />);
+    expect(itemsOf(container)).toContain(LINE);
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it("짧은 판에는 그려지지 않는다", () => {
+    const { container } = render(<VerdictRow doc={setupDoc()} short clamp={false} />);
+    expect(itemsOf(container)).not.toContain(LINE);
+    expect(itemsOf(container).length).toBeGreaterThan(0);
   });
 });

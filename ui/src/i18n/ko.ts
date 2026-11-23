@@ -2929,6 +2929,23 @@ export const ko = {
           ];
         },
         nameJoin: "·",
+        setupFailed: (
+          unit: "user" | "slot" | null,
+          before: string,
+          after: string,
+          rose: boolean,
+        ): LinePart[] => {
+          const verb = rose ? "늘었습니다" : "줄었습니다";
+          if (unit === null) {
+            return [plain(`준비 실패가 ${before}에서 ${after}${josa(after, "으로/로")} ${verb}.`)];
+          }
+          const [noun, counter] = unit === "user" ? ["사용자", "명"] : ["슬롯", "개"];
+          return [
+            plain(
+              `준비에 실패한 ${noun}${josa(noun, "이/가")} ${before}${counter}에서 ${after}${counter}${josa(counter, "으로/로")} ${verb}.`,
+            ),
+          ];
+        },
       },
       doc: {
         kicker: "성능 비교 보고서",

@@ -1,3 +1,4 @@
+import { deriveLoadMode } from "../../components/run/loadModel";
 import { ko } from "../../i18n/ko";
 import { fmtCount } from "../format";
 import type { BoxState } from "../verdict";
@@ -168,7 +169,7 @@ function codeSentence(c: NonNullable<ReturnType<typeof biggestCodeChange>>): Lin
 export type CmpSummaryReason = { side: string; text: string };
 /** text는 언제나 parts를 이어 붙인 글이다 — line()으로만 만든다. */
 export type CmpSummaryLine = {
-  id: 1 | 2 | 3 | 4;
+  id: 1 | 2 | 3 | 4 | 5;
   text: string;
   parts: LinePart[];
   reasons?: CmpSummaryReason[];
@@ -223,6 +224,30 @@ export function cmpSummaryLines(a: {
     const names = a.fairness.diffNames;
     out.push(
       line(4, L.reference(names.slice(0, 2).join(L.nameJoin), Math.max(0, names.length - 2))),
+    );
+  }
+  const bs = a.before.report.setup;
+  const afterSetup = a.after.report.setup;
+  if (answer !== "incomparable" && bs && afterSetup && bs.failed !== afterSetup.failed) {
+    const kinds = [a.before, a.after].map((r) =>
+      r.profile ? deriveLoadMode(r.profile).loadModel : null,
+    );
+    const unit =
+      kinds[0] === "closed" && kinds[1] === "closed"
+        ? "user"
+        : kinds[0] === "open" && kinds[1] === "open"
+          ? "slot"
+          : null;
+    out.push(
+      line(
+        5,
+        L.setupFailed(
+          unit,
+          fmtCount(bs.failed),
+          fmtCount(afterSetup.failed),
+          afterSetup.failed > bs.failed,
+        ),
+      ),
     );
   }
   return out;
