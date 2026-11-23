@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>준비 스텝 B2 화면 목업</title>
+<style>
+/* 실제 앱의 색·치수(Tailwind slate / amber / red / green)와 인쇄 보고서 print.css의 값을 그대로 옮긴 정적 목업.
+   밝은 바탕 고정(앱과 인쇄 미리보기가 밝은 바탕). */
+:root {
+  --bg:#f8fafc; --surface:#fff; --fg:#0f172a; --s700:#334155; --s600:#475569; --s500:#64748b; --s400:#94a3b8;
+  --s300:#cbd5e1; --s200:#e2e8f0; --s100:#f1f5f9; --s50:#f8fafc;
+  --a500:#6366f1; --a600:#4f46e5;
+  --am50:#fffbeb; --am200:#fde68a; --am300:#fcd34d; --am500:#f59e0b; --am800:#92400e;
+  --g600:#16a34a; --r600:#dc2626;
+  --font: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* print.css .p-root */
+  --ink:#1a1d24; --sub:#5b6170; --line:#c9ccd3; --faint:#eef0f3; --pwarn:#a15c00; --pwarnbg:#fff3df; --pbad:#b42318; --pbadbg:#fdecea;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:14px; line-height:1.5; }
+.wrap { max-width:1080px; margin:0 auto; padding:28px 16px 64px; display:flex; flex-direction:column; gap:40px; }
+h1 { font-size:20px; margin:0; }
+.lead { color:var(--s600); margin:6px 0 0; max-width:70ch; }
+.scene > h2 { font-size:15px; margin:0 0 2px; }
+.scene > p { margin:0 0 12px; color:var(--s600); max-width:80ch; }
+.ask { background:var(--am50); border:1px solid var(--am300); color:var(--am800); border-radius:6px; padding:6px 10px; font-size:13px; margin:0 0 12px; max-width:80ch; }
+.screen { background:var(--surface); border:1px solid var(--s200); border-radius:10px; padding:16px; overflow-x:auto; }
+.cap { font-size:12px; font-weight:600; color:var(--s500); margin:14px 0 6px; }
+.cap:first-child { margin-top:0; }
+
+/* ── 인쇄 보고서 (print.css 값) ── */
+.paper { background:#8a8f99; border-radius:10px; padding:12px; overflow-x:auto; }
+.p-page { width:180mm; min-width:180mm; margin:0 auto; background:#fff; padding:6mm 0; color:var(--ink);
+  font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif; font-size:9.5pt; line-height:1.45; }
+.p-page.pad { width:210mm; min-width:210mm; padding:8mm 15mm; box-shadow:0 2px 12px rgba(0,0,0,.25); }
+.p-block { display:flow-root; padding-top:4mm; }
+.p-block.title { padding-top:5mm; }
+.p-h2 { font-size:11pt; font-weight:700; margin:0 0 2mm; padding-bottom:1mm; border-bottom:1.5px solid var(--ink); }
+.p-h2.dim { color:var(--sub); border-bottom-color:var(--line); }
+.p-table { table-layout:fixed; width:100%; border-collapse:collapse; font-size:8.3pt; }
+.p-table th, .p-table td { border:1px solid var(--line); padding:1.3mm 1.2mm; text-align:center; vertical-align:middle; overflow-wrap:anywhere; }
+.p-table th { background:var(--faint); font-weight:700; word-break:keep-all; }
+.p-table th small { display:block; font-weight:400; font-size:6.8pt; color:var(--sub); }
+.p-table .p-l { text-align:left; }
+.p-req { white-space:nowrap; overflow:hidden; font-size:6.8pt; color:var(--sub); }
+.p-row-bad td { background:var(--pbadbg); }
+.p-bad { color:var(--pbad); font-weight:700; }
+.p-line { margin:0 0 2mm; }
+.p-line b { font-weight:700; }
+.p-small { font-size:8pt; color:var(--sub); margin:1.5mm 0 0; }
+.p-ghost { color:var(--sub); font-size:8pt; border:1px dashed var(--line); padding:2mm 3mm; }
+.p-cmp-summary { border:1px solid var(--line); padding:2.5mm 4mm; border-radius:2mm; }
+.p-cmp-summary-title { font-weight:700; font-size:9pt; margin-bottom:1mm; color:var(--sub); }
+.p-cmp-summary ol { margin:0; padding-left:5mm; }
+.p-cmp-summary li { margin:.6mm 0; }
+.p-cmp-summary li.new { background:#fff8c5; }
+
+/* ── 실행 중 화면 ── */
+.rd h3 { font-size:20px; font-weight:600; margin:0 0 4px; display:flex; gap:12px; align-items:center; }
+.rd h3 .id { font-family:var(--mono); font-size:16px; color:var(--s600); font-weight:400; }
+.badge { font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; background:#dbeafe; color:#1e40af; }
+.rd .sum { font-size:14px; color:var(--s500); margin:0 0 16px; }
+.cards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:16px; font-size:14px; }
+.card { display:flex; flex-direction:column; border:1px solid var(--s200); border-radius:6px; padding:12px; background:#fff; }
+.card .k { color:var(--s500); font-size:12px; }
+.card .v { margin-top:auto; font-size:18px; font-weight:600; }
+.setup-live { display:flex; align-items:center; gap:12px; flex-wrap:wrap; border:1px solid var(--s200); border-radius:6px; padding:8px 12px; background:#fff; font-size:14px; margin-bottom:8px; }
+.setup-live .lbl { font-weight:600; color:var(--s700); flex:none; }
+.setup-live .num { font-variant-numeric:tabular-nums; color:var(--fg); flex:none; }
+.setup-live .num b { font-weight:600; }
+.setup-live .fail { color:var(--am800); font-weight:600; flex:none; }
+.setup-live .bar { flex:1 1 120px; min-width:80px; height:6px; border-radius:3px; background:var(--s100); overflow:hidden; display:flex; }
+.setup-live .bar i { display:block; height:100%; background:var(--a500); }
+.setup-live .bar i.f { background:var(--am500); }
+.setup-live.warn { border-color:var(--am300); background:var(--am50); }
+.setup-live .hint { font-size:12px; color:var(--s500); flex-basis:100%; }
+.setup-live.warn .hint { color:var(--am800); }
+
+/* ── 비교 표 (CompareMatrix) ── */
+.cmp { min-width:100%; border-collapse:collapse; font-size:14px; }
+.cmp thead { border-bottom:1px solid var(--s200); text-align:left; color:var(--s600); }
+.cmp th, .cmp td { padding:8px 16px 8px 0; text-align:left; }
+.cmp thead th { font-weight:500; }
+.cmp .sw { display:inline-block; width:12px; height:12px; border-radius:2px; box-shadow:0 0 0 1px rgba(0,0,0,.1); margin-right:6px; vertical-align:-1px; }
+.cmp .base { margin-left:4px; font-size:12px; color:var(--s500); font-weight:400; }
+.cmp tr.sec th { padding:8px 12px; font-size:14px; font-weight:600; color:var(--s600); background:var(--s50); border-top:1px solid var(--s200); }
+.cmp tr.sec.new th { background:#fff8c5; }
+.cmp tbody tr.row { border-bottom:1px solid var(--s100); }
+.cmp td.l { font-weight:500; color:var(--s700); width:192px; }
+.cmp .up { margin-left:6px; font-size:12px; font-weight:600; color:var(--r600); }
+.cmp .dn { margin-left:6px; font-size:12px; font-weight:600; color:var(--g600); }
+.cmp .none { color:var(--s400); }
+.cmp tr.ghost td { color:var(--s400); font-size:12px; }
+
+/* ── 내보내기 ── */
+.sheet { border-collapse:collapse; font-size:12px; font-family:var(--font); }
+.sheet th, .sheet td { border:1px solid var(--s300); padding:3px 8px; text-align:left; white-space:nowrap; }
+.sheet th.hd { background:var(--s100); color:var(--s500); font-weight:400; text-align:center; width:28px; }
+.sheet td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.sheet td.b { font-weight:700; }
+.tabs { display:flex; gap:2px; margin-top:6px; font-size:12px; flex-wrap:wrap; }
+.tabs span { border:1px solid var(--s300); border-top:none; padding:2px 10px; background:var(--s100); color:var(--s600); border-radius:0 0 4px 4px; }
+.tabs span.on { background:#fff; color:var(--fg); font-weight:600; box-shadow:inset 0 -2px 0 var(--g600); }
+pre.csv { margin:0; font-family:var(--mono); font-size:12px; background:var(--s50); border:1px solid var(--s200); border-radius:6px; padding:10px 12px; overflow-x:auto; color:var(--s700); }
+pre.csv mark { background:#fff8c5; color:inherit; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>준비 스텝 B2 — 화면 목업</h1>
+    <p class="lead">인쇄 보고서 본문 · 실행 중 화면 · run 비교 · 내보내기에 준비 스텝 숫자를 넣은 모습. 노란 바탕은 「새로 생기는 곳」 표시이고 실제 화면에는 없다. 준비 스텝이 없는 run은 네 자리 모두 지금과 같다.</p>
+  </header>
+
+  <!-- 1 -->
+  <section class="scene">
+    <h2>1. 인쇄 보고서 — 「준비 스텝 결과」 절</h2>
+    <p>「단계별 결과」 표 바로 뒤에 온다. 요약 한 줄 + 표. 화면 리포트의 「준비 스텝」 구획과 같은 숫자다.</p>
+
+    <p class="cap">1-가. 준비가 모두 성공한 run</p>
+    <div class="paper"><div class="p-page pad">
+      <div class="p-block title"><h2 class="p-h2 dim">3. 단계별 결과</h2></div>
+      <div class="p-block" style="padding-top:0"><div class="p-ghost">(본 스텝 표 — 지금 그대로)</div></div>
+
+      <div class="p-block title"><h2 class="p-h2">4. 준비 스텝 결과</h2></div>
+      <div class="p-block" style="padding-top:0">
+        <p class="p-line">가상 사용자 <b>50명</b>이 모두 준비를 마쳤습니다. 준비 스텝은 사용자마다 한 번 실행하며, 위 단계별 결과와 요약 숫자에는 들어가지 않습니다.</p>
+        <table class="p-table">
+          <colgroup><col><col style="width:15mm"><col style="width:13mm"><col style="width:15mm"><col style="width:15mm"><col style="width:15mm"><col style="width:36mm"></colgroup>
+          <thead><tr>
+            <th class="p-l">준비 스텝</th><th>요청 수</th><th>오류</th><th>50% 응답<small>ms</small></th><th>95% 응답<small>ms</small></th><th>최대<small>ms</small></th><th>응답 코드별 건수</th>
+          </tr></thead>
+          <tbody>
+            <tr><td class="p-l"><div>1 로그인</div><div class="p-req">POST /api/auth/login</div></td><td>50</td><td>0</td><td>84</td><td>120</td><td>163</td><td>200: 50</td></tr>
+            <tr><td class="p-l"><div>2 내 권한 조회</div><div class="p-req">GET /api/me/roles</div></td><td>50</td><td>0</td><td>31</td><td>47</td><td>58</td><td>200: 50</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div></div>
+
+    <p class="cap">1-나. 준비가 일부 실패한 run — 요약 줄이 바뀌고, 오류가 난 행에 바탕색, 표 아래 실패 종류</p>
+    <div class="paper"><div class="p-page pad">
+      <div class="p-block title"><h2 class="p-h2">4. 준비 스텝 결과</h2></div>
+      <div class="p-block" style="padding-top:0">
+        <p class="p-line">가상 사용자 50명 중 <b>47명</b>이 준비를 마쳤고 <b class="p-bad">3명이 실패</b>했습니다. 실패한 사용자는 본 스텝을 실행하지 않았습니다. 준비 스텝은 사용자마다 한 번 실행하며, 위 단계별 결과와 요약 숫자에는 들어가지 않습니다.</p>
+        <table class="p-table">
+          <colgroup><col><col style="width:15mm"><col style="width:13mm"><col style="width:15mm"><col style="width:15mm"><col style="width:15mm"><col style="width:36mm"></colgroup>
+          <thead><tr>
+            <th class="p-l">준비 스텝</th><th>요청 수</th><th>오류</th><th>50% 응답<small>ms</small></th><th>95% 응답<small>ms</small></th><th>최대<small>ms</small></th><th>응답 코드별 건수</th>
+          </tr></thead>
+          <tbody>
+            <tr class="p-row-bad"><td class="p-l"><div>1 로그인</div><div class="p-req">POST /api/auth/login</div></td><td>50</td><td class="p-bad">3</td><td>92</td><td>410</td><td>5,004</td><td>200: 47 · 503: 2 · 보내지 못함: 1</td></tr>
+            <tr><td class="p-l"><div>2 내 권한 조회</div><div class="p-req">GET /api/me/roles</div></td><td>47</td><td>0</td><td>33</td><td>51</td><td>70</td><td>200: 47</td></tr>
+          </tbody>
+        </table>
+        <p class="p-small">실패 종류: 응답 상태 오류 2 · 연결 시간 초과 1</p>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- 2 -->
+  <section class="scene">
+    <h2>2. 실행 중 화면 — 준비 진행 한 줄</h2>
+    <p>run 상세 화면에서 run이 도는 동안만 보인다. 숫자 카드 아래, 실시간 그림 위. run이 끝나면 사라지고 리포트의 「준비 스텝」 구획이 그 자리를 잇는다.</p>
+    <p class="ask">확인: 가는 진행 막대를 함께 그렸습니다(분모를 아는 경우만). 글자 한 줄로 충분하면 막대는 뺍니다.</p>
+    <div class="screen rd">
+      <h3>주문 흐름 부하 <span class="id">#K3F9QZ</span> <span class="badge">실행 중</span></h3>
+      <p class="sum">동시 사용자 50명 · 실행 시간 5분</p>
+      <div class="cards">
+        <div class="card"><span class="k">동시 사용자 (VU)</span><span class="v">50</span></div>
+        <div class="card"><span class="k">요청 수</span><span class="v">12,480</span></div>
+        <div class="card"><span class="k">오류</span><span class="v">0</span></div>
+        <div class="card"><span class="k">경과</span><span class="v">0:42</span></div>
+      </div>
+
+      <p class="cap">2-가. 고정 VU — 진행 중</p>
+      <div class="setup-live">
+        <span class="lbl">준비 스텝</span>
+        <span class="num"><b>37</b> / 50명 완료</span>
+        <span class="bar"><i style="width:74%"></i></span>
+      </div>
+
+      <p class="cap">2-나. 모두 끝남 (run은 아직 실행 중)</p>
+      <div class="setup-live">
+        <span class="lbl">준비 스텝</span>
+        <span class="num"><b>50</b> / 50명 완료</span>
+        <span class="bar"><i style="width:100%"></i></span>
+      </div>
+
+      <p class="cap">2-다. 실패가 생김 — 경고색 + 한 줄 설명</p>
+      <div class="setup-live warn">
+        <span class="lbl">준비 스텝</span>
+        <span class="num"><b>45</b> / 50명 완료</span>
+        <span class="fail">실패 3명</span>
+        <span class="bar"><i style="width:90%"></i><i class="f" style="width:6%"></i></span>
+        <span class="hint">준비에 실패한 사용자는 본 스텝을 실행하지 않습니다. 끝난 뒤 리포트의 「준비 스텝」에서 원인을 볼 수 있습니다.</span>
+      </div>
+
+      <p class="cap">2-라. VU 곡선 — 사용자가 시간에 따라 늘어나므로 분모·막대 없음</p>
+      <div class="setup-live">
+        <span class="lbl">준비 스텝</span>
+        <span class="num"><b>120</b>명 완료</span>
+      </div>
+
+      <p class="cap">2-마. 목표 RPS(open-loop) — 「명」 대신 「슬롯」</p>
+      <div class="setup-live">
+        <span class="lbl">준비 스텝</span>
+        <span class="num"><b>180</b> / 200 슬롯 완료</span>
+        <span class="bar"><i style="width:90%"></i></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="scene">
+    <h2>3. run 비교 — 「준비 스텝」 묶음</h2>
+    <p>비교하는 run 가운데 하나라도 준비 스텝이 있으면 「스텝」 묶음 뒤에 생긴다. 준비가 없는 run의 칸은 「—」. 비교 CSV/XLSX에도 같은 행이 같은 순서로 들어간다.</p>
+    <div class="screen">
+      <table class="cmp">
+        <thead><tr>
+          <th></th>
+          <th><span class="sw" style="background:#2563eb"></span>배포 전 <span class="base">(base)</span></th>
+          <th><span class="sw" style="background:#ea580c"></span>배포 후</th>
+          <th><span class="sw" style="background:#16a34a"></span>옛 시나리오 (준비 없음)</th>
+        </tr></thead>
+        <tbody>
+          <tr class="row"><td class="l">판정</td><td><span style="color:var(--g600);font-weight:600">합격</span></td><td><span style="color:var(--r600);font-weight:600">불합격</span><span class="up">▲악화</span></td><td>—</td></tr>
+          <tr class="sec"><th colspan="4">요약</th></tr>
+          <tr class="row ghost"><td class="l" style="color:var(--s400);font-weight:400">(지금 그대로)</td><td>…</td><td>…</td><td>…</td></tr>
+          <tr class="sec"><th colspan="4">스텝</th></tr>
+          <tr class="row ghost"><td class="l" style="color:var(--s400);font-weight:400">(지금 그대로 — 본 스텝만)</td><td>…</td><td>…</td><td>…</td></tr>
+
+          <tr class="sec new"><th colspan="4">준비 스텝</th></tr>
+          <tr class="row"><td class="l">준비 성공</td><td>50</td><td>47<span class="up">▼6.0%</span></td><td class="none">—</td></tr>
+          <tr class="row"><td class="l">준비 실패</td><td>0</td><td>3<span class="up">▲3</span></td><td class="none">—</td></tr>
+          <tr class="row"><td class="l">로그인 p95 ms</td><td>120</td><td>410<span class="up">▲241.7%</span></td><td class="none">—</td></tr>
+          <tr class="row"><td class="l">로그인 오류</td><td>0</td><td>3<span class="up">▲3</span></td><td class="none">—</td></tr>
+          <tr class="row"><td class="l">내 권한 조회 p95 ms</td><td>47</td><td>51<span class="up">▲8.5%</span></td><td class="none">—</td></tr>
+          <tr class="row"><td class="l">내 권한 조회 오류</td><td>0</td><td>0</td><td class="none">—</td></tr>
+
+          <tr class="sec"><th colspan="4">상태</th></tr>
+          <tr class="row ghost"><td class="l" style="color:var(--s400);font-weight:400">(지금 그대로)</td><td>…</td><td>…</td><td>…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="cap">인쇄 비교 보고서 — 준비 실패 수가 다를 때만 요약에 한 줄 (절은 넣지 않음, 후속)</p>
+    <div class="paper"><div class="p-page pad" style="padding-top:5mm;padding-bottom:5mm">
+      <div class="p-cmp-summary">
+        <div class="p-cmp-summary-title">요약</div>
+        <ol>
+          <li>95% 응답 시간이 180ms에서 240ms로 늘었습니다.</li>
+          <li>오류율은 0.0%로 같습니다.</li>
+          <li class="new">준비에 실패한 사용자가 0명에서 3명으로 늘었습니다.</li>
+        </ol>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- 4 -->
+  <section class="scene">
+    <h2>4. 내보내기</h2>
+    <p>준비 스텝이 있는 run에만 생긴다. 준비가 없는 run의 파일은 한 글자도 바뀌지 않는다.</p>
+
+    <p class="cap">4-가. XLSX — 「Setup」 시트 (Steps 시트 다음)</p>
+    <div class="screen">
+      <table class="sheet">
+        <tr><th class="hd"></th><th class="hd">A</th><th class="hd">B</th><th class="hd">C</th><th class="hd">D</th><th class="hd">E</th><th class="hd">F</th><th class="hd">G</th><th class="hd">H</th></tr>
+        <tr><th class="hd">1</th><td class="b">준비 성공</td><td class="n">47</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">2</th><td class="b">준비 실패</td><td class="n">3</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">3</th><td class="b">준비 중단</td><td class="n">0</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">4</th><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">5</th><td class="b">step_id</td><td class="b">이름</td><td class="b">요청 수</td><td class="b">오류</td><td class="b">p50 ms</td><td class="b">p95 ms</td><td class="b">최대 ms</td><td class="b">상태 코드</td></tr>
+        <tr><th class="hd">6</th><td>01JD…A1</td><td>로그인</td><td class="n">50</td><td class="n">3</td><td class="n">92</td><td class="n">410</td><td class="n">5004</td><td>200: 47, 503: 2, 0: 1</td></tr>
+        <tr><th class="hd">7</th><td>01JD…B2</td><td>내 권한 조회</td><td class="n">47</td><td class="n">0</td><td class="n">33</td><td class="n">51</td><td class="n">70</td><td>200: 47</td></tr>
+        <tr><th class="hd">8</th><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">9</th><td class="b">실패 종류</td><td class="b">건수</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">10</th><td>응답 상태 오류</td><td class="n">2</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><th class="hd">11</th><td>연결 시간 초과</td><td class="n">1</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      </table>
+      <div class="tabs"><span>Summary</span><span>Steps</span><span class="on">Setup</span><span>Windows</span><span>Status</span></div>
+    </div>
+
+    <p class="cap">4-나. CSV — 본 스텝 표 뒤에 빈 줄 하나 두고 준비 구획</p>
+    <pre class="csv">step_id,count,errors,p50_ms,p95_ms,…
+01JD…C3,6240,0,41,88,…
+01JD…D4,6240,0,57,131,…
+<mark>
+setup,ok,failed,interrupted
+setup,47,3,0
+setup_step_id,count,errors,p50_ms,p95_ms,max_ms
+01JD…A1,50,3,92,410,5004
+01JD…B2,47,0,33,51,70</mark></pre>
+  </section>
+</div>
+</html>
