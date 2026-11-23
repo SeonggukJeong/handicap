@@ -839,6 +839,7 @@ mod tests {
                     error_count: err,
                     hdr_histogram: hdr(p99),
                     status_counts: Default::default(),
+                    failed_hdr_histogram: None,
                 })
                 .collect(),
             open_loop_seconds: ol
@@ -1431,6 +1432,7 @@ mod tests {
                             error_count: errors as u64,
                             hdr_histogram: h.clone(),
                             status_counts: Default::default(),
+                            failed_hdr_histogram: None,
                         });
                         rows.push(WindowWithHdr {
                             ts_second: ts,
@@ -1572,6 +1574,7 @@ mod tests {
                     error_count: errors,
                     hdr_histogram: h.clone(),
                     status_counts: Default::default(),
+                    failed_hdr_histogram: None,
                 });
                 rows.push(WindowWithHdr {
                     ts_second: ts,
@@ -2425,6 +2428,7 @@ mod perf {
                             error_count: 0,
                             hdr_histogram: hdrs[(ts as usize + k + w) % hdrs.len()].clone(),
                             status_counts: Default::default(),
+                            failed_hdr_histogram: None,
                         });
                     }
                 }

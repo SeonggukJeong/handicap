@@ -130,6 +130,8 @@ message MetricWindow {
   uint64 error_count = 4;
   bytes hdr_histogram = 5;      // hdrhistogram V2 serialized
   map<string, uint64> status_counts = 6;
+  // 실패한 요청의 응답 시간 분포(hdrhistogram V2). 없음 = 옛 부하기, 빈 값 = 실패 없음.
+  optional bytes failed_hdr_histogram = 7;
 }
 
 message RunStatus {

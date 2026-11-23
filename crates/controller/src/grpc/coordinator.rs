@@ -3526,6 +3526,7 @@ mod tests {
                 error_count: 0,
                 hdr_histogram: blob,
                 status_counts: Default::default(),
+                failed_hdr_histogram: None,
             }],
             loop_stats: vec![],
             branch_stats: vec![],
@@ -6718,6 +6719,7 @@ mod tests {
                     error_count: errors(ts),
                     hdr_histogram: hdr_bytes(2000),
                     status_counts: Default::default(),
+                    failed_hdr_histogram: None,
                 })
                 .collect(),
             open_loop_seconds: (from..=to)
@@ -7424,6 +7426,7 @@ mod tests {
                 error_count: errors,
                 hdr_histogram: hdr_bytes(2000),
                 status_counts: Default::default(),
+                failed_hdr_histogram: None,
             }],
             ..Default::default()
         }

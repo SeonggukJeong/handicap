@@ -819,6 +819,7 @@ fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<M
         .into_iter()
         .filter_map(|w| {
             let hdr = w.serialize_histogram().ok()?;
+            let failed_hdr = w.serialize_failed_histogram().ok()?;
             let status_counts = w
                 .status_counts
                 .into_iter()
@@ -831,6 +832,7 @@ fn flush_to_batch(flush: MetricFlush, run_id: &str, worker_id: &str) -> Option<M
                 error_count: w.error_count,
                 hdr_histogram: hdr,
                 status_counts,
+                failed_hdr_histogram: Some(failed_hdr),
             })
         })
         .collect();
@@ -1230,6 +1232,7 @@ mod tests {
                 error_count: 1,
                 hdr_histogram: vec![],
                 status_counts: [("200".to_string(), 2u64)].into_iter().collect(),
+                failed_hdr_histogram: None,
             }],
             dropped: 1,
             section_step_stats: vec![],
@@ -1241,6 +1244,51 @@ mod tests {
             3, 50, 48, 48, 16, 2, 48, 1,
         ];
         assert_eq!(b.encode_to_vec(), before);
+    }
+
+    #[test]
+    fn flush_always_carries_failed_histogram_field() {
+        let mut ok = handicap_engine::StepWindow {
+            step_id: "ok".into(),
+            ts_second: 5,
+            count: 0,
+            error_count: 0,
+            status_counts: Default::default(),
+            histogram: hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).unwrap(),
+            failed_histogram: None,
+        };
+        ok.histogram.record(1_000).unwrap();
+        let mut bad = handicap_engine::StepWindow {
+            step_id: "bad".into(),
+            ts_second: 5,
+            count: 0,
+            error_count: 0,
+            status_counts: Default::default(),
+            histogram: hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).unwrap(),
+            failed_histogram: None,
+        };
+        bad.record(2_000, 500, true);
+        let mut f = empty_flush();
+        f.windows = vec![ok, bad];
+        let batch = flush_to_batch(f, "r", "w").unwrap();
+        let ok = batch.windows.iter().find(|w| w.step_id == "ok").unwrap();
+        let bad = batch.windows.iter().find(|w| w.step_id == "bad").unwrap();
+        assert_eq!(ok.failed_hdr_histogram.as_deref(), Some(&[][..]));
+        assert!(
+            bad.failed_hdr_histogram
+                .as_ref()
+                .is_some_and(|b| !b.is_empty())
+        );
+    }
+
+    #[test]
+    fn failed_histogram_is_field_7() {
+        use prost::Message;
+        let w = MetricWindow {
+            failed_hdr_histogram: Some(vec![]),
+            ..Default::default()
+        };
+        assert_eq!(w.encode_to_vec(), vec![0x3a, 0x00]);
     }
 
     #[test]
