@@ -621,13 +621,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
             if i != baseline_idx {
                 let val = summary_metric(&r.summary, metric);
                 let d = delta(metric, base, val);
-                let text = delta_cell_text(&d, val);
-                match d.polarity {
-                    Polarity::Bad => ws.write_string_with_format(row, dcol, &text, &fmt_bad),
-                    Polarity::Good => ws.write_string_with_format(row, dcol, &text, &fmt_good),
-                    Polarity::Neutral => ws.write_string(row, dcol, &text),
-                }
-                .expect("w");
+                write_delta_cell(ws, row, dcol, &d, val, &fmt_bad, &fmt_good);
                 dcol += 1;
             }
         }
@@ -686,13 +680,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
                     .map(|s| s.p95_ms as f64);
                 if let (Some(b), Some(v)) = (base, val) {
                     let d = delta("p95_ms", b, v);
-                    let text = delta_cell_text(&d, v);
-                    match d.polarity {
-                        Polarity::Bad => ws.write_string_with_format(row, dcol, &text, &fmt_bad),
-                        Polarity::Good => ws.write_string_with_format(row, dcol, &text, &fmt_good),
-                        Polarity::Neutral => ws.write_string(row, dcol, &text),
-                    }
-                    .expect("w");
+                    write_delta_cell(ws, row, dcol, &d, v, &fmt_bad, &fmt_good);
                 }
                 dcol += 1;
             }
@@ -3683,11 +3671,80 @@ steps:
         assert_eq!(cell(&ws, 1, 1), Some(&Data::Float(50.0)));
         assert_eq!(cell(&ws, 1, 3), Some(&Data::Float(47.0)));
         assert_eq!(cell(&ws, 1, 5).cloned(), s("▲ -6.0%"));
+        assert_eq!(cell(&ws, 2, 5).cloned(), s("▲ 신규"));
         assert_eq!(cell(&ws, 3, 5).cloned(), s("▲ +241.7%"));
         assert_eq!(cell(&ws, 4, 5).cloned(), s("▲ +200.0%"));
         assert!(is_blank(cell(&ws, 5, 3)));
         assert!(is_blank(cell(&ws, 5, 5)));
         assert_eq!(cell(&ws, 7, 3), Some(&Data::Float(30.0)));
         assert!(is_blank(cell(&ws, 7, 5)));
+    }
+
+    fn abc_setup_reports() -> [ReportJson; 3] {
+        let mut a = named_run("A", vec![]);
+        a.setup = setup_of(50, 0, vec![("s1", 120, 1, 5), ("s2", 47, 0, 5)]);
+        let b = named_run("B", vec![]);
+        let mut c = named_run("C", vec![]);
+        c.setup = setup_of(47, 3, vec![("s3", 30, 0, 5), ("s1", 410, 3, 5)]);
+        [a, b, c]
+    }
+
+    #[test]
+    fn comparison_xlsx_setup_sheet_with_non_first_baseline() {
+        use calamine::{Data, Reader};
+        let mut wb = read_xlsx(comparison_to_xlsx(&abc_setup_reports(), 2));
+        let ws = wb.worksheet_range("Setup").unwrap();
+        let s = |t: &str| Some(Data::String(t.into()));
+        for (c, h) in ["metric", "A", "B", "C (base)", "Δ% A", "Δ% B"]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(cell(&ws, 0, c as u32).cloned(), s(h), "header {c}");
+        }
+        let names = [
+            "setup_ok",
+            "setup_failed",
+            "s3 p95_ms",
+            "s3 error_count",
+            "s1 p95_ms",
+            "s1 error_count",
+            "s2 p95_ms",
+            "s2 error_count",
+        ];
+        for (i, n) in names.iter().enumerate() {
+            assert_eq!(cell(&ws, 1 + i as u32, 0).cloned(), s(n), "row {i}");
+        }
+        assert_eq!(cell(&ws, 1, 4).cloned(), s("▼ +6.4%"));
+        assert_eq!(cell(&ws, 2, 4).cloned(), s("▼ -100.0%"));
+        assert_eq!(cell(&ws, 5, 4).cloned(), s("▼ -70.7%"));
+        assert_eq!(cell(&ws, 6, 4).cloned(), s("▼ -66.7%"));
+        for row in [3u32, 4, 7, 8] {
+            assert!(is_blank(cell(&ws, row, 4)), "A absent or base absent {row}");
+        }
+        for row in 1..=8u32 {
+            assert!(is_blank(cell(&ws, row, 5)), "Δ% B row {row}");
+        }
+    }
+
+    #[test]
+    fn comparison_setup_exports_blank_deltas_when_baseline_has_no_setup() {
+        use calamine::{Data, Reader};
+        let reports = abc_setup_reports();
+        let mut wb = read_xlsx(comparison_to_xlsx(&reports, 1));
+        let ws = wb.worksheet_range("Setup").unwrap();
+        assert_eq!(cell(&ws, 0, 2), Some(&Data::String("B (base)".into())));
+        for row in 1..=8u32 {
+            assert!(is_blank(cell(&ws, row, 2)), "B value row {row}");
+            assert!(is_blank(cell(&ws, row, 4)), "Δ% A row {row}");
+            assert!(is_blank(cell(&ws, row, 5)), "Δ% C row {row}");
+        }
+        assert_eq!(cell(&ws, 1, 1), Some(&Data::Float(50.0)));
+        assert_eq!(cell(&ws, 1, 3), Some(&Data::Float(47.0)));
+        let csv = String::from_utf8(comparison_to_csv(&reports, 1)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "metric,A,B (base),C,delta_pct A,delta_pct C");
+        assert_eq!(lines[6], "setup_ok,50,,47,,");
+        assert_eq!(lines[7], "setup_failed,0,,3,,");
+        assert_eq!(lines.len(), 8);
     }
 }
