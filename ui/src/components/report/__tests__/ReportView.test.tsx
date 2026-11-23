@@ -838,7 +838,7 @@ describe("ReportView", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("나눌 수 없는 run: 네 구획에 표본 이름이 없고 분포 구획은 latency 유무대로", () => {
+    it("나눌 수 없는 run: 세 구획에 표본 이름이 없고 분포 구획은 latency 유무대로", () => {
       const base: Report = {
         ...FIXTURE,
         sample: { selected: "all", default: "all", split: false },

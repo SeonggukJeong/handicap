@@ -68,7 +68,7 @@ export function Segmented<T extends string>({
     },
     [clearTimer],
   );
-  // 그 단추가 키보드 초점(:focus-visible)을 쥐고 있으면 마우스가 떠나도 닫지 않는다.
+  // 그 단추가 키보드 초점(:focus-visible)을 쥐고 있으면 마우스가 떠나도 닫지 않는다 — Esc로 닫은 단추는 예외.
   const scheduleClose = (v: T) => {
     const b = buttons.current.get(v);
     if (
