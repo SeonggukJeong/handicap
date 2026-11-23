@@ -842,6 +842,7 @@ mod tests {
                 actual: if i < fails { 2.0 } else { 0.0 },
                 passed: i >= fails,
                 target: None,
+                no_sample: false,
             });
         }
         Verdict { passed, criteria }

@@ -637,6 +637,7 @@ mod tests {
                 actual: 120.0,
                 passed: true,
                 target: None,
+                no_sample: false,
             }],
         };
         runs::set_verdict(&db, &run.id, &v).await.unwrap();

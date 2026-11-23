@@ -13,7 +13,7 @@ use handicap_engine::{
 };
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReportJson {
@@ -390,6 +390,25 @@ pub struct CriterionResult {
     pub passed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>, // step_id; fixed-field run-level 행은 None
+    /// 응답 시간 기준인데 통과한 요청이 하나도 없어 실패한 행. 그 외에는 키 자체를 내지 않는다.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_sample: bool,
+}
+
+/// 기본 표본(통과한 요청)에서 통과한 요청이 하나도 없는 자리. `Broken`(계산 실패)은 넣지 않는다.
+pub struct NoSample<'a> {
+    pub run: bool,
+    pub steps: &'a BTreeSet<String>,
+}
+
+impl NoSample<'static> {
+    pub fn none() -> Self {
+        static EMPTY: BTreeSet<String> = BTreeSet::new();
+        NoSample {
+            run: false,
+            steps: &EMPTY,
+        }
+    }
 }
 
 /// 특정 클래스(prefix '4'/'5')의 응답 수.
@@ -437,6 +456,7 @@ pub fn evaluate_criteria(
     windows: &[ReportWindow],
     steps: &[ReportStep],
     warmup_override: Option<u32>,
+    no_sample: &NoSample<'_>,
 ) -> Verdict {
     let mut criteria = Vec::new();
 
@@ -449,8 +469,9 @@ pub fn evaluate_criteria(
                     direction: "max".to_string(),
                     threshold,
                     actual,
-                    passed: actual <= threshold,
+                    passed: actual <= threshold && !no_sample.run,
                     target: None,
+                    no_sample: no_sample.run,
                 });
             }
         };
@@ -472,6 +493,7 @@ pub fn evaluate_criteria(
             actual,
             passed: actual <= t,
             target: None,
+            no_sample: false,
         });
     }
     // status-class rate(분모=HTTP 응답 수, transport "0" 제외) — 4xx, 5xx 순.
@@ -494,6 +516,7 @@ pub fn evaluate_criteria(
                 actual,
                 passed: actual <= t,
                 target: None,
+                no_sample: false,
             });
         }
     }
@@ -511,6 +534,7 @@ pub fn evaluate_criteria(
                 actual,
                 passed: actual <= threshold,
                 target: None,
+                no_sample: false,
             });
         }
     }
@@ -522,6 +546,7 @@ pub fn evaluate_criteria(
             actual: s.rps,
             passed: s.rps >= t,
             target: None,
+            no_sample: false,
         });
     }
     // per-window 최소 RPS: 정상상태 윈도의 최소 RPS ≥ threshold. eligible 부족이면 skip(행 미생성).
@@ -535,6 +560,7 @@ pub fn evaluate_criteria(
                 actual,
                 passed: actual >= t,
                 target: None,
+                no_sample: false,
             });
         }
     }
@@ -565,11 +591,14 @@ pub fn evaluate_criteria(
             "5xx_count" => status_class_count(&step.status_counts, '5') as f64,
             _ => continue, // 검증으로 도달 불가(방어)
         };
-        let passed = if sc.op == "min" {
-            actual >= sc.threshold
-        } else {
-            actual <= sc.threshold
-        };
+        let step_no_sample = matches!(sc.metric.as_str(), "p50_ms" | "p95_ms" | "p99_ms")
+            && no_sample.steps.contains(&sc.target);
+        let passed = !step_no_sample
+            && if sc.op == "min" {
+                actual >= sc.threshold
+            } else {
+                actual <= sc.threshold
+            };
         criteria.push(CriterionResult {
             metric: sc.metric.clone(),
             direction: sc.op.clone(),
@@ -577,6 +606,7 @@ pub fn evaluate_criteria(
             actual,
             passed,
             target: Some(sc.target.clone()),
+            no_sample: step_no_sample,
         });
     }
 
@@ -1145,6 +1175,20 @@ pub fn build_report(
         None
     };
 
+    // 통과한 요청이 하나도 없는 자리(`Empty`만 — 계산 실패 `Broken`은 아니다). 나눌 수 있는 run의 기본 표본에서만.
+    let no_sample_steps: BTreeSet<String> = if split {
+        per_step
+            .iter()
+            .filter(|(id, sh)| {
+                per_step_count.get(*id).is_some_and(|c| c.0 > 0)
+                    && sh.resolve(Sample::Passed).is_empty_sample()
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
+    let no_sample_run = split && total_count > 0 && overall_judging.is_empty_sample();
     // 스텝마다 표본별 분포를 한 번씩만 만든다: 보여 주는 표본이 기본 표본과 다를 때만 빌려서 계산하고,
     // 기본 표본(판정·속도 구간)은 소유권으로 옮겨 속도 구간 입력이 된다.
     let shown_step_p: Option<BTreeMap<String, Percentiles>> =
@@ -1262,6 +1306,10 @@ pub fn build_report(
                 scoped_windows,
                 &steps,
                 scope.map(|s| s.warmup_seconds),
+                &NoSample {
+                    run: no_sample_run,
+                    steps: &no_sample_steps,
+                },
             );
             if v.criteria.is_empty() { None } else { Some(v) }
         }
@@ -3001,6 +3049,7 @@ steps:
             &[],
             &steps,
             None,
+            &NoSample::none(),
         );
         // fixed-field p95(target None) 먼저, 그 뒤 step 행 입력 순서(A, B) — MISSING은 skip.
         assert_eq!(v.criteria.len(), 3);
@@ -3032,6 +3081,7 @@ steps:
             &[],
             &steps,
             None,
+            &NoSample::none(),
         );
         assert_eq!(v.criteria.len(), 1);
         assert_eq!(v.criteria[0].actual, 0.5); // 2/(2+2), "0"=100 제외
@@ -3057,6 +3107,7 @@ steps:
             &[],
             &steps,
             None,
+            &NoSample::none(),
         );
         assert!(v.criteria.is_empty()); // 행 0개 → build_report가 verdict None으로
     }
@@ -3093,6 +3144,7 @@ steps:
             &[],
             &steps,
             None,
+            &NoSample::none(),
         );
         assert_eq!(v.criteria.len(), 2);
         // A: min PASS + direction/target 출력 전파
@@ -3122,6 +3174,7 @@ steps:
             &[],
             &[],
             None,
+            &NoSample::none(),
         );
         assert!(v.passed);
         assert_eq!(v.criteria.len(), 3);
@@ -3140,6 +3193,7 @@ steps:
             &[],
             &[],
             None,
+            &NoSample::none(),
         );
         assert!(!v.passed);
         assert_eq!(v.criteria[0].metric, "p95_ms");
@@ -3161,7 +3215,8 @@ steps:
                 &BTreeMap::new(),
                 &[],
                 &[],
-                None
+                None,
+                &NoSample::none()
             )
             .passed
         );
@@ -3181,7 +3236,8 @@ steps:
                 &BTreeMap::new(),
                 &[],
                 &[],
-                None
+                None,
+                &NoSample::none()
             )
             .passed
         );
@@ -3401,6 +3457,175 @@ steps:
             None,
             sample,
         )
+    }
+
+    fn p95_step_criterion(target: &str) -> Criterion {
+        Criterion {
+            metric: "p95_ms".into(),
+            op: "max".into(),
+            threshold: 3000.0,
+            target: target.into(),
+        }
+    }
+
+    #[test]
+    fn run_latency_criterion_fails_when_nothing_passed() {
+        let c = Criteria {
+            max_p95_ms: Some(3000),
+            ..Default::default()
+        };
+        let steps = BTreeSet::new();
+        let ns = NoSample {
+            run: true,
+            steps: &steps,
+        };
+        let v = evaluate_criteria(
+            &c,
+            &summary(5, 5, 5.0, 0, 0),
+            &BTreeMap::new(),
+            &[],
+            &[],
+            None,
+            &ns,
+        );
+        assert_eq!(v.criteria.len(), 1);
+        assert!(!v.criteria[0].passed);
+        assert!(v.criteria[0].no_sample);
+        assert_eq!(v.criteria[0].actual, 0.0);
+        assert!(!v.passed);
+    }
+
+    #[test]
+    fn step_latency_criterion_fails_when_step_has_no_passed() {
+        let c = Criteria {
+            step_criteria: vec![p95_step_criterion("a"), p95_step_criterion("b")],
+            ..Default::default()
+        };
+        let steps = vec![
+            rstep("a", 5, 5, 0, &[("500", 5)]),
+            rstep("b", 5, 0, 40, &[("200", 5)]),
+        ];
+        let set: BTreeSet<String> = ["a".to_string()].into();
+        let ns = NoSample {
+            run: false,
+            steps: &set,
+        };
+        let v = evaluate_criteria(
+            &c,
+            &summary(10, 5, 10.0, 40, 40),
+            &BTreeMap::new(),
+            &[],
+            &steps,
+            None,
+            &ns,
+        );
+        assert_eq!(v.criteria.len(), 2);
+        assert!(v.criteria[0].no_sample && !v.criteria[0].passed);
+        assert!(!v.criteria[1].no_sample && v.criteria[1].passed);
+    }
+
+    #[test]
+    fn no_sample_flag_is_omitted_when_false() {
+        let c = Criteria {
+            max_p95_ms: Some(3000),
+            ..Default::default()
+        };
+        let v = evaluate_criteria(
+            &c,
+            &summary(5, 0, 5.0, 40, 40),
+            &BTreeMap::new(),
+            &[],
+            &[],
+            None,
+            &NoSample::none(),
+        );
+        let json = serde_json::to_value(&v.criteria[0]).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("no_sample"));
+    }
+
+    fn step_win(ts: i64, step: &str, errors: i64, all: &[u64], failed: &[u64]) -> WindowWithHdr {
+        WindowWithHdr {
+            step_id: step.into(),
+            error_count: errors,
+            count: 5,
+            failed_hdr_histogram: Some(make_hdr_bytes(failed)),
+            ..win(ts, step, 5, errors, r#"{"200":5}"#, all)
+        }
+    }
+
+    fn verdict_run() -> RunRow {
+        let mut run = run_row();
+        run.profile.criteria = Some(Criteria {
+            max_p95_ms: Some(3000),
+            step_criteria: vec![
+                p95_step_criterion("a"),
+                p95_step_criterion("b"),
+                p95_step_criterion("c"),
+            ],
+            ..Default::default()
+        });
+        run
+    }
+
+    fn criterion_row<'a>(v: &'a Verdict, target: Option<&str>) -> &'a CriterionResult {
+        v.criteria
+            .iter()
+            .find(|r| r.target.as_deref() == target)
+            .expect("criterion row")
+    }
+
+    #[test]
+    fn build_report_marks_all_failed_and_all_not_sent() {
+        let rows = vec![
+            step_win(100, "a", 5, &[2_000; 5], &[2_000; 5]),
+            step_win(100, "b", 5, &[], &[]),
+            step_win(100, "c", 0, &[40_000; 5], &[]),
+        ];
+        let rep = report_with_run(&verdict_run(), &rows, None);
+        let v = rep.verdict.expect("verdict");
+        for id in ["a", "b"] {
+            let r = criterion_row(&v, Some(id));
+            assert!(r.no_sample && !r.passed, "step {id}");
+        }
+        let c = criterion_row(&v, Some("c"));
+        assert!(!c.no_sample && c.passed);
+        let run_row = criterion_row(&v, None);
+        assert!(!run_row.no_sample && run_row.passed);
+        assert!(!v.passed);
+    }
+
+    #[test]
+    fn broken_step_gets_no_no_sample() {
+        let rows = vec![
+            WindowWithHdr {
+                hdr_histogram: vec![0xff; 4],
+                ..step_win(100, "a", 5, &[2_000; 5], &[2_000; 5])
+            },
+            step_win(100, "c", 0, &[40_000; 5], &[]),
+        ];
+        let rep = report_with_run(&verdict_run(), &rows, None);
+        let v = rep.verdict.expect("verdict");
+        let a = criterion_row(&v, Some("a"));
+        assert!(!a.no_sample);
+        assert_eq!(a.actual, 0.0);
+        let json = serde_json::to_value(a).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("no_sample"));
+    }
+
+    #[test]
+    fn non_split_all_failed_run_keeps_todays_verdict() {
+        let rows = vec![WindowWithHdr {
+            failed_hdr_histogram: None,
+            ..step_win(100, "a", 5, &[2_000; 5], &[])
+        }];
+        let rep = report_with_run(&verdict_run(), &rows, None);
+        assert!(!rep.sample.split);
+        let v = rep.verdict.expect("verdict");
+        let a = criterion_row(&v, Some("a"));
+        assert!(!a.no_sample);
+        assert_eq!(a.actual, 2.0);
+        assert!(a.passed);
+        assert!(!criterion_row(&v, None).no_sample);
     }
 
     #[test]
@@ -3756,7 +3981,15 @@ steps:
             ..Default::default()
         };
         let d = dist(&[("200", 90), ("500", 10)]);
-        let v = evaluate_criteria(&c, &summary(100, 0, 100.0, 5, 5), &d, &[], &[], None);
+        let v = evaluate_criteria(
+            &c,
+            &summary(100, 0, 100.0, 5, 5),
+            &d,
+            &[],
+            &[],
+            None,
+            &NoSample::none(),
+        );
         assert_eq!(v.criteria[0].metric, "5xx_rate");
         assert!((v.criteria[0].actual - 0.1).abs() < 1e-9);
         assert!(!v.criteria[0].passed);
@@ -3770,7 +4003,15 @@ steps:
             ..Default::default()
         };
         let d = dist(&[("0", 5)]);
-        let v = evaluate_criteria(&c, &summary(5, 5, 5.0, 0, 0), &d, &[], &[], None);
+        let v = evaluate_criteria(
+            &c,
+            &summary(5, 5, 5.0, 0, 0),
+            &d,
+            &[],
+            &[],
+            None,
+            &NoSample::none(),
+        );
         assert!(v.criteria[0].passed);
         assert_eq!(v.criteria[0].actual, 0.0);
     }
@@ -3782,7 +4023,15 @@ steps:
             ..Default::default()
         };
         let d = dist(&[("200", 10), ("500", 1)]);
-        let v = evaluate_criteria(&c, &summary(11, 1, 11.0, 5, 5), &d, &[], &[], None);
+        let v = evaluate_criteria(
+            &c,
+            &summary(11, 1, 11.0, 5, 5),
+            &d,
+            &[],
+            &[],
+            None,
+            &NoSample::none(),
+        );
         assert_eq!(v.criteria[0].metric, "5xx_count");
         assert_eq!(v.criteria[0].actual, 1.0);
         assert!(!v.criteria[0].passed);
@@ -3836,6 +4085,7 @@ steps:
             &[],
             &[],
             None,
+            &NoSample::none(),
         );
         assert!(v.criteria.is_empty());
     }
@@ -3855,7 +4105,15 @@ steps:
         };
         let d = dist(&[("200", 30)]);
         let w = vec![rwin(0, 10), rwin(1, 20), rwin(2, 30)]; // eligible {1}=20
-        let v = evaluate_criteria(&c, &summary(30, 0, 30.0, 1, 1), &d, &w, &[], None);
+        let v = evaluate_criteria(
+            &c,
+            &summary(30, 0, 30.0, 1, 1),
+            &d,
+            &w,
+            &[],
+            None,
+            &NoSample::none(),
+        );
         let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
         assert_eq!(
             metrics,
@@ -4720,7 +4978,15 @@ steps:
             max_5xx_rate: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(107, 22, 107.0, 5, 5), &d, &[], &[], None);
+        let v = evaluate_criteria(
+            &c,
+            &summary(107, 22, 107.0, 5, 5),
+            &d,
+            &[],
+            &[],
+            None,
+            &NoSample::none(),
+        );
         let rate = v
             .criteria
             .iter()
