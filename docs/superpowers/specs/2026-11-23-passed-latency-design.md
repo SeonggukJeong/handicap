@@ -1,7 +1,7 @@
 # 응답 시간 표본 슬라이스 A — 통과한 요청 기준 + 실패한 요청 분리 (passed-latency-a) 설계
 
 - 날짜: 2026-11-23
-- 상태: 설계 초안 (spec-plan-reviewer 4차에 clean APPROVE, 2026-11-23 → 사용자 목업 확인 → plan 대기). US1 문구 변경(실패 60%)은 사용자 확인 2026-11-23.
+- 상태: 설계 초안 (spec-plan-reviewer 4차에 clean APPROVE, 2026-11-23 · 사용자 목업 확인 「진행하자」 2026-11-23). plan `docs/superpowers/plans/2026-11-23-passed-latency-a.md`도 clean APPROVE → 구현 대기. US1 문구 변경(실패 60%)은 사용자 확인 2026-11-23.
 - 유형: `user-path`
 - 출처: 사용자 결정 2026-11-23 — 「평균에 LoadRunner하고 동일하게 통과 트랜잭션만 평균내는게 맞지 않아?」 → 응답 시간 통계 전체를 통과한 요청 기준으로, 실패한 요청·모든 요청도 볼 수 있게. roadmap §A17 진행 순서 ①.
 - 목업(시각 기준): `2026-11-23-passed-latency-mockups/screens.html` — 이 슬라이스는 1-가·3·4·5·6. 1·2(전환 단추)는 슬라이스 B.
