@@ -47,7 +47,11 @@ import {
   legalTargetBands,
   parseDropId,
   SETUP_BAND,
+  SETUP_DROP_ID,
+  showSetupZone,
+  showTopZone,
   TOP_BAND,
+  TOP_DROP_ID,
   type BandRef,
 } from "../../scenario/dropRules";
 import { METHOD_BADGE } from "./methodBadge";
@@ -87,6 +91,19 @@ function EmptyBandDrop({ id }: { id: string }) {
       }`}
     >
       {ko.editor.emptyBandDropHint}
+    </div>
+  );
+}
+
+// 준비 스텝이 없을 때 목록 맨 위로 끌어 올리면 열리는 준비 놓을 자리(목업 `.dropzone.over`).
+function SetupDropZone() {
+  const { setNodeRef } = useDroppable({ id: SETUP_DROP_ID, data: { index: 0 } });
+  return (
+    <div
+      ref={setNodeRef}
+      className="mb-2.5 rounded-lg border-[1.5px] border-dashed border-accent-500 bg-accent-100 p-2.5 text-center text-xs font-medium text-accent-800 ring-2 ring-accent-200"
+    >
+      {ko.editor.setupDropHint}
     </div>
   );
 }
@@ -347,7 +364,7 @@ function OutlineRow({
     "aria-label": ko.editor.outlineRowAria(step.name),
     tabIndex: 0,
     "data-depth": String(depth),
-    ...(view?.wide || view?.onActivate || band.band === SETUP_BAND.band
+    ...(view?.wide || view?.onActivate || bandKey(band) === bandKey(SETUP_BAND)
       ? { "data-step-id": step.id }
       : {}),
     onClick: (e: React.MouseEvent) => {
@@ -558,6 +575,12 @@ export function FlowOutline({
   const dragCalcRef = useRef<{ legal: Set<string>; index: Map<string, string> } | null>(null);
   // R4 pointer-half: DragEndEvent엔 포인터 좌표가 없어 충돌 콜백이 판정을 기록.
   const halfRef = useRef<{ overId: string; half: "above" | "below" } | null>(null);
+  // 준비 놓을 자리: 「내용 맨 위」 기준선(높이 0 div)과 끌기 시작 때 집은 내용 Y.
+  // 열림 여부는 그리기용 state와 충돌 판정이 읽는 ref 둘 다에 둔다.
+  const contentTopRef = useRef<HTMLDivElement | null>(null);
+  const grabYRef = useRef<number | null>(null);
+  const setupZoneRef = useRef(false);
+  const [setupZoneShown, setSetupZoneShown] = useState(false);
   const all = useMemo(() => [...setup, ...steps], [setup, steps]);
   const addSetupStep = useScenarioEditor((s) => s.addSetupStep);
   const activeStep = activeId ? findStepById(all, activeId) : null;
@@ -571,6 +594,7 @@ export function FlowOutline({
   // 후보 중 드롭 대상은 nearestByHeader(헤더 근접) 유지. 판정 half를 ref에 기록(R4).
   const collisionDetection = useCallback<CollisionDetection>(
     (args) => {
+      if (setupZoneRef.current) return [{ id: SETUP_DROP_ID }];
       const dragId = args.active.id as string;
       const pointerY = args.pointerCoordinates?.y;
       const allIds = args.droppableContainers.map((c) => c.id as string);
@@ -616,8 +640,36 @@ export function FlowOutline({
     };
     halfRef.current = null;
     setOverInfo(null);
+    closeSetupZone();
+    const ev = event.activatorEvent;
+    const top = contentTopRef.current;
+    grabYRef.current =
+      ev instanceof KeyboardEvent || !(ev instanceof MouseEvent) || !top
+        ? null
+        : ev.clientY - top.getBoundingClientRect().top;
+  };
+  const closeSetupZone = () => {
+    grabYRef.current = null;
+    setupZoneRef.current = false;
+    setSetupZoneShown(false);
   };
   const handleDragMove = (event: DragMoveEvent) => {
+    const grabY = grabYRef.current;
+    const calc = dragCalcRef.current;
+    if (grabY !== null && calc) {
+      const open = showSetupZone({
+        setupCount: setup.length,
+        dragging: true,
+        legal: calc.legal,
+        keyboard: false,
+        pointerY: grabY + event.delta.y,
+        grabY,
+      });
+      if (open !== setupZoneRef.current) {
+        setupZoneRef.current = open;
+        setSetupZoneShown(open);
+      }
+    }
     const overId = (event.over?.id ?? null) as string | null;
     const h = halfRef.current;
     const next =
@@ -629,6 +681,7 @@ export function FlowOutline({
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
     setOverInfo(null);
+    closeSetupZone();
     const { active, over } = event;
     const dragId = active.id as string;
     const overId = (over?.id ?? null) as string | null;
@@ -643,6 +696,7 @@ export function FlowOutline({
   const handleDragCancel = () => {
     setActiveId(null);
     setOverInfo(null);
+    closeSetupZone();
     dragCalcRef.current = null;
     halfRef.current = null;
   };
@@ -695,11 +749,13 @@ export function FlowOutline({
       <div className="flex h-full flex-col">
         <div
           data-testid="outline-blank"
-          className="flex-1 overflow-auto"
+          className="flex-1 overflow-auto [overflow-anchor:none]"
           onClick={(e) => {
             if (e.target === e.currentTarget) select(null);
           }}
         >
+          <div ref={contentTopRef} aria-hidden="true" className="h-0" />
+          {setupZoneShown && setup.length === 0 && activeId !== null && <SetupDropZone />}
           {setup.length > 0 && (
             <>
               <div
@@ -757,9 +813,15 @@ export function FlowOutline({
               ))}
             </SortableContext>
           </div>
-          {steps.length === 0 && (
-            <p className="mt-2 text-xs text-slate-500">{ko.editor.canvasEmpty}</p>
-          )}
+          {steps.length === 0 &&
+            (showTopZone({
+              mainCount: steps.length,
+              draggingSetupStep: activeBandKey === bandKey(SETUP_BAND),
+            }) ? (
+              <EmptyBandDrop id={TOP_DROP_ID} />
+            ) : (
+              <p className="mt-2 text-xs text-slate-500">{ko.editor.canvasEmpty}</p>
+            ))}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button

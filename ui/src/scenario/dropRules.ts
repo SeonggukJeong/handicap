@@ -217,3 +217,28 @@ export const SETUP_ZONE_LIFT_PX = 8;
 export function setupZoneOpen(pointerY: number, grabY: number): boolean {
   return pointerY < SETUP_ZONE_REACH_PX && grabY - pointerY > SETUP_ZONE_LIFT_PX;
 }
+
+/** 빈 준비 구획의 놓을 자리를 그릴지: 준비가 비어 있고, 끄는 중이고, 합법 목적지에 준비 밴드가 있고,
+ *  포인터로 집었고(키보드 아님), 맨 위 영역에 들어왔을 때만. */
+export function showSetupZone(a: {
+  setupCount: number;
+  dragging: boolean;
+  legal: ReadonlySet<string> | null;
+  keyboard: boolean;
+  pointerY: number;
+  grabY: number;
+}): boolean {
+  return (
+    a.setupCount === 0 &&
+    a.dragging &&
+    a.legal !== null &&
+    a.legal.has(bandKey(SETUP_BAND)) &&
+    !a.keyboard &&
+    setupZoneOpen(a.pointerY, a.grabY)
+  );
+}
+
+/** 본 스텝이 0개일 때, 준비 스텝을 끄는 동안 본 스텝 자리의 놓을 자리를 그릴지. */
+export function showTopZone(a: { mainCount: number; draggingSetupStep: boolean }): boolean {
+  return a.mainCount === 0 && a.draggingSetupStep;
+}

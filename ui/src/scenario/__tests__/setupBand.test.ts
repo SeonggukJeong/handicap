@@ -15,6 +15,8 @@ import {
   legalTargetBands,
   parseDropId,
   setupZoneOpen,
+  showSetupZone,
+  showTopZone,
 } from "../dropRules";
 import { resolveDrop } from "../reorder";
 import { StepModel, type Step } from "../model";
@@ -216,5 +218,34 @@ describe("setupZoneOpen", () => {
     expect(setupZoneOpen(20, 23)).toBe(false);
     expect(setupZoneOpen(14, 23)).toBe(true);
     expect(setupZoneOpen(23, 23)).toBe(false);
+  });
+});
+
+describe("showSetupZone / showTopZone", () => {
+  const base = {
+    setupCount: 0,
+    dragging: true,
+    legal: new Set(["top", "setup"]) as ReadonlySet<string> | null,
+    keyboard: false,
+    pointerY: 10,
+    grabY: 100,
+  };
+  it("showSetupZone: 다섯 조건이 모두 참일 때만", () => {
+    expect(showSetupZone(base)).toBe(true);
+    expect(showSetupZone({ ...base, setupCount: 1 })).toBe(false);
+    expect(showSetupZone({ ...base, dragging: false })).toBe(false);
+    expect(showSetupZone({ ...base, legal: new Set(["top"]) })).toBe(false);
+    expect(showSetupZone({ ...base, legal: null })).toBe(false);
+    expect(showSetupZone({ ...base, keyboard: true })).toBe(false);
+    expect(showSetupZone({ ...base, pointerY: 30 })).toBe(false);
+    expect(showSetupZone({ ...base, grabY: 12 })).toBe(false);
+  });
+  it("showSetupZone: 첫 행을 집었다 제자리(pointerY===grabY)면 닫힘", () => {
+    expect(showSetupZone({ ...base, pointerY: 23, grabY: 23 })).toBe(false);
+  });
+  it("showTopZone", () => {
+    expect(showTopZone({ mainCount: 0, draggingSetupStep: true })).toBe(true);
+    expect(showTopZone({ mainCount: 1, draggingSetupStep: true })).toBe(false);
+    expect(showTopZone({ mainCount: 0, draggingSetupStep: false })).toBe(false);
   });
 });
