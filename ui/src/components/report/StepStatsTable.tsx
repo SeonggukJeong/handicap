@@ -16,10 +16,10 @@ type Props = {
   wholeRunBadge?: boolean;
 };
 
-// 응답을 하나도 받지 못한 스텝(보내지 않음·응답 없음뿐)에는 응답 시간이 없다 — 0으로 찍지 않는다.
+// 하나도 보내지 않은 스텝에는 잰 시간이 없다 — 0으로 찍지 않는다.
+// 보냈지만 응답을 못 받은 요청(시간 초과·거부)은 실패까지 걸린 시간이 표본에 들어 있어 그대로 찍는다.
 function latency(s: ReportStep, ms: number): number | string {
-  const received = s.count - (s.not_sent ?? 0) - (s.status_counts["0"] ?? 0);
-  return received > 0 ? ms : "—";
+  return s.count - (s.not_sent ?? 0) > 0 ? ms : "—";
 }
 
 export function StepStatsTable({ steps, meta, retriedStepIds, wholeRunBadge }: Props) {

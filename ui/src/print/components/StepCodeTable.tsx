@@ -2,7 +2,7 @@ import { ko } from "../../i18n/ko";
 import { fmtCount, fmtMs, fmtPct } from "../format";
 import { middleEllipsis, requestLineBudget } from "../redact";
 import type { RankedRow, StatusTag } from "../stepStatus";
-import { responsesReceived, type Column } from "../stepTable";
+import { requestsSent, type Column } from "../stepTable";
 import { MEASURE_IDS } from "../buildPrintDoc";
 
 const C = ko.print.columns;
@@ -112,7 +112,7 @@ function StepRowView(props: {
         )}
       </td>
       <td>{fmtCount(row.count)}</td>
-      <td>{row.executed && responsesReceived(row) > 0 ? fmtMs(row.p95Ms) : DASH}</td>
+      <td>{row.executed && requestsSent(row) > 0 ? fmtMs(row.p95Ms) : DASH}</td>
       {columns.map((col) => (
         <CodeCell key={col.key} row={row} col={col} />
       ))}

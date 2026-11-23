@@ -44,12 +44,21 @@ describe("StepStatsTable", () => {
     expect(region).toHaveTextContent("stepB"); // missing meta → falls back to id
   });
 
-  it("응답을 하나도 받지 못한 스텝은 응답 시간 칸이 0이 아니라 「—」", () => {
+  it("하나도 보내지 않은 스텝만 응답 시간 칸이 「—」 — 보냈지만 응답을 못 받은 스텝은 잰 시간", () => {
     const base = { loop_breakdown: [], p50_ms: 0, p95_ms: 0, p99_ms: 0 };
     render(
       <StepStatsTable
         steps={[
-          { ...base, step_id: "refused", count: 7, error_count: 7, status_counts: { "0": 7 } },
+          {
+            ...base,
+            step_id: "timeout",
+            count: 7,
+            error_count: 7,
+            status_counts: { "0": 7 },
+            p50_ms: 30000,
+            p95_ms: 30001,
+            p99_ms: 30002,
+          },
           { ...base, step_id: "blank", count: 6, error_count: 6, status_counts: {}, not_sent: 6 },
           {
             ...base,
@@ -67,7 +76,7 @@ describe("StepStatsTable", () => {
         .getAllByRole("cell")
         .slice(3)
         .map((c) => c.textContent);
-    expect(cells("refused")).toEqual(["7", "7", "—", "—", "—"]);
+    expect(cells("timeout")).toEqual(["7", "7", "30000", "30001", "30002"]);
     expect(cells("blank")).toEqual(["6", "6", "—", "—", "—"]);
     expect(cells("fast")).toEqual(["5", "0", "0", "0", "0"]);
   });

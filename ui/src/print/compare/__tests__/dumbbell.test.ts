@@ -174,7 +174,7 @@ describe("buildDumbbell", () => {
     expect(r.cls).toBeNull();
   });
 
-  it("응답을 하나도 받지 못한 쪽(전부 응답 없음)은 응답 시간이 없어 점·분류·화살표가 없다", () => {
+  it("전부 시간 초과인 쪽은 기다린 시간이 응답 시간으로 그려진다", () => {
     const steps = [{ id: "s1", name: "가" }];
     const before = sceneModel({
       id: "b",
@@ -184,12 +184,11 @@ describe("buildDumbbell", () => {
     const after = sceneModel({
       id: "a",
       steps,
-      rep: [{ id: "s1", counts: { "0": 10 }, count: 10, errors: 10, p95: 0 }],
+      rep: [{ id: "s1", counts: { "0": 10 }, count: 10, errors: 10, p95: 30000 }],
     });
     const r = buildDumbbell(before, after).rows[0]!;
-    expect(r.afterMs).toBeNull();
-    expect(r.cls).toBeNull();
-    expect(r.valueText).toBe("2.1초 → –");
+    expect(r.afterMs).toBe(30000);
+    expect(r.valueText).toBe("2.1초 → 30.0초 (+1329%)");
   });
 
   it("요청이 전부 보내지 않음인 쪽은 응답 시간이 없어 점·분류·화살표가 없다", () => {

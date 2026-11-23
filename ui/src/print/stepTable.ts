@@ -163,10 +163,12 @@ export type StepRow = {
   factsKnown: boolean;
 };
 
-/** 응답을 받은 요청 수 = 전체 − 보내지 않음 − 응답 없음(코드 0). 0이면 그 단계에는 응답 시간이 없다. */
-export function responsesReceived(row: Pick<StepRow, "count" | "notSent" | "perCode">): number {
-  const noResponse = row.perCode.filter((p) => p.code === 0).reduce((a, p) => a + p.count, 0);
-  return Math.max(0, row.count - row.notSent - noResponse);
+/**
+ * 실제로 보낸 요청 수 = 전체 − 보내지 않음. 0이면 그 단계에는 잰 시간이 없다.
+ * 보냈지만 응답을 못 받은 요청(시간 초과·거부 — 코드 0)은 실패까지 걸린 시간이 표본에 들어 있다.
+ */
+export function requestsSent(row: Pick<StepRow, "count" | "notSent">): number {
+  return Math.max(0, row.count - row.notSent);
 }
 
 export type FoldNote = { columnLabel: string; parts: Array<{ code: number; count: number }> };
