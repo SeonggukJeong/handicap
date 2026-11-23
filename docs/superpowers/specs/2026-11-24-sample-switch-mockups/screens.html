@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sample-switch — 화면 목업</title>
+<style>
+  :root { --s50:#f8fafc; --s100:#f1f5f9; --s200:#e2e8f0; --s300:#cbd5e1; --s400:#94a3b8; --s500:#64748b; --s600:#475569; --s700:#334155; --s900:#0f172a; --accent:#4f46e5; --accent-bg:#eef2ff; --amber-bg:#fffbeb; --amber-bd:#fcd34d; --amber-tx:#92400e; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--s50); color:var(--s900); font:14px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:36px 0 8px; color:var(--s600); }
+  .note { color:var(--s500); font-size:12px; margin:0 0 12px; max-width:900px; }
+  .card { background:#fff; border:1px solid var(--s200); border-radius:8px; padding:16px; max-width:980px; position:relative; }
+  .new { outline:2px dashed #a5b4fc; outline-offset:3px; border-radius:6px; }
+  .bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:8px 12px; border:1px solid var(--s200); border-radius:6px; background:var(--s50); margin-bottom:10px; }
+  .bar .lbl { font-size:13px; color:var(--s600); font-weight:500; }
+  /* 단추 묶음은 프로젝트 Segmented 부품 그대로(기준 전환과 같은 모양) */
+  .seg { display:inline-flex; border:1px solid var(--s200); border-radius:8px; background:var(--s100); padding:2px; }
+  .seg button { font:inherit; font-size:14px; font-weight:600; padding:4px 14px; border:0; border-radius:6px; background:transparent; color:var(--s600); cursor:pointer; }
+  .seg button[aria-checked="true"] { background:var(--accent); color:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .hint { font-size:12px; color:var(--s500); }
+  .q { display:inline-block; width:16px; height:16px; border-radius:50%; border:1px solid var(--s300); color:var(--s500); font-size:10px; text-align:center; line-height:14px; }
+  /* 툴팁·도움말 판: HelpTip 판과 같은 모양(폭 TIP_WIDTH_PX, 흰 바탕, 12px) */
+  .tip { width:224px; background:#fff; border:1px solid var(--s200); border-radius:6px; box-shadow:0 10px 15px -3px rgba(0,0,0,.1); padding:8px; font-size:12px; color:var(--s700); }
+  .tip b { color:var(--s900); }
+  .tip .row { display:block; margin-top:6px; } .tip .row:first-child { margin-top:0; }
+  .callout { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:8px 12px; font-size:13px; margin:0 0 10px; }
+  .cards { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; }
+  .kpi { border:1px solid var(--s200); border-radius:6px; padding:8px 10px; } .kpi .l { font-size:12px; color:var(--s500); } .kpi .v { font-size:16px; font-weight:600; }
+  .badge { display:inline-block; border-radius:4px; padding:1px 6px; font-size:12px; font-weight:500; background:var(--accent-bg); color:var(--accent); margin-left:6px; vertical-align:middle; }
+  h3 { margin:16px 0 8px; font-size:16px; }
+  .other { font-size:14px; color:var(--s500); margin:0 0 10px; }
+  .headline { font-size:16px; color:#1e293b; margin:0 0 12px; }
+  .chart { height:70px; border:1px dashed var(--s300); border-radius:6px; color:var(--s400); font-size:12px; display:flex; align-items:center; justify-content:center; }
+  @media (max-width:640px){ .cards{ grid-template-columns:repeat(2,1fr);} }
+</style>
+</head>
+<body>
+<h1>sample-switch — 화면 목업</h1>
+<p class="note">단추 줄과 노란 안내 상자의 기본 모양은 <code>2026-11-23-passed-latency-mockups/screens.html</code> 1·2. 여기는 이번에 더하는 것: 단추 툴팁, (?) 내용, 구획 표지, 머리말·다른 기준 줄. 점선 테두리 = 새로 생기는 것. 단추 묶음은 기준 전환 단추와 같은 부품(<code>Segmented</code>)이라 앞 목업의 연한 단추가 아니라 이 모양이다.</p>
+
+<h2>1. 단추에 마우스를 올리거나 키보드 초점이 갔을 때 — 그 표본의 설명</h2>
+<div class="card" style="padding-bottom:120px">
+  <div class="bar">
+    <span class="lbl">응답 시간 표본</span>
+    <span class="seg" role="radiogroup" aria-label="응답 시간 표본 고르기">
+      <button role="radio" aria-checked="true">통과한 요청</button><button role="radio" aria-checked="false">실패한 요청</button><button role="radio" aria-checked="false">모든 요청</button>
+    </span>
+    <span class="q">?</span>
+    <span class="hint">응답 시간은 통과한 요청만으로 계산했습니다. 실패한 요청은 오류 수에 들어 있습니다.</span>
+  </div>
+  <div class="tip new" role="tooltip" style="position:absolute; left:215px; top:62px">
+    <span class="row">요청이 어떻게 실패하는지 볼 때 고릅니다.</span>
+    <span class="row">값이 몇 ms면 서버가 바로 거절한 것이고, 시간 초과 값에 몰려 있으면 서버가 붙잡고 있다가 실패한 것입니다. 스텝별 표에서 어느 요청이 느리게 실패하는지 봅니다.</span>
+  </div>
+</div>
+<p class="note">툴팁은 단추 아래에 뜨고, 화면 끝에서는 위로 뒤집히거나 안쪽으로 밀린다((?) 도움말과 같은 자리 계산). Esc·마우스 떠남·초점 떠남으로 닫힌다.</p>
+
+<h2>2. (?)를 눌렀을 때 — 세 표본을 한 번에 (터치·키보드)</h2>
+<div class="card">
+  <div class="tip new">
+    <span class="row"><b>통과한 요청</b> — 성공한 요청이 얼마나 빠른지 볼 때 고릅니다. 판정 기준도 이 값으로 판정합니다. p95·p99가 목표 안인지, 시간대별 그래프가 부하를 올릴 때 함께 올라가는지 봅니다.</span>
+    <span class="row"><b>실패한 요청</b> — 요청이 어떻게 실패하는지 볼 때 고릅니다. 값이 몇 ms면 서버가 바로 거절한 것이고, 시간 초과 값에 몰려 있으면 서버가 붙잡고 있다가 실패한 것입니다. 스텝별 표에서 어느 요청이 느리게 실패하는지 봅니다.</span>
+    <span class="row"><b>모든 요청</b> — 서버가 요청을 얼마나 오래 붙잡고 있었는지 볼 때(용량 판단), 또는 이전 run·다른 도구의 숫자와 맞춰 볼 때 고릅니다. 평균과 p99를 봅니다. 시간 초과가 섞이면 통과한 요청보다 크게 나옵니다.</span>
+    <span class="row">「통과」는 오류로 세지 않은 요청입니다. 상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.</span>
+  </div>
+</div>
+
+<h2>3. 「실패한 요청」을 고른 화면 — 안내 상자 + 구획마다 표본 표지</h2>
+<div class="card">
+  <p class="other">유지 구간 기준 · 12:00:30–12:10:00 <span class="new">· 전체 구간 (실패한 요청): 200.0 RPS · p95 3 ms · 오류 60.2%</span></p>
+  <div class="bar">
+    <span class="lbl">응답 시간 표본</span>
+    <span class="seg" role="radiogroup">
+      <button role="radio" aria-checked="false">통과한 요청</button><button role="radio" aria-checked="true">실패한 요청</button><button role="radio" aria-checked="false">모든 요청</button>
+    </span>
+    <span class="q">?</span>
+    <span class="hint">실패한 요청이 실패할 때까지 걸린 시간입니다.</span>
+  </div>
+  <p class="callout">응답 시간 숫자만 실패한 요청 기준으로 바꿔 보여 줍니다. 판정·인사이트·계단 표는 바뀌지 않습니다. 인쇄·내보내기는 통과한 요청 기준입니다.</p>
+  <p class="headline">10분 동안 VU 50으로 120,000건을 보냈고, <span class="new">실패한 요청의 95%가 3ms 안에 실패</span>, 오류율 60.2%.</p>
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">72,300</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
+    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
+    <div class="kpi"><div class="l">p50<span class="badge new">실패한 요청</span></div><div class="v">2 ms</div></div>
+    <div class="kpi"><div class="l">p95</div><div class="v">3 ms</div></div>
+    <div class="kpi"><div class="l">p99</div><div class="v">30,001 ms</div></div>
+  </div>
+  <h3>p95 응답 시간<span class="badge new">실패한 요청</span></h3>
+  <div class="chart">그래프</div>
+  <h3>응답 시간 분포<span class="badge new">실패한 요청</span></h3>
+  <div class="chart">분포 곡선 · 히스토그램</div>
+  <h3>스텝별 결과<span class="badge new">실패한 요청</span></h3>
+  <div class="chart">표 — p50·p95·p99 열이 실패한 요청의 값, 실패가 없는 스텝은 「—」</div>
+  <h3>워커별 결과<span class="badge new">실패한 요청</span></h3>
+  <div class="chart">표</div>
+</div>
+<p class="note">요약 카드는 응답 시간 카드 묶음의 첫 카드(p50) 이름 곁에 표지 하나. 표지는 프로젝트 <code>Badge</code>(accent, 12px). 「통과한 요청」(기본)일 때는 표지·안내 상자가 하나도 없어 지금 화면과 같다.</p>
+
+<h2>4. 실패가 없는 run에서 「실패한 요청」</h2>
+<div class="card">
+  <p class="headline">10분 동안 VU 50으로 120,000건을 보냈고, <span class="new">실패한 요청 없음</span>, 오류율 0%.</p>
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">0</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
+    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
+    <div class="kpi"><div class="l">p50<span class="badge">실패한 요청</span></div><div class="v">—</div></div>
+    <div class="kpi"><div class="l">p95</div><div class="v">—</div></div>
+    <div class="kpi"><div class="l">p99</div><div class="v">—</div></div>
+  </div>
+</div>
+</body>
+</html>
