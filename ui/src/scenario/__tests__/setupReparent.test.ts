@@ -114,7 +114,7 @@ describe("준비 구획으로 위치 지정 옮기기 · addSetupStep", () => {
     load(FLOW_SETUP);
     st().reparentStep(B1, { ...SETUP, index: 0 });
     const t = st().yamlText;
-    expect(t).not.toMatch(/setup: *\{/);
+    expect(t).toMatch(/^setup:\n {2}steps:\n {4}- id: 01HX0000000000000000000B01$/m);
     const parsed = parseScenarioDoc(t);
     expect("model" in parsed).toBe(true);
     expect(ids(st().model!.setup!.steps)).toEqual([B1]);
@@ -144,6 +144,7 @@ describe("준비 구획으로 위치 지정 옮기기 · addSetupStep", () => {
     const before = st().yamlText;
     st().reparentStep(K1, { ...SETUP, index: 0 });
     expect(st().yamlText).toBe(before);
+    expect(st().yamlError).toBeNull();
     expect(st().model!.steps.some((s) => s.id === K1)).toBe(true);
   });
 
@@ -180,6 +181,10 @@ describe("준비 구획으로 위치 지정 옮기기 · addSetupStep", () => {
     const setup = st().model!.setup!.steps;
     expect(ids(setup)).toEqual([S1, id2]);
     expect(setup[1].request).toMatchObject({ method: "GET", url: "/" });
+    const t2 = st().yamlText;
+    const section = t2.slice(t2.indexOf("\nsetup:"), t2.indexOf("\nsteps:"));
+    expect(section).toMatch(new RegExp(`^ {4}- id: ${id2}$`, "m"));
+    expect(section).not.toMatch(/[{}]/);
   });
 
   it("addSetupStep: YAML 오류 상태면 null", () => {

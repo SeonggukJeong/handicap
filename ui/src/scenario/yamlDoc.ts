@@ -244,27 +244,11 @@ export function applyEdit(doc: Document, edit: Edit): void {
     case "addStep": {
       ensureSeq(doc, ["steps"]);
       const steps = doc.getIn(["steps"]) as YAMLSeq;
-      const node = doc.createNode({
-        id: edit.id,
-        name: edit.name,
-        type: "http",
-        request: { method: "GET", url: "/" },
-        assert: [{ status: 200 }],
-      });
-      steps.add(node);
+      steps.add(defaultHttpStepNode(doc, edit.id, edit.name));
       return;
     }
     case "addSetupStep": {
-      const seq = ensureSetupSeq(doc);
-      seq.add(
-        doc.createNode({
-          id: edit.id,
-          name: edit.name,
-          type: "http",
-          request: { method: "GET", url: "/" },
-          assert: [{ status: 200 }],
-        }),
-      );
+      ensureSetupSeq(doc).add(defaultHttpStepNode(doc, edit.id, edit.name));
       return;
     }
     case "addLoopStep": {
@@ -831,6 +815,17 @@ function findStepPath(doc: Document, stepId: string): Array<string | number> | n
     searchSeq(doc.getIn(["setup", "steps"]), ["setup", "steps"], stepId) ??
     searchSeq(doc.getIn(["steps"]), ["steps"], stepId)
   );
+}
+
+// 새 http 스텝의 기본 노드(GET /, status 200 검증) — addStep·addSetupStep 공통.
+function defaultHttpStepNode(doc: Document, id: string, name: string): unknown {
+  return doc.createNode({
+    id,
+    name,
+    type: "http",
+    request: { method: "GET", url: "/" },
+    assert: [{ status: 200 }],
+  });
 }
 
 function dropEmptySetup(doc: Document): void {
