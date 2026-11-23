@@ -1,6 +1,7 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
 use crate::report::{ReportJson, SetupReport};
+use crate::sample::{Sample, SampleBlock};
 use crate::steady::{Basis, BasisState};
 use rust_xlsxwriter::{Color, Format, Workbook, Worksheet};
 use serde::Serialize;
@@ -82,6 +83,39 @@ fn summary_metric(s: &crate::report::ReportSummary, metric: &str) -> f64 {
             }
         }
         _ => 0.0,
+    }
+}
+
+/// 통과한 요청이 하나도 없어 응답 시간이 「값 없음」인가. 통과 = `count − errors`
+/// (「보내지 않음」도 오류에 든다). 나눌 수 없는 옛 run은 `default == All`이라 늘 거짓.
+fn latency_missing(sample: &SampleBlock, count: u64, errors: u64) -> bool {
+    sample.default == Sample::Passed && count > 0 && count == errors
+}
+
+/// 비교용 요약 값. 응답 시간 지표가 값 없음이면 `None`.
+fn summary_value(r: &ReportJson, metric: &str) -> Option<f64> {
+    let latency = matches!(metric, "p50_ms" | "p95_ms" | "p99_ms");
+    if latency && latency_missing(&r.sample, r.summary.count, r.summary.errors) {
+        None
+    } else {
+        Some(summary_metric(&r.summary, metric))
+    }
+}
+
+fn sample_label(s: Sample) -> &'static str {
+    match s {
+        Sample::Passed => "passed",
+        Sample::Failed => "failed",
+        Sample::All => "all",
+    }
+}
+
+/// 응답 시간 값 하나를 CSV 칸 글자로(값 없음 → 빈 문자열).
+fn latency_csv(missing: bool, ms: u64) -> String {
+    if missing {
+        String::new()
+    } else {
+        ms.to_string()
     }
 }
 
@@ -263,7 +297,12 @@ fn basis_state_label(s: BasisState) -> &'static str {
 }
 
 /// Steps 표(머리 + 스텝 행)를 `first_row`부터 쓴다. `Steps`·`Other basis` 시트가 같은 열을 쓴다.
-fn write_steps_table(ws: &mut Worksheet, first_row: u32, steps: &[crate::report::ReportStep]) {
+fn write_steps_table(
+    ws: &mut Worksheet,
+    first_row: u32,
+    steps: &[crate::report::ReportStep],
+    sample: &SampleBlock,
+) {
     for (c, h) in [
         "step_id",
         "count",
@@ -282,26 +321,36 @@ fn write_steps_table(ws: &mut Worksheet, first_row: u32, steps: &[crate::report:
         ws.write_string(r, 0, &st.step_id).expect("w");
         ws.write_number(r, 1, st.count as f64).expect("w");
         ws.write_number(r, 2, st.error_count as f64).expect("w");
-        ws.write_number(r, 3, st.p50_ms as f64).expect("w");
-        ws.write_number(r, 4, st.p95_ms as f64).expect("w");
-        ws.write_number(r, 5, st.p99_ms as f64).expect("w");
+        if !latency_missing(sample, st.count, st.error_count) {
+            ws.write_number(r, 3, st.p50_ms as f64).expect("w");
+            ws.write_number(r, 4, st.p95_ms as f64).expect("w");
+            ws.write_number(r, 5, st.p99_ms as f64).expect("w");
+        }
     }
 }
 
-/// 요약 숫자 일곱 행(count…p99_ms)을 `first_row`부터 쓴다.
-fn write_summary_numbers(ws: &mut Worksheet, first_row: u32, s: &crate::report::ReportSummary) {
-    let rows: [(&str, f64); 7] = [
-        ("count", s.count as f64),
-        ("errors", s.errors as f64),
-        ("rps", s.rps),
-        ("duration_seconds", s.duration_seconds as f64),
-        ("p50_ms", s.p50_ms as f64),
-        ("p95_ms", s.p95_ms as f64),
-        ("p99_ms", s.p99_ms as f64),
+/// 요약 숫자 일곱 행(count…p99_ms)을 `first_row`부터 쓴다. 응답 시간이 값 없음이면 라벨만 쓴다.
+fn write_summary_numbers(
+    ws: &mut Worksheet,
+    first_row: u32,
+    s: &crate::report::ReportSummary,
+    sample: &SampleBlock,
+) {
+    let missing = latency_missing(sample, s.count, s.errors);
+    let rows: [(&str, f64, bool); 7] = [
+        ("count", s.count as f64, false),
+        ("errors", s.errors as f64, false),
+        ("rps", s.rps, false),
+        ("duration_seconds", s.duration_seconds as f64, false),
+        ("p50_ms", s.p50_ms as f64, true),
+        ("p95_ms", s.p95_ms as f64, true),
+        ("p99_ms", s.p99_ms as f64, true),
     ];
-    for (i, (k, v)) in rows.iter().enumerate() {
+    for (i, (k, v, is_latency)) in rows.iter().enumerate() {
         ws.write_string(first_row + i as u32, 0, *k).expect("w");
-        ws.write_number(first_row + i as u32, 1, *v).expect("w");
+        if !(*is_latency && missing) {
+            ws.write_number(first_row + i as u32, 1, *v).expect("w");
+        }
     }
 }
 
@@ -325,15 +374,22 @@ pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8>
     w.write_record(&header).expect("hdr");
 
     for metric in SUMMARY_METRICS {
-        let base = summary_metric(&reports[baseline_idx].summary, metric);
+        let base = summary_value(&reports[baseline_idx], metric);
         let mut rec = vec![metric.to_string()];
         for r in reports {
-            rec.push(summary_metric(&r.summary, metric).to_string());
+            rec.push(
+                summary_value(r, metric)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+            );
         }
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
-                let d = delta(metric, base, summary_metric(&r.summary, metric));
-                rec.push(d.pct.map(|p| format!("{p:.6}")).unwrap_or_default());
+                let pct = match (base, summary_value(r, metric)) {
+                    (Some(b), Some(v)) => delta(metric, b, v).pct,
+                    _ => None,
+                };
+                rec.push(pct.map(|p| format!("{p:.6}")).unwrap_or_default());
             }
         }
         w.write_record(&rec).expect("row");
@@ -533,13 +589,14 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
     ])
     .expect("csv header");
     for s in &report.steps {
+        let missing = latency_missing(&report.sample, s.count, s.error_count);
         w.write_record([
             s.step_id.as_str(),
             &s.count.to_string(),
             &s.error_count.to_string(),
-            &s.p50_ms.to_string(),
-            &s.p95_ms.to_string(),
-            &s.p99_ms.to_string(),
+            &latency_csv(missing, s.p50_ms),
+            &latency_csv(missing, s.p95_ms),
+            &latency_csv(missing, s.p99_ms),
         ])
         .expect("csv row");
     }
@@ -619,17 +676,19 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     for (ri, metric) in SUMMARY_METRICS.iter().enumerate() {
         let row = (ri + 1) as u32;
         ws.write_string(row, 0, *metric).expect("w");
-        let base = summary_metric(&reports[baseline_idx].summary, metric);
+        let base = summary_value(&reports[baseline_idx], metric);
         for (i, r) in reports.iter().enumerate() {
-            ws.write_number(row, (1 + i) as u16, summary_metric(&r.summary, metric))
-                .expect("w");
+            if let Some(v) = summary_value(r, metric) {
+                ws.write_number(row, (1 + i) as u16, v).expect("w");
+            }
         }
         let mut dcol = delta_start;
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
-                let val = summary_metric(&r.summary, metric);
-                let d = delta(metric, base, val);
-                write_delta_cell(ws, row, dcol, &d, val, &fmt_bad, &fmt_good);
+                if let (Some(b), Some(val)) = (base, summary_value(r, metric)) {
+                    let d = delta(metric, b, val);
+                    write_delta_cell(ws, row, dcol, &d, val, &fmt_bad, &fmt_good);
+                }
                 dcol += 1;
             }
         }
@@ -666,26 +725,25 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         let row = (ri + 1) as u32;
         ws.write_string(row, 0, sid).expect("w");
         // baseline p95 (그 스텝이 있을 때만 Some — absent면 None, unwrap_or 금지).
-        let base = reports[baseline_idx]
-            .steps
-            .iter()
-            .find(|s| &s.step_id == sid)
-            .map(|s| s.p95_ms as f64);
+        // 값 없음(통과한 요청 없음)인 스텝도 None.
+        let step_p95 = |r: &ReportJson| {
+            r.steps
+                .iter()
+                .find(|s| &s.step_id == sid)
+                .filter(|s| !latency_missing(&r.sample, s.count, s.error_count))
+                .map(|s| s.p95_ms as f64)
+        };
+        let base = step_p95(&reports[baseline_idx]);
         for (i, r) in reports.iter().enumerate() {
-            if let Some(st) = r.steps.iter().find(|s| &s.step_id == sid) {
-                ws.write_number(row, (1 + i) as u16, st.p95_ms as f64)
-                    .expect("w");
+            if let Some(v) = step_p95(r) {
+                ws.write_number(row, (1 + i) as u16, v).expect("w");
             }
         }
         // Δ 셀: 비-baseline run마다 dcol 무조건 전진, 기록은 base·val 둘 다 Some일 때만.
         let mut dcol = steps_delta_start;
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
-                let val = r
-                    .steps
-                    .iter()
-                    .find(|s| &s.step_id == sid)
-                    .map(|s| s.p95_ms as f64);
+                let val = step_p95(r);
                 if let (Some(b), Some(v)) = (base, val) {
                     let d = delta("p95_ms", b, v);
                     write_delta_cell(ws, row, dcol, &d, v, &fmt_bad, &fmt_good);
@@ -796,11 +854,15 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     if mark_basis {
         ws.write_string(0, 6, "basis").expect("w");
     }
+    let sample_col: u16 = if mark_basis { 7 } else { 6 };
+    ws.write_string(0, sample_col, "latency_sample").expect("w");
     for (i, r) in reports.iter().enumerate() {
         let row = (i + 1) as u32;
         if mark_basis {
             ws.write_string(row, 6, basis_label(r)).expect("w");
         }
+        ws.write_string(row, sample_col, sample_label(r.sample.selected))
+            .expect("w");
         ws.write_string(row, 0, &r.run.id).expect("w");
         ws.write_string(row, 1, r.run.label.as_deref().unwrap_or(""))
             .expect("w");
@@ -840,7 +902,7 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
     // --- Summary sheet ---
     let ws = wb.add_worksheet();
     ws.set_name("Summary").expect("sheet name");
-    write_summary_numbers(ws, 0, &report.summary);
+    write_summary_numbers(ws, 0, &report.summary, &report.sample);
     // H2: validity is not f64 — separate string writes (rows 7–8).
     let validity_kinds = report
         .validity
@@ -853,6 +915,7 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
     ws.write_string(7, 1, &report.validity.level).expect("w");
     ws.write_string(8, 0, "validity_reason_kinds").expect("w");
     ws.write_string(8, 1, &validity_kinds).expect("w");
+    let mut next_row = 9u32;
     if let Some(b) = &report.basis {
         let default = match b.default {
             Basis::Steady => "steady",
@@ -872,23 +935,25 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
             nums.push(("basis_window_end_ms", w.end_ms as f64));
             nums.push(("basis_measured_seconds", w.measured_seconds as f64));
         }
-        let mut row = 9u32;
         for (k, v) in texts {
-            ws.write_string(row, 0, k).expect("w");
-            ws.write_string(row, 1, v).expect("w");
-            row += 1;
+            ws.write_string(next_row, 0, k).expect("w");
+            ws.write_string(next_row, 1, v).expect("w");
+            next_row += 1;
         }
         for (k, v) in nums {
-            ws.write_string(row, 0, k).expect("w");
-            ws.write_number(row, 1, v).expect("w");
-            row += 1;
+            ws.write_string(next_row, 0, k).expect("w");
+            ws.write_number(next_row, 1, v).expect("w");
+            next_row += 1;
         }
     }
+    ws.write_string(next_row, 0, "latency_sample").expect("w");
+    ws.write_string(next_row, 1, sample_label(report.sample.selected))
+        .expect("w");
 
     // --- Steps sheet ---
     let ws = wb.add_worksheet();
     ws.set_name("Steps").expect("sheet name");
-    write_steps_table(ws, 0, &report.steps);
+    write_steps_table(ws, 0, &report.steps, &report.sample);
 
     if let Some(s) = &report.setup {
         write_setup_sheet(&mut wb, s, &setup_step_names(&report.scenario_yaml));
@@ -917,9 +982,11 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
         ws.write_string(r, 1, &win.step_id).expect("w");
         ws.write_number(r, 2, win.count as f64).expect("w");
         ws.write_number(r, 3, win.error_count as f64).expect("w");
-        ws.write_number(r, 4, win.p50_ms as f64).expect("w");
-        ws.write_number(r, 5, win.p95_ms as f64).expect("w");
-        ws.write_number(r, 6, win.p99_ms as f64).expect("w");
+        if !latency_missing(&report.sample, win.count, win.error_count) {
+            ws.write_number(r, 4, win.p50_ms as f64).expect("w");
+            ws.write_number(r, 5, win.p95_ms as f64).expect("w");
+            ws.write_number(r, 6, win.p99_ms as f64).expect("w");
+        }
     }
 
     // --- Status sheet ---
@@ -972,8 +1039,8 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
         ws.set_name("Other basis").expect("sheet name");
         ws.write_string(0, 0, "basis").expect("w");
         ws.write_string(0, 1, basis_label(o)).expect("w");
-        write_summary_numbers(ws, 1, &o.summary);
-        write_steps_table(ws, 9, &o.steps);
+        write_summary_numbers(ws, 1, &o.summary, &o.sample);
+        write_steps_table(ws, 9, &o.steps, &o.sample);
     }
 
     wb.save_to_buffer().expect("xlsx buffer")
@@ -1698,8 +1765,14 @@ mod tests {
         );
         // 이 테스트의 워크시트 바인딩명은 `summary`다(위 `let summary = ...`) —
         // 옆 테스트(`xlsx_roundtrips_summary_and_steps`)의 `ws`가 아니다.
+        // narrative_events_count 행은 제거됨: 9행은 맨 끝 latency_sample이고 그 뒤는 비어 있다.
+        assert_eq!(
+            summary.get_value((9, 0)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(summary.get_value((9, 1)), Some(&Data::String("all".into())));
         assert!(
-            matches!(summary.get_value((9, 0)), None | Some(Data::Empty)),
+            matches!(summary.get_value((10, 0)), None | Some(Data::Empty)),
             "narrative_events_count 행 제거됨"
         );
     }
@@ -2046,7 +2119,12 @@ mod tests {
             assert_eq!(ws.get_value((row, 0)), Some(&Data::String(key.into())));
             assert_eq!(ws.get_value((row, 1)), Some(&Data::Float(v)), "{key}");
         }
-        assert!(is_blank(ws.get_value((17, 0))));
+        assert_eq!(
+            ws.get_value((17, 0)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(ws.get_value((17, 1)), Some(&Data::String("all".into())));
+        assert!(is_blank(ws.get_value((18, 0))));
     }
 
     #[test]
@@ -2093,12 +2171,17 @@ mod tests {
             ws.get_value((11, 1)),
             Some(&Data::String("not_reached".into()))
         );
-        assert!(is_blank(ws.get_value((14, 0))));
+        assert_eq!(
+            ws.get_value((14, 0)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(ws.get_value((14, 1)), Some(&Data::String("all".into())));
+        assert!(is_blank(ws.get_value((15, 0))));
     }
 
     #[test]
     fn xlsx_without_basis_is_unchanged() {
-        use calamine::Reader;
+        use calamine::{Data, Reader};
         let r = report_with_steps(vec![step("a", 10, 50)]);
         let mut wb = read_xlsx(report_to_xlsx(&r, None));
         assert_eq!(
@@ -2106,7 +2189,12 @@ mod tests {
             vec!["Summary", "Steps", "Windows", "Status"]
         );
         let ws = wb.worksheet_range("Summary").unwrap();
-        assert!(is_blank(ws.get_value((9, 0))));
+        assert_eq!(
+            ws.get_value((9, 0)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(ws.get_value((9, 1)), Some(&Data::String("all".into())));
+        assert!(is_blank(ws.get_value((10, 0))));
     }
 
     #[test]
@@ -2131,7 +2219,7 @@ mod tests {
 
     #[test]
     fn comparison_exports_unchanged_without_basis() {
-        use calamine::Reader;
+        use calamine::{Data, Reader};
         let mut a = report_with_steps(vec![step("a", 1, 10)]);
         a.run.id = "A".into();
         let mut b = report_with_steps(vec![step("a", 1, 10)]);
@@ -2141,7 +2229,11 @@ mod tests {
         assert_eq!(csv.lines().count(), 1 + SUMMARY_METRICS.len());
         let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
         let runs = wb.worksheet_range("Runs").unwrap();
-        assert!(is_blank(runs.get_value((0, 6))));
+        assert_eq!(
+            runs.get_value((0, 6)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert!(is_blank(runs.get_value((0, 7))));
     }
 
     #[test]
@@ -3771,5 +3863,287 @@ steps:
         assert_eq!(lines[6], "setup_ok,50,,47,,");
         assert_eq!(lines[7], "setup_failed,0,,3,,");
         assert_eq!(lines.len(), 8);
+    }
+
+    fn passed_split() -> crate::sample::SampleBlock {
+        crate::sample::SampleBlock {
+            selected: crate::sample::Sample::Passed,
+            default: crate::sample::Sample::Passed,
+            split: true,
+        }
+    }
+
+    /// 나눌 수 있는 run. `all_failed`면 모든 요청이 실패해 통과한 요청이 없다.
+    fn split_run(id: &str, all_failed: bool, p95: u64) -> ReportJson {
+        let mut st = step("s", 5, p95);
+        let mut r = report_with_steps(vec![]);
+        r.run.id = id.into();
+        r.sample = passed_split();
+        r.summary.count = 10;
+        r.summary.p50_ms = p95 / 2;
+        r.summary.p95_ms = p95;
+        r.summary.p99_ms = p95;
+        if all_failed {
+            r.summary.errors = 10;
+            r.summary.p50_ms = 0;
+            r.summary.p95_ms = 0;
+            r.summary.p99_ms = 0;
+            st.error_count = 5;
+            st.p50_ms = 0;
+            st.p95_ms = 0;
+            st.p99_ms = 0;
+        }
+        r.steps = vec![st];
+        r.windows = vec![
+            ReportWindow {
+                ts_second: 1,
+                step_id: "s".into(),
+                count: 3,
+                error_count: if all_failed { 3 } else { 0 },
+                status_counts: BTreeMap::new(),
+                p50_ms: if all_failed { 0 } else { 7 },
+                p95_ms: if all_failed { 0 } else { 8 },
+                p99_ms: if all_failed { 0 } else { 9 },
+            },
+            ReportWindow {
+                ts_second: 2,
+                step_id: "s".into(),
+                count: 3,
+                error_count: 1,
+                status_counts: BTreeMap::new(),
+                p50_ms: 7,
+                p95_ms: 8,
+                p99_ms: 9,
+            },
+        ];
+        r
+    }
+
+    #[test]
+    fn xlsx_summary_has_latency_sample_last_row() {
+        use calamine::{Data, Reader};
+        let mut wb = read_xlsx(report_to_xlsx(&split_run("a", false, 40), None));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        let (last, _) = ws.end().unwrap();
+        assert_eq!(
+            ws.get_value((last, 0)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(
+            ws.get_value((last, 1)),
+            Some(&Data::String("passed".into()))
+        );
+        let mut wb = read_xlsx(report_to_xlsx(&report_with_steps(vec![]), None));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        let (last, _) = ws.end().unwrap();
+        assert_eq!(
+            ws.get_value((last, 0)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(ws.get_value((last, 1)), Some(&Data::String("all".into())));
+    }
+
+    #[test]
+    fn compare_xlsx_runs_has_latency_sample_last_column() {
+        use calamine::{Data, Reader};
+        let plain_b = || {
+            let mut b = report_with_steps(vec![]);
+            b.run.id = "B".into();
+            b
+        };
+        let a = split_run("A", false, 40);
+        let b = plain_b();
+        let mut wb = read_xlsx(comparison_to_xlsx(&[a, b], 0));
+        let runs = wb.worksheet_range("Runs").unwrap();
+        assert_eq!(
+            runs.get_value((0, 6)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(runs.get_value((1, 6)), Some(&Data::String("passed".into())));
+        assert_eq!(runs.get_value((2, 6)), Some(&Data::String("all".into())));
+        assert!(is_blank(runs.get_value((0, 7))));
+
+        let mut a = split_run("A", false, 40);
+        let b = plain_b();
+        a.basis = Some(basis_block(
+            crate::steady::Basis::Steady,
+            crate::steady::BasisState::Measured,
+            None,
+        ));
+        let mut wb = read_xlsx(comparison_to_xlsx(&[a, b], 0));
+        let runs = wb.worksheet_range("Runs").unwrap();
+        assert_eq!(runs.get_value((0, 6)), Some(&Data::String("basis".into())));
+        assert_eq!(
+            runs.get_value((0, 7)),
+            Some(&Data::String("latency_sample".into()))
+        );
+        assert_eq!(runs.get_value((1, 7)), Some(&Data::String("passed".into())));
+        assert_eq!(runs.get_value((2, 7)), Some(&Data::String("all".into())));
+        assert!(is_blank(runs.get_value((0, 8))));
+    }
+
+    #[test]
+    fn missing_latency_is_blank_not_zero() {
+        use calamine::{Data, Reader};
+        let r = split_run("a", true, 40);
+        // 단일 CSV: 전부 실패한 스텝의 p50·p95·p99 칸은 빈 문자열.
+        let csv = String::from_utf8(report_to_csv(&r)).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "s,5,5,,,");
+        // 단일 XLSX Summary: 라벨은 있고 값 칸은 빈 칸.
+        let mut wb = read_xlsx(report_to_xlsx(&r, Some(&r)));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        for row in 4..=6u32 {
+            assert!(matches!(ws.get_value((row, 0)), Some(Data::String(_))));
+            assert!(is_blank(ws.get_value((row, 1))), "summary row {row}");
+        }
+        assert_eq!(ws.get_value((1, 1)), Some(&Data::Float(10.0)));
+        // Steps 시트
+        let steps = wb.worksheet_range("Steps").unwrap();
+        for col in 3..=5u32 {
+            assert!(is_blank(steps.get_value((1, col))), "steps col {col}");
+        }
+        assert_eq!(steps.get_value((1, 2)), Some(&Data::Float(5.0)));
+        // Windows 시트: 통과한 요청이 없는 초(1행)만 빈 칸, 통과한 요청이 있는 초(2행)는 값.
+        let win = wb.worksheet_range("Windows").unwrap();
+        for col in 4..=6u32 {
+            assert!(is_blank(win.get_value((1, col))), "window col {col}");
+        }
+        assert_eq!(win.get_value((2, 4)), Some(&Data::Float(7.0)));
+        // Other basis 시트: 그 리포트 자신의 sample 블록으로 판정한다.
+        let other = wb.worksheet_range("Other basis").unwrap();
+        for row in 5..=7u32 {
+            assert!(is_blank(other.get_value((row, 1))), "other row {row}");
+        }
+        for col in 3..=5u32 {
+            assert!(is_blank(other.get_value((10, col))), "other steps {col}");
+        }
+        assert_eq!(other.get_value((10, 2)), Some(&Data::Float(5.0)));
+        // 옛 run(default == all)은 같은 숫자라도 칸을 비우지 않는다.
+        let mut old = split_run("o", true, 40);
+        old.sample = Default::default();
+        let csv = String::from_utf8(report_to_csv(&old)).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "s,5,5,0,0,0");
+    }
+
+    fn compare_trio(missing_idx: usize) -> [ReportJson; 3] {
+        let mut v = [
+            split_run("A", false, 100),
+            split_run("B", false, 100),
+            split_run("C", false, 150),
+        ];
+        v[missing_idx] = split_run(["A", "B", "C"][missing_idx], true, 100);
+        v
+    }
+
+    #[test]
+    fn compare_skips_value_and_delta_when_either_side_missing() {
+        use calamine::{Data, Reader};
+        let blank = |v: Option<&Data>| matches!(v, None | Some(Data::Empty));
+        // 가운데(B)가 값 없음. 열: A=1, B=2, C=3, Δ B=4, Δ C=5.
+        let reports = compare_trio(1);
+        let csv = String::from_utf8(comparison_to_csv(&reports, 0)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "metric,A (base),B,C,delta_pct B,delta_pct C");
+        assert_eq!(lines[1], "p50_ms,50,,75,,0.500000");
+        assert_eq!(lines[2], "p95_ms,100,,150,,0.500000");
+        assert!(lines[4].starts_with("rps,"));
+        let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        for row in 1..=3u32 {
+            assert!(!blank(ws.get_value((row, 1))), "base row {row}");
+            assert!(blank(ws.get_value((row, 2))), "B value row {row}");
+            assert!(blank(ws.get_value((row, 4))), "Δ B row {row}");
+            assert_eq!(
+                ws.get_value((row, 5)),
+                Some(&Data::String("▲ +50.0%".into())),
+                "Δ C is in its own column, row {row}"
+            );
+        }
+        let st = wb.worksheet_range("Steps").unwrap();
+        assert!(blank(st.get_value((1, 2))));
+        assert!(blank(st.get_value((1, 4))));
+        assert_eq!(st.get_value((1, 5)), Some(&Data::String("▲ +50.0%".into())));
+        // 기준(A)이 값 없음: 값 칸과 모든 Δ 칸이 빈 칸.
+        let reports = compare_trio(0);
+        let csv = String::from_utf8(comparison_to_csv(&reports, 0)).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "p50_ms,,50,75,,");
+        let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        assert!(blank(ws.get_value((1, 1))));
+        assert!(blank(ws.get_value((1, 4))));
+        assert!(blank(ws.get_value((1, 5))));
+        let st = wb.worksheet_range("Steps").unwrap();
+        assert!(blank(st.get_value((1, 1))));
+        assert!(blank(st.get_value((1, 4))));
+        assert!(blank(st.get_value((1, 5))));
+        // 비교 run(C)이 값 없음: 그 값 칸과 Δ 칸만 빈 칸.
+        let reports = compare_trio(2);
+        let csv = String::from_utf8(comparison_to_csv(&reports, 0)).unwrap();
+        assert_eq!(csv.lines().nth(1).unwrap(), "p50_ms,50,50,,0.000000,");
+        let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        assert!(blank(ws.get_value((1, 3))));
+        assert!(blank(ws.get_value((1, 5))));
+        assert!(!blank(ws.get_value((1, 4))));
+    }
+
+    #[test]
+    fn golden_missing_cases_match() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            reports: Vec<ReportJson>,
+            baseline_id: String,
+            expected: serde_json::Value,
+        }
+        #[derive(serde::Deserialize)]
+        struct Golden {
+            missing_cases: Vec<Case>,
+        }
+        let g: Golden = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/compare_golden.json"
+        )))
+        .expect("golden parse");
+        assert_eq!(g.missing_cases.len(), 2);
+        for case in &g.missing_cases {
+            let base_idx = case
+                .reports
+                .iter()
+                .position(|r| r.run.id == case.baseline_id)
+                .unwrap();
+            for row in case.expected["summary"].as_array().unwrap() {
+                let metric = row["metric"].as_str().unwrap();
+                let base = summary_value(&case.reports[base_idx], metric);
+                for (i, r) in case.reports.iter().enumerate() {
+                    let val = summary_value(r, metric);
+                    let exp_val = &row["values"][i];
+                    match val {
+                        None => assert!(exp_val.is_null(), "{}: {metric} value {i}", case.name),
+                        Some(v) => assert!(
+                            (v - exp_val.as_f64().unwrap()).abs() < 1e-9,
+                            "{}: {metric} value {i}",
+                            case.name
+                        ),
+                    }
+                    let exp = &row["deltas"][i];
+                    match (i == base_idx, base, val) {
+                        (false, Some(b), Some(v)) => {
+                            let d = delta(metric, b, v);
+                            assert!(
+                                (d.pct.unwrap() - exp["pct"].as_f64().unwrap()).abs() < 1e-9,
+                                "{}: {metric} pct {i}",
+                                case.name
+                            );
+                            assert_eq!(
+                                format!("{:?}", d.polarity).to_lowercase(),
+                                exp["polarity"].as_str().unwrap()
+                            );
+                        }
+                        _ => assert!(exp.is_null(), "{}: {metric} delta {i}", case.name),
+                    }
+                }
+            }
+        }
     }
 }
