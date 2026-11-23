@@ -76,6 +76,7 @@ export interface ScenarioEditorState {
    *  yamlError·shadow·충돌·불법 newName·self에서 no-op + 에러코드(null=성공·커밋됨). */
   renameParallelVar(branchName: string, oldName: string, newName: string): RenameVarError | null;
   addStep(name: string): string | null; // returns new id (null when yamlError)
+  addSetupStep(name: string): string | null; // 준비 구획 끝에 http 스텝 추가 (null when yamlError)
   addLoopStep(name: string): string | null; // returns new loop id
   addStepInLoop(loopId: string, name: string): string | null; // returns new child id
   setLoopRepeat(loopId: string, repeat: number | undefined): void;
@@ -270,6 +271,12 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     dispatch(set, get, { type: "addStep", id, name });
+    return id;
+  },
+  addSetupStep(name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
+    const id = newStepId();
+    dispatch(set, get, { type: "addSetupStep", id, name });
     return id;
   },
   addLoopStep(name) {
@@ -533,6 +540,7 @@ const actions = (() => {
     renameVariable: s.renameVariable,
     renameParallelVar: s.renameParallelVar,
     addStep: s.addStep,
+    addSetupStep: s.addSetupStep,
     addLoopStep: s.addLoopStep,
     addStepInLoop: s.addStepInLoop,
     setLoopRepeat: s.setLoopRepeat,

@@ -43,6 +43,7 @@ export type Edit =
   | { type: "setVariableGen"; key: string; spec: GenSpec }
   | { type: "removeVariable"; key: string }
   | { type: "addStep"; id: string; name: string }
+  | { type: "addSetupStep"; id: string; name: string }
   | { type: "addLoopStep"; id: string; name: string; childId: string }
   | { type: "addStepInLoop"; loopId: string; id: string; name: string }
   | { type: "setLoopRepeat"; loopId: string; repeat: number | undefined }
@@ -251,6 +252,19 @@ export function applyEdit(doc: Document, edit: Edit): void {
         assert: [{ status: 200 }],
       });
       steps.add(node);
+      return;
+    }
+    case "addSetupStep": {
+      const seq = ensureSetupSeq(doc);
+      seq.add(
+        doc.createNode({
+          id: edit.id,
+          name: edit.name,
+          type: "http",
+          request: { method: "GET", url: "/" },
+          assert: [{ status: 200 }],
+        }),
+      );
       return;
     }
     case "addLoopStep": {
@@ -553,7 +567,8 @@ export function applyEdit(doc: Document, edit: Edit): void {
       const parent = doc.getIn(parentPath) as YAMLSeq;
       // 타깃 seq *노드*를 splice-out 전에 잡는다 — splice-out이 형제 인덱스를
       // 밀면 경로 기반 재해석이 어긋나지만 노드 참조는 불변(리뷰 r1 FR류 방어).
-      let target = doc.getIn(targetSeqPath);
+      let target: unknown =
+        targetSeqPath[0] === "setup" ? ensureSetupSeq(doc) : doc.getIn(targetSeqPath);
       if (!isSeq(target)) {
         // 빈(부재) else 밴드 — block seq로 생성(빈 flow seq splice = 한 줄 flow 직렬화 함정)
         doc.setIn(targetSeqPath, doc.createNode([]));
@@ -785,6 +800,7 @@ function bandSeqPath(
   parentId: string | null,
   band: string,
 ): Array<string | number> | null {
+  if (parentId === null && band === "setup") return ["setup", "steps"];
   if (parentId === null) return ["steps"];
   const p = findStepPath(doc, parentId);
   if (p === null) return null;

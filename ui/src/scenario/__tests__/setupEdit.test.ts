@@ -7,7 +7,7 @@ const S1 = "01HX0000000000000000000S01";
 const S2 = "01HX0000000000000000000S02";
 const B1 = "01HX0000000000000000000B01";
 const B2 = "01HX0000000000000000000B02";
-const L1 = "01HX0000000000000000000L01";
+const L1 = "01HX0000000000000000000K01";
 const C1 = "01HX0000000000000000000C01";
 
 const SETUP_ONE = `version: 1
@@ -283,6 +283,7 @@ describe("준비 스텝 쓰기 경로", () => {
 
   it("loop 안의 스텝·컨테이너·없는 id는 옮기지 않는다", () => {
     st().loadFromString(WITH_LOOP);
+    expect(st().model).not.toBeNull();
     for (const id of [C1, L1, "nope"]) {
       const before = st().model;
       st().moveStepToSection(id, "setup");
