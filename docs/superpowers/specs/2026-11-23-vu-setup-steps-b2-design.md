@@ -1,6 +1,7 @@
 # 준비 스텝 슬라이스 B2 — 인쇄 본문·내보내기·비교·실행 중 준비 진행 (vu-setup-steps-b2) 설계
 
 - 날짜: 2026-11-23
+- 상태: 구현 완료 (코드 `c2e3cfc2`..`e7405fb3`, 라이브 US1–US5 통과). 판단·연기·확인 대기 = roadmap §B89.
 - 유형: `user-path`
 - 상위 설계: `2026-11-22-vu-setup-steps-design.md` §9(슬라이스 B의 셋째·넷째 줄). B1 = `2026-11-23-vu-setup-steps-b1-design.md`.
 - 목업(시각 기준): `2026-11-23-vu-setup-steps-b2-mockups/b2-screens.html` — 사용자 승인 2026-11-23(「목업대로 진행」). 목업과 다르게 가는 곳은 §9에 모았다.

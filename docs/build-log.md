@@ -1310,3 +1310,35 @@ spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b1-design.md`, plan `docs
 ## pstack-adopt — pstack 검토, 도입 없음 (2026-11-23, 사용자 요청 · 개발 도구만 · spec/plan 없음)
 
 pstack(Cursor 플러그인, MIT) 원문을 읽고 두 가지를 시험 도입했다가 둘 다 뺐다. ① `handicap-reviewer` finding 근거 등급 `[E1]`–`[E5]` + 최종 리뷰 「안전 근거 사실」 칸 — 과거 사례 둘(report-advice-noise `2210e1fd^..ab16216b`, curve-arrival-integral `68498991..079c8a81`)을 옛·새 지시문 리뷰어에 한 번씩 돌린 결과 더 찾은 결함 0, 덜 찾은 사소 결함 2, 「안전 근거 사실」이 틀린 무영향 단언(「워치독 불변」)을 냈다. ② `/why` 스킬 — 루트 CLAUDE.md가 이미 기록 위치를 알려 주고 디버깅 질문에 잘못 발동할 위험이 있어 비교 없이 뺐다. 리포에 남은 것은 기록뿐(roadmap §B88: 안 가져온 것·다음 후보 둘·비교 결과·사용자 결정). 비교 실험 함정: 리뷰어 둘이 `CARGO_TARGET_DIR`를 공유하면 한쪽의 같은 버전 변이 복사본이 rlib를 덮어써 다른 쪽 테스트가 변이 코드로 돈다 — 리뷰어마다 target 폴더를 따로. 제품 코드 무변경이라 라이브 검증 대상 아님.
+
+## vu-setup-steps 슬라이스 B2 (2026-11-23) — 준비 스텝: 인쇄 본문·내보내기·비교·실행 중 준비 진행 (코드 `c2e3cfc2`..`e7405fb3`)
+
+spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b2-design.md` · plan `docs/superpowers/plans/2026-11-23-vu-setup-steps-b2.md`(10 task) · 목업 `docs/superpowers/specs/2026-11-23-vu-setup-steps-b2-mockups/b2-screens.html`. 판단·연기·못 한 검증 = roadmap §B89.
+
+이미 있는 리포트 `setup` 블록을 네 자리가 각자 읽는다(새 집계 없음). 준비가 없는 run은 네 자리 모두 그대로다.
+
+- **내보내기**(`crates/controller/src/export.rs`): 단일 run XLSX `Setup` 시트(`Steps` 다음 — 요약 3행 · 스텝 표 · 실패 종류 표)와 CSV 준비 구획(빈 줄 뒤 표 둘). 비교 CSV에 `setup_ok`·`setup_failed` 두 행(`basis` 앞), 비교 XLSX에 `Setup` 시트. 준비 스텝 이름·id 칸은 셀 한도(32,767자)로 자른다.
+- **비교**: 델타 극성에 `setup_failed`·`setup_errors`(낮을수록 좋음)·`setup_ok`(높을수록 좋음) — TS·Rust 패리티 픽스처 `testdata/compare_golden.json`에 `expected.polarity` 12항목. 화면 비교 표에 「준비 스텝」 묶음(스텝 ↔ 상태 사이). 준비 스텝 행 순서 = 기준 run 순서 + 다른 run의 첫 등장 순(Rust `setup_step_order` = TS `setupStepOrder`). 인쇄 비교 요약에 준비 실패 수가 다를 때 한 줄(id 5, 맨 뒤).
+- **인쇄**(`ui/src/print/`): 절 번호를 계산으로(`sectionNumbers`) 바꾸고 「3. 준비 스텝 결과」 절 — 요약 줄(closed/open 문구) + 표(요청 수·오류·50%·95%·최대·응답 코드별 건수) + 실패 종류 줄. 표가 쪽을 넘으면 요약 줄은 첫 쪽에만.
+- **실행 중**: `GET /api/runs/{id}` 응답에 `setup_live: {ok, failed, interrupted}` — 실행 중이고 준비 결과 행이 있을 때만 키가 실린다(`COUNT(*)`가 0이면 없음). run 상세의 숫자 카드 아래 한 줄(`SetupLiveLine`) — 고정 VU 「N / M명 완료」+막대, open-loop 「N / M 슬롯 완료」, VU 곡선은 분모·막대 없음, 실패가 생기면 경고색과 설명 줄.
+
+**파이프라인**: task마다 구현 subagent(Sonnet) → 리뷰(Sonnet, 와이어 task 8은 Opus) → 최종 `handicap-reviewer` READY-TO-MERGE(Critical·Important 0) + `security-reviewer` APPROVE(게이트 grep은 매치 없음 — 준비 스텝 URL이 인쇄물로 나가는 새 출력처라 판단으로 돌림). 리뷰가 남긴 작은 지적은 그 슬라이스 안에서 접었다: 비교 XLSX 차이 칸 쓰기 한 벌로(`6344e362`) · 기준 run 순서·이름 우선 테스트(`187c1d97`) · 막대 폭 단언(`d64fdb78`) · 준비 시트 긴 이름 자르기 + 인쇄 준비 표 `title` 필수(`e7405fb3`).
+
+**라이브 검증**(워크트리 자체 바이너리, 컨트롤러 8099 · 경로로 지연·실패를 정하는 응답기 · 격리 DB):
+
+| US | 절차 | 본 것 |
+|---|---|---|
+| US1 | 준비 2개 시나리오, VU 50, 준비 첫 요청의 16번째마다 503 → 인쇄 표준판 | 「3. 준비 스텝 결과」 · 요약 줄 「가상 사용자 50명 중 47명이 준비를 마쳤고 3명이 실패했습니다. …」 · 표 숫자 = 리포트 `setup` · 실패 종류 줄. 목업 장면 1-나와 스크린샷 대조 일치. PDF 2쪽 = 화면 2쪽 |
+| US1 극단 | 준비 20개 · 이름 60자 · 코드 7종(응답 없음 포함) · VU 2000 | 4쪽, 준비 표 조각 3/15/2행(모두 2행 이상), 요약 줄 첫 쪽에만, 칸 넘침 0, `letter-spacing: 0.12em`에서 머리 칸이 낱말 단위로 줄바꿈, PDF 4쪽 = 화면 4쪽. open-loop run은 슬롯 문구 |
+| US2 | 같은 run CSV·XLSX | CSV 준비 구획·`Setup` 시트 값 = 리포트 `setup` |
+| US3 | 준비 성공 · 준비 없음 · 준비 일부 실패 run 셋 | 화면 묶음(준비 없는 run 「—」, 준비 성공 47 ▲-6.0%, 준비 실패 3 ▲신규) · 비교 CSV/XLSX(가운데 run의 칸·Δ 빈 칸, 뒤 run의 Δ가 제 열) · 인쇄 비교 「준비에 실패한 사용자가 3명에서 0명으로 줄었습니다.」 |
+| US4 | 준비 첫 요청 2초 지연, VU 50 점진 시작 | `setup_live`가 1초마다 ok 5→47 · failed 0→3, 첫 배치 전과 종료 뒤 키 없음. 화면 줄 = 목업 2-가(평상)·2-다(실패 경고) 일치, 폭 390·768·1440 rect 교차 없음, run이 끝나면 사라짐. VU 곡선 「15명 완료」(막대 없음), open-loop 「28 / 30 슬롯 완료」 |
+| US5 | 준비 없는 시나리오 run | 실행 중 응답에 `setup_live` 없음 · 인쇄 절 제목 1–6 그대로 · CSV는 본 스텝 표뿐 · 상세 화면에 줄 없음 |
+
+실행 중 실제 `GET /api/runs/{id}` 응답을 저장해 `RunSchema.safeParse`로 읽는 일회 테스트 통과(돌린 뒤 삭제).
+
+**라이브가 찾은 결함 1건**: 인쇄 준비 표의 응답 코드 칸에서 「401:」과 「220」이 줄 끝에서 갈라졌다(건수가 옆 코드 것으로 읽힌다) → 「코드: 건수」 짝마다 줄바꿈 금지(`1eb07f0b`), 다시 재서 갈라짐 0.
+
+**라이브로 증명된 US**: US1·US2·US3·US4·US5. **못 한 것**: ① 준비 없는 run의 CSV를 master 바이너리 출력과 바이트 비교(메인 체크아웃 바이너리가 11-20 빌드라 DB 사본에서 404 — 대신 구현 전 출력으로 박은 `csv_without_setup_is_unchanged`와 라이브 CSV 모양 확인) ② 준비 요청 수 6자리(준비 요청 수는 VU 수를 못 넘는다 — 단위 테스트의 `123,456` 리터럴이 대신) ③ Windows 실제 글꼴(letter-spacing 흉내만) ④ 멀티 워커·풀 모드에서의 실행 중 줄(합산은 store 테스트로만).
+
+**함정 출처**: `ui/CLAUDE.md` 인쇄 보고서 절·`crates/controller/CLAUDE.md`의 `(vu-setup-steps-b2)` 줄.
