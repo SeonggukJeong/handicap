@@ -57,6 +57,26 @@ describe("SetupLiveLine", () => {
     expect(screen.queryByTestId("setup-live-bar")).toBeNull();
   });
 
+  it("막대 안쪽 폭 — 완료·실패 순서대로 비율", () => {
+    render(<SetupLiveLine view={view({ failed: 2, okPct: 74, failedPct: 4 })} />);
+    const [okSeg, failedSeg] = Array.from(
+      screen.getByTestId("setup-live-bar").children,
+    ) as HTMLElement[];
+    expect(okSeg.style.width).toBe("74%");
+    expect(failedSeg.style.width).toBe("4%");
+  });
+
+  it("막대 안쪽 폭 — 넘침이면 100%와 0%(실패 칸은 폭 0으로 남는다)", () => {
+    render(
+      <SetupLiveLine view={view({ ok: 12, failed: 3, total: 10, okPct: 100, failedPct: 0 })} />,
+    );
+    const [okSeg, failedSeg] = Array.from(
+      screen.getByTestId("setup-live-bar").children,
+    ) as HTMLElement[];
+    expect(okSeg.style.width).toBe("100%");
+    expect(failedSeg.style.width).toBe("0%");
+  });
+
   it("큰 수는 쉼표", () => {
     render(<SetupLiveLine view={view({ ok: 12345, total: 20000 })} />);
     expect(screen.getByTestId("setup-live-num").textContent).toBe("12,345 / 20,000명 완료");
