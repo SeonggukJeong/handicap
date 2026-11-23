@@ -162,13 +162,13 @@ describe("RunPrintPage — basis 주소 파라미터", () => {
   it("?basis=whole이면 그 기준으로 리포트를 받는다", async () => {
     renderPage("/runs/R1/print?basis=whole");
     await screen.findByText("집계 기준");
-    expect(getReport).toHaveBeenCalledWith("R1", "whole");
+    expect(getReport).toHaveBeenCalledWith("R1", "whole", undefined);
   });
 
   it("basis 파라미터가 없으면 기준 없이 받는다", async () => {
     renderPage("/runs/R1/print");
     await screen.findByText("집계 기준");
-    expect(getReport).toHaveBeenCalledWith("R1", undefined);
+    expect(getReport).toHaveBeenCalledWith("R1", undefined, undefined);
   });
 
   it("kind_switch_keeps_basis_param: 요약으로 바꿔도 basis=whole이 주소에 남는다", async () => {

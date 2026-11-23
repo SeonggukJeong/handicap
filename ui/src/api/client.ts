@@ -20,6 +20,7 @@ import {
   type Profile,
   type Run,
   type TestRunDatasetConfig,
+  type ReportSampleName,
 } from "./schemas";
 import { ko } from "../i18n/ko";
 
@@ -27,6 +28,10 @@ const BASE = "/api";
 
 type ReportBasisName = "steady" | "whole";
 const basisQuery = (basis?: ReportBasisName) => (basis ? `?basis=${basis}` : "");
+const reportQuery = (basis?: ReportBasisName, sample?: ReportSampleName) => {
+  const parts = [basis ? `basis=${basis}` : "", sample ? `sample=${sample}` : ""].filter(Boolean);
+  return parts.length > 0 ? `?${parts.join("&")}` : "";
+};
 
 export class ApiError extends Error {
   constructor(
@@ -276,9 +281,9 @@ export const api = {
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/metrics`, { method: "GET" }, MetricSummarySchema),
-  getRunReport: (id: string, basis?: "steady" | "whole") =>
+  getRunReport: (id: string, basis?: "steady" | "whole", sample?: ReportSampleName) =>
     request(
-      `/runs/${encodeURIComponent(id)}/report${basis ? `?basis=${basis}` : ""}`,
+      `/runs/${encodeURIComponent(id)}/report${reportQuery(basis, sample)}`,
       { method: "GET" },
       ReportSchema,
     ),

@@ -37,7 +37,7 @@ import {
 } from "./stepTemplates";
 import { deleteSetting, getSettings, putSetting } from "./settings";
 import { listPoolWorkers, patchPoolWorker, excludePoolWorker } from "./pool";
-import type { Profile, RunStatus } from "./schemas";
+import type { Profile, ReportSampleName, RunStatus } from "./schemas";
 import { markRunCreated } from "../onboarding/state";
 
 export const queryKeys = {
@@ -46,8 +46,8 @@ export const queryKeys = {
   scenarioRuns: (id: string) => ["scenarios", id, "runs"] as const,
   run: (id: string) => ["runs", id] as const,
   runMetrics: (id: string) => ["runs", id, "metrics"] as const,
-  runReport: (id: string, basis?: "steady" | "whole") =>
-    ["runs", id, "report", basis ?? "default"] as const,
+  runReport: (id: string, basis?: "steady" | "whole", sample?: ReportSampleName) =>
+    ["runs", id, "report", basis ?? "default", sample ?? "default"] as const,
   datasets: () => ["datasets"] as const,
   dataset: (id: string) => ["datasets", id] as const,
   datasetRows: (id: string, offset: number, limit: number) =>
@@ -255,10 +255,11 @@ export function useRunReport(
   id: string | undefined,
   terminal: boolean,
   basis?: "steady" | "whole",
+  sample?: ReportSampleName,
 ) {
   return useQuery({
-    queryKey: id ? queryKeys.runReport(id, basis) : ["runs", "missing", "report"],
-    queryFn: () => api.getRunReport(id!, basis),
+    queryKey: id ? queryKeys.runReport(id, basis, sample) : ["runs", "missing", "report"],
+    queryFn: () => api.getRunReport(id!, basis, sample),
     placeholderData: sameRunPlaceholder(id),
     enabled: terminal && Boolean(id),
     // Report is immutable after terminal — fetch once and cache forever.

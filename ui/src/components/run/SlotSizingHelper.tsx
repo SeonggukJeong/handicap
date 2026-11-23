@@ -29,7 +29,7 @@ function usePriorOpenRunAnchor(
   // Cast: Zod parses defaults at runtime so the data is truly Run[], but tsc sees a
   // nested-default input-type leak (ProfileSchema.ramp_up_seconds?.default → optional).
   const latest = useMemo(() => pickLatestOpenRun((runs.data?.runs ?? []) as Run[]), [runs.data]);
-  const report = useRunReport(latest?.id, Boolean(latest));
+  const report = useRunReport(latest?.id, Boolean(latest), undefined, "all");
   const priorMif = latest?.profile.max_in_flight ?? null;
   return useMemo(() => {
     const rep = report.data;

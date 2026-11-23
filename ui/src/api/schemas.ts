@@ -357,6 +357,8 @@ export const CriterionResultSchema = z.object({
   // step-level criterion이면 대상 스텝 id(서버 #[serde(skip_serializing_if="Option::is_none")]).
   // run-level row는 omit → absent. null로 오지 않으므로 .nullish()(absent | string).
   target: z.string().nullish(),
+  // 통과한 요청이 없어 계산하지 못한 기준만 true. 서버가 false·null은 보내지 않고 키를 생략한다.
+  no_sample: z.boolean().optional(),
 });
 export const VerdictSchema = z.object({
   passed: z.boolean(),
@@ -836,6 +838,16 @@ export const ReportSetupSchema = z
   .strict();
 export type ReportSetup = z.infer<typeof ReportSetupSchema>;
 
+export type ReportSampleName = "passed" | "failed" | "all";
+const ReportSampleNameSchema = z.enum(["passed", "failed", "all"]);
+export const ReportSampleSchema = z
+  .object({
+    selected: ReportSampleNameSchema,
+    default: ReportSampleNameSchema,
+    split: z.boolean(),
+  })
+  .strict();
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -868,10 +880,21 @@ export const ReportSchema = z
     // steady run만. 서버 skip_serializing_if → absent → .optional()
     basis: ReportBasisSchema.optional(),
     setup: ReportSetupSchema.optional(),
+    // 새 서버는 항상 보낸다. 옛 JSON·캐시에는 없다 → .optional()
+    sample: ReportSampleSchema.optional(),
   })
   .strict();
 
 export type Report = z.infer<typeof ReportSchema>;
+
+/** `sample`이 없는 옛 리포트는 나눌 수 없는 run과 같이 「모든 요청」으로 본다. */
+export function reportSample(report: Report): {
+  selected: ReportSampleName;
+  default: ReportSampleName;
+  split: boolean;
+} {
+  return report.sample ?? { selected: "all", default: "all", split: false };
+}
 export type LatencyDistribution = z.infer<typeof LatencyDistributionSchema>;
 export type HistogramBucket = z.infer<typeof HistogramBucketSchema>;
 export type PercentilePoint = z.infer<typeof PercentilePointSchema>;
