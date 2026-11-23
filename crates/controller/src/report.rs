@@ -173,7 +173,7 @@ pub struct ReportRun {
     pub label: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportSummary {
     pub count: u64,
     pub errors: u64,
@@ -197,7 +197,7 @@ pub struct ReportWindow {
     pub p99_ms: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoopBucket {
     pub loop_index: Option<u32>, // None = overflow bucket: loop_index was >= cap at record time (engine sentinel u32::MAX)
     pub count: u64,
@@ -246,7 +246,7 @@ pub struct LoopExitBucket {
     pub truncated: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportStep {
     pub step_id: String,
     pub count: u64,
@@ -268,7 +268,7 @@ pub struct ReportStep {
     pub not_sent: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LoopSplitStats {
     pub count: u64,
     pub error_count: u64,
@@ -277,7 +277,7 @@ pub struct LoopSplitStats {
     pub p99_ms: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LoopSplit {
     #[serde(rename = "final")]
     pub ended: LoopSplitStats,
@@ -769,7 +769,7 @@ pub fn build_report(
 
     // Per-worker breakdown (ALL fan-out: closed/open/curve). Pre-scan distinct non-empty
     // worker_ids so single-worker runs do ZERO extra per-worker work (byte-identical build
-    // cost); only >=2 -> accumulate below in the SAME loop (reuse the decoded `h`, no extra decode).
+    // cost); only >=2 -> accumulate below in the SAME loop (reuse the decoded row `d`, no extra decode).
     let multi_worker = {
         let mut seen = std::collections::HashSet::new();
         for r in rows {
@@ -855,41 +855,54 @@ pub fn build_report(
         }
     }
 
+    // 응답 시간 값의 세 용도: 보여 주는 값(`selected`), 판정(항상 `default_sample` — 판정·속도 구간·
+    // 느린 스텝 인사이트), 점유(항상 모든 요청 — 포화 원인의 `latency_rose`).
     // Emit one window per (ts_second, step_id) — BTreeMap iterates sorted by (ts, step),
     // matching the previous SQL ORDER BY. Percentiles come from the merged histogram.
-    let windows: Vec<ReportWindow> = window_acc
-        .into_iter()
-        .map(|((ts_second, step_id), acc)| {
-            let wp = acc
-                .hist
-                .resolve(selected)
-                .hist()
-                .map(percentiles_of)
-                .unwrap_or_else(Percentiles::empty);
-            ReportWindow {
-                ts_second,
-                step_id,
-                count: acc.count,
-                error_count: acc.error_count,
-                status_counts: acc.status,
-                p50_ms: wp.p50_ms,
-                p95_ms: wp.p95_ms,
-                p99_ms: wp.p99_ms,
-            }
-        })
-        .collect();
+    let build_windows = |sample: Sample| -> Vec<ReportWindow> {
+        window_acc
+            .iter()
+            .map(|((ts_second, step_id), acc)| {
+                let wp = acc
+                    .hist
+                    .resolve(sample)
+                    .hist()
+                    .map(percentiles_of)
+                    .unwrap_or_else(Percentiles::empty);
+                ReportWindow {
+                    ts_second: *ts_second,
+                    step_id: step_id.clone(),
+                    count: acc.count,
+                    error_count: acc.error_count,
+                    status_counts: acc.status.clone(),
+                    p50_ms: wp.p50_ms,
+                    p95_ms: wp.p95_ms,
+                    p99_ms: wp.p99_ms,
+                }
+            })
+            .collect()
+    };
+    let windows = build_windows(selected);
+    // 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이다.
+    let occupancy_windows = (selected != Sample::All).then(|| build_windows(Sample::All));
+    let occupancy: &[ReportWindow] = occupancy_windows.as_deref().unwrap_or(&windows);
 
-    let overall_resolved = overall.resolve(selected);
+    let overall_judging = overall.resolve(default_sample);
     let no_samples = fresh_hist();
-    let overall_h: &Histogram<u64> = overall_resolved.hist().unwrap_or(&no_samples);
+    let overall_h: &Histogram<u64> = overall_judging.hist().unwrap_or(&no_samples);
     let overall_p = percentiles_of(overall_h);
-    let latency = if !overall_h.is_empty() {
+    let overall_shown = (selected != default_sample).then(|| overall.resolve(selected));
+    let shown_h: &Histogram<u64> = match &overall_shown {
+        Some(r) => r.hist().unwrap_or(&no_samples),
+        None => overall_h,
+    };
+    let latency = if !shown_h.is_empty() {
         Some(LatencyDistribution {
-            percentile_curve: percentile_curve(overall_h, &CURVE_QUANTILES)
+            percentile_curve: percentile_curve(shown_h, &CURVE_QUANTILES)
                 .into_iter()
                 .map(|(quantile, value_us)| PercentilePoint { quantile, value_us })
                 .collect(),
-            histogram: log_buckets(overall_h, HISTOGRAM_BINS)
+            histogram: log_buckets(shown_h, HISTOGRAM_BINS)
                 .into_iter()
                 .map(|(lower_us, upper_us, count)| HistogramBucket {
                     lower_us,
@@ -1118,12 +1131,33 @@ pub fn build_report(
         None
     };
 
+    // 스텝마다 표본별 분포를 한 번씩만 만든다: 보여 주는 표본이 기본 표본과 다를 때만 빌려서 계산하고,
+    // 기본 표본(판정·속도 구간)은 소유권으로 옮겨 속도 구간 입력이 된다.
+    let shown_step_p: Option<BTreeMap<String, Percentiles>> =
+        (selected != default_sample).then(|| {
+            per_step
+                .iter()
+                .map(|(id, sh)| {
+                    let p = sh
+                        .resolve(selected)
+                        .hist()
+                        .map(percentiles_of)
+                        .unwrap_or_else(Percentiles::empty);
+                    (id.clone(), p)
+                })
+                .collect()
+        });
+    let per_step_hists: BTreeMap<String, Histogram<u64>> = per_step
+        .into_iter()
+        .filter_map(|(id, sh)| sh.into_hist(default_sample).map(|h| (id, h)))
+        .collect();
+
     let mut steps: Vec<ReportStep> = per_step_count
         .into_iter()
         .map(|(step_id, (count, errors, status_counts, responded))| {
-            let p = per_step
+            let p = per_step_hists
                 .get(&step_id)
-                .and_then(|sh| sh.resolve(selected).hist().map(percentiles_of))
+                .map(percentiles_of)
                 .unwrap_or_else(Percentiles::empty);
             let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
             let download = download_by_step.remove(&step_id);
@@ -1153,12 +1187,23 @@ pub fn build_report(
         })
         .collect();
     steps.sort_by(|a, b| a.step_id.cmp(&b.step_id));
-
-    // `resolve`(빌림)를 쓰는 계산이 끝난 뒤에만 `into_hist`(소비)로 넘긴다.
-    let per_step_hists: BTreeMap<String, Histogram<u64>> = per_step
-        .into_iter()
-        .filter_map(|(id, sh)| sh.into_hist(selected).map(|h| (id, h)))
-        .collect();
+    let shown_steps: Option<Vec<ReportStep>> = shown_step_p.map(|m| {
+        steps
+            .iter()
+            .map(|s| {
+                let p = m
+                    .get(&s.step_id)
+                    .copied()
+                    .unwrap_or_else(Percentiles::empty);
+                ReportStep {
+                    p50_ms: p.p50_ms,
+                    p95_ms: p.p95_ms,
+                    p99_ms: p.p99_ms,
+                    ..s.clone()
+                }
+            })
+            .collect()
+    });
     let speed_bands =
         crate::speed_bands::build(overall_h, &per_step_hists, run.profile.criteria.as_ref());
 
@@ -1172,15 +1217,27 @@ pub fn build_report(
         p95_ms: overall_p.p95_ms,
         p99_ms: overall_p.p99_ms,
     };
+    let shown_summary: Option<ReportSummary> = overall_shown.as_ref().map(|r| {
+        let h = r.hist().unwrap_or(&no_samples);
+        let p = percentiles_of(h);
+        ReportSummary {
+            mean_ms: (h.mean() / 1_000.0).round() as u64,
+            p50_ms: p.p50_ms,
+            p95_ms: p.p95_ms,
+            p99_ms: p.p99_ms,
+            ..summary.clone()
+        }
+    });
     // completed + 활성 criteria일 때만 verdict (spec §6). RunStatus는 Copy.
     // 범위가 있으면 판정·인사이트가 보는 창 목록은 범위 안의 연속 구간(windows는 (ts, step) 오름차순).
+    // 점유 창(모든 요청 표본): `evaluate_criteria`는 건수만, `derive_insights`는 `latency_rose`가 응답 시간을 읽는다.
     let scoped_windows: &[ReportWindow] = match scope {
         Some(s) => {
-            let from = windows.partition_point(|w| w.ts_second < s.lo);
-            let to = windows.partition_point(|w| w.ts_second < s.hi);
-            &windows[from..to]
+            let from = occupancy.partition_point(|w| w.ts_second < s.lo);
+            let to = occupancy.partition_point(|w| w.ts_second < s.hi);
+            &occupancy[from..to]
         }
-        None => &windows,
+        None => occupancy,
     };
     let verdict = match (run.status, run.profile.criteria.as_ref()) {
         (RunStatus::Completed, Some(c)) if c.has_any() => {
@@ -1240,7 +1297,7 @@ pub fn build_report(
         },
         run.profile.max_in_flight,
     );
-    if let (Some(first_scoped), Some(first_all)) = (scoped_windows.first(), windows.first()) {
+    if let (Some(first_scoped), Some(first_all)) = (scoped_windows.first(), occupancy.first()) {
         // 인사이트의 시점은 넘겨받은 창의 첫 초부터 센다 — 그림(run 전체)과 같은 축으로 옮긴다.
         let shift = first_scoped.ts_second - first_all.ts_second;
         if shift != 0 {
@@ -1407,9 +1464,9 @@ pub fn build_report(
             label: run.label.clone(),
         },
         scenario_yaml: scenario_yaml.to_string(),
-        summary,
+        summary: shown_summary.unwrap_or(summary),
         windows,
-        steps,
+        steps: shown_steps.unwrap_or(steps),
         status_distribution: status_dist,
         if_breakdown,
         error_kinds: error_kinds_rolled,
@@ -3303,10 +3360,17 @@ steps:
     }
 
     fn report_with(rows: &[WindowWithHdr], sample: Option<crate::sample::Sample>) -> ReportJson {
-        let r = run_row();
+        report_with_run(&run_row(), rows, sample)
+    }
+
+    fn report_with_run(
+        r: &RunRow,
+        rows: &[WindowWithHdr],
+        sample: Option<crate::sample::Sample>,
+    ) -> ReportJson {
         let yaml = r.scenario_yaml.clone();
         build_report(
-            &r,
+            r,
             &yaml,
             rows,
             &[],
@@ -3346,15 +3410,21 @@ steps:
         assert_eq!(by_default.summary.p50_ms, 40);
         assert_eq!(by_default.summary.mean_ms, 40);
         assert_eq!(by_default.steps[0].p50_ms, 40);
+        assert_eq!(by_default.windows.len(), 2);
         assert!(by_default.windows.iter().all(|w| w.p50_ms == 40));
 
         let all_req = report_with(&rows, Some(Sample::All));
         assert_eq!(all_req.sample.selected, Sample::All);
         assert_eq!(all_req.sample.default, Sample::Passed);
         assert_eq!(all_req.summary.p50_ms, 2);
+        // 모든 요청: 40ms 4개 + 2ms 6개. 실패한 요청: 2ms 6개.
+        assert_eq!(all_req.summary.mean_ms, 17);
+        assert_eq!(all_req.summary.p99_ms, 40);
         let failed_req = report_with(&rows, Some(Sample::Failed));
         assert_eq!(failed_req.sample.selected, Sample::Failed);
         assert_eq!(failed_req.summary.p50_ms, 2);
+        assert_eq!(failed_req.summary.mean_ms, 2);
+        assert_eq!(failed_req.summary.p99_ms, 2);
 
         for r in [&all_req, &failed_req] {
             assert_eq!(r.summary.count, by_default.summary.count);
@@ -3398,6 +3468,125 @@ steps:
                 serde_json::to_value(report_with(&mixed, Some(s))).unwrap(),
                 want
             );
+        }
+    }
+
+    #[test]
+    fn worker_breakdown_follows_selected_sample() {
+        use crate::sample::Sample;
+        let on = |w: &str, all: &[u64], failed: &[u64]| WindowWithHdr {
+            worker_id: w.into(),
+            ..split_win(100, all, Some(failed))
+        };
+        let rows = vec![
+            on("w-a", &[40_000, 40_000, 2_000, 2_000, 2_000], &[2_000; 3]),
+            on("w-b", &[50_000, 50_000, 2_000, 2_000], &[2_000, 2_000]),
+        ];
+        let pick = |s: Option<Sample>| -> Vec<(u64, u64)> {
+            let rep = report_with(&rows, s);
+            assert_eq!(rep.worker_breakdown.len(), 2);
+            rep.worker_breakdown
+                .iter()
+                .map(|w| (w.p50_ms, w.p95_ms))
+                .collect()
+        };
+        assert_eq!(pick(None), [(40, 40), (50, 50)]);
+        assert_eq!(pick(Some(Sample::All)), [(2, 40), (2, 50)]);
+        assert_eq!(pick(Some(Sample::Failed)), [(2, 2), (2, 2)]);
+    }
+
+    #[test]
+    fn inconsistent_row_keeps_clean_rows_passed_value() {
+        // 둘째 행은 실패한 요청(2ms 3개)이 전체 분포에 없다 — 합쳐서도 빼기가 안 된다.
+        let rows = vec![
+            split_win(100, &[40_000, 40_000], Some(&[])),
+            split_win(101, &[40_000, 40_000], Some(&[2_000, 2_000, 2_000])),
+            split_win(102, &[40_000, 40_000], Some(&[])),
+        ];
+        let rep = report_with(&rows, None);
+        assert!(rep.sample.split);
+        assert_eq!(rep.summary.p50_ms, 40);
+        assert_eq!(rep.summary.p99_ms, 40);
+    }
+
+    #[test]
+    fn judging_values_ignore_requested_sample() {
+        use crate::sample::Sample;
+        let all = [40_000, 40_000, 2_000, 2_000, 2_000];
+        let failed = [2_000, 2_000, 2_000];
+        let rows = vec![
+            split_win(100, &all, Some(&failed)),
+            split_win(101, &all, Some(&failed)),
+        ];
+        let mut run = run_row();
+        run.profile.criteria = Some(Criteria {
+            max_p50_ms: Some(10),
+            ..Criteria::default()
+        });
+        let by_default = report_with_run(&run, &rows, None);
+        let all_req = report_with_run(&run, &rows, Some(Sample::All));
+        let failed_req = report_with_run(&run, &rows, Some(Sample::Failed));
+
+        // 보여 주는 값은 요청한 표본을 따른다.
+        assert_eq!(by_default.summary.p50_ms, 40);
+        assert_eq!(all_req.summary.p50_ms, 2);
+        assert_eq!(failed_req.summary.p50_ms, 2);
+        assert_eq!(all_req.steps[0].p50_ms, 2);
+
+        // 판정·속도 구간·인사이트는 기본 표본(통과한 요청, p50 40 > 10 → 실패)으로 같다.
+        let v = by_default.verdict.as_ref().expect("verdict");
+        assert!(!v.passed, "p50 실측 40ms는 기준 10ms 초과");
+        for r in [&all_req, &failed_req] {
+            assert_eq!(
+                serde_json::to_value(&r.verdict).unwrap(),
+                serde_json::to_value(&by_default.verdict).unwrap()
+            );
+            assert_eq!(
+                serde_json::to_value(&r.speed_bands).unwrap(),
+                serde_json::to_value(&by_default.speed_bands).unwrap()
+            );
+            assert_eq!(
+                serde_json::to_value(&r.insights).unwrap(),
+                serde_json::to_value(&by_default.insights).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn occupancy_signal_uses_all_sample() {
+        use crate::sample::Sample;
+        // open-loop 포화(dropped > 0, 슬롯 충분): 뒤쪽 3분의 1의 초에 시간 초과(실패 30초)가 늘고
+        // 통과한 요청의 p95는 평평하며 5xx는 없다.
+        let mut run = run_row();
+        run.profile.target_rps = Some(10);
+        run.profile.max_in_flight = Some(5);
+        run.dropped = 20;
+        run.started_at = Some(100_000);
+        run.ended_at = Some(112_000);
+        let rows: Vec<WindowWithHdr> = (100..112)
+            .map(|ts| {
+                if ts < 108 {
+                    split_win(ts, &[40_000, 40_000, 40_000, 40_000, 2_000], Some(&[2_000]))
+                } else {
+                    let mut all = vec![40_000; 4];
+                    all.extend([30_000_000; 6]);
+                    split_win(ts, &all, Some(&[30_000_000; 6]))
+                }
+            })
+            .collect();
+        for s in [
+            None,
+            Some(Sample::All),
+            Some(Sample::Passed),
+            Some(Sample::Failed),
+        ] {
+            let rep = report_with_run(&run, &rows, s);
+            let sat = rep
+                .insights
+                .iter()
+                .find(|i| i.kind == "load_gen_saturated")
+                .expect("포화 인사이트");
+            assert_eq!(sat.cause.as_deref(), Some("sut"), "sample={s:?}");
         }
     }
 
