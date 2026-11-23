@@ -1,6 +1,6 @@
 import type { Step } from "./model";
 import { findStepSiblings } from "./model";
-import { bandChildren, bandKey, findParentBand } from "./dropRules";
+import { bandChildren, bandKey, findParentBand, parseDropId } from "./dropRules";
 
 // 그룹내 정렬만 (컨테이너 경계 넘기 = 슬라이스 3). over가 같은 형제 그룹에
 // 없으면(다른 컨테이너로 드롭) null = no-op.
@@ -46,25 +46,26 @@ export function resolveDrop(
   activeId: string,
   overId: string | null,
   half: "above" | "below" | null,
+  setup: ReadonlyArray<Step> = [],
 ): DropResolution | null {
   if (overId === null) return null;
-  const ph = /^band:([^:]+):(.+)$/.exec(overId);
+  const ph = parseDropId(overId);
   if (ph) {
     return {
       kind: "reparent",
       stepId: activeId,
-      target: { parentId: ph[1], band: ph[2], index: 0 },
+      target: { parentId: ph.parentId, band: ph.band, index: 0 },
     };
   }
-  const ownBand = findParentBand(steps, activeId);
-  const overBand = findParentBand(steps, overId);
+  const ownBand = findParentBand(steps, activeId, setup);
+  const overBand = findParentBand(steps, overId, setup);
   if (ownBand === null || overBand === null) return null;
   if (bandKey(ownBand) === bandKey(overBand)) {
-    const sibIds = (bandChildren(steps, ownBand) ?? []).map((s) => s.id);
+    const sibIds = (bandChildren(steps, ownBand, setup) ?? []).map((s) => s.id);
     const toIndex = computeReorder(sibIds, activeId, overId);
     return toIndex === null ? null : { kind: "move", stepId: activeId, toIndex };
   }
-  const children = bandChildren(steps, overBand) ?? [];
+  const children = bandChildren(steps, overBand, setup) ?? [];
   const overIdx = children.findIndex((s) => s.id === overId);
   if (overIdx === -1) return null;
   const index = half === "below" ? overIdx + 1 : overIdx;
@@ -73,7 +74,7 @@ export function resolveDrop(
     stepId: activeId,
     target: {
       parentId: overBand.parentId,
-      band: overBand.parentId === null ? "top" : overBand.band,
+      band: overBand.parentId === null ? bandKey(overBand) : overBand.band,
       index,
     },
   };

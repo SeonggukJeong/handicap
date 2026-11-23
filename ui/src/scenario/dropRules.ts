@@ -12,16 +12,45 @@ import {
 export type BandRef = { parentId: string | null; band: string };
 export const TOP_BAND: BandRef = { parentId: null, band: "top" };
 
+/** 준비 구획(`setup.steps`) 밴드. 최상위 본 스텝(TOP_BAND)과 키가 다르다. */
+export const SETUP_BAND: BandRef = { parentId: null, band: "setup" };
+/** 빈 준비 구획의 놓을 자리 id. */
+export const SETUP_DROP_ID = "band:setup";
+/** 본 스텝이 0개일 때의 놓을 자리 id. */
+export const TOP_DROP_ID = "band:top";
+
 export function bandKey(ref: BandRef): string {
-  return ref.parentId === null ? "top" : `${ref.parentId}:${ref.band}`;
+  if (ref.parentId === null) return ref.band === "setup" ? "setup" : "top";
+  return `${ref.parentId}:${ref.band}`;
+}
+
+/** 놓을 자리 id 만들기 — 부모 없는 밴드는 고정 id, 그 밖은 `band:{parentId}:{band}`. */
+export function dropId(ref: BandRef): string {
+  if (ref.parentId === null) return ref.band === "setup" ? SETUP_DROP_ID : TOP_DROP_ID;
+  return `band:${ref.parentId}:${ref.band}`;
+}
+
+/** 놓을 자리 id 읽기 — 놓을 자리 id가 아니면 null(행 id). */
+export function parseDropId(id: string): BandRef | null {
+  if (id === SETUP_DROP_ID) return SETUP_BAND;
+  if (id === TOP_DROP_ID) return TOP_BAND;
+  const m = /^band:([^:]+):(.+)$/.exec(id);
+  return m ? { parentId: m[1], band: m[2] } : null;
 }
 
 export type BandEntry = { ref: BandRef; children: ReadonlyArray<Step> };
 
 /** 트리의 전 밴드 열거. if의 else는 비어 있어도 등록 — 빈 else가 placeholder
- *  드롭 타깃(spec 케이스 12; else만 min(1)이 아닌 유일한 밴드). */
-export function enumerateBands(steps: ReadonlyArray<Step>): BandEntry[] {
-  const out: BandEntry[] = [{ ref: TOP_BAND, children: steps }];
+ *  드롭 타깃(spec 케이스 12; else만 min(1)이 아닌 유일한 밴드). 준비 밴드도
+ *  비어 있어도 항상 등록한다(빈 준비 구획이 놓을 자리). */
+export function enumerateBands(
+  steps: ReadonlyArray<Step>,
+  setup: ReadonlyArray<Step> = [],
+): BandEntry[] {
+  const out: BandEntry[] = [
+    { ref: TOP_BAND, children: steps },
+    { ref: SETUP_BAND, children: setup },
+  ];
   const walk = (list: ReadonlyArray<Step>) => {
     for (const s of list) {
       if (isLoopStep(s)) {
@@ -45,27 +74,39 @@ export function enumerateBands(steps: ReadonlyArray<Step>): BandEntry[] {
     }
   };
   walk(steps);
+  walk(setup);
   return out;
 }
 
-export function findParentBand(steps: ReadonlyArray<Step>, stepId: string): BandRef | null {
-  for (const b of enumerateBands(steps)) {
+export function findParentBand(
+  steps: ReadonlyArray<Step>,
+  stepId: string,
+  setup: ReadonlyArray<Step> = [],
+): BandRef | null {
+  for (const b of enumerateBands(steps, setup)) {
     if (b.children.some((c) => c.id === stepId)) return b.ref;
   }
   return null;
 }
 
-export function bandChildren(steps: ReadonlyArray<Step>, ref: BandRef): ReadonlyArray<Step> | null {
+export function bandChildren(
+  steps: ReadonlyArray<Step>,
+  ref: BandRef,
+  setup: ReadonlyArray<Step> = [],
+): ReadonlyArray<Step> | null {
   const k = bandKey(ref);
-  const found = enumerateBands(steps).find((e) => bandKey(e.ref) === k);
+  const found = enumerateBands(steps, setup).find((e) => bandKey(e.ref) === k);
   return found ? found.children : null;
 }
 
 /** 행 id → 그 행이 속한 bandKey. dragStart 1회 계산해 충돌 후보 필터가
  *  프레임마다 트리를 재탐색하지 않게 한다(N2 — ref로 전달). */
-export function bandIndex(steps: ReadonlyArray<Step>): Map<string, string> {
+export function bandIndex(
+  steps: ReadonlyArray<Step>,
+  setup: ReadonlyArray<Step> = [],
+): Map<string, string> {
   const m = new Map<string, string>();
-  for (const b of enumerateBands(steps)) {
+  for (const b of enumerateBands(steps, setup)) {
     for (const c of b.children) m.set(c.id, bandKey(b.ref));
   }
   return m;
@@ -99,6 +140,7 @@ function subtreeIds(step: Step): Set<string> {
 }
 
 function bandAccepts(steps: ReadonlyArray<Step>, ref: BandRef, dragged: Step): boolean {
+  if (ref.parentId === null && ref.band === "setup") return dragged.type === "http"; // 준비 = http만
   if (ref.parentId === null) return true; // 최상위 = 전 유형
   const parent = findStepById(steps, ref.parentId);
   if (!parent) return false;
@@ -115,17 +157,21 @@ function bandAccepts(steps: ReadonlyArray<Step>, ref: BandRef, dragged: Step): b
 /** dragStart에 1회 계산하는 합법 드롭 밴드 집합(bandKey). 자기 밴드는 항상
  *  포함(그룹내 재정렬 보존). 소스 규칙: min(1) 밴드(do/then/elif_j/branch_i —
  *  model.ts:139-210)의 마지막 자식은 경계 밖 금지(else·최상위 소스 예외, spec §3-3). */
-export function legalTargetBands(steps: ReadonlyArray<Step>, activeId: string): Set<string> {
+export function legalTargetBands(
+  steps: ReadonlyArray<Step>,
+  activeId: string,
+  setup: ReadonlyArray<Step> = [],
+): Set<string> {
   const out = new Set<string>();
-  const dragged = findStepById(steps, activeId);
-  const own = findParentBand(steps, activeId);
+  const dragged = findStepById([...setup, ...steps], activeId);
+  const own = findParentBand(steps, activeId, setup);
   if (!dragged || !own) return out;
   out.add(bandKey(own));
-  const siblings = findStepSiblings(steps, activeId);
+  const siblings = bandChildren(steps, own, setup) ?? [];
   const min1Source = own.parentId !== null && own.band !== "else";
   if (min1Source && siblings.length === 1) return out;
   const excluded = subtreeIds(dragged);
-  for (const b of enumerateBands(steps)) {
+  for (const b of enumerateBands(steps, setup)) {
     if (b.ref.parentId !== null && excluded.has(b.ref.parentId)) continue;
     if (bandAccepts(steps, b.ref, dragged)) out.add(bandKey(b.ref));
   }
@@ -141,8 +187,8 @@ export function filterDropCandidates(
   index: ReadonlyMap<string, string>,
 ): string[] {
   return ids.filter((id) => {
-    const ph = /^band:([^:]+):(.+)$/.exec(id);
-    if (ph) return legal.has(`${ph[1]}:${ph[2]}`);
+    const ph = parseDropId(id);
+    if (ph) return legal.has(bandKey(ph));
     const k = index.get(id);
     return k !== undefined && legal.has(k);
   });
@@ -154,7 +200,20 @@ export function keyboardCandidateIds(
   steps: ReadonlyArray<Step>,
   activeId: string,
   ids: ReadonlyArray<string>,
+  setup: ReadonlyArray<Step> = [],
 ): string[] {
-  const sib = new Set(findStepSiblings(steps, activeId).map((s) => s.id));
+  const inSetup = setup.some((s) => s.id === activeId);
+  const sibs = inSetup ? setup : findStepSiblings(steps, activeId);
+  const sib = new Set(sibs.map((s) => s.id));
   return ids.filter((id) => sib.has(id));
+}
+
+/** 준비 구획 놓을 자리(빈 준비 구획)가 열려 있는 영역 높이·들어 올림 문턱(px). */
+export const SETUP_ZONE_REACH_PX = 24;
+export const SETUP_ZONE_LIFT_PX = 8;
+
+/** 빈 준비 구획의 놓을 자리가 열려 있는가. 두 값 모두 목록 내용 좌표(내용 맨 위 = 0, 아래로 +).
+ *  포인터가 맨 위 영역 안이고, 집은 자리보다 문턱 넘게 위로 끌어 올렸을 때만 연다. */
+export function setupZoneOpen(pointerY: number, grabY: number): boolean {
+  return pointerY < SETUP_ZONE_REACH_PX && grabY - pointerY > SETUP_ZONE_LIFT_PX;
 }
