@@ -508,6 +508,22 @@
   color: var(--sub);
 }
 
+/* 준비 스텝 결과 — 시안 b2-screens 장면 1(.p-line·.p-small) 값 */
+.p-root .p-setup-lead {
+  margin: 0 0 2mm;
+}
+.p-root .p-setup-lead b {
+  font-weight: 700;
+}
+.p-root .p-block--setup {
+  padding-top: 1.5mm;
+}
+.p-root .p-setup-kinds {
+  font-size: 8pt;
+  color: var(--sub);
+  margin: 0;
+}
+
 /* 단계별 응답 속도 구간 — 시안 speed-bands-v2 값 그대로 */
 .p-root {
   --b1: #d6e2f5;

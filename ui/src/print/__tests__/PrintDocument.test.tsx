@@ -14,6 +14,7 @@ import { requestLineBudget } from "../redact";
 import { LABEL_CHAR_MM, PLOT_X1_MM } from "../chartModel";
 import type { Report, Run } from "../../api/schemas";
 import { build as buildSpeed, case1Input } from "./speedFixtures";
+import { buildSetupModel } from "../setupTable";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
 const T0 = 1_700_000_000_000;
@@ -806,5 +807,93 @@ describe("단계별 응답 속도 구간 절", () => {
     expect(seen).toContain("speed:title");
     expect(seen).toContain("speed:header");
     expect(seen).toContain("speed:notes");
+  });
+});
+
+describe("준비 스텝 결과 절", () => {
+  const withSetup = (n = 6): PrintDoc => ({
+    ...makeDoc(coreFixture),
+    setup: buildSetupModel({
+      setup: {
+        ok: 47,
+        failed: 3,
+        interrupted: 0,
+        steps: Array.from({ length: n }, (_, i) => ({
+          step_id: `p${i}`,
+          count: 50,
+          errors: 0,
+          p50_ms: 80,
+          p95_ms: 120,
+          max_ms: 160,
+          status_counts: { "200": 50 },
+          failure_kinds: {},
+        })),
+      },
+      facts: [],
+      open: false,
+    }),
+    sectionNo: {
+      setup: "3. 준비 스텝 결과",
+      speed: null,
+      chart: "4. 시간에 따른 변화",
+      conditions: "5. 측정 조건과 해석 범위",
+      glossary: "6. 용어 풀이",
+    },
+  });
+
+  it("측정 시트에 준비 표(제목·머리·행)와 2절 표 제목이 하나씩 있다", async () => {
+    const measured = new Map<string, Set<Element>>();
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const id = this.getAttribute("data-measure") ?? "";
+        if (id !== "") {
+          if (!measured.has(id)) measured.set(id, new Set());
+          measured.get(id)!.add(this);
+        }
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 10 * PX_PER_MM,
+          width: 0,
+          height: 10 * PX_PER_MM,
+          toJSON: () => ({}),
+        } as DOMRect;
+      });
+    const { root } = renderDoc(withSetup(2));
+    await ready(root);
+    spy.mockRestore();
+    for (const id of [
+      "setup:title",
+      "setup:header",
+      "setup:row:p0",
+      "setup:row:p1",
+      "table:title",
+    ]) {
+      expect(measured.get(id)?.size, id).toBe(1);
+    }
+  });
+
+  it("쪽 렌더: 준비 표가 여러 쪽에 걸쳐도 2절 표는 한 번, 요약 줄은 한 번", async () => {
+    const spy = spyHeights((id) => (id.startsWith("setup:row:") ? 60 : 10));
+    const { root, container } = renderDoc(withSetup(6));
+    await ready(root);
+    spy.mockRestore();
+    const titles = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    const count = (t: string) => titles.filter((x) => x === t).length;
+    expect(count("2. 단계별 결과")).toBe(1);
+    expect(count("3. 준비 스텝 결과")).toBe(1);
+    expect(titles.filter((x) => x === "3. 준비 스텝 결과 (이어짐)").length).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(container.querySelectorAll(".p-setup-lead")).toHaveLength(1);
+    const frags = container.querySelectorAll("table.p-setup");
+    expect(frags.length).toBeGreaterThanOrEqual(2);
+    for (const t of Array.from(frags)) {
+      expect(t.querySelectorAll("tbody tr").length).toBeGreaterThanOrEqual(2);
+    }
   });
 });

@@ -35,6 +35,7 @@ import {
   StairWarnings,
 } from "./components/StairPrintTable";
 import { SpeedBandTable, SpeedNotes, SpeedTableTitle } from "./components/SpeedBandTable";
+import { SetupPrintTable, SetupTableTitle } from "./components/SetupPrintTable";
 import { SignatureBlock } from "./components/SignatureBlock";
 import { PageFooter } from "./components/PageFooter";
 import { PagedDocument } from "./PagedDocument";
@@ -99,6 +100,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return <FoldNotes notes={doc.table.foldNotes} />;
     case "notes:unreadable":
       return <UnreadableNote />;
+    case "setup:kinds":
+      return doc.setup?.kindsLine ? <p className="p-setup-kinds">{doc.setup.kindsLine}</p> : null;
     case "speed:notes":
       return doc.speed ? <SpeedNotes model={doc.speed} /> : null;
     case "chart":
@@ -169,7 +172,8 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
             </div>
           );
         }
-        if (b.id === "speed" && doc.speed && doc.sectionNo.speed) {
+        if (b.id === "speed") {
+          if (!doc.speed || !doc.sectionNo.speed) return null;
           return (
             <div key={b.id}>
               <SpeedTableTitle title={doc.sectionNo.speed} continued={false} measure />
@@ -178,6 +182,26 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
                 model={doc.speed}
                 from={0}
                 to={doc.speed.rows.length}
+                measure
+              />
+            </div>
+          );
+        }
+        if (b.id === "setup") {
+          if (!doc.setup || !doc.sectionNo.setup) return null;
+          return (
+            <div key={b.id}>
+              <SetupTableTitle
+                title={doc.sectionNo.setup}
+                lead={doc.setup.lead}
+                continued={false}
+                measure
+              />
+              <SetupPrintTable
+                title={doc.sectionNo.setup}
+                model={doc.setup}
+                from={0}
+                to={doc.setup.rows.length}
                 measure
               />
             </div>
@@ -243,13 +267,32 @@ function PageBody(props: {
             </div>
           );
         }
-        if (it.id === "speed" && doc.speed && doc.sectionNo.speed) {
+        if (it.id === "speed") {
+          if (!doc.speed || !doc.sectionNo.speed) return null;
           return (
             <div key={`${it.id}:${it.from}`}>
               <SpeedTableTitle title={doc.sectionNo.speed} continued={it.continued} />
               <SpeedBandTable
                 title={doc.sectionNo.speed}
                 model={doc.speed}
+                from={it.from}
+                to={it.to}
+              />
+            </div>
+          );
+        }
+        if (it.id === "setup") {
+          if (!doc.setup || !doc.sectionNo.setup) return null;
+          return (
+            <div key={`${it.id}:${it.from}`}>
+              <SetupTableTitle
+                title={doc.sectionNo.setup}
+                lead={doc.setup.lead}
+                continued={it.continued}
+              />
+              <SetupPrintTable
+                title={doc.sectionNo.setup}
+                model={doc.setup}
                 from={it.from}
                 to={it.to}
               />

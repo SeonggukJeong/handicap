@@ -48,6 +48,8 @@ import {
 import { basisLine, basisOtherLine } from "../components/report/basisText";
 import { summaryLines, type SummaryLine } from "./sentences";
 import { buildSpeedModel, type SpeedModel } from "./speedBands";
+import { buildSetupModel, type SetupPrintModel } from "./setupTable";
+import { deriveLoadMode } from "../components/run/loadModel";
 import type { Block, LadderLevel } from "./paginate";
 
 const D = ko.print.doc;
@@ -85,6 +87,7 @@ export type PrintDoc = {
   glossary: ReturnType<typeof buildGlossary>;
   stair: StairReport | null;
   speed: SpeedModel | null;
+  setup: SetupPrintModel | null;
   sectionNo: SectionNo;
 };
 
@@ -170,6 +173,14 @@ export function buildPrintDoc(a: {
       })
     : null;
 
+  const setup = report.setup
+    ? buildSetupModel({
+        setup: report.setup,
+        facts: facts.ok ? facts.setupSteps : [],
+        open: parsed.success ? deriveLoadMode(parsed.data).loadModel === "open" : false,
+      })
+    : null;
+
   const rawName = facts.ok ? facts.name : null;
   const name =
     (rawName && rawName.trim()) ||
@@ -231,7 +242,8 @@ export function buildPrintDoc(a: {
     glossary: buildGlossary(table, ranked, report.error_kinds),
     stair: report.stair ?? null,
     speed,
-    sectionNo: sectionNumbers({ setup: false, speed: speed !== null }),
+    setup,
+    sectionNo: sectionNumbers({ setup: setup !== null, speed: speed !== null }),
   };
 }
 
@@ -276,6 +288,9 @@ export const MEASURE_IDS = {
   speedTitle: "speed:title",
   speedHeader: "speed:header",
   speedRowId: (key: string): string => `speed:row:${key}`,
+  setupTitle: "setup:title",
+  setupHeader: "setup:header",
+  setupRowId: (stepId: string): string => `setup:row:${stepId}`,
 } as const;
 
 const atom = (h: Heights, id: string): Block => ({
@@ -320,6 +335,16 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
   if (hasCallouts(doc)) out.push(atom(h, "callouts:full"));
   if (doc.table.foldNotes.length > 0) out.push(atom(h, "notes:fold"));
   if (doc.table.scenarioUnreadable) out.push(atom(h, "notes:unreadable"));
+  if (doc.setup !== null) {
+    out.push({
+      kind: "table",
+      id: "setup",
+      titleMm: h.get(MEASURE_IDS.setupTitle) ?? 0,
+      headerMm: h.get(MEASURE_IDS.setupHeader) ?? 0,
+      rowsMm: doc.setup.rows.map((r) => h.get(MEASURE_IDS.setupRowId(r.stepId)) ?? 0),
+    });
+    if (doc.setup.kindsLine !== null) out.push(atom(h, "setup:kinds"));
+  }
   if (doc.speed !== null) {
     out.push(
       {

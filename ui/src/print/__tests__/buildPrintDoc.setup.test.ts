@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrintDoc } from "../buildPrintDoc";
+import { buildPrintDoc, standardBlocks, summaryBlocks } from "../buildPrintDoc";
 import { ko } from "../../i18n/ko";
 import type { Report, Run } from "../../api/schemas";
 
@@ -82,5 +82,110 @@ describe("buildPrintDoc 준비 스텝 배선", () => {
 
   it("report.setup이 없으면 setupNote 키가 없다", () => {
     expect("setupNote" in build(report()).meta).toBe(false);
+  });
+});
+
+const speedBands = {
+  overall: { slow_ms: 3000, basis: "default" as const, own: false, fast: 10, within: 5, over: 0 },
+  steps: [],
+};
+const setupStep = (kinds: Record<string, number>) => ({
+  step_id: "p0",
+  count: 50,
+  errors: 0,
+  p50_ms: 84,
+  p95_ms: 120,
+  max_ms: 163,
+  status_counts: { "200": 50 },
+  failure_kinds: kinds,
+});
+const ids = (r: Report) => standardBlocks(build(r), new Map()).map((b) => b.id);
+
+describe("buildPrintDoc 준비 스텝 절", () => {
+  const withSetup = (kinds: Record<string, number> = {}, extra: Partial<Report> = {}) =>
+    report({ setup: { ok: 47, failed: 3, interrupted: 0, steps: [setupStep(kinds)] }, ...extra });
+
+  it("준비가 있으면 doc.setup과 절 번호가 켜진다", () => {
+    const d = build(withSetup());
+    expect(d.setup).not.toBeNull();
+    expect(d.sectionNo.setup).toBe("3. 준비 스텝 결과");
+    expect(d.sectionNo.chart).toBe("4. 시간에 따른 변화");
+    const d2 = build(withSetup({}, { speed_bands: speedBands }));
+    expect(d2.sectionNo.setup).toBe("3. 준비 스텝 결과");
+    expect(d2.sectionNo.speed).toBe("4. 단계별 응답 속도 구간");
+  });
+
+  it("setup 블록은 table 뒤 chart 앞, 속도 구간이 있으면 speed 앞", () => {
+    expect(ids(withSetup())).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "table",
+      "legend:full",
+      "setup",
+      "chart",
+      "conditions",
+      "glossary",
+      "signature",
+    ]);
+    expect(ids(withSetup({}, { speed_bands: speedBands }))).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "table",
+      "legend:full",
+      "setup",
+      "speed",
+      "speed:notes",
+      "chart",
+      "conditions",
+      "glossary",
+      "signature",
+    ]);
+  });
+
+  it("setup:kinds는 실패 종류가 있을 때만", () => {
+    expect(ids(withSetup())).not.toContain("setup:kinds");
+    const withKinds = ids(withSetup({ status_assert: 3 }));
+    expect(withKinds).toContain("setup:kinds");
+    expect(withKinds.indexOf("setup:kinds")).toBe(withKinds.indexOf("setup") + 1);
+  });
+
+  it("준비가 없으면 블록 목록이 이전과 같다", () => {
+    expect(build(report()).setup).toBeNull();
+    expect(ids(report())).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "table",
+      "legend:full",
+      "chart",
+      "conditions",
+      "glossary",
+      "signature",
+    ]);
+    expect(ids(report({ speed_bands: speedBands }))).toEqual([
+      "header",
+      "verdict:full",
+      "kpis",
+      "table",
+      "legend:full",
+      "speed",
+      "speed:notes",
+      "chart",
+      "conditions",
+      "glossary",
+      "signature",
+    ]);
+  });
+
+  it("요약판 블록에는 준비가 없다", () => {
+    const d = build(withSetup({ status_assert: 3 }));
+    for (const level of [0, 4, 8] as const) {
+      const got = summaryBlocks(d, new Map(), level).map((b) => b.id);
+      expect(got).not.toContain("setup");
+      expect(got).not.toContain("setup:kinds");
+    }
+    expect(d.meta.setupNote).toBeDefined();
   });
 });
