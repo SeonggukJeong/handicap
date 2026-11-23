@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>verdict-stats A — 화면 목업</title>
+<style>
+  :root { --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0; --slate-300:#cbd5e1; --slate-400:#94a3b8; --slate-500:#64748b; --slate-600:#475569; --slate-900:#0f172a; --accent:#4f46e5; --red:#b91c1c; --green:#047857; --amber-bg:#fffbeb; --amber-bd:#fcd34d; --amber-tx:#92400e; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--slate-50); color:var(--slate-900); font:14px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:36px 0 8px; color:var(--slate-600); }
+  .note { color:var(--slate-500); font-size:12px; margin:0 0 12px; max-width:900px; }
+  .card { background:#fff; border:1px solid var(--slate-200); border-radius:8px; padding:16px; max-width:980px; overflow-x:auto; }
+  .dialog { max-width:560px; }
+  .eyebrow { font-size:11px; font-weight:600; letter-spacing:.04em; color:var(--slate-500); text-transform:uppercase; margin:12px 0 6px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  label.f { display:block; font-size:14px; }
+  label.f span { color:var(--slate-600); }
+  input, select { font:inherit; border:1px solid var(--slate-300); border-radius:4px; padding:4px 8px; background:#fff; }
+  label.f input { display:block; width:100%; margin-top:4px; }
+  .sub { margin-top:12px; font-size:14px; font-weight:500; color:var(--slate-600); }
+  .row { display:flex; align-items:center; gap:8px; margin:6px 0; flex-wrap:wrap; }
+  .row .grow { flex:1; min-width:120px; }
+  .unit { font-size:12px; color:var(--slate-500); }
+  .x { color:var(--slate-400); border:0; background:none; font-size:16px; cursor:pointer; }
+  .add { color:var(--accent); background:none; border:0; padding:0; font:inherit; cursor:pointer; }
+  .help { font-size:12px; color:var(--slate-500); margin:4px 0 0; }
+  .new { outline:2px dashed #a5b4fc; outline-offset:3px; border-radius:4px; }
+  table { border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--slate-600); font-weight:500; padding:8px 16px 8px 0; border-bottom:1px solid var(--slate-200); white-space:nowrap; }
+  td { padding:8px 16px 8px 0; border-bottom:1px solid var(--slate-100); white-space:nowrap; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .muted { color:var(--slate-400); }
+  .pass { color:var(--green); } .fail { color:var(--red); }
+  .badge { display:inline-block; border-radius:4px; padding:2px 8px; font-size:12px; font-weight:500; }
+  .badge.fail { background:#fecaca; color:#7f1d1d; }
+  .cards { display:grid; grid-template-columns:repeat(8, minmax(0,1fr)); gap:8px; }
+  .kpi { border:1px solid var(--slate-200); border-radius:6px; padding:8px 10px; }
+  .kpi .l { font-size:12px; color:var(--slate-500); } .kpi .v { font-size:16px; font-weight:600; }
+  .toggle { border:1px solid var(--slate-300); background:#fff; border-radius:4px; padding:3px 10px; font:inherit; font-size:13px; color:var(--slate-600); cursor:pointer; }
+  .head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .head h3 { margin:0; font-size:16px; }
+  .callout { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:8px 12px; font-size:13px; margin-top:10px; }
+  tr.total td { font-weight:600; border-top:1px solid var(--slate-300); }
+  .statcol { background:#f8fafc; }
+  @media (max-width:640px){ .cards{ grid-template-columns:repeat(2,1fr);} .grid2{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<h1>verdict-stats 슬라이스 A — 화면 목업</h1>
+<p class="note">점선 테두리 = 이번에 새로 생기는 것. 나머지는 지금 화면 그대로. 숫자는 예시. 표·카드의 새 통계 값은 유효 숫자 4자리, 판정 표의 기준·실측은 소수 3자리까지(뒤 0 생략).</p>
+
+<h2>1. 실행 창 「판정·고급」 — 판정 기준 입력 (스케줄 폼도 같은 칸)</h2>
+<div class="card dialog">
+  <div class="eyebrow">판정 기준 (SLO)</div>
+  <div class="grid2">
+    <label class="f new"><span>평균 응답 시간(ms)</span><input type="number" value="3000"></label>
+    <label class="f new"><span>최대 응답 시간(ms)</span><input type="number" placeholder=""></label>
+    <label class="f"><span>최대 p50(ms)</span><input type="number"></label>
+    <label class="f"><span>최대 p95(ms)</span><input type="number"></label>
+    <label class="f"><span>최대 p99(ms)</span><input type="number"></label>
+    <label class="f"><span>최대 에러율(%)</span><input type="number" value="1"></label>
+    <label class="f"><span>최소 RPS</span><input type="number"></label>
+    <label class="f"><span>… (4xx/5xx 등 기존 칸 그대로)</span><input type="number" disabled></label>
+  </div>
+  <p class="help new">평균은 느린 응답 몇 건이 있어도 낮게 나올 수 있습니다. 대부분의 사용자가 겪는 속도를 보려면 p95를 함께 거세요.</p>
+
+  <div class="new" style="margin-top:14px">
+    <div class="sub">다른 백분위 기준 (선택)</div>
+    <div class="row">
+      <span>p</span><input type="number" value="90" style="width:72px" aria-label="백분위 1">
+      <span>≤</span><input type="number" value="2500" style="width:96px" aria-label="기준 1"><span class="unit">ms</span>
+      <button class="x" aria-label="백분위 기준 1 삭제">×</button>
+    </div>
+    <div class="row">
+      <span>p</span><input type="number" value="99.9" style="width:72px" aria-label="백분위 2">
+      <span>≤</span><input type="number" value="8000" style="width:96px" aria-label="기준 2"><span class="unit">ms</span>
+      <button class="x" aria-label="백분위 기준 2 삭제">×</button>
+    </div>
+    <button class="add">+ 백분위 기준 추가</button>
+  </div>
+
+  <div class="sub">스텝별 기준 (선택)</div>
+  <div class="row">
+    <select class="grow"><option>② 주문 조회</option></select>
+    <select class="new"><option>평균(ms)</option><option>최대(ms)</option><option>백분위(ms)</option><option>p50(ms)</option><option>p95(ms)</option><option>p99(ms)</option><option>에러율(%)</option></select>
+    <select><option>≤</option></select>
+    <input type="number" value="500" style="width:96px"><span class="unit">ms</span>
+    <button class="x">×</button>
+  </div>
+  <div class="row">
+    <select class="grow"><option>③ 결제</option></select>
+    <select class="new"><option>백분위(ms)</option></select>
+    <span class="new">p <input type="number" value="90" style="width:64px" aria-label="백분위"></span>
+    <select><option>≤</option></select>
+    <input type="number" value="1200" style="width:96px"><span class="unit">ms</span>
+    <button class="x">×</button>
+  </div>
+  <button class="add">+ 스텝 기준 추가</button>
+</div>
+
+<h2>2. 리포트 — 판정 표</h2>
+<div class="card">
+  <div class="head" style="justify-content:flex-start"><h3>판정 기준 결과</h3><span class="badge fail">실패</span></div>
+  <table>
+    <thead><tr><th>지표</th><th>기준</th><th>실측</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr class="new"><td>평균 응답 시간</td><td>≤ 3,000 ms</td><td>1,842.613 ms</td><td class="pass">✓</td></tr>
+      <tr><td>p95</td><td>≤ 5,000 ms</td><td>4,210 ms</td><td class="pass">✓</td></tr>
+      <tr class="new"><td>p90</td><td>≤ 2,500 ms</td><td>2,731.4 ms</td><td class="fail">✗</td></tr>
+      <tr class="new"><td>최대 응답 시간</td><td>≤ 10,000 ms</td><td>≥ 60,000 ms</td><td class="fail">✗</td></tr>
+      <tr><td>Error rate</td><td>≤ 1.00%</td><td>0.42%</td><td class="pass">✓</td></tr>
+      <tr class="new"><td><span class="muted">② 주문 조회 · </span>평균 응답 시간</td><td>≤ 500 ms</td><td>312.08 ms</td><td class="pass">✓</td></tr>
+      <tr class="new"><td><span class="muted">③ 결제 · </span>p90</td><td>≤ 1,200 ms</td><td>980.5 ms</td><td class="pass">✓</td></tr>
+    </tbody>
+  </table>
+  <div class="callout new">60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 평균과 최대 응답 시간은 실제보다 작게 나온 값입니다.</div>
+</div>
+
+<h2>3. 리포트 — 요약 카드 (「평균」 카드 추가)</h2>
+<div class="card">
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">182,400</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">766</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">304.0</div></div>
+    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
+    <div class="kpi new"><div class="l">평균</div><div class="v">1,843 ms</div></div>
+    <div class="kpi"><div class="l">p50</div><div class="v">1,204 ms</div></div>
+    <div class="kpi"><div class="l">p95</div><div class="v">4,210 ms</div></div>
+    <div class="kpi"><div class="l">p99</div><div class="v">7,930 ms</div></div>
+  </div>
+</div>
+
+<h2>4-가. 리포트 — 스텝별 표 (기본: 접힘, 지금과 같은 열)</h2>
+<div class="card">
+  <div class="head"><h3>스텝별 결과</h3><button class="toggle new" aria-expanded="false">응답 시간 통계 더 보기 ▸</button></div>
+  <table>
+    <thead><tr><th>스텝</th><th>Method</th><th>URL</th><th class="num">요청</th><th class="num">오류</th><th class="num">p50 ms</th><th class="num">p95 ms</th><th class="num">p99 ms</th></tr></thead>
+    <tbody>
+      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td class="num">60,800</td><td class="num">12</td><td class="num">88</td><td class="num">240</td><td class="num">610</td></tr>
+      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td class="num">60,800</td><td class="num">31</td><td class="num">210</td><td class="num">890</td><td class="num">1,420</td></tr>
+      <tr><td>③ 결제</td><td>POST</td><td>/api/pay</td><td class="num">60,800</td><td class="num">723</td><td class="num">3,310</td><td class="num">9,800</td><td class="num">31,200</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4-나. 리포트 — 스텝별 표 (펼침: 최소·평균·최대·표준편차·p90 열 + 「전체」 행)</h2>
+<div class="card">
+  <div class="head"><h3>스텝별 결과</h3><button class="toggle new" aria-expanded="true">응답 시간 통계 접기 ▾</button></div>
+  <table>
+    <thead><tr><th>스텝</th><th>Method</th><th>URL</th><th class="num">요청</th><th class="num">오류</th>
+      <th class="num statcol new">최소 ms</th><th class="num statcol new">평균 ms</th><th class="num statcol new">최대 ms</th><th class="num statcol new">표준편차 ms</th>
+      <th class="num">p50 ms</th><th class="num statcol new">p90 ms</th><th class="num">p95 ms</th><th class="num">p99 ms</th></tr></thead>
+    <tbody>
+      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td class="num">60,800</td><td class="num">12</td>
+        <td class="num statcol">41.2</td><td class="num statcol">104.7</td><td class="num statcol">2,310</td><td class="num statcol">96.3</td>
+        <td class="num">88</td><td class="num statcol">196.4</td><td class="num">240</td><td class="num">610</td></tr>
+      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td class="num">60,800</td><td class="num">31</td>
+        <td class="num statcol">0.84</td><td class="num statcol">312.1</td><td class="num statcol">4,105</td><td class="num statcol">288.9</td>
+        <td class="num">210</td><td class="num statcol">655.2</td><td class="num">890</td><td class="num">1,420</td></tr>
+      <tr><td>③ 결제</td><td>POST</td><td>/api/pay</td><td class="num">60,800</td><td class="num">723</td>
+        <td class="num statcol">512.6</td><td class="num statcol">5,111</td><td class="num statcol">≥ 60,000</td><td class="num statcol">6,870</td>
+        <td class="num">3,310</td><td class="num statcol">7,204</td><td class="num">9,800</td><td class="num">31,200</td></tr>
+      <tr><td>④ 알림 (보낸 요청 없음)</td><td>GET</td><td>/api/notice</td><td class="num">40</td><td class="num">40</td>
+        <td class="num statcol">—</td><td class="num statcol">—</td><td class="num statcol">—</td><td class="num statcol">—</td>
+        <td class="num">—</td><td class="num statcol">—</td><td class="num">—</td><td class="num">—</td></tr>
+      <tr class="total new"><td>전체</td><td></td><td></td><td class="num">182,440</td><td class="num">806</td>
+        <td class="num statcol">0.84</td><td class="num statcol">1,843</td><td class="num statcol">≥ 60,000</td><td class="num statcol">4,120</td>
+        <td class="num">1,204</td><td class="num statcol">3,480</td><td class="num">4,210</td><td class="num">7,930</td></tr>
+    </tbody>
+  </table>
+  <div class="callout new">「≥ 60,000」: 60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 이 스텝의 평균·최대·표준편차는 실제보다 작게 나온 값입니다.</div>
+</div>
+</body>
+</html>
