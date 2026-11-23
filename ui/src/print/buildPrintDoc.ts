@@ -85,7 +85,7 @@ export type PrintDoc = {
   glossary: ReturnType<typeof buildGlossary>;
   stair: StairReport | null;
   speed: SpeedModel | null;
-  sectionNo: { chart: string; conditions: string; glossary: string };
+  sectionNo: SectionNo;
 };
 
 function boxText(box: BoxState): { big: string; sub: string } {
@@ -231,17 +231,30 @@ export function buildPrintDoc(a: {
     glossary: buildGlossary(table, ranked, report.error_kinds),
     stair: report.stair ?? null,
     speed,
-    sectionNo: speed
-      ? {
-          chart: ko.print.section.chartShifted,
-          conditions: ko.print.section.conditionsShifted,
-          glossary: ko.print.section.glossaryShifted,
-        }
-      : {
-          chart: ko.print.section.chart,
-          conditions: ko.print.section.conditions,
-          glossary: ko.print.section.glossary,
-        },
+    sectionNo: sectionNumbers({ setup: false, speed: speed !== null }),
+  };
+}
+
+export type SectionNo = {
+  setup: string | null;
+  speed: string | null;
+  chart: string;
+  conditions: string;
+  glossary: string;
+};
+
+/** 있는 절만 준비 → 속도 구간 → 그림 → 조건 → 용어 순서로 3부터 센다. */
+export function sectionNumbers(a: { setup: boolean; speed: boolean }): SectionNo {
+  const s = ko.print.section;
+  let n = 3;
+  const setup = a.setup ? s.setup(n++) : null;
+  const speed = a.speed ? s.speed(n++) : null;
+  return {
+    setup,
+    speed,
+    chart: s.chart(n++),
+    conditions: s.conditions(n++),
+    glossary: s.glossary(n),
   };
 }
 

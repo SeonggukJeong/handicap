@@ -13,7 +13,6 @@ import { PX_PER_MM, type LadderLevel } from "../paginate";
 import { requestLineBudget } from "../redact";
 import { LABEL_CHAR_MM, PLOT_X1_MM } from "../chartModel";
 import type { Report, Run } from "../../api/schemas";
-import { ko } from "../../i18n/ko";
 import { build as buildSpeed, case1Input } from "./speedFixtures";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
@@ -758,9 +757,11 @@ describe("단계별 응답 속도 구간 절", () => {
     ...makeDoc(coreFixture),
     speed: buildSpeed(case1Input()),
     sectionNo: {
-      chart: ko.print.section.chartShifted,
-      conditions: ko.print.section.conditionsShifted,
-      glossary: ko.print.section.glossaryShifted,
+      setup: null,
+      speed: "3. 단계별 응답 속도 구간",
+      chart: "4. 시간에 따른 변화",
+      conditions: "5. 측정 조건과 해석 범위",
+      glossary: "6. 용어 풀이",
     },
   });
 
@@ -778,6 +779,17 @@ describe("단계별 응답 속도 구간 절", () => {
     expect(container.querySelectorAll(".p-speed")).toHaveLength(1);
     expect(container.querySelectorAll(".p-steps")).toHaveLength(1);
     expect(container.querySelector(".p-speed-legend")).not.toBeNull();
+  });
+
+  it("speed section title comes from doc.sectionNo", async () => {
+    const doc = withSpeed();
+    doc.sectionNo = { ...doc.sectionNo, speed: "9. X" };
+    const { root, container } = renderDoc(doc);
+    await ready(root);
+    const titles = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    expect(titles).toContain("9. X");
+    expect(titles).not.toContain("3. 단계별 응답 속도 구간");
+    expect(container.querySelector(".p-speed")?.getAttribute("aria-label")).toBe("9. X");
   });
 
   it("측정 시트도 speed 표를 행마다 data-measure로 낸다(높이 합이 쪽 배치에 쓰인다)", async () => {

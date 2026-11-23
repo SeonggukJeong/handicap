@@ -10,14 +10,21 @@ const STEP_MM = 36;
 const BAR_MM = 62;
 const FAIL_MM = 22;
 
-export function SpeedTableTitle({ continued, measure }: { continued: boolean; measure?: boolean }) {
-  const s = ko.print.section;
+export function SpeedTableTitle({
+  title,
+  continued,
+  measure,
+}: {
+  title: string;
+  continued: boolean;
+  measure?: boolean;
+}) {
   return (
     <div
       className="p-block p-block--title"
       data-measure={measure ? MEASURE_IDS.speedTitle : undefined}
     >
-      <h2 className="p-h2">{continued ? `${s.speed}${s.continued}` : s.speed}</h2>
+      <h2 className="p-h2">{continued ? `${title}${ko.print.section.continued}` : title}</h2>
     </div>
   );
 }
@@ -104,15 +111,16 @@ function SpeedRowView({ row, measure }: { row: SpeedRow; measure?: boolean }) {
 
 /** [from, to) 행만 그린다(측정 id = 행 키). 머리줄은 쪽마다 다시 그린다. */
 export function SpeedBandTable(props: {
+  title: string;
   model: SpeedModel;
   from: number;
   to: number;
   measure?: boolean;
 }) {
-  const { model, from, to, measure } = props;
+  const { title, model, from, to, measure } = props;
   const { head } = model;
   return (
-    <table className="p-table p-speed" aria-label={ko.print.section.speed}>
+    <table className="p-table p-speed" aria-label={title}>
       <colgroup>
         <col style={{ width: `${STEP_MM}mm` }} />
         <col style={{ width: `${BAR_MM}mm` }} />

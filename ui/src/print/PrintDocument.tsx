@@ -169,11 +169,17 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
             </div>
           );
         }
-        if (b.id === "speed" && doc.speed) {
+        if (b.id === "speed" && doc.speed && doc.sectionNo.speed) {
           return (
             <div key={b.id}>
-              <SpeedTableTitle continued={false} measure />
-              <SpeedBandTable model={doc.speed} from={0} to={doc.speed.rows.length} measure />
+              <SpeedTableTitle title={doc.sectionNo.speed} continued={false} measure />
+              <SpeedBandTable
+                title={doc.sectionNo.speed}
+                model={doc.speed}
+                from={0}
+                to={doc.speed.rows.length}
+                measure
+              />
             </div>
           );
         }
@@ -237,11 +243,16 @@ function PageBody(props: {
             </div>
           );
         }
-        if (it.id === "speed" && doc.speed) {
+        if (it.id === "speed" && doc.speed && doc.sectionNo.speed) {
           return (
             <div key={`${it.id}:${it.from}`}>
-              <SpeedTableTitle continued={it.continued} />
-              <SpeedBandTable model={doc.speed} from={it.from} to={it.to} />
+              <SpeedTableTitle title={doc.sectionNo.speed} continued={it.continued} />
+              <SpeedBandTable
+                title={doc.sectionNo.speed}
+                model={doc.speed}
+                from={it.from}
+                to={it.to}
+              />
             </div>
           );
         }

@@ -60,7 +60,7 @@ pub struct ReportJson {
     /// 계단 시험 집계(spec §5.6). 계단 run이 아니면 키 자체를 내지 않는다(byte-identical).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stair: Option<crate::stair::StairReport>,
-    /// 응답 속도 구간 건수(인쇄 보고서 3절). 표본이 없으면 키 자체를 내지 않는다.
+    /// 응답 속도 구간 건수(인쇄 보고서의 응답 속도 구간 절). 표본이 없으면 키 자체를 내지 않는다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_bands: Option<crate::speed_bands::SpeedBands>,
     /// 집계 기준(유지 구간 설정이 있는 run만). 없으면 키 자체를 내지 않는다(byte-identical).

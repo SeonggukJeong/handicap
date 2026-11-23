@@ -11,7 +11,9 @@ const text = (el: Node | null | undefined) => el?.textContent ?? "";
 describe("SpeedBandTable", () => {
   it("세 구간 표: 머리·행·total을 그린다", () => {
     const m = build(case1Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={m.rows.length} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={m.rows.length} />,
+    );
     const heads = within(container).getAllByRole("columnheader");
     expect(heads).toHaveLength(6);
     expect(heads.map((h) => text(h.firstChild))).toEqual([
@@ -58,7 +60,9 @@ describe("SpeedBandTable", () => {
 
   it("합친 칸은 colSpan 2", () => {
     const m = build(case7Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={m.rows.length} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={m.rows.length} />,
+    );
     const row = bodyRows(container)[0];
     const tds = row.querySelectorAll("td");
     expect(tds).toHaveLength(5);
@@ -71,7 +75,9 @@ describe("SpeedBandTable", () => {
 
   it("실패 칸의 별표는 글자 바로 뒤에 붙는다", () => {
     const m = build(case7Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={m.rows.length} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={m.rows.length} />,
+    );
     const row4 = bodyRows(container)[3];
     const cells = row4.querySelectorAll("td");
     expect(text(cells[cells.length - 1])).toBe("✕ 0.7%*");
@@ -79,7 +85,9 @@ describe("SpeedBandTable", () => {
 
   it("두 구간 표는 구간 열이 둘", () => {
     const m = build(case4Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={m.rows.length} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={m.rows.length} />,
+    );
     const heads = within(container).getAllByRole("columnheader");
     expect(heads).toHaveLength(5);
     expect(text(heads[2].firstChild)).toBe("800ms 이내");
@@ -88,7 +96,9 @@ describe("SpeedBandTable", () => {
 
   it("막대 없는 행은 —", () => {
     const m = build(case7Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={m.rows.length} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={m.rows.length} />,
+    );
     const row = bodyRows(container)[5];
     expect(row.querySelectorAll(".p-speed-seg")).toHaveLength(0);
     const tds = Array.from(row.querySelectorAll("td"));
@@ -98,7 +108,9 @@ describe("SpeedBandTable", () => {
 
   it("from/to로 잘라 그리고 머리줄은 항상 있다", () => {
     const m = build(case1Input());
-    const { container } = render(<SpeedBandTable model={m} from={2} to={4} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={2} to={4} />,
+    );
     expect(container.querySelector("thead")).not.toBeNull();
     const rows = bodyRows(container);
     expect(rows).toHaveLength(2);
@@ -108,33 +120,45 @@ describe("SpeedBandTable", () => {
 
   it("measure면 data-measure id가 행·머리마다 붙는다", () => {
     const m = build(case1Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={m.rows.length} measure />);
+    const { container } = render(
+      <SpeedBandTable
+        title="3. 단계별 응답 속도 구간"
+        model={m}
+        from={0}
+        to={m.rows.length}
+        measure
+      />,
+    );
     for (const r of m.rows) {
       expect(
         container.querySelector(`[data-measure="${MEASURE_IDS.speedRowId(r.key)}"]`),
       ).not.toBeNull();
     }
     expect(container.querySelector(`[data-measure="${MEASURE_IDS.speedHeader}"]`)).not.toBeNull();
-    const plain = render(<SpeedBandTable model={m} from={0} to={2} />);
+    const plain = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={2} />,
+    );
     expect(plain.container.querySelector("[data-measure]")).toBeNull();
   });
 
   it("이름 칸은 2절 표와 같은 p-name 클래스를 쓴다", () => {
     const m = build(case1Input());
-    const { container } = render(<SpeedBandTable model={m} from={0} to={1} />);
+    const { container } = render(
+      <SpeedBandTable title="3. 단계별 응답 속도 구간" model={m} from={0} to={1} />,
+    );
     expect(container.querySelector("tbody td .p-name")).not.toBeNull();
   });
 });
 
 describe("SpeedTableTitle", () => {
   it("이어짐 표시와 측정 id", () => {
-    const a = render(<SpeedTableTitle continued={false} measure />);
-    expect(a.container.querySelector("h2")?.textContent).toBe(ko.print.section.speed);
-    expect(a.container.querySelector(`[data-measure="${MEASURE_IDS.speedTitle}"]`)).not.toBeNull();
-    const b = render(<SpeedTableTitle continued />);
-    expect(b.container.querySelector("h2")?.textContent).toBe(
-      `${ko.print.section.speed}${ko.print.section.continued}`,
+    const a = render(
+      <SpeedTableTitle title="3. 단계별 응답 속도 구간" continued={false} measure />,
     );
+    expect(a.container.querySelector("h2")?.textContent).toBe("3. 단계별 응답 속도 구간");
+    expect(a.container.querySelector(`[data-measure="${MEASURE_IDS.speedTitle}"]`)).not.toBeNull();
+    const b = render(<SpeedTableTitle title="3. 단계별 응답 속도 구간" continued />);
+    expect(b.container.querySelector("h2")?.textContent).toBe("3. 단계별 응답 속도 구간 (이어짐)");
   });
 });
 

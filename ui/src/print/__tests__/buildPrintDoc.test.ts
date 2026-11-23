@@ -3,6 +3,7 @@ import { build as buildSpeed, case1Input } from "./speedFixtures";
 import {
   MEASURE_IDS,
   buildPrintDoc,
+  sectionNumbers,
   standardBlocks,
   summaryBlocks,
   summaryRows,
@@ -104,6 +105,8 @@ describe("buildPrintDoc", () => {
     expect(d1.speed).not.toBeNull();
     expect(d1.speed?.rows).toHaveLength(3);
     expect(d1.sectionNo).toEqual({
+      setup: null,
+      speed: "3. 단계별 응답 속도 구간",
       chart: "4. 시간에 따른 변화",
       conditions: "5. 측정 조건과 해석 범위",
       glossary: "6. 용어 풀이",
@@ -111,9 +114,42 @@ describe("buildPrintDoc", () => {
     const d2 = build(mkRun(), mkReport());
     expect(d2.speed).toBeNull();
     expect(d2.sectionNo).toEqual({
+      setup: null,
+      speed: null,
       chart: "3. 시간에 따른 변화",
       conditions: "4. 측정 조건과 해석 범위",
       glossary: "5. 용어 풀이",
+    });
+  });
+
+  it("sectionNumbers: four combinations", () => {
+    expect(sectionNumbers({ setup: false, speed: false })).toEqual({
+      setup: null,
+      speed: null,
+      chart: "3. 시간에 따른 변화",
+      conditions: "4. 측정 조건과 해석 범위",
+      glossary: "5. 용어 풀이",
+    });
+    expect(sectionNumbers({ setup: false, speed: true })).toEqual({
+      setup: null,
+      speed: "3. 단계별 응답 속도 구간",
+      chart: "4. 시간에 따른 변화",
+      conditions: "5. 측정 조건과 해석 범위",
+      glossary: "6. 용어 풀이",
+    });
+    expect(sectionNumbers({ setup: true, speed: false })).toEqual({
+      setup: "3. 준비 스텝 결과",
+      speed: null,
+      chart: "4. 시간에 따른 변화",
+      conditions: "5. 측정 조건과 해석 범위",
+      glossary: "6. 용어 풀이",
+    });
+    expect(sectionNumbers({ setup: true, speed: true })).toEqual({
+      setup: "3. 준비 스텝 결과",
+      speed: "4. 단계별 응답 속도 구간",
+      chart: "5. 시간에 따른 변화",
+      conditions: "6. 측정 조건과 해석 범위",
+      glossary: "7. 용어 풀이",
     });
   });
 
