@@ -246,6 +246,78 @@ describe("ScenarioComparePage", () => {
     expect(thB!.textContent).not.toContain(" · ");
   });
 
+  describe("준비 스텝 묶음", () => {
+    const S1 = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
+    const S2 = "01ARZ3NDEKTSV4RRFFQ69G5FA2";
+    const S3 = "01ARZ3NDEKTSV4RRFFQ69G5FA3";
+    const yamlWith = (steps: { id: string; name: string }[]) =>
+      "version: 1\nname: t\nsetup:\n  steps:\n" +
+      steps
+        .map(
+          (s) =>
+            `    - id: ${s.id}\n      name: "${s.name}"\n      type: http\n      request:\n        method: POST\n        url: "/login"\n`,
+        )
+        .join("") +
+      "steps: []\n";
+    const setupOf = (ids: string[]) => ({
+      ok: 5,
+      failed: 1,
+      interrupted: 0,
+      steps: ids.map((id) => ({
+        step_id: id,
+        count: 6,
+        errors: 1,
+        p50_ms: 3,
+        p95_ms: 9,
+        max_ms: 12,
+        status_counts: {},
+        failure_kinds: {},
+      })),
+    });
+    function mockReports(a: object, b: object) {
+      vi.spyOn(api, "getRunReport").mockImplementation((id: string) => {
+        if (id === "A") return Promise.resolve({ ...baseReport, ...a });
+        if (id === "B") return Promise.resolve({ ...reportB, ...b });
+        return Promise.reject(new Error("unknown"));
+      });
+    }
+
+    it("labels setup rows with the baseline scenario's step name", async () => {
+      mockReports(
+        { scenario_yaml: yamlWith([{ id: S1, name: "sign-in" }]), setup: setupOf([S1]) },
+        { setup: setupOf([S1]) },
+      );
+      renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+      expect(await screen.findByText("sign-in p95 ms")).toBeInTheDocument();
+      expect(screen.getByText("sign-in 오류")).toBeInTheDocument();
+      expect(screen.getByText("준비 성공")).toBeInTheDocument();
+      expect(screen.getByText("준비 실패")).toBeInTheDocument();
+    });
+
+    it("falls back to METHOD url for an unnamed setup step", async () => {
+      mockReports(
+        { scenario_yaml: yamlWith([{ id: S1, name: " " }]), setup: setupOf([S1]) },
+        { setup: setupOf([S1]) },
+      );
+      renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+      expect(await screen.findByText("POST /login p95 ms")).toBeInTheDocument();
+      expect(screen.getByText("POST /login 오류")).toBeInTheDocument();
+    });
+
+    it("uses another run's name when the baseline lacks the step, else the step id", async () => {
+      mockReports(
+        { scenario_yaml: yamlWith([{ id: S1, name: "sign-in" }]), setup: setupOf([S1]) },
+        {
+          scenario_yaml: yamlWith([{ id: S2, name: "token-refresh" }]),
+          setup: setupOf([S2, S3]),
+        },
+      );
+      renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+      expect(await screen.findByText("token-refresh p95 ms")).toBeInTheDocument();
+      expect(screen.getByText(`${S3} p95 ms`)).toBeInTheDocument();
+    });
+  });
+
   it("shows guard message when fewer than 2 runs provided", () => {
     vi.spyOn(api, "getRunReport").mockResolvedValue(baseReport);
     renderPage("/scenarios/S1/compare?runs=A&baseline=A");

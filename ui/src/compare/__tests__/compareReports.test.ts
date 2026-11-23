@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import nodePath from "node:path";
 import { compareReports, computeDelta, verdictPolarity } from "../compareReports";
+import type { Report } from "../../api/schemas";
 
 // jsdom environment does not provide a file: import.meta.url, so we use
 // path.resolve(__dirname, ...) instead. __dirname is vitest's test file dir.
@@ -83,5 +84,211 @@ describe("verdictPolarity (baseline-relative, spec R7)", () => {
     expect(verdictPolarity(null, false)).toBe("neutral");
     expect(verdictPolarity(true, null)).toBe("neutral");
     expect(verdictPolarity(null, null)).toBe("neutral");
+  });
+});
+
+type SetupStepIn = { id: string; p95: number; errors: number };
+function mkReport(
+  id: string,
+  stepIds: string[],
+  p95: number,
+  setup?: { ok: number; failed: number; steps: SetupStepIn[] },
+): Report {
+  return {
+    run: { id },
+    summary: { count: 100, errors: 2, rps: 20, p50_ms: 10, p95_ms: p95, p99_ms: 35 },
+    steps: stepIds.map((s) => ({ step_id: s, p95_ms: p95 })),
+    status_distribution: { "200": 98, "500": 2 },
+    verdict: null,
+    ...(setup
+      ? {
+          setup: {
+            ok: setup.ok,
+            failed: setup.failed,
+            interrupted: 0,
+            steps: setup.steps.map((s) => ({
+              step_id: s.id,
+              count: 10,
+              errors: s.errors,
+              p50_ms: 1,
+              p95_ms: s.p95,
+              max_ms: s.p95,
+              status_counts: {},
+              failure_kinds: {},
+            })),
+          },
+        }
+      : {}),
+  } as unknown as Report;
+}
+
+describe("compareReports setup rows", () => {
+  const A = () =>
+    mkReport("A", ["m1"], 25, {
+      ok: 50,
+      failed: 0,
+      steps: [
+        { id: "s1", p95: 10, errors: 3 },
+        { id: "s2", p95: 20, errors: 0 },
+      ],
+    });
+  const B = () =>
+    mkReport("B", ["m1"], 25, {
+      ok: 47,
+      failed: 3,
+      steps: [
+        { id: "s3", p95: 7, errors: 1 },
+        { id: "s1", p95: 12, errors: 0 },
+      ],
+    });
+  const C = () => mkReport("C", ["m1"], 25);
+
+  it("setup rows: baseline order then first-seen", () => {
+    const r = compareReports([A(), B(), C()], "A");
+    expect(r.setup.map((x) => [x.label, x.metric])).toEqual([
+      ["setup_ok", "setup_ok"],
+      ["setup_failed", "setup_failed"],
+      ["s1", "p95_ms"],
+      ["s1", "setup_errors"],
+      ["s2", "p95_ms"],
+      ["s2", "setup_errors"],
+      ["s3", "p95_ms"],
+      ["s3", "setup_errors"],
+    ]);
+    expect(r.setup[2].id).toBe("s1");
+    expect(r.setup[0].id).toBeUndefined();
+  });
+
+  it("setup rows: run without setup → null cells, no delta", () => {
+    const r = compareReports([A(), B(), C()], "A");
+    for (const row of r.setup) expect(row.cells[2]).toEqual({ value: null, delta: null });
+  });
+
+  it("setup rows: step missing in baseline → no delta", () => {
+    const r = compareReports([A(), B(), C()], "A");
+    const s3 = r.setup.find((x) => x.label === "s3" && x.metric === "p95_ms")!;
+    expect(s3.cells[1].delta).toBeNull();
+    expect(s3.cells[1].value).toBe(7);
+  });
+
+  it("setup rows: polarity", () => {
+    const r = compareReports([A(), B()], "A");
+    const ok = r.setup.find((x) => x.metric === "setup_ok")!;
+    expect(ok.cells[1].delta?.polarity).toBe("bad");
+    const failed = r.setup.find((x) => x.metric === "setup_failed")!;
+    expect(failed.cells[1].delta).toEqual({ pct: null, polarity: "bad" });
+    const errs = r.setup.find((x) => x.label === "s1" && x.metric === "setup_errors")!;
+    expect(errs.cells[1].delta?.polarity).toBe("good");
+  });
+
+  it("no setup anywhere → setup is [] and existing cells are unchanged", () => {
+    const r = compareReports([mkReport("A", ["m1", "m2"], 25), mkReport("B", ["m1"], 30)], "A");
+    expect(r.setup).toEqual([]);
+    expect({
+      runIds: r.runIds,
+      baselineIdx: r.baselineIdx,
+      summary: r.summary,
+      steps: r.steps,
+      status: r.status,
+      verdict: r.verdict,
+      stepMismatch: r.stepMismatch,
+    }).toEqual({
+      runIds: ["A", "B"],
+      baselineIdx: 0,
+      summary: [
+        {
+          label: "p50_ms",
+          metric: "p50_ms",
+          cells: [
+            { value: 10, delta: null },
+            { value: 10, delta: { pct: 0, polarity: "neutral" } },
+          ],
+        },
+        {
+          label: "p95_ms",
+          metric: "p95_ms",
+          cells: [
+            { value: 25, delta: null },
+            { value: 30, delta: { pct: 0.2, polarity: "bad" } },
+          ],
+        },
+        {
+          label: "p99_ms",
+          metric: "p99_ms",
+          cells: [
+            { value: 35, delta: null },
+            { value: 35, delta: { pct: 0, polarity: "neutral" } },
+          ],
+        },
+        {
+          label: "rps",
+          metric: "rps",
+          cells: [
+            { value: 20, delta: null },
+            { value: 20, delta: { pct: 0, polarity: "neutral" } },
+          ],
+        },
+        {
+          label: "error_rate",
+          metric: "error_rate",
+          cells: [
+            { value: 0.02, delta: null },
+            { value: 0.02, delta: { pct: 0, polarity: "neutral" } },
+          ],
+        },
+      ],
+      steps: [
+        {
+          label: "m1",
+          metric: "p95_ms",
+          cells: [
+            { value: 25, delta: null },
+            { value: 30, delta: { pct: 0.2, polarity: "bad" } },
+          ],
+        },
+        {
+          label: "m2",
+          metric: "p95_ms",
+          cells: [
+            { value: 25, delta: null },
+            { value: null, delta: null },
+          ],
+        },
+      ],
+      status: [
+        {
+          label: "200",
+          metric: "status",
+          cells: [
+            { value: 98, delta: null },
+            { value: 98, delta: null },
+          ],
+        },
+        {
+          label: "500",
+          metric: "status",
+          cells: [
+            { value: 2, delta: null },
+            { value: 2, delta: null },
+          ],
+        },
+      ],
+      verdict: { passed: [null, null] },
+      stepMismatch: true,
+    });
+  });
+
+  it("stepMismatch ignores setup steps", () => {
+    const a = mkReport("A", ["m1"], 25, {
+      ok: 1,
+      failed: 0,
+      steps: [{ id: "s1", p95: 1, errors: 0 }],
+    });
+    const b = mkReport("B", ["m1"], 25, {
+      ok: 1,
+      failed: 0,
+      steps: [{ id: "s9", p95: 1, errors: 0 }],
+    });
+    expect(compareReports([a, b], "A").stepMismatch).toBe(false);
   });
 });

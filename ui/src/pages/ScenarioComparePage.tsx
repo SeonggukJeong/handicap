@@ -14,7 +14,7 @@ import { basisNotice } from "../compare/basisNotice";
 import { profileSummary } from "../runs/profileSummary";
 import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
-import { flattenHttpSteps } from "../scenario/model";
+import { flattenHttpSteps, setupSteps } from "../scenario/model";
 import { ProfileSchema } from "../api/schemas";
 import type { Report } from "../api/schemas";
 
@@ -136,6 +136,22 @@ function ScenarioCompareInner({
     return m;
   }, [reports, baseline]);
 
+  // Setup-step names: kept apart from stepLabelMap so a shared id never renames a main-step row.
+  // Baseline first, then the other runs in order; the first name seen for an id wins.
+  const setupLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    const baselineReport = reports.find((r) => r.run.id === baseline) ?? reports[0];
+    for (const rep of [baselineReport, ...reports.filter((r) => r !== baselineReport)]) {
+      const parsed = parseScenarioDoc(rep.scenario_yaml);
+      if (!("model" in parsed)) continue;
+      for (const s of setupSteps(parsed.model)) {
+        if (m.has(s.id)) continue;
+        m.set(s.id, s.name?.trim() ? s.name.trim() : `${s.request.method} ${s.request.url}`);
+      }
+    }
+    return m;
+  }, [reports, baseline]);
+
   // Apply friendly labels to step rows
   const labeledResult = useMemo(
     () => ({
@@ -144,8 +160,21 @@ function ScenarioCompareInner({
         ...row,
         label: stepLabelMap.get(row.label) ?? row.label,
       })),
+      setup: result.setup.map((row) => {
+        if (row.metric === "setup_ok") return { ...row, label: ko.compare.setupOk };
+        if (row.metric === "setup_failed") return { ...row, label: ko.compare.setupFailed };
+        if (row.id === undefined) return row;
+        const name = setupLabelMap.get(row.id) ?? row.id;
+        return {
+          ...row,
+          label:
+            row.metric === "setup_errors"
+              ? ko.compare.setupStepErrors(name)
+              : ko.compare.setupStepP95(name),
+        };
+      }),
     }),
-    [result, stepLabelMap],
+    [result, stepLabelMap, setupLabelMap],
   );
 
   // Run column labels: user label if set, else short human id (run-identity US1)

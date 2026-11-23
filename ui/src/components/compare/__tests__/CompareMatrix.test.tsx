@@ -22,6 +22,7 @@ const result: CompareResult = {
   status: [],
   verdict: { passed: [true, false] },
   stepMismatch: true,
+  setup: [],
 };
 
 describe("CompareMatrix verdict polarity (spec R8)", () => {
@@ -35,6 +36,7 @@ describe("CompareMatrix verdict polarity (spec R8)", () => {
       status: [],
       verdict: { passed },
       stepMismatch: false,
+      setup: [],
     };
   }
 
@@ -132,6 +134,7 @@ describe("CompareMatrix sublines (run-identity Task 9, additive optional prop)",
     status: [],
     verdict: { passed: [null, null] },
     stepMismatch: false,
+    setup: [],
   };
   const labels = { abc123: "#abc123", xyz789: "#xyz789" };
 
@@ -158,5 +161,76 @@ describe("CompareMatrix sublines (run-identity Task 9, additive optional prop)",
     );
     expect(screen.getByRole("button", { name: "#abc123" })).toBeInTheDocument();
     expect(container.querySelectorAll("th div")).toHaveLength(0);
+  });
+});
+
+describe("CompareMatrix 준비 스텝 section", () => {
+  const labels = { A: "#A", B: "#B" };
+  const row = (label: string, metric: string, id?: string, a = 1, b: number | null = 2) => ({
+    label,
+    metric,
+    ...(id ? { id } : {}),
+    cells: [
+      { value: a, delta: null },
+      { value: b, delta: null },
+    ],
+  });
+  const base = (setup: CompareResult["setup"]): CompareResult => ({
+    runIds: ["A", "B"],
+    baselineIdx: 0,
+    summary: [row("p95_ms", "p95_ms")],
+    steps: [row("m1", "p95_ms", "m1")],
+    status: [row("200", "status")],
+    verdict: { passed: [null, null] },
+    stepMismatch: false,
+    setup,
+  });
+  const groupHeads = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll("th[colspan]")).map((t) => t.textContent);
+
+  it("renders 준비 스텝 section between 스텝 and 상태", () => {
+    const { container } = render(
+      <CompareMatrix
+        result={base([row("준비 성공", "setup_ok")])}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    expect(groupHeads(container)).toEqual(["요약", "스텝", "준비 스텝", "상태"]);
+  });
+
+  it("no setup rows → no 준비 스텝 section", () => {
+    const { container } = render(
+      <CompareMatrix result={base([])} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    expect(groupHeads(container)).toHaveLength(3);
+    expect(screen.queryByText("준비 스텝")).not.toBeInTheDocument();
+  });
+
+  it("same-named setup steps render both rows without key warning", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <CompareMatrix
+        result={base([row("로그인 p95 ms", "p95_ms", "s1"), row("로그인 p95 ms", "p95_ms", "s2")])}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText("로그인 p95 ms")).toHaveLength(2);
+    const warned = err.mock.calls.some((args) => args.some((a) => String(a).includes("same key")));
+    expect(warned).toBe(false);
+    err.mockRestore();
+  });
+
+  it("null cell renders —", () => {
+    render(
+      <CompareMatrix
+        result={base([row("준비 성공", "setup_ok", undefined, 5, null)])}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    const tr = screen.getByText("준비 성공").closest("tr")!;
+    expect(tr.querySelectorAll("td")[2]).toHaveTextContent("—");
   });
 });

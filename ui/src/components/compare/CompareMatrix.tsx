@@ -84,7 +84,7 @@ function SectionRows({
       </tr>
       {rows.map((row) => (
         <tr
-          key={row.metric + row.label}
+          key={row.metric + (row.id ?? row.label)}
           className="border-b border-slate-100 dark:border-slate-800"
         >
           <td
@@ -196,6 +196,8 @@ export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Pr
 
           {/* Steps section rows with spanning sub-header */}
           <SectionRows title={ko.report.stepsHeading} rows={steps} runCount={colCount} />
+
+          <SectionRows title={ko.report.setup.title} rows={result.setup} runCount={colCount} />
 
           {/* Status section rows with spanning sub-header */}
           <SectionRows title={ko.report.colStatus} rows={status} runCount={colCount} />

@@ -3,13 +3,14 @@ import type { Report } from "../api/schemas";
 export type Polarity = "good" | "bad" | "neutral";
 export type Delta = { pct: number | null; polarity: Polarity };
 export type Cell = { value: number | null; delta: Delta | null };
-export type CompareRow = { label: string; metric: string; cells: Cell[] };
+export type CompareRow = { label: string; id?: string; metric: string; cells: Cell[] };
 export type CompareResult = {
   runIds: string[];
   baselineIdx: number;
   summary: CompareRow[];
   steps: CompareRow[];
   status: CompareRow[];
+  setup: CompareRow[];
   verdict: { passed: (boolean | null)[] };
   stepMismatch: boolean;
 };
@@ -48,6 +49,49 @@ function summaryValue(r: Report, metric: string): number {
   const s = r.summary;
   if (metric === "error_rate") return s.count === 0 ? 0 : s.errors / s.count;
   return (s as unknown as Record<string, number>)[metric];
+}
+
+function setupStepOrder(reports: Report[], baselineIdx: number): string[] {
+  const order: string[] = [];
+  const ordered = [reports[baselineIdx], ...reports.filter((_, i) => i !== baselineIdx)];
+  for (const r of ordered) {
+    for (const st of r.setup?.steps ?? []) {
+      if (!order.includes(st.step_id)) order.push(st.step_id);
+    }
+  }
+  return order;
+}
+
+function setupRows(reports: Report[], baselineIdx: number): CompareRow[] {
+  if (!reports.some((r) => r.setup)) return [];
+  const row = (
+    label: string,
+    metric: string,
+    pick: (r: Report) => number | null,
+    id?: string,
+  ): CompareRow => {
+    const base = pick(reports[baselineIdx]);
+    return {
+      label,
+      ...(id === undefined ? {} : { id }),
+      metric,
+      cells: reports.map((r, i) => {
+        const value = pick(r);
+        if (i === baselineIdx || value === null || base === null) return { value, delta: null };
+        return { value, delta: computeDelta(metric, base, value) };
+      }),
+    };
+  };
+  const stepOf = (r: Report, id: string) => r.setup?.steps.find((s) => s.step_id === id);
+  const rows: CompareRow[] = [
+    row("setup_ok", "setup_ok", (r) => r.setup?.ok ?? null),
+    row("setup_failed", "setup_failed", (r) => r.setup?.failed ?? null),
+  ];
+  for (const id of setupStepOrder(reports, baselineIdx)) {
+    rows.push(row(id, "p95_ms", (r) => stepOf(r, id)?.p95_ms ?? null, id));
+    rows.push(row(id, "setup_errors", (r) => stepOf(r, id)?.errors ?? null, id));
+  }
+  return rows;
 }
 
 export function compareReports(reports: Report[], baselineId: string): CompareResult {
@@ -98,5 +142,7 @@ export function compareReports(reports: Report[], baselineId: string): CompareRe
   const intersection = [...union].filter((id) => sets.every((s) => s.has(id)));
   const stepMismatch = intersection.length !== union.size;
 
-  return { runIds, baselineIdx, summary, steps, status, verdict, stepMismatch };
+  const setup = setupRows(reports, baselineIdx);
+
+  return { runIds, baselineIdx, summary, steps, status, setup, verdict, stepMismatch };
 }
