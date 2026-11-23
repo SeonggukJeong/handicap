@@ -11,13 +11,13 @@
 
 ## Decision
 
-**워커가 실패한 요청의 응답 시간 분포를 창마다 따로 보내고, 컨트롤러가 전체 − 실패로 통과 표본을 만든다. 나눌 수 있는 run의 기본 표본은 통과한 요청이다.**
+**워커가 실패한 요청의 응답 시간 분포를 창마다 따로 보내고, 컨트롤러가 모든 요청 − 실패로 통과 표본을 만든다. 나눌 수 있는 run의 기본 표본은 통과한 요청이다.**
 
-1. **엔진·와이어·저장**: `StepWindow`에 실패 분포를 더한다(그 창의 첫 실패 때 만들므로 성공 경로에는 새 일이 없다). 전체 분포 `hdr_histogram`은 그대로다. `MetricWindow.failed_hdr_histogram`(`optional bytes`, 필드 7)은 워커가 항상 싣는다 — 실패가 없으면 빈 바이트, 필드 없음은 옛 부하기. DB는 마이그레이션 0028 `run_metrics.failed_hdr_histogram`(NULL 허용 BLOB — NULL과 빈 BLOB을 구분해 저장한다).
+1. **엔진·와이어·저장**: `StepWindow`에 실패 분포를 더한다(그 창의 첫 실패 때 만들므로 성공 경로에는 새 일이 없다). 모든 요청 분포 `hdr_histogram`은 그대로다. `MetricWindow.failed_hdr_histogram`(`optional bytes`, 필드 7)은 워커가 항상 싣는다 — 실패가 없으면 빈 바이트, 필드 없음은 옛 부하기. DB는 마이그레이션 0028 `run_metrics.failed_hdr_histogram`(NULL 허용 BLOB — NULL과 빈 BLOB을 구분해 저장한다).
 2. **표본 셋과 나눌 수 있는 run**: `passed`·`failed`·`all`(`sample.rs`). run의 `run_metrics` 행이 하나 이상 있고 모든 행의 실패 칸이 NULL이 아니면 「나눌 수 있음」이다. 나눌 수 없는 run(옛 run·옛 부하기·행 없음)은 `all`뿐이고 실패 칸을 읽지 않으므로 리포트 숫자·판정이 변경 전과 같다(`sample` 블록만 더해진다).
-3. **보여 주는 값 · 판정하는 값 · 점유 값을 가른다**: 요청한 표본(`?sample=`)은 응답 시간 숫자만 바꾼다. 판정·유효성·속도 구간·느린 스텝 인사이트는 늘 기본 표본으로 계산한다. 「얼마나 오래 붙잡혔나」를 재는 계산(포화 원인의 `latency_rose`, 슬롯 사이징 도우미)은 늘 모든 요청 표본이다 — 시간 초과가 슬롯을 가장 오래 붙잡는다. 한 번의 `build_report`로 세 표본이 다 나온다(누적 자리마다 전체·실패 분포를 따로 합치고 끝에 한 번 뺀다).
+3. **보여 주는 값 · 판정하는 값 · 점유 값을 가른다**: 요청한 표본(`?sample=`)은 응답 시간 숫자만 바꾼다. 판정·유효성·속도 구간·느린 스텝 인사이트는 늘 기본 표본으로 계산한다. 「얼마나 오래 붙잡혔나」를 재는 계산(포화 원인의 `latency_rose`, 슬롯 사이징 도우미)은 늘 모든 요청 표본이다 — 시간 초과가 슬롯을 가장 오래 붙잡는다. 한 번의 `build_report`로 세 표본이 다 나온다(누적 자리마다 모든 요청 분포와 실패 분포를 따로 합치고 끝에 한 번 뺀다).
 4. **「통과한 요청 없음」은 실패다**: 기본 표본이 통과일 때 요청이 있었는데 통과가 없으면 응답 시간 기준은 `passed: false` + `no_sample: true`다. 분포 계산이 깨진 자리(`Broken`)는 「없음」(`Empty`)과 구분해 `no_sample`로 판정하지 않는다. 화면·인쇄·내보내기는 그 자리에 0 대신 「—」·빈 칸을 쓰고 그래프는 끊는다.
-5. **계단은 창 단위, 한 함수**: 실행 중 감시(`StairMonitor`)와 종료 뒤 계단 표(`build_stair_report`)가 `window_hist_per_window`를 함께 써서 숫자가 늘 같다 — 그 창에 실패 분포 칸이 있으면 통과 표본, 없으면 전체.
+5. **계단은 창 단위, 한 함수**: 실행 중 감시(`StairMonitor`)와 종료 뒤 계단 표(`build_stair_report`)가 `window_hist_per_window`를 함께 써서 숫자가 늘 같다 — 그 창에 실패 분포 칸이 있으면 통과 표본, 없으면 모든 요청.
 6. **API**: `GET /api/runs/{id}/report?sample=passed|failed|all`. 모르는 값은 400, 나눌 수 없는 run에 `passed`·`failed`를 요청하면 조용히 `all`로 준다(`?basis=` 선례). 리포트에 `sample: { selected, default, split }`을 항상 싣는다.
 
 ## 대안 (기각)

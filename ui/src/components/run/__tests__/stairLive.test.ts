@@ -330,6 +330,16 @@ describe("liveEmergencyText", () => {
     ).toBe("즉시 정지 감시: 오류율 0.2% · p99 340 ms (기준 5% · 2000 ms 초과, 3초 연속) 나쁜 초 0");
   });
 
+  it("emergencyLine_no_passed_request_shows_dash_not_zero_ms", () => {
+    // 그 초의 요청이 전부 실패 — 통과한 요청이 없어 p99는 값이 아니다(0 ms로 찍지 않는다).
+    expect(
+      liveEmergencyText(
+        live({ emergency_now: { error_rate: 1, p99_us: 0, bad_streak: 2, held: false } }),
+        em,
+      ),
+    ).toBe("즉시 정지 감시: 오류율 100.0% · p99 — (기준 5% · 2000 ms 초과, 3초 연속) 나쁜 초 2");
+  });
+
   it("emergencyLine_hidden_after_stop", () => {
     expect(liveEmergencyText(live({ stop: stopBase }), em)).toBeNull();
     expect(

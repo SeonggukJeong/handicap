@@ -17,6 +17,7 @@ import {
   headlineParts,
   headlineText,
   reasonTexts,
+  showsNumbers,
   stateLabel,
   stopLineText,
   suspendedLineText,
@@ -211,6 +212,17 @@ describe("계단 인쇄 블록", () => {
     expect(m.rows).toHaveLength(st.steps.length);
     expect(m.rows[0].cells[7]).toBe("<0.1%");
     expect(m.rows[0].cells).toHaveLength(11);
+  });
+
+  it("통과한 요청이 없는 계단(p99_us 0)은 p50·p95·p99 세 칸 모두 「—」 — 0을 찍지 않는다", () => {
+    const st = structuredClone(golden);
+    expect(showsNumbers(st.steps[0].state)).toBe(true);
+    st.steps[0] = { ...st.steps[0], p50_us: 0, p95_us: 0, p99_us: 0, error_rate: 1 };
+    const cells = buildStairRows(st).rows[0].cells;
+    expect(cells.slice(4, 7)).toEqual(["—", "—", "—"]);
+    // 응답 시간 말고는 그대로 — 처리량·오류율 칸은 숫자.
+    expect(cells[3]).not.toBe("—");
+    expect(cells[7]).toBe("100.0%");
   });
 });
 

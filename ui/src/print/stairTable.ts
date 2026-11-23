@@ -40,6 +40,9 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
   const rows = stair.steps.map((s): StairPrintRow => {
     const measured = showsNumbers(s.state);
     const dash = (v: string): string => (measured ? v : DASH);
+    // p99_us 0 = 통과한 요청 없음(분포의 바닥이 1µs) — 화면 StairTable과 같은 규칙.
+    const timed = measured && s.p99_us > 0;
+    const ms = (us: number): string => (timed ? formatMs(us) : DASH);
     return {
       index: s.index,
       state: s.state,
@@ -48,9 +51,9 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
         s.target.toLocaleString("en-US"),
         measured && s.achieved != null ? formatCount(s.achieved) : DASH,
         dash(formatCount(s.throughput_rps)),
-        dash(formatMs(s.p50_us)),
-        dash(formatMs(s.p95_us)),
-        s.p99_us > 0 ? dash(formatMs(s.p99_us)) : DASH,
+        ms(s.p50_us),
+        ms(s.p95_us),
+        ms(s.p99_us),
         dash(errorRateText(s.error_rate)),
         measured && s.dropped != null ? s.dropped.toLocaleString("en-US") : DASH,
         dash(`${formatHms(s.measure_start_ms)}–${formatHms(s.measure_end_ms)}`),

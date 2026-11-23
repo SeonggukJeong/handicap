@@ -11,8 +11,8 @@ export function hasLatency(c: LatencyCounts, sample: ReportSampleName): boolean 
 
 /** 창의 count에서 상태별 합을 뺀 값 — 하나도 보내지 않은 요청 수. */
 export function windowNotSent(w: { count: number; status_counts: Record<string, number> }): number {
-  const sum = Object.values(w.status_counts ?? {}).reduce((a, b) => a + b, 0);
-  return w.status_counts === undefined ? 0 : w.count - sum;
+  const sum = Object.values(w.status_counts).reduce((a, b) => a + b, 0);
+  return w.count - sum;
 }
 
 export function stepCounts(s: ReportStep): LatencyCounts {

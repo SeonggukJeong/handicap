@@ -81,7 +81,7 @@ function verdictLine(i: SummaryInput): string | null {
   const thr = pair.threshold;
   const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
   const head = row.no_sample
-    ? S.verdictNoSample(subject, subj, ko.report.sample.noSample, thr)
+    ? S.verdictNoSample(subject, subj, ko.report.sample.noSample, thr, spec.op)
     : spec.op === "max"
       ? S.verdictOver(subject, subj, act, thr)
       : S.verdictUnder(subject, subj, act, thr);

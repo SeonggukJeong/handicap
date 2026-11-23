@@ -1793,7 +1793,9 @@ export const ko = {
         secs: number,
         streak: number,
       ) =>
-        `즉시 정지 감시: 오류율 ${rate} · p99 ${p99} ms (기준 ${limRate}% · ${limP99} ms 초과, ${secs}초 연속) 나쁜 초 ${streak}`,
+        `즉시 정지 감시: 오류율 ${rate} · p99 ${p99} (기준 ${limRate}% · ${limP99} ms 초과, ${secs}초 연속) 나쁜 초 ${streak}`,
+      /** 즉시 정지 줄의 p99 값(단위 포함). 통과한 요청이 없는 초는 값이 아니라 「—」(단위 없음). */
+      emergencyP99: (ms: string | null) => (ms === null ? "—" : `${ms} ms`),
       emergencyHeld: (min: number, limRate: number, limP99: number, secs: number) =>
         `즉시 정지 감시: 초당 완료 ${min}개 미만 — 판정 보류 (기준 ${limRate}% · ${limP99} ms 초과, ${secs}초 연속)`,
       emergencyWaiting: "즉시 정지 감시: 첫 판정 대기",
@@ -3482,8 +3484,14 @@ export const ko = {
         `${name}${subj} 기준을 넘었습니다 (측정 ${actual}, 기준 ${thr} 이하)`,
       verdictUnder: (name: string, subj: string, actual: string, thr: string) =>
         `${name}${subj} 기준에 못 미쳤습니다 (측정 ${actual}, 기준 ${thr} 이상)`,
-      verdictNoSample: (name: string, subj: string, noSample: string, thr: string) =>
-        `${name}${subj} 기준을 지키지 못했습니다 (${noSample}, 기준 ${thr} 이하)`,
+      verdictNoSample: (
+        name: string,
+        subj: string,
+        noSample: string,
+        thr: string,
+        op: "max" | "min",
+      ) =>
+        `${name}${subj} 기준을 지키지 못했습니다 (${noSample}, 기준 ${thr} ${op === "max" ? "이하" : "이상"})`,
       more: (n: number) => ` 외 ${n}개`,
       allMet: (n: number) => `기준 ${n}개를 모두 지켰습니다`,
       notJudgedAborted: "측정이 중단되어 기준 판정은 하지 않았습니다",

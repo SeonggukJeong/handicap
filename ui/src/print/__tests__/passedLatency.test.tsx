@@ -197,6 +197,48 @@ describe("인쇄 — 통과한 요청 없는 칸", () => {
     expect(by.p95.value).not.toBe(DASH);
   });
 
+  it.each([
+    ["max", "이하"],
+    ["min", "이상"],
+  ] as const)(
+    "판정 문장: 스텝 기준(%s)의 「통과한 요청 없음」은 기준 방향을 그대로 쓴다(%s)",
+    (op, word) => {
+      const rep = failedReport(PASSED);
+      const criteria = { step_criteria: [{ metric: "p95_ms", op, threshold: 100, target: "s0" }] };
+      rep.run.profile = { ...profile, criteria } as Report["run"]["profile"];
+      rep.verdict = {
+        passed: false,
+        criteria: [
+          {
+            metric: "p95_ms",
+            direction: op,
+            threshold: 100,
+            actual: 0,
+            passed: false,
+            target: "s0",
+            no_sample: true,
+          },
+        ],
+      };
+      const r = { ...run, profile: rep.run.profile as Run["profile"] };
+      const doc = buildPrintDoc({ run: r, report: rep, fallbackScenarioName: null, now: NOW });
+      const line = doc.lines.map((l) => l.text).find((t) => t.includes(NO_SAMPLE));
+      expect(line).toBeDefined();
+      expect(line).toContain(`기준 100ms ${word})`);
+      expect(line).not.toContain(op === "min" ? "이하" : "이상");
+    },
+  );
+
+  it("KPI 카드: 옛 run(표본 블록 없음)에서 하나도 보내지 않았으면 평균·p95는 「–」", () => {
+    const rep = failedReport(undefined);
+    rep.steps[0].not_sent = 200;
+    rep.verdict = null;
+    const by = Object.fromEntries(docOf(rep).kpis.map((c) => [c.key, c]));
+    expect(by.mean.value).toBe(DASH);
+    expect(by.p95.value).toBe(DASH);
+    expect(by.rps.value).not.toBe(DASH);
+  });
+
   it("기준 표: no_sample 행의 실측 칸은 「통과한 요청 없음」", () => {
     const doc = docOf(failedReport(PASSED));
     const p99 = doc.otherRows.find((r) => r.name.includes("99"));

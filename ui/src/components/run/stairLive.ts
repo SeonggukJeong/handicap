@@ -107,7 +107,7 @@ export function liveEmergencyText(
     return t.emergencyHeld(em.min_requests, em.error_rate_pct, em.p99_ms, em.consecutive_seconds);
   return t.emergency(
     errorRateText(now.error_rate),
-    formatMs(now.p99_us),
+    t.emergencyP99(now.p99_us > 0 ? formatMs(now.p99_us) : null),
     em.error_rate_pct,
     em.p99_ms,
     em.consecutive_seconds,

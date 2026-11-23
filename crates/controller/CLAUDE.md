@@ -48,7 +48,7 @@
 - **응답 시간 표본은 셋(`sample.rs` `Sample` passed/failed/all)이고 용도별로 다른 표본을 쓴다** (passed-latency A, ADR-0063): 보여 주는 값 = 요청한 표본, 판정·속도 구간·느린 스텝 인사이트 = 기본 표본, 점유(`latency_rose`·슬롯 사이징) = 늘 모든 요청 — 새 소비처를 더할 때 어느 쪽인지 정할 것(「얼마나 오래 붙잡혔나」에 통과 표본을 쓰면 시간 초과가 사라진다).
 - **`Resolved::Broken`(계산 실패)은 `Empty`(통과한 요청 없음)가 아니다** (passed-latency A): `Empty`만 `no_sample` 판정(기준 실패)이 되고 `Broken`은 지금의 깨진 BLOB 처리(값 0)로 둔다 — 합치기·빼기가 실패한 자리를 「없음」으로 바꾸면 전부 실패한 run과 구분이 안 된다.
 - **나눌 수 없는 run(행 없음·실패 칸 NULL 행이 하나라도)은 실패 칸을 읽지 않는다** (passed-latency A): 깨진 실패 칸 하나가 옛 run의 값을 지우지 않게. 빈 BLOB(실패 없음)과 NULL(옛 부하기)은 다르다 — 빈 벡터를 NULL로 저장하면 run이 나눌 수 없음으로 바뀐다.
-- **계단은 run 단위가 아니라 창 단위 표본이다** (passed-latency A): `stair.rs`·`stair_monitor.rs`가 둘 다 `window_hist_per_window`(실패 칸 있으면 통과, 없으면 전체)를 써야 실행 중 숫자 = 종료 뒤 숫자다. 한쪽만 고치지 말 것.
+- **계단은 run 단위가 아니라 창 단위 표본이다** (passed-latency A): `stair.rs`·`stair_monitor.rs`가 둘 다 `window_hist_per_window`(실패 칸 있으면 통과, 없으면 모든 요청)를 써야 실행 중 숫자 = 종료 뒤 숫자다. 한쪽만 고치지 말 것.
 
 ## 저장소 / 마이그레이션 (SQLite, `store.rs`)
 

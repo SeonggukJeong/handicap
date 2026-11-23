@@ -5,7 +5,10 @@ import type { Report } from "../../api/schemas";
 function rep(
   windows: Array<{ ts_second: number; count: number; error_count: number; p95_ms: number }>,
 ): Report {
-  return { windows } as unknown as Report;
+  // 스키마상 status_counts는 필수 — 창의 요청은 전부 보낸 것으로 둔다.
+  return {
+    windows: windows.map((w) => ({ ...w, status_counts: { "200": w.count } })),
+  } as unknown as Report;
 }
 
 describe("bySecond", () => {
