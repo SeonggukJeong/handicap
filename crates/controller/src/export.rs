@@ -338,6 +338,38 @@ pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8>
         }
         w.write_record(&rec).expect("row");
     }
+    if reports.iter().any(|r| r.setup.is_some()) {
+        for metric in ["setup_ok", "setup_failed"] {
+            let vals: Vec<Option<f64>> = reports
+                .iter()
+                .map(|r| {
+                    r.setup.as_ref().map(|s| {
+                        if metric == "setup_ok" {
+                            s.ok as f64
+                        } else {
+                            s.failed as f64
+                        }
+                    })
+                })
+                .collect();
+            let mut rec = vec![metric.to_string()];
+            rec.extend(
+                vals.iter()
+                    .map(|v| v.map(|x| x.to_string()).unwrap_or_default()),
+            );
+            for (i, v) in vals.iter().enumerate() {
+                if i == baseline_idx {
+                    continue;
+                }
+                let pct = match (vals[baseline_idx], *v) {
+                    (Some(b), Some(x)) => delta(metric, b, x).pct,
+                    _ => None,
+                };
+                rec.push(pct.map(|p| format!("{p:.6}")).unwrap_or_default());
+            }
+            w.write_record(&rec).expect("setup row");
+        }
+    }
     if reports.iter().any(|r| r.basis.is_some()) {
         let mut rec = vec!["basis".to_string()];
         rec.extend(reports.iter().map(|r| basis_label(r).to_string()));
@@ -345,6 +377,46 @@ pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8>
         w.write_record(&rec).expect("basis row");
     }
     w.into_inner().expect("flush")
+}
+
+/// 비교의 준비 스텝 id 순서: 기준 run의 순서, 그 뒤 다른 run에만 있는 id(첫 등장 순).
+fn setup_step_order(reports: &[ReportJson], baseline_idx: usize) -> Vec<String> {
+    let mut order: Vec<String> = Vec::new();
+    let baseline = std::iter::once(&reports[baseline_idx]);
+    let others = reports
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != baseline_idx)
+        .map(|(_, r)| r);
+    for r in baseline.chain(others) {
+        if let Some(s) = &r.setup {
+            for st in &s.steps {
+                if !order.contains(&st.step_id) {
+                    order.push(st.step_id.clone());
+                }
+            }
+        }
+    }
+    order
+}
+
+/// 비교 XLSX의 Δ 셀 하나: 폴라리티별 색 서식.
+fn write_delta_cell(
+    ws: &mut Worksheet,
+    row: u32,
+    col: u16,
+    d: &Delta,
+    value: f64,
+    fmt_bad: &Format,
+    fmt_good: &Format,
+) {
+    let text = delta_cell_text(d, value);
+    match d.polarity {
+        Polarity::Bad => ws.write_string_with_format(row, col, &text, fmt_bad),
+        Polarity::Good => ws.write_string_with_format(row, col, &text, fmt_good),
+        Polarity::Neutral => ws.write_string(row, col, &text),
+    }
+    .expect("w");
 }
 
 /// 준비 스텝 `id → name`. 시나리오를 못 읽으면 빈 맵.
@@ -623,6 +695,87 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
                     .expect("w");
                 }
                 dcol += 1;
+            }
+        }
+    }
+
+    if reports.iter().any(|r| r.setup.is_some()) {
+        let ws = wb.add_worksheet();
+        ws.set_name("Setup").expect("name");
+        ws.write_string(0, 0, "metric").expect("w");
+        for (i, r) in reports.iter().enumerate() {
+            let h = if i == baseline_idx {
+                format!("{} (base)", r.run.id)
+            } else {
+                r.run.id.clone()
+            };
+            ws.write_string(0, (1 + i) as u16, &h).expect("w");
+        }
+        let setup_delta_start = (1 + reports.len()) as u16;
+        {
+            let mut col = setup_delta_start;
+            for (i, r) in reports.iter().enumerate() {
+                if i != baseline_idx {
+                    ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
+                        .expect("w");
+                    col += 1;
+                }
+            }
+        }
+        // (행 이름, delta에 넘기는 metric, run별 값 — 그 run에 없으면 None)
+        let mut rows: Vec<(String, &str, Vec<Option<f64>>)> = vec![
+            (
+                "setup_ok".to_string(),
+                "setup_ok",
+                reports
+                    .iter()
+                    .map(|r| r.setup.as_ref().map(|s| s.ok as f64))
+                    .collect(),
+            ),
+            (
+                "setup_failed".to_string(),
+                "setup_failed",
+                reports
+                    .iter()
+                    .map(|r| r.setup.as_ref().map(|s| s.failed as f64))
+                    .collect(),
+            ),
+        ];
+        for sid in setup_step_order(reports, baseline_idx) {
+            let find = |r: &ReportJson| {
+                r.setup
+                    .as_ref()
+                    .and_then(|s| s.steps.iter().find(|st| st.step_id == sid))
+                    .map(|st| (st.p95_ms as f64, st.errors as f64))
+            };
+            rows.push((
+                format!("{sid} p95_ms"),
+                "p95_ms",
+                reports.iter().map(|r| find(r).map(|v| v.0)).collect(),
+            ));
+            rows.push((
+                format!("{sid} error_count"),
+                "setup_errors",
+                reports.iter().map(|r| find(r).map(|v| v.1)).collect(),
+            ));
+        }
+        for (ri, (label, metric, vals)) in rows.iter().enumerate() {
+            let row = (ri + 1) as u32;
+            ws.write_string(row, 0, label).expect("w");
+            for (i, v) in vals.iter().enumerate() {
+                if let Some(x) = v {
+                    ws.write_number(row, (1 + i) as u16, *x).expect("w");
+                }
+            }
+            let mut dcol = setup_delta_start;
+            for (i, v) in vals.iter().enumerate() {
+                if i != baseline_idx {
+                    if let (Some(b), Some(x)) = (vals[baseline_idx], *v) {
+                        let d = delta(metric, b, x);
+                        write_delta_cell(ws, row, dcol, &d, x, &fmt_bad, &fmt_good);
+                    }
+                    dcol += 1;
+                }
             }
         }
     }
@@ -3382,5 +3535,159 @@ steps:
             csv,
             "step_id,count,error_count,p50_ms,p95_ms,p99_ms\na,10,0,1,50,50\nb,20,0,1,99,99\n"
         );
+    }
+
+    fn named_run(id: &str, steps: Vec<ReportStep>) -> ReportJson {
+        let mut r = report_with_steps(steps);
+        r.run.id = id.into();
+        r
+    }
+
+    fn setup_of(
+        ok: u64,
+        failed: u64,
+        steps: Vec<(&str, u64, u64, u64)>, // (id, p95, errors, count)
+    ) -> Option<SetupReport> {
+        Some(SetupReport {
+            ok,
+            failed,
+            interrupted: 0,
+            steps: steps
+                .into_iter()
+                .map(|(id, p95, errors, count)| {
+                    setup_step_report(id, count, errors, (1, p95, p95), &[], &[])
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn comparison_csv_without_setup_is_unchanged() {
+        let a = named_run("A", vec![step("a", 10, 50)]);
+        let b = named_run("B", vec![step("a", 10, 60)]);
+        let csv = String::from_utf8(comparison_to_csv(&[a, b], 0)).unwrap();
+        assert_eq!(
+            csv,
+            "metric,A (base),B,delta_pct B\n\
+             p50_ms,0,0,\n\
+             p95_ms,0,0,\n\
+             p99_ms,0,0,\n\
+             rps,0,0,\n\
+             error_rate,0,0,\n"
+        );
+    }
+
+    #[test]
+    fn comparison_xlsx_without_setup_has_no_setup_sheet() {
+        use calamine::Reader;
+        let a = named_run("A", vec![step("a", 10, 50)]);
+        let b = named_run("B", vec![step("a", 10, 60)]);
+        let wb = read_xlsx(comparison_to_xlsx(&[a, b], 0));
+        assert_eq!(wb.sheet_names(), vec!["Summary", "Steps", "Runs"]);
+    }
+
+    #[test]
+    fn merged_failure_kinds_sums_across_steps() {
+        let s = SetupReport {
+            ok: 0,
+            failed: 3,
+            interrupted: 0,
+            steps: vec![
+                setup_step_report("A", 3, 2, (1, 1, 1), &[], &[("status_assert", 2)]),
+                setup_step_report(
+                    "B",
+                    2,
+                    2,
+                    (1, 1, 1),
+                    &[],
+                    &[("connect_timeout", 1), ("status_assert", 1)],
+                ),
+            ],
+        };
+        let want: std::collections::BTreeMap<String, u64> = [
+            ("connect_timeout".to_string(), 1),
+            ("status_assert".to_string(), 3),
+        ]
+        .into();
+        assert_eq!(merged_failure_kinds(&s), want);
+    }
+
+    #[test]
+    fn setup_step_order_is_baseline_then_first_seen() {
+        let mut a = named_run("A", vec![]);
+        a.setup = setup_of(1, 0, vec![("s1", 1, 0, 1), ("s2", 1, 0, 1)]);
+        let mut b = named_run("B", vec![]);
+        b.setup = setup_of(1, 0, vec![("s3", 1, 0, 1), ("s1", 1, 0, 1)]);
+        let c = named_run("C", vec![]);
+        let reports = [a, b, c];
+        assert_eq!(setup_step_order(&reports, 0), vec!["s1", "s2", "s3"]);
+        assert_eq!(setup_step_order(&reports, 1), vec!["s3", "s1", "s2"]);
+    }
+
+    #[test]
+    fn comparison_csv_setup_rows_before_basis() {
+        use crate::steady::{Basis, BasisState};
+        let mut a = named_run("A", vec![]);
+        a.setup = setup_of(50, 0, vec![]);
+        a.basis = Some(basis_block(Basis::Steady, BasisState::Measured, None));
+        let mut b = named_run("B", vec![]);
+        b.basis = Some(basis_block(Basis::Steady, BasisState::Measured, None));
+        let mut c = named_run("C", vec![]);
+        c.setup = setup_of(47, 3, vec![]);
+        c.basis = Some(basis_block(Basis::Steady, BasisState::Measured, None));
+        let csv = String::from_utf8(comparison_to_csv(&[a, b, c], 0)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "metric,A (base),B,C,delta_pct B,delta_pct C");
+        assert_eq!(lines[5], "error_rate,0,0,0,,");
+        assert_eq!(lines[6], "setup_ok,50,,47,,-0.060000");
+        assert_eq!(lines[7], "setup_failed,0,,3,,");
+        assert_eq!(lines[8], "basis,steady,steady,steady,,");
+        assert_eq!(lines.len(), 9);
+    }
+
+    #[test]
+    fn comparison_xlsx_setup_sheet() {
+        use calamine::{Data, Reader};
+        let mut a = named_run("A", vec![]);
+        a.setup = setup_of(50, 0, vec![("s1", 120, 1, 5), ("s2", 47, 0, 5)]);
+        let b = named_run("B", vec![]);
+        let mut c = named_run("C", vec![]);
+        c.setup = setup_of(47, 3, vec![("s3", 30, 0, 5), ("s1", 410, 3, 5)]);
+        let mut wb = read_xlsx(comparison_to_xlsx(&[a, b, c], 0));
+        assert_eq!(wb.sheet_names(), vec!["Summary", "Steps", "Setup", "Runs"]);
+        let ws = wb.worksheet_range("Setup").unwrap();
+        let s = |t: &str| Some(Data::String(t.into()));
+        for (c, h) in ["metric", "A (base)", "B", "C", "Δ% B", "Δ% C"]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(cell(&ws, 0, c as u32).cloned(), s(h), "header {c}");
+        }
+        let names = [
+            "setup_ok",
+            "setup_failed",
+            "s1 p95_ms",
+            "s1 error_count",
+            "s2 p95_ms",
+            "s2 error_count",
+            "s3 p95_ms",
+            "s3 error_count",
+        ];
+        for (i, n) in names.iter().enumerate() {
+            assert_eq!(cell(&ws, 1 + i as u32, 0).cloned(), s(n), "row {i}");
+        }
+        for row in 1..=8u32 {
+            assert!(is_blank(cell(&ws, row, 2)), "B value row {row}");
+            assert!(is_blank(cell(&ws, row, 4)), "Δ% B row {row}");
+        }
+        assert_eq!(cell(&ws, 1, 1), Some(&Data::Float(50.0)));
+        assert_eq!(cell(&ws, 1, 3), Some(&Data::Float(47.0)));
+        assert_eq!(cell(&ws, 1, 5).cloned(), s("▲ -6.0%"));
+        assert_eq!(cell(&ws, 3, 5).cloned(), s("▲ +241.7%"));
+        assert_eq!(cell(&ws, 4, 5).cloned(), s("▲ +200.0%"));
+        assert!(is_blank(cell(&ws, 5, 3)));
+        assert!(is_blank(cell(&ws, 5, 5)));
+        assert_eq!(cell(&ws, 7, 3), Some(&Data::Float(30.0)));
+        assert!(is_blank(cell(&ws, 7, 5)));
     }
 }
