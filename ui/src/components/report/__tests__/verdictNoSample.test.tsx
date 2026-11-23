@@ -30,6 +30,12 @@ describe("판정 표시 — 통과한 요청이 없는 기준", () => {
     expect(screen.getByText("100.00%")).toBeInTheDocument();
   });
 
+  it("판정 표: 「통과한 요청 없음」 칸만 ✗와 같은 붉은 글자(text-red-700), 일반 실패 행의 실측은 기본색", () => {
+    render(<VerdictPanel verdict={NO_SAMPLE} />);
+    expect(screen.getByText("통과한 요청 없음")).toHaveClass("text-red-700");
+    expect(screen.getByText("100.00%")).not.toHaveClass("text-red-700");
+  });
+
   it("판정 배지 툴팁: 「통과한 요청 없음」이고 0 ms는 없다", async () => {
     const user = userEvent.setup();
     render(<VerdictBadge verdict={NO_SAMPLE} />);

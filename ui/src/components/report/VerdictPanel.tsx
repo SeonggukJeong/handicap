@@ -45,7 +45,7 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
                 <td className="pr-4">
                   {r.direction === "max" ? "≤" : "≥"} {fmt(r.metric, r.threshold)}
                 </td>
-                <td className="pr-4">{actualText(r)}</td>
+                <td className={r.no_sample ? "pr-4 text-red-700" : "pr-4"}>{actualText(r)}</td>
                 <td
                   className={r.passed ? "text-emerald-700" : "text-red-700"}
                   title={r.passed ? ko.report.verdictPass : ko.report.verdictFail}
