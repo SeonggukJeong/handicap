@@ -26,6 +26,8 @@ Options:
   --port-shift N    add N to every port (defaults: responder 19997, base 18099/18098,
                     head 18199/18198)
   --skip-build      reuse binaries from the previous invocation as they are
+  --allow-errors    do not treat `errors` or non-200 statuses as a problem (a failed run
+                    or zero requests still is); for measuring the cost of failure paths
 
 Exit code: 0 measured, 1 a run was not clean (non-200, errors, failed run), 2 setup failed.
 macOS only as written (`/usr/bin/time -l` output format).
@@ -153,7 +155,7 @@ class Side:
         die("%s controller not ready (see %s)" % (self.name, self.log))
 
 
-def one_run(side, sid, vus, secs):
+def one_run(side, sid, vus, secs, allow_errors=False):
     """Returns (count, rps, cpu_seconds, problems)."""
     before = len(cpu_lines(side.log))
     rid = http("POST", side.base + "/api/runs",
@@ -185,10 +187,13 @@ def one_run(side, sid, vus, secs):
     for step in rep.get("steps", []):
         for code, n in (step.get("status_counts") or {}).items():
             statuses[code] = statuses.get(code, 0) + n
-    if s["errors"]:
-        problems.append("errors=%s" % s["errors"])
-    if set(statuses) != {"200"}:
-        problems.append("status codes %s" % statuses)
+    if not allow_errors:
+        if s["errors"]:
+            problems.append("errors=%s" % s["errors"])
+        if set(statuses) != {"200"}:
+            problems.append("status codes %s" % statuses)
+    if not s["count"]:
+        problems.append("no requests")
     cpu = sum(float(u) + float(k) for _, u, k in lines)
     return s["count"], s["rps"], cpu, problems
 
@@ -205,6 +210,7 @@ def main():
     ap.add_argument("--work")
     ap.add_argument("--port-shift", type=int, default=0)
     ap.add_argument("--skip-build", action="store_true")
+    ap.add_argument("--allow-errors", action="store_true")
     a = ap.parse_args()
     if sys.platform != "darwin":
         die("needs macOS `/usr/bin/time -l`")
@@ -243,6 +249,8 @@ def main():
         note = ("  (just built — the 1-minute average still carries the build; judge by the spread below)" if not a.skip_build
                 else "  WARNING: machine is busy — numbers will wobble")
     print("load average before: %.2f (%d cores)%s" % (load0, ncpu, note))
+    if a.allow_errors:
+        print("allow-errors: on")
 
     procs, dirty_runs = [], []
     try:
@@ -260,7 +268,7 @@ def main():
         total = a.warmup + a.rounds
         for i in range(total):
             for k in (("base", "head") if i % 2 == 0 else ("head", "base")):
-                cnt, rps, cpu, problems = one_run(sides[k], sids[k], a.vus, a.seconds)
+                cnt, rps, cpu, problems = one_run(sides[k], sids[k], a.vus, a.seconds, a.allow_errors)
                 us = cpu / cnt * 1e6 if cnt else float("nan")
                 tag = "warmup" if i < a.warmup else "round %d" % (i - a.warmup + 1)
                 print("%-8s %-4s count=%d rps=%.0f cpu=%.2fs cpu/req=%.2f us%s" %

@@ -16,6 +16,7 @@ python3 .claude/skills/perf-ab/perf_ab.py --base-ref master
 - 첫 실행은 release 빌드 두 벌(기준 + 작업 트리)이라 수 분 — `run_in_background`로 돌리고 그동안 다른 `cargo` 금지(`target/` 락). 기준 빌드는 `/tmp/perf-ab-<디렉토리명>/`에 남아 같은 ref면 다시 안 만든다.
 - 작업 트리 쪽은 **커밋 안 된 변경까지 포함**해 빌드한다(출력 첫머리에 `+ uncommitted changes` 표시).
 - 옵션: `--rounds 6`(측정 횟수) `--warmup 1` `--vus 50` `--seconds 20` `--scenario <yaml>`(주소 자리에 `{RESPONDER}`) `--port-shift N` `--skip-build`. 전체는 스크립트 머리 주석.
+- 실패 경로의 비용을 잴 때는 `--allow-errors --scenario <상태 코드 검사가 맞지 않는 시나리오>`(응답기는 200만 내므로 `assert: status 201`) — 켜면 `errors`·non-200을 문제로 치지 않고(실패한 run·요청 0건은 여전히 문제) 출력 머리에 `allow-errors: on`이 찍힌다.
 - 기본 시나리오는 GET 한 스텝·think 없음. **바꾼 경로가 그 스텝에 안 걸리면 차이가 안 보인다** — 추출·템플릿·본문 파싱을 고쳤으면 그걸 쓰는 시나리오를 `--scenario`로 준다. 스텝 id에 `I`·`L`·`O`·`U` 금지.
 
 ## 스크립트가 하는 일
