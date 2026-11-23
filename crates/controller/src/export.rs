@@ -1540,6 +1540,7 @@ mod tests {
             speed_bands: None,
             basis: None,
             setup: None,
+            sample: Default::default(),
         }
     }
 

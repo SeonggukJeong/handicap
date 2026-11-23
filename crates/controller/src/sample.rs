@@ -26,6 +26,14 @@ pub enum Sample {
     All,
 }
 
+/// 리포트가 응답 시간을 어느 표본으로 계산했는지. `default`는 요청이 없을 때의 표본, `split`은 나눌 수 있는 run인지.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SampleBlock {
+    pub selected: Sample,
+    pub default: Sample,
+    pub split: bool,
+}
+
 /// 모든 행에 실패 칸이 있어야(NULL 없음) 나눌 수 있다. 빈 목록은 나눌 수 없다.
 pub fn run_is_split(rows: &[WindowWithHdr]) -> bool {
     !rows.is_empty() && rows.iter().all(|r| r.failed_hdr_histogram.is_some())

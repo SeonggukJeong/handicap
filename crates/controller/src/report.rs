@@ -1,3 +1,4 @@
+use crate::sample::{Sample, SampleBlock, SplitHist};
 use crate::store::metrics::{
     GroupMetricRow, IfBranchRow, LoopMetricRow, PhaseMetricRow, WindowWithHdr,
 };
@@ -69,6 +70,9 @@ pub struct ReportJson {
     /// 준비 스텝 통계(D10). 시나리오에 준비 스텝이 없으면 키 자체를 내지 않는다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<SetupReport>,
+    /// 응답 시간 숫자가 어느 표본으로 계산됐는지.
+    #[serde(default)]
+    pub sample: SampleBlock,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -638,6 +642,7 @@ pub fn build_report(
     open_loop_totals: &[crate::store::open_loop::OpenLoopTotal],
     setup: Option<&SetupReport>,
     scope: Option<&SteadyScope<'_>>,
+    sample: Option<Sample>,
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -740,15 +745,21 @@ pub fn build_report(
         .collect();
 
     // Per-(ts_second, step_id) accumulator merging all workers sharing the window.
-    struct WindowAcc {
+    struct WindowAcc<'r> {
         count: u64,
         error_count: u64,
         status: BTreeMap<String, u64>,
-        hist: Option<Histogram<u64>>, // None until the first decodable HDR blob
+        hist: SplitHist<'r>,
     }
+    // 나눌 수 있는 run(모든 행에 실패 칸)이면 기본 표본 = 통과한 요청, 아니면 모든 요청.
+    let split = crate::sample::run_is_split(rows);
+    let default_sample = if split { Sample::Passed } else { Sample::All };
+    let selected = sample
+        .filter(|s| split || *s == Sample::All)
+        .unwrap_or(default_sample);
     let mut window_acc: BTreeMap<(i64, String), WindowAcc> = BTreeMap::new();
-    let mut overall = fresh_hist();
-    let mut per_step: BTreeMap<String, Histogram<u64>> = BTreeMap::new();
+    let mut overall = SplitHist::default();
+    let mut per_step: BTreeMap<String, SplitHist> = BTreeMap::new();
     // (count, error_count, status_counts, 범위가 있을 때 응답 수 합 Σ status_counts)
     let mut per_step_count: BTreeMap<String, (u64, u64, BTreeMap<String, u64>, u64)> =
         BTreeMap::new();
@@ -768,10 +779,10 @@ pub fn build_report(
         }
         seen.len() >= 2
     };
-    struct WorkerAcc {
+    struct WorkerAcc<'r> {
         count: u64,
         errors: u64,
-        hist: Option<Histogram<u64>>, // None until the first decodable HDR blob
+        hist: SplitHist<'r>,
     }
     let mut worker_acc: BTreeMap<String, WorkerAcc> = BTreeMap::new();
 
@@ -783,7 +794,7 @@ pub fn build_report(
                 count: 0,
                 error_count: 0,
                 status: BTreeMap::new(),
-                hist: None,
+                hist: SplitHist::default(),
             });
         acc.count += r.count as u64;
         acc.error_count += r.error_count as u64;
@@ -797,29 +808,35 @@ pub fn build_report(
                 .or_insert_with(|| WorkerAcc {
                     count: 0,
                     errors: 0,
-                    hist: None,
+                    hist: SplitHist::default(),
                 });
             w.count += r.count as u64;
             w.errors += r.error_count as u64;
         }
-        if let Ok(Some(h)) = decode_hdr(&r.hdr_histogram) {
-            let win_h = acc.hist.get_or_insert_with(fresh_hist);
-            merge_into(win_h, &h);
+        // 행 BLOB은 한 번만 디코드해 네 자리(창·전체·스텝·워커)가 같이 쓴다. 깨진 행은 분포에서만 빠진다.
+        let failed_blob = if split {
+            r.failed_hdr_histogram.as_deref()
+        } else {
+            None
+        };
+        if let Some(d) = crate::sample::decode_row(&r.hdr_histogram, failed_blob) {
+            let raw = match (&d.failed, failed_blob) {
+                (Some(f), Some(fb)) if !f.is_empty() => Some((r.hdr_histogram.as_slice(), fb)),
+                _ => None,
+            };
+            acc.hist.add(&d, raw);
             if counted {
-                merge_into(&mut overall, &h);
-                let step_h = per_step.entry(r.step_id.clone()).or_insert_with(fresh_hist);
-                merge_into(step_h, &h);
-                // NEW: per-worker latency (reuse already-decoded `h`; tiny map -> 2nd .entry is cheap)
+                overall.add(&d, raw);
+                per_step.entry(r.step_id.clone()).or_default().add(&d, raw);
                 if multi_worker && !r.worker_id.is_empty() {
                     let w = worker_acc
                         .entry(r.worker_id.clone())
                         .or_insert_with(|| WorkerAcc {
                             count: 0,
                             errors: 0,
-                            hist: None,
+                            hist: SplitHist::default(),
                         });
-                    let wh = w.hist.get_or_insert_with(fresh_hist);
-                    merge_into(wh, &h);
+                    w.hist.add(&d, raw);
                 }
             }
         }
@@ -845,7 +862,8 @@ pub fn build_report(
         .map(|((ts_second, step_id), acc)| {
             let wp = acc
                 .hist
-                .as_ref()
+                .resolve(selected)
+                .hist()
                 .map(percentiles_of)
                 .unwrap_or_else(Percentiles::empty);
             ReportWindow {
@@ -861,15 +879,17 @@ pub fn build_report(
         })
         .collect();
 
-    let speed_bands = crate::speed_bands::build(&overall, &per_step, run.profile.criteria.as_ref());
-    let overall_p = percentiles_of(&overall);
-    let latency = if !overall.is_empty() {
+    let overall_resolved = overall.resolve(selected);
+    let no_samples = fresh_hist();
+    let overall_h: &Histogram<u64> = overall_resolved.hist().unwrap_or(&no_samples);
+    let overall_p = percentiles_of(overall_h);
+    let latency = if !overall_h.is_empty() {
         Some(LatencyDistribution {
-            percentile_curve: percentile_curve(&overall, &CURVE_QUANTILES)
+            percentile_curve: percentile_curve(overall_h, &CURVE_QUANTILES)
                 .into_iter()
                 .map(|(quantile, value_us)| PercentilePoint { quantile, value_us })
                 .collect(),
-            histogram: log_buckets(&overall, HISTOGRAM_BINS)
+            histogram: log_buckets(overall_h, HISTOGRAM_BINS)
                 .into_iter()
                 .map(|(lower_us, upper_us, count)| HistogramBucket {
                     lower_us,
@@ -1103,7 +1123,7 @@ pub fn build_report(
         .map(|(step_id, (count, errors, status_counts, responded))| {
             let p = per_step
                 .get(&step_id)
-                .map(percentiles_of)
+                .and_then(|sh| sh.resolve(selected).hist().map(percentiles_of))
                 .unwrap_or_else(Percentiles::empty);
             let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
             let download = download_by_step.remove(&step_id);
@@ -1134,12 +1154,20 @@ pub fn build_report(
         .collect();
     steps.sort_by(|a, b| a.step_id.cmp(&b.step_id));
 
+    // `resolve`(빌림)를 쓰는 계산이 끝난 뒤에만 `into_hist`(소비)로 넘긴다.
+    let per_step_hists: BTreeMap<String, Histogram<u64>> = per_step
+        .into_iter()
+        .filter_map(|(id, sh)| sh.into_hist(selected).map(|h| (id, h)))
+        .collect();
+    let speed_bands =
+        crate::speed_bands::build(overall_h, &per_step_hists, run.profile.criteria.as_ref());
+
     let summary = ReportSummary {
         count: total_count,
         errors: total_errors,
         rps,
         duration_seconds,
-        mean_ms: (overall.mean() / 1_000.0).round() as u64,
+        mean_ms: (overall_h.mean() / 1_000.0).round() as u64,
         p50_ms: overall_p.p50_ms,
         p95_ms: overall_p.p95_ms,
         p99_ms: overall_p.p99_ms,
@@ -1331,7 +1359,8 @@ pub fn build_report(
         .map(|(worker_id, w)| {
             let p = w
                 .hist
-                .as_ref()
+                .resolve(selected)
+                .hist()
                 .map(percentiles_of)
                 .unwrap_or_else(Percentiles::empty);
             WorkerBreakdown {
@@ -1400,6 +1429,11 @@ pub fn build_report(
         speed_bands,
         basis: None,
         setup: setup.cloned(),
+        sample: crate::sample::SampleBlock {
+            selected,
+            default: default_sample,
+            split,
+        },
     }
 }
 
@@ -1658,6 +1692,7 @@ mod tests {
             &g.open_loop_totals,
             None,
             None,
+            None,
         );
         let got = serde_json::to_string_pretty(&rep).unwrap();
         if std::env::var_os("REPORT_WHOLE_GOLDEN_UPDATE").is_some() {
@@ -1758,6 +1793,7 @@ mod tests {
             &[],
             None,
             scope,
+            None,
         )
     }
 
@@ -2275,6 +2311,7 @@ mod tests {
             &[],
             None,
             None,
+            None,
         );
 
         // One collapsed window per (ts_second, step_id), counts summed.
@@ -2337,6 +2374,7 @@ mod tests {
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -2591,6 +2629,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
@@ -2614,6 +2653,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         )
@@ -2737,6 +2777,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
@@ -2795,6 +2836,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3097,6 +3139,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
@@ -3128,6 +3171,7 @@ steps:
                 &[],
                 None,
                 None,
+                None,
             )
             .verdict
             .is_none()
@@ -3155,6 +3199,7 @@ steps:
                 &[],
                 None,
                 None,
+                None,
             )
             .verdict
             .is_none()
@@ -3179,6 +3224,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3216,6 +3262,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         let v = serde_json::to_value(&rep).unwrap();
         let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
@@ -3237,6 +3284,7 @@ steps:
                 "latency",
                 "narrative",
                 "run",
+                "sample",
                 "scenario_yaml",
                 "status_distribution",
                 "steps",
@@ -3245,6 +3293,126 @@ steps:
                 "windows"
             ]
         );
+    }
+
+    fn split_win(ts: i64, all: &[u64], failed: Option<&[u64]>) -> WindowWithHdr {
+        WindowWithHdr {
+            failed_hdr_histogram: failed.map(make_hdr_bytes),
+            ..win(ts, "s", all.len() as i64, 0, r#"{"200":5}"#, all)
+        }
+    }
+
+    fn report_with(rows: &[WindowWithHdr], sample: Option<crate::sample::Sample>) -> ReportJson {
+        let r = run_row();
+        let yaml = r.scenario_yaml.clone();
+        build_report(
+            &r,
+            &yaml,
+            rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+            &[],
+            None,
+            None,
+            sample,
+        )
+    }
+
+    #[test]
+    fn passed_sample_is_default_for_split_run() {
+        use crate::sample::{Sample, SampleBlock};
+        let all = [40_000, 40_000, 2_000, 2_000, 2_000];
+        let failed = [2_000, 2_000, 2_000];
+        let rows = vec![
+            split_win(100, &all, Some(&failed)),
+            split_win(101, &all, Some(&failed)),
+        ];
+        let by_default = report_with(&rows, None);
+        assert_eq!(
+            by_default.sample,
+            SampleBlock {
+                selected: Sample::Passed,
+                default: Sample::Passed,
+                split: true
+            }
+        );
+        assert_eq!(by_default.summary.p50_ms, 40);
+        assert_eq!(by_default.summary.mean_ms, 40);
+        assert_eq!(by_default.steps[0].p50_ms, 40);
+        assert!(by_default.windows.iter().all(|w| w.p50_ms == 40));
+
+        let all_req = report_with(&rows, Some(Sample::All));
+        assert_eq!(all_req.sample.selected, Sample::All);
+        assert_eq!(all_req.sample.default, Sample::Passed);
+        assert_eq!(all_req.summary.p50_ms, 2);
+        let failed_req = report_with(&rows, Some(Sample::Failed));
+        assert_eq!(failed_req.sample.selected, Sample::Failed);
+        assert_eq!(failed_req.summary.p50_ms, 2);
+
+        for r in [&all_req, &failed_req] {
+            assert_eq!(r.summary.count, by_default.summary.count);
+            assert_eq!(r.summary.errors, by_default.summary.errors);
+            assert_eq!(r.summary.rps, by_default.summary.rps);
+            assert_eq!(r.steps[0].count, by_default.steps[0].count);
+            assert_eq!(r.steps[0].error_count, by_default.steps[0].error_count);
+        }
+    }
+
+    #[test]
+    fn non_split_run_is_unchanged_and_ignores_failed_column() {
+        use crate::sample::{Sample, SampleBlock};
+        let all = [40_000, 40_000, 2_000, 2_000, 2_000];
+        let mixed = vec![
+            split_win(100, &all, Some(&[2_000, 2_000, 2_000])),
+            WindowWithHdr {
+                failed_hdr_histogram: Some(vec![0xff, 0xff, 0xff, 0xff]),
+                ..split_win(101, &all, None)
+            },
+            split_win(102, &all, None),
+        ];
+        let plain = vec![
+            split_win(100, &all, None),
+            split_win(101, &all, None),
+            split_win(102, &all, None),
+        ];
+        let got = report_with(&mixed, None);
+        assert_eq!(
+            got.sample,
+            SampleBlock {
+                selected: Sample::All,
+                default: Sample::All,
+                split: false
+            }
+        );
+        let want = serde_json::to_value(report_with(&plain, None)).unwrap();
+        assert_eq!(serde_json::to_value(&got).unwrap(), want);
+        for s in [Sample::Passed, Sample::Failed] {
+            assert_eq!(
+                serde_json::to_value(report_with(&mixed, Some(s))).unwrap(),
+                want
+            );
+        }
+    }
+
+    #[test]
+    fn broken_failed_blob_keeps_other_rows() {
+        let rows = vec![
+            WindowWithHdr {
+                failed_hdr_histogram: Some(vec![0xff, 0xff, 0xff, 0xff]),
+                ..split_win(100, &[2_000], None)
+            },
+            split_win(101, &[41_000], Some(&[])),
+        ];
+        let rep = report_with(&rows, None);
+        assert!(rep.sample.split);
+        assert_eq!(rep.summary.p50_ms, 41);
     }
 
     #[test]
@@ -3269,6 +3437,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3308,6 +3477,7 @@ steps:
                 &[],
                 &crate::stair::StairInputs::default(),
                 &[],
+                None,
                 None,
                 None,
             )
@@ -3490,6 +3660,7 @@ steps:
                 &[],
                 None,
                 None,
+                None,
             )
             .verdict
             .is_none()
@@ -3533,6 +3704,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3611,6 +3783,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rep.active_vu_series.len(), 2);
         assert_eq!(
@@ -3635,6 +3808,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3689,6 +3863,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rep.active_vu_by_worker.len(), 2);
         assert_eq!(rep.active_vu_by_worker[0].worker_id, "w-0"); // sorted
@@ -3731,6 +3906,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert!(rep.active_vu_by_worker.is_empty());
         // No rows (non-curve caller passes &[]) -> empty (byte-identical default).
@@ -3748,6 +3924,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3771,6 +3948,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3828,6 +4006,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3899,6 +4078,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
@@ -3931,6 +4111,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -3976,6 +4157,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         )
@@ -4168,6 +4350,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         let sat = rep
             .insights
@@ -4196,6 +4379,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4227,6 +4411,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4276,6 +4461,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4342,6 +4528,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rep.summary.mean_ms, 25);
     }
@@ -4392,6 +4579,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         // wait attaches per-step
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
@@ -4417,6 +4605,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4466,6 +4655,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rep.worker_breakdown.len(), 2);
         // sorted by worker_id ascending
@@ -4510,6 +4700,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert!(rep.worker_breakdown.is_empty());
         // skip_serializing_if -> field absent (byte-identical)
@@ -4546,6 +4737,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4592,6 +4784,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4657,6 +4850,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rep.validity.level, "suspect");
         assert!(
@@ -4700,6 +4894,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         );
@@ -4746,6 +4941,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         assert_eq!(rep.validity.level, "ok");
         assert!(
@@ -4780,6 +4976,7 @@ steps:
             &[],
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         )
@@ -4855,6 +5052,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
         let b = rep.steps.iter().find(|s| s.step_id == "b").unwrap();
@@ -4903,6 +5101,7 @@ steps:
             &[],
             None,
             None,
+            None,
         );
         let c = rep.connection.as_ref().expect("connection present");
         assert_eq!(c.requests_total, 6);
@@ -4926,6 +5125,7 @@ steps:
             rows,
             &crate::stair::StairInputs::default(),
             &[],
+            None,
             None,
             None,
         )
@@ -5179,6 +5379,7 @@ steps:
                     &[],
                     &self.inp,
                     &[],
+                    None,
                     None,
                     None,
                 )
@@ -5699,6 +5900,7 @@ steps:
                 &[],
                 &StairInputs::default(),
                 &[],
+                None,
                 None,
                 None,
             );

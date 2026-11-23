@@ -2933,6 +2933,96 @@ mod tests {
         );
     }
 
+    /// 통과한 요청 40 ms, 즉시 실패 2 ms가 60%인 나눌 수 있는 run — `max_p50_ms: 10` 기준의 영속 판정.
+    #[tokio::test]
+    async fn persisted_verdict_uses_passed_sample() {
+        use hdrhistogram::serialization::{Serializer, V2Serializer};
+        let blob = |values: &[u64]| {
+            let mut h = crate::report::fresh_hist();
+            for v in values {
+                h.record(*v).unwrap();
+            }
+            let mut b = Vec::new();
+            V2Serializer::new().serialize(&h, &mut b).unwrap();
+            b
+        };
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let scenario_yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(scenario_yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(&db, &sc, scenario_yaml)
+            .await
+            .unwrap();
+        let profile = runs::Profile {
+            vus: 4,
+            ramp_up_seconds: 0,
+            duration_seconds: 3,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            data_bindings: vec![],
+            criteria: Some(runs::Criteria {
+                max_p50_ms: Some(10),
+                ..Default::default()
+            }),
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+            measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
+            graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
+            worker_count: None,
+            apply_scenario_think_time: true,
+            stair: None,
+            steady: None,
+        };
+        let run_id = runs::insert(
+            &db,
+            &scenario.id,
+            scenario_yaml,
+            &profile,
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+        let rows: Vec<crate::store::metrics::MetricRow> = (0..3)
+            .map(|o| crate::store::metrics::MetricRow {
+                run_id: run_id.clone(),
+                ts_second: 1_700_000_000 + o,
+                step_id: "s".to_string(),
+                worker_id: "w0".to_string(),
+                count: 5,
+                error_count: 3,
+                hdr_histogram: blob(&[40_000, 40_000, 2_000, 2_000, 2_000]),
+                status_counts: r#"{"200":5}"#.to_string(),
+                failed_hdr_histogram: Some(blob(&[2_000, 2_000, 2_000])),
+            })
+            .collect();
+        crate::store::metrics::insert_batch(&db, &rows)
+            .await
+            .unwrap();
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert!(
+            !row.verdict.expect("verdict persisted").passed,
+            "통과 표본 p50 40 ms > 10 ms (모든 요청 표본이면 2 ms라 통과)"
+        );
+    }
+
     fn base_assignment() -> PendingAssignment {
         PendingAssignment {
             scenario_yaml: "version: 1\nname: t\nsteps: []\n".to_string(),

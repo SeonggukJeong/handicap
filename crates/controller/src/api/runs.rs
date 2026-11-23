@@ -1276,6 +1276,7 @@ pub async fn build_reports_for_run(
             &open_loop_totals,
             setup_report.as_ref(),
             scope,
+            None,
         )
     };
     let whole = build(None);

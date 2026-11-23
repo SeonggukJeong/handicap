@@ -1058,5 +1058,10 @@
         "over": 0
       }
     ]
+  },
+  "sample": {
+    "selected": "all",
+    "default": "all",
+    "split": false
   }
 }

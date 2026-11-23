@@ -57,6 +57,25 @@ fn win(all: Vec<u8>, failed: Option<Vec<u8>>) -> WindowWithHdr {
 }
 
 #[test]
+fn sample_block_wire_shape() {
+    use handicap_controller::sample::SampleBlock;
+    let b = SampleBlock {
+        selected: Sample::Passed,
+        default: Sample::Passed,
+        split: true,
+    };
+    assert_eq!(
+        serde_json::to_value(b).unwrap(),
+        serde_json::json!({"selected": "passed", "default": "passed", "split": true})
+    );
+    let d = SampleBlock::default();
+    assert_eq!(
+        (d.selected, d.default, d.split),
+        (Sample::All, Sample::All, false)
+    );
+}
+
+#[test]
 fn run_is_split_cases() {
     assert!(run_is_split(&[
         win(vec![], Some(vec![])),
