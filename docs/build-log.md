@@ -1276,3 +1276,33 @@ spec `docs/superpowers/specs/2026-11-22-vu-setup-steps-design.md` §7-2(D13–D1
 **구현 중 찾아 고친 것**: 추출 기본값 안내가 칸을 눌러 줄임 · 흐름 칩 표지 단언과 주석 보존 테스트가 공허 · 순차 모드의 겹친 구분선과 남는 구분선 · 준비 실패 측정에 안내 없음 · 준비만 실행한 run의 리포트가 고장처럼 말함 · 「보내지 않음 0」 엔진 테스트가 타이밍 경합에 기댐 · `setupNotices.ts`와 `SetupNotices.tsx`의 대소문자 충돌.
 
 **함정 출처**: `ui/src/components/run/CLAUDE.md`·`ui/src/components/scenario/CLAUDE.md`·`crates/engine/CLAUDE.md`의 `(vu-setup-steps-a2)` 줄.
+
+## vu-setup-steps 슬라이스 B1 (2026-11-23) — 준비 스텝: 에디터에서 추가·순서 바꾸기·끌어 옮기기 (코드 `1a1ef004`..`bd4dd966`)
+
+spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b1-design.md`, plan `docs/superpowers/plans/2026-11-23-vu-setup-steps-b1.md`(7 task), 목업 `docs/superpowers/specs/2026-11-23-vu-setup-steps-b1-mockups/b1-screens.html`. `ui/`만 고쳤다(`crates/`·proto·마이그레이션 0-diff). 새 ADR 없음. 판단·연기 roadmap §B87.
+
+**무엇이 달라졌나**: 준비 구획이 끌기 좌표계의 한 밴드(`"setup"`)가 됐다. 준비 행은 본 스텝과 같은 행 컴포넌트(`OutlineRow`)로 그려져 손잡이로 순서를 바꾸고, 본 스텝(loop·if 안의 http 포함)과 준비 구획 사이를 원하는 위치로 끌어 옮긴다. 준비 구획은 http만 받는다(loop·if·parallel을 집으면 상자가 흐려진다). `[+ 준비 스텝]` 버튼(준비가 있으면 상자 안, 없으면 아래 버튼 줄), Inspector의 준비 스텝 ↑↓, 갤러리 「로그인 흐름」이 준비 스텝 형태로 시작한다. 준비가 없는 시나리오에서는 http 스텝을 **목록 맨 위로 가져갔을 때만** 놓을 자리가 열린다(사용자 결정). 본 스텝이 0개일 때는 준비 스텝을 되돌려 놓을 자리(「여기로 드롭」)가 나온다.
+
+**파이프라인**: Task 1(orchestrator 브라우저 실측 — 스크롤 요소·`delta.y`·`overflow-anchor`·24px/8px, plan 「Task 1 결과」) → Task 2–7 SDD(task별 구현자 + spec·품질 리뷰, 전부 통과) → 최종 `handicap-reviewer` APPROVE-WITH-FIXES → 수정 묶음 1회 → 재리뷰 APPROVE. UI 게이트(lint·test 350 파일 5205개·build) 통과. 보안 표면 무관(N/A — `finish-slice` §0 grep 매치 없음, 값을 새로 내보내는 자리 없음).
+
+**구현 중 찾아 고친 것**(모두 jsdom으로는 볼 수 없거나 테스트가 공허했던 것):
+- **열린 놓을 자리에 놓아도 아무 일도 없었다**(Task 7 직후 orchestrator 브라우저 확인): 충돌 판정이 놓을 자리 droppable이 등록·측정되기 전에 그 id를 돌려줘서 dnd-kit의 `over`가 null로 굳었다(`over`는 `overId`가 바뀔 때만 다시 구해진다). 등록·측정된 뒤에만 충돌 대상으로 돌려주게 고쳤다.
+- **닫힌 놓을 자리에 놓일 수 있었다**(최종 리뷰): 포인터가 영역에서 나올 때 ref와 렌더 사이의 지연 + 아직 등록 해제되지 않은 droppable 때문에, 첫 행을 살짝 들었다 제자리에 곧바로 놓으면 준비 스텝이 될 수 있었다. 놓는 결과를 **놓는 순간의 포인터 위치**로 정하게 바꿨다(순수 함수 `setupDropDecision`) — 반대 방향(막 열린 직후 놓으면 무시)도 같이 닫혔다.
+- **flow 표기 → block 테스트가 공허**(Task 3 리뷰): plan이 지정한 `/setup: *\{/`는 `yaml`이 flow 맵의 `{`를 다음 줄로 내려 써서 실패할 수 없었다. block 모양을 직접 단언하게 바꾸고 되돌려 확인했다.
+- 선재: `setupEdit.test.ts`의 픽스처 id에 `L`이 들어 있어 픽스처가 안 읽히고 테스트 하나가 공허하게 통과하던 것(값을 고친 뒤에도 통과 — 가려진 결함은 없었다).
+
+**라이브 검증**(이 워크트리의 컨트롤러 + 요청을 기록하는 응답기 + dev 서버 프록시, Chromium 눌러 끌기):
+
+| 무엇 | 어떻게 | 결과 |
+|---|---|---|
+| US1 | 저장된 시나리오(`/scenarios/{id}`, 준비 3개): Inspector ↓, 준비 행 끌기 → 저장 → test-run | 아웃라인 순서 = `GET /api/scenarios/{id}`의 `yaml` 속 `setup.steps` 순서 = 응답기가 받은 요청 순서 |
+| US2 | 준비 없는 시나리오, 세 마운트(기본·「스텝 넓게 보기」·「변수 넓게」): 누르기만 / 아래 20px 갔다 옴 / 위 20px 갔다 옴 / 셋째 → 둘째 근처 / scrollTop 10 / 끝까지 스크롤 뒤 맨 위로 / 맨 위에서 놓음 / `[+ 준비 스텝]` | YAML 불변 · 놓을 자리 안 열림 · 한 번 열리고 유지 · 자동 스크롤로 닿음 · 준비 상자 + 그 스텝 · 미리보기와 포인터 차이 0px |
+| US3 | 최상위 http → 준비 둘째 자리 / loop 안 http(2개 중 하나) → 준비 / loop 안 마지막 http → 준비 / loop → 준비 / 준비 → loop 안·최상위 / 하나뿐인 본 스텝 → 준비 → 「여기로 드롭」으로 되돌림 | 가리킨 위치에 들어감 · 마지막 자식과 loop는 상자가 흐려지고 준비에 안 들어감 · 되돌리기 동작 |
+| US4 | 갤러리 「로그인 흐름」 → 만들기(저장 200) → test-run(`BASE_URL` = 응답기) | 준비 상자에 「로그인」, 본 스텝에 「내 정보 조회」. 요청 순서 `POST /login` → `GET /me`, 둘째 요청의 `Authorization: Bearer <추출한 토큰>` |
+| US5 | 손으로 쓴 `setup: {steps: []}` 시나리오에 끌어 넣고 저장 / 마지막 준비 스텝을 본 스텝으로 끌고 저장 / 준비 없는 시나리오에서 본 스텝끼리만 끌고 저장 | 저장 성공 · `setup:` 키 없음 · `setup:` 키가 생기지 않음 |
+| 경합 | 세 마운트에서 기다림 없이: 들었다 제자리에 놓기 72회 / 맨 위에 들어갔다 나와 놓기 36회 / 들어가자마자 놓기 36회 | 준비됨 0 · 준비됨 0 · 준비됨 36 |
+| 극단값 | 준비 20개 + 이름 54자·주소 150자, 창 폭 1024 | 행이 상자 밖으로 안 넘침, 이름·주소 말줄임, 가로 스크롤 없음, 상자 안 순서 바꾸기·추가 버튼 동작, 끄는 동안 형제 행이 한 칸(54px) 밀림 |
+
+**라이브로 증명된 US**: US1·US2·US3·US4·US5. **못 한 것**: 키보드 끌기(Playwright에서 KeyboardSensor가 동작하지 않는다 — 놓을 자리가 키보드로는 열리지 않는다는 것은 코드와 순수 함수 테스트로만 확인), Windows 글꼴 폭, 실제 run 생성 → 리포트(이 슬라이스는 run 생성·리포트 파싱을 건드리지 않아 대상이 아니다 — test-run까지만 돌렸다).
+
+**함정 출처**: `ui/src/components/scenario/CLAUDE.md`·`ui/src/scenario/CLAUDE.md`의 `(vu-setup-steps-b1)` 줄.
