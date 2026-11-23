@@ -36,21 +36,22 @@
 </head>
 <body>
 <h1>passed-latency — 화면 목업</h1>
-<p class="note">점선 테두리 = 이번에 새로 생기는 것. 숫자는 예시(정상 응답 약 40ms, 요청의 20%가 2ms 만에 실패, 일부는 30초 시간 초과).</p>
+<p class="note">점선 테두리 = 이번에 새로 생기는 것. 숫자는 예시(정상 응답 약 40ms, 요청의 60%가 2ms 만에 실패, 일부는 30초 시간 초과).</p>
 
-<h2>1. 리포트 머리 — 기본: 「통과한 요청」 (이번 변경 뒤에 돌린 run)</h2>
+<h2>1. 리포트 머리 — 전환 단추가 생긴 뒤(슬라이스 B)의 기본 상태</h2>
+<p class="note">슬라이스 A에서는 아래 1-가처럼 나온다.</p>
 <div class="card">
   <div class="bar new">
     <span class="lbl">응답 시간 표본</span>
     <span class="seg" role="group" aria-label="응답 시간 표본">
-      <button aria-pressed="true">통과한 요청</button><button aria-pressed="false">실패한 요청</button><button aria-pressed="false">전체</button>
+      <button aria-pressed="true">통과한 요청</button><button aria-pressed="false">실패한 요청</button><button aria-pressed="false">모든 요청</button>
     </span>
     <span class="q" title="오류로 세지 않은 요청입니다. 상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.">?</span>
     <span class="hint">응답 시간은 통과한 요청만으로 계산했습니다.</span>
   </div>
   <div class="cards">
     <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
-    <div class="kpi"><div class="l">오류</div><div class="v">24,300</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">72,300</div></div>
     <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
     <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
     <div class="kpi"><div class="l">p50</div><div class="v">41 ms</div></div>
@@ -59,20 +60,30 @@
   </div>
 </div>
 
-<h2>2. 「실패한 요청」으로 바꿨을 때</h2>
+<h2>1-가. 슬라이스 A의 리포트 머리 — 전환 단추 없이 표지와 설명</h2>
+<div class="card">
+  <div class="bar new">
+    <span class="lbl">응답 시간 표본</span>
+    <span class="badge" style="margin-left:0;background:var(--accent-bg);color:var(--accent);border-color:#c7d2fe">통과한 요청</span>
+    <span class="q" title="오류로 세지 않은 요청입니다. 상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.">?</span>
+    <span class="hint">응답 시간은 통과한 요청만으로 계산했습니다. 실패한 요청은 오류 수에 들어 있습니다.</span>
+  </div>
+</div>
+
+<h2>2. 「실패한 요청」으로 바꿨을 때 (슬라이스 B)</h2>
 <div class="card">
   <div class="bar new">
     <span class="lbl">응답 시간 표본</span>
     <span class="seg" role="group" aria-label="응답 시간 표본">
-      <button aria-pressed="false">통과한 요청</button><button aria-pressed="true">실패한 요청</button><button aria-pressed="false">전체</button>
+      <button aria-pressed="false">통과한 요청</button><button aria-pressed="true">실패한 요청</button><button aria-pressed="false">모든 요청</button>
     </span>
     <span class="q">?</span>
     <span class="hint">실패한 요청이 실패할 때까지 걸린 시간입니다.</span>
   </div>
-  <div class="callout new">응답 시간 숫자만 실패한 요청 기준으로 바꿔 보여 줍니다. 판정·인사이트·속도 구간·계단 표는 통과한 요청 기준 그대로입니다.</div>
+  <div class="callout new">응답 시간 숫자만 실패한 요청 기준으로 바꿔 보여 줍니다. 판정·인사이트·속도 구간·계단 표는 바뀌지 않습니다.</div>
   <div class="cards">
     <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
-    <div class="kpi"><div class="l">오류</div><div class="v">24,300</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">72,300</div></div>
     <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
     <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
     <div class="kpi"><div class="l">p50</div><div class="v">2 ms</div></div>
@@ -85,12 +96,12 @@
 <div class="card">
   <div class="bar new">
     <span class="lbl">응답 시간 표본</span>
-    <span class="badge" style="margin-left:0">전체 (실패한 요청 포함)</span>
+    <span class="badge" style="margin-left:0">모든 요청 (실패한 요청 포함)</span>
     <span class="hint">이 run은 통과한 요청과 실패한 요청의 응답 시간을 따로 기록하지 않았습니다. 응답 시간에 실패한 요청이 들어 있습니다.</span>
   </div>
   <div class="cards">
     <div class="kpi"><div class="l">총 요청</div><div class="v">120,000</div></div>
-    <div class="kpi"><div class="l">오류</div><div class="v">24,300</div></div>
+    <div class="kpi"><div class="l">오류</div><div class="v">72,300</div></div>
     <div class="kpi"><div class="l">평균 RPS</div><div class="v">200.0</div></div>
     <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
     <div class="kpi"><div class="l">p50</div><div class="v">39 ms</div></div>
