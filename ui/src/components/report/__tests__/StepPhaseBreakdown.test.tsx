@@ -190,4 +190,33 @@ describe("StepPhaseBreakdown", () => {
       for (const mk of marks) expect(mk).toHaveAttribute("aria-hidden", "true");
     });
   });
+
+  describe("표본 표지·막대 안내", () => {
+    const note = "이 보기의 값은 표본을 따르지 않습니다. 표본별 응답 시간은 「칩」 보기에서 봅니다.";
+
+    it("막대 보기: 안내 줄이 있고 표지는 없다 → 칩 보기: 표지가 있고 안내 줄은 없다", async () => {
+      const user = userEvent.setup();
+      render(<StepPhaseBreakdown steps={steps as never} meta={meta} sampleTag="실패한 요청" />);
+      expect(screen.getByText(note)).toBeInTheDocument();
+      expect(screen.queryByText("실패한 요청")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "칩" }));
+      expect(screen.getByText("실패한 요청")).toBeInTheDocument();
+      expect(screen.queryByText(note)).not.toBeInTheDocument();
+    });
+
+    it("sampleTag 없음: 안내 줄도 표지도 없다", async () => {
+      const user = userEvent.setup();
+      render(<StepPhaseBreakdown steps={steps as never} meta={meta} />);
+      expect(screen.queryByText(note)).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "칩" }));
+      expect(screen.queryByText("실패한 요청")).not.toBeInTheDocument();
+    });
+
+    it("단계 분해 없는 run: 표에 표지가 그대로 간다", () => {
+      const plain = [{ ...steps[0], wait: undefined, download: undefined }];
+      render(<StepPhaseBreakdown steps={plain as never} meta={meta} sampleTag="실패한 요청" />);
+      expect(screen.getByText("실패한 요청")).toBeInTheDocument();
+      expect(screen.queryByText(note)).not.toBeInTheDocument();
+    });
+  });
 });

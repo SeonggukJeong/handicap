@@ -72,12 +72,12 @@ export function SampleBar({
           }))}
         />
         <HelpTip label={t.helpLabel}>
-          {ORDER.map((s) => (
-            <span key={s} className="block">
-              <b>{sampleName(s)}</b> — {copy[s].when} {copy[s].look}
+          {ORDER.map((s, i) => (
+            <span key={s} className={i === 0 ? "block" : "mt-1.5 block"}>
+              <b className="text-slate-900">{sampleName(s)}</b> — {copy[s].when} {copy[s].look}
             </span>
           ))}
-          <span className="block">
+          <span className="mt-1.5 block">
             {t.passedHelpLead}
             {t.passedHelp}
           </span>

@@ -4,7 +4,7 @@ if (typeof URL.createObjectURL === "undefined") {
   Object.defineProperty(URL, "revokeObjectURL", { value: () => {}, writable: true });
 }
 
-import { render as rtlRender, screen } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
@@ -695,6 +695,107 @@ describe("ReportView", () => {
         />,
       );
       expect(screen.getByText(new RegExp(`「${LOOP_ID}」 — 진입 10회`))).toBeInTheDocument();
+    });
+  });
+
+  describe("구획 표본 표지 (R9·R14)", () => {
+    const LAT = {
+      percentile_curve: [
+        { quantile: 0.5, value_us: 10_000 },
+        { quantile: 1.0, value_us: 120_000 },
+      ],
+      histogram: [{ lower_us: 1_000, upper_us: 2_000, count: 8 }],
+    };
+    const WORKERS = [
+      { worker_id: "w0", count: 10, errors: 1, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
+      { worker_id: "w1", count: 5, errors: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
+    ];
+    const names = [ko.report.sample.passed, ko.report.sample.failed, ko.report.sample.allShort];
+    const four = () => [
+      screen.getByRole("region", { name: /리포트 요약/ }),
+      screen.getByRole("region", { name: /시계열 — p95/ }),
+      screen.getByRole("region", { name: /스텝별 통계/ }),
+    ];
+    const noNames = (el: HTMLElement) => {
+      for (const n of names) expect(within(el).queryByText(n)).not.toBeInTheDocument();
+    };
+
+    it("바꿔 본 리포트: 요약·p95 그래프·분포·스텝 표·워커 표에 하나씩, 요청 수 그래프엔 없다", () => {
+      const report: Report = {
+        ...FIXTURE,
+        sample: { selected: "failed", default: "passed", split: true },
+        latency: LAT,
+        worker_breakdown: WORKERS,
+      };
+      render(<ReportView report={report} profile={TEST_PROFILE} requestedSample="failed" />);
+      const tag = ko.report.sample.failed;
+      for (const el of [
+        ...four(),
+        screen.getByRole("region", { name: ko.report.latencyTitle }),
+        screen.getByRole("region", { name: ko.report.workerBreakdownLabel }),
+      ]) {
+        expect(within(el).getAllByText(tag)).toHaveLength(1);
+      }
+      expect(
+        within(screen.getByRole("region", { name: /시계열 — 초당 요청 수/ })).queryByText(tag),
+      ).not.toBeInTheDocument();
+    });
+
+    it("바꿔 봤고 latency 없고 오류 0건: 분포 구획이 「실패한 요청 없음」을 말한다", () => {
+      const report: Report = {
+        ...FIXTURE,
+        summary: { ...FIXTURE.summary, errors: 0 },
+        sample: { selected: "failed", default: "passed", split: true },
+      };
+      render(<ReportView report={report} profile={TEST_PROFILE} requestedSample="failed" />);
+      const region = screen.getByRole("region", { name: ko.report.latencyTitle });
+      expect(region).toHaveTextContent("실패한 요청 없음");
+      expect(within(region).getByText(ko.report.sample.failed)).toBeInTheDocument();
+    });
+
+    it("기본 표본: 표지를 다는 구획 안에 표본 이름이 없고, latency 없으면 분포 구획도 없다", () => {
+      const report: Report = {
+        ...FIXTURE,
+        sample: { selected: "passed", default: "passed", split: true },
+        worker_breakdown: WORKERS,
+      };
+      render(<ReportView report={report} profile={TEST_PROFILE} />);
+      for (const el of [
+        ...four(),
+        screen.getByRole("region", { name: ko.report.workerBreakdownLabel }),
+      ]) {
+        noNames(el);
+      }
+      expect(
+        screen.queryByRole("region", { name: ko.report.latencyTitle }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("기본 표본 + latency 있음: 분포 구획에도 표본 이름이 없다", () => {
+      const report: Report = {
+        ...FIXTURE,
+        sample: { selected: "passed", default: "passed", split: true },
+        latency: LAT,
+      };
+      render(<ReportView report={report} profile={TEST_PROFILE} />);
+      noNames(screen.getByRole("region", { name: ko.report.latencyTitle }));
+    });
+
+    it("나눌 수 없는 run: 네 구획에 표본 이름이 없고 분포 구획은 latency 유무대로", () => {
+      const base: Report = {
+        ...FIXTURE,
+        sample: { selected: "all", default: "all", split: false },
+      };
+      const { unmount } = render(<ReportView report={base} profile={TEST_PROFILE} />);
+      for (const el of four()) noNames(el);
+      expect(
+        screen.queryByRole("region", { name: ko.report.latencyTitle }),
+      ).not.toBeInTheDocument();
+      unmount();
+      render(<ReportView report={{ ...base, latency: LAT }} profile={TEST_PROFILE} />);
+      const region = screen.getByRole("region", { name: ko.report.latencyTitle });
+      noNames(region);
+      expect(region).not.toHaveTextContent("없음");
     });
   });
 });

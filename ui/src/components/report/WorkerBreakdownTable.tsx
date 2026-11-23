@@ -3,8 +3,14 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { formatErrPct } from "./format";
+import { SampleTag } from "./SampleTag";
 
-type Props = { breakdown: WorkerBreakdown[]; sample?: ReportSampleName };
+type Props = {
+  breakdown: WorkerBreakdown[];
+  sample?: ReportSampleName;
+  /** 표본을 바꿔 보는 동안의 표본 이름 — 제목 곁에 단다. */
+  sampleTag?: string | null;
+};
 
 // 워커별 「보내지 않음」 수는 와이어에 없어 all 표본은 지금처럼 늘 값.
 function workerLatency(w: WorkerBreakdown, ms: number, sample: ReportSampleName): number | string {
@@ -13,13 +19,14 @@ function workerLatency(w: WorkerBreakdown, ms: number, sample: ReportSampleName)
   return ms;
 }
 
-export function WorkerBreakdownTable({ breakdown, sample = "all" }: Props) {
+export function WorkerBreakdownTable({ breakdown, sample = "all", sampleTag }: Props) {
   // Server emits only when >=2 distinct workers; mirror that gate defensively.
   if (breakdown.length < 2) return null;
   return (
     <PageSection
       ariaLabel={ko.report.workerBreakdownLabel}
       title={ko.report.workerBreakdownTitle(breakdown.length)}
+      titleAside={sampleTag ? <SampleTag name={sampleTag} /> : undefined}
     >
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">

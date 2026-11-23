@@ -6,6 +6,7 @@ import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { RetryBadge } from "./LoopExitSummary";
 import { MixedSampleBadge } from "./MixedSampleBadge";
+import { SampleTag } from "./SampleTag";
 import { WholeRunBadge } from "./WholeRunBadge";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
@@ -20,6 +21,8 @@ type Props = {
   sample?: ReportSampleName;
   /** 응답 시간 표본을 나눈 run이면 아직 나누지 않은 열·행에 「실패 포함」 표지를 단다. */
   mixedSample?: boolean;
+  /** 표본을 바꿔 보는 동안의 표본 이름 — 표 제목 곁에 단다. */
+  sampleTag?: string | null;
 };
 
 // 하나도 보내지 않은 스텝에는 잰 시간이 없다 — 0으로 찍지 않는다.
@@ -35,6 +38,7 @@ export function StepStatsTable({
   wholeRunBadge,
   sample = "all",
   mixedSample,
+  sampleTag,
 }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -59,7 +63,11 @@ export function StepStatsTable({
   const colSpan = 8 + (anyDownload ? 3 : 0) + (anyWait ? 1 : 0);
 
   return (
-    <PageSection ariaLabel={ko.report.perStepStatsLabel} title={ko.report.stepsHeading}>
+    <PageSection
+      ariaLabel={ko.report.perStepStatsLabel}
+      title={ko.report.stepsHeading}
+      titleAside={sampleTag ? <SampleTag name={sampleTag} /> : undefined}
+    >
       {anyDownload && <p className="mb-2 text-xs text-slate-500">{ko.report.phaseCaveat}</p>}
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">

@@ -5,6 +5,7 @@ import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
 import type { OpenLoopRates } from "./openLoopRates";
+import { SampleTag } from "./SampleTag";
 import { WholeRunBadge } from "./WholeRunBadge";
 
 type Props = {
@@ -17,9 +18,19 @@ type Props = {
   wholeRunBadge?: boolean;
   /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 「—」. 없으면 항상 값. */
   latency?: { sample: ReportSampleName; counts: LatencyCounts; switched?: boolean };
+  /** 표본을 바꿔 보는 동안의 표본 이름 — p50 카드 곁에 단다. */
+  sampleTag?: string | null;
 };
 
-export function Summary({ summary, dropped, openLoop, dropBase, wholeRunBadge, latency }: Props) {
+export function Summary({
+  summary,
+  dropped,
+  openLoop,
+  dropBase,
+  wholeRunBadge,
+  latency,
+  sampleTag,
+}: Props) {
   const noLatency =
     latency != null &&
     (latency.switched || latency.sample !== "all") &&
@@ -73,6 +84,7 @@ export function Summary({ summary, dropped, openLoop, dropBase, wholeRunBadge, l
               {c.label}
               {c.help && <HelpTip label={`${c.label} 설명`}>{c.help}</HelpTip>}
               {c.whole && <WholeRunBadge className="ml-1" />}
+              {c.label === "p50" && sampleTag && <SampleTag name={sampleTag} className="ml-1" />}
             </div>
             <div className="text-lg font-semibold">{c.value}</div>
           </div>

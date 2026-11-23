@@ -12,6 +12,7 @@ import {
 import { ko } from "../../i18n/ko";
 import type { SteadyMarks } from "./steadyMarks";
 import { PageSection } from "../ui/PageSection";
+import { SampleTag } from "./SampleTag";
 
 type Point = { ts_second: number; value: number | null };
 
@@ -22,9 +23,11 @@ type Props = {
   width?: number;
   height?: number;
   marks?: SteadyMarks | null;
+  /** 표본을 바꿔 보는 동안의 표본 이름 — 제목 곁에 단다. */
+  sampleTag?: string | null;
 };
 
-export function TimeSeriesChart({ title, data, yLabel, width, height, marks }: Props) {
+export function TimeSeriesChart({ title, data, yLabel, width, height, marks, sampleTag }: Props) {
   // ts_second is unix epoch. Subtract the first one so the X axis reads as elapsed seconds.
   const t0 = data.length > 0 ? data[0].ts_second : 0;
   const series = data.map((p) => ({ x: p.ts_second - t0, y: p.value }));
@@ -68,7 +71,12 @@ export function TimeSeriesChart({ title, data, yLabel, width, height, marks }: P
     </LineChart>
   );
   return (
-    <PageSection sub ariaLabel={ko.report.timeSeriesAria(title)} title={title}>
+    <PageSection
+      sub
+      ariaLabel={ko.report.timeSeriesAria(title)}
+      title={title}
+      titleAside={sampleTag ? <SampleTag name={sampleTag} /> : undefined}
+    >
       {width != null && height != null ? (
         chart
       ) : (

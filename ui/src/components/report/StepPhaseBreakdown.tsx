@@ -18,6 +18,8 @@ type Props = {
   sample?: ReportSampleName;
   /** 표본을 나눈 run이면 대기·다운로드·분리 줄에 「실패 포함」 표지를 단다. */
   mixedSample?: boolean;
+  /** 표본을 바꿔 보는 동안의 표본 이름 — 표 제목 곁에 달고, 막대 보기에선 안내 줄로 바꾼다. */
+  sampleTag?: string | null;
 };
 type View = "waterfall" | "chips";
 
@@ -62,6 +64,7 @@ export function StepPhaseBreakdown({
   wholeRunBadge,
   sample,
   mixedSample,
+  sampleTag,
 }: Props) {
   const [view, setView] = useState<View>("waterfall");
   const anyPhase = steps.some((s) => s.wait != null || s.download != null);
@@ -75,6 +78,7 @@ export function StepPhaseBreakdown({
         wholeRunBadge={wholeRunBadge}
         sample={sample}
         mixedSample={mixedSample}
+        sampleTag={sampleTag}
       />
     );
   }
@@ -117,9 +121,15 @@ export function StepPhaseBreakdown({
           wholeRunBadge={wholeRunBadge}
           sample={sample}
           mixedSample={mixedSample}
+          sampleTag={sampleTag}
         />
       ) : (
         <div>
+          {sampleTag != null && (
+            <p className="mb-2 text-xs text-slate-500">
+              {ko.report.sample.waterfallNote(ko.report.phaseViewChips)}
+            </p>
+          )}
           {steps.map((s) => {
             const m = meta.get(s.step_id);
             const wait = s.wait?.p50_ms ?? 0;

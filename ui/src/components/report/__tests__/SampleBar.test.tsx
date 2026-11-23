@@ -153,6 +153,19 @@ describe("SampleBar", () => {
   });
 });
 
+describe("SampleBar (?) 도움말 모양", () => {
+  it("둘째 줄부터 mt-1.5, 이름은 slate-900", async () => {
+    const user = userEvent.setup();
+    bar({ sample: { selected: "passed", default: "passed", split: true } });
+    await user.click(screen.getByRole("button", { name: t.helpLabel }));
+    const lines = Array.from(screen.getByRole("note").children);
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).not.toHaveClass("mt-1.5");
+    for (const l of lines.slice(1)) expect(l).toHaveClass("mt-1.5");
+    expect(lines[0].querySelector("b")).toHaveClass("text-slate-900");
+  });
+});
+
 describe("MixedSampleBadge", () => {
   it("글자는 「실패 포함」이고 도움말 버튼이 이유를 읽어 준다", async () => {
     const user = userEvent.setup();

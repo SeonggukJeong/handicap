@@ -41,7 +41,8 @@ import { Callout } from "../ui/Callout";
 import { PageSection } from "../ui/PageSection";
 import { BasisBar } from "./BasisBar";
 import { SampleBar } from "./SampleBar";
-import { sampleView } from "../../report/sampleView";
+import { noLatencyWord, sampleView } from "../../report/sampleView";
+import { SampleTag } from "./SampleTag";
 import { steadyMarks } from "./steadyMarks";
 import { deriveLoadMode } from "../run/loadModel";
 
@@ -295,6 +296,7 @@ export function ReportView({
         )}
         <Summary
           latency={latency}
+          sampleTag={view.tag}
           summary={report.summary}
           dropped={report.dropped}
           dropBase={dropOther ? { count: dropOther.count } : undefined}
@@ -329,6 +331,7 @@ export function ReportView({
           yLabel="ms"
           data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
           marks={marks}
+          sampleTag={view.tag}
         />
         <TimeSeriesChart
           title={ko.report.timeSeriesErrors}
@@ -342,15 +345,31 @@ export function ReportView({
             byWorker={report.active_vu_by_worker ?? []}
           />
         ) : null}
-        <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} sample={sample} />
+        <WorkerBreakdownTable
+          breakdown={report.worker_breakdown ?? []}
+          sample={sample}
+          sampleTag={view.tag}
+        />
         {report.latency ? (
           <PageSection
             ariaLabel={ko.report.latencyTitle}
             title={ko.report.latencyTitle}
             className=""
+            titleAside={view.tag && <SampleTag name={view.tag} />}
           >
             <PercentileCurveChart curve={report.latency.percentile_curve} />
             <LatencyHistogramChart buckets={report.latency.histogram} />
+          </PageSection>
+        ) : view.switched ? (
+          <PageSection
+            ariaLabel={ko.report.latencyTitle}
+            title={ko.report.latencyTitle}
+            className=""
+            titleAside={view.tag && <SampleTag name={view.tag} />}
+          >
+            <p className="text-sm text-slate-500">
+              {noLatencyWord(view.selected, report.summary.errors)}
+            </p>
           </PageSection>
         ) : null}
         <StatusDistribution distribution={report.status_distribution} />
@@ -365,6 +384,7 @@ export function ReportView({
           wholeRunBadge={wholeRunBadge}
           sample={sample}
           mixedSample={mixedSample}
+          sampleTag={view.tag}
         />
         {report.setup && (
           <SetupSection
