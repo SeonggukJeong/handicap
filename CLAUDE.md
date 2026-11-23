@@ -139,7 +139,7 @@ docs/
 - 리뷰-수정 루프: read-only 리뷰는 같은 subagent `SendMessage` resume, 코드-fix는 fresh(자가검증 편향). clean APPROVE 목표+유한 valve: finding은 `receiving-code-review` 판정, 5회 초과 시 사용자 질문.
 - 리뷰어가 "later fold 가능"이라 해도 **spec invariant 위반이면 그 슬라이스 안에서 fix**(미룬 건 사라진다).
 - **finding을 뒤 task로 접으면 그 task brief에 명시 추가**(대화 결정은 brief에 도달하지 않는다) + 접을 task의 생존 보장 확인.
-- **리뷰 finding도 가설 — fold-in 전 기계 검증**(렌더·도달성 특히; 근거 등급 `[E1]`–`[E3]`=미실행). 틀린 근거 주석은 통째 삭제. → [[review-findings-are-hypotheses]]
+- **리뷰 finding의 사실 주장도 가설 — fold-in 전 기계 검증**(특히 렌더: 간격·정렬·폭; fold-in은 리뷰 루프 우회). 틀린 근거 주석은 통째 삭제. → [[review-findings-are-hypotheses]]
 - **결함을 변호하는 새 주석은 Important — 처방은 코드 수정**("주석 보완" 처방도 코드로 먼저; 못 고치면 §B에). 정본 `docs/dev/working-rules.md` §7.
 - 최종 whole-feature 리뷰는 `handicap-reviewer`(와이어 1:1·deferral 추적·게이트 재확인). 단일-task plan은 per-task와 병합 1회 — 리뷰 BASE는 디스패치 직전 커밋(`HEAD~1` 금지).
 - **버그 fix 최종 리뷰엔 "옛 동작 부수효과에 기대던 타 크레이트 소비자" 초점 명시** — "X 0-diff"는 행동 무영향 보증 아님. → [[whole-branch-review-catches-interaction-bugs]]
