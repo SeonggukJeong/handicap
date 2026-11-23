@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
-import type { Report } from "../../../api/schemas";
+import { describe, expect, it, vi } from "vitest";
+import type { Report, ReportSampleName } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 import { MixedSampleBadge } from "../MixedSampleBadge";
 import { SampleBar } from "../SampleBar";
@@ -19,21 +19,111 @@ const win = {
 
 const t = ko.report.sample;
 
-function bar(over: Partial<Pick<Report, "windows" | "sample">>) {
-  return render(<SampleBar report={{ windows: [win], ...over }} />);
+function bar(
+  over: Partial<Pick<Report, "windows" | "sample">>,
+  requested?: ReportSampleName,
+) {
+  return render(<SampleBar report={{ windows: [win], ...over }} requested={requested} />);
 }
 
 describe("SampleBar", () => {
-  it("나뉜 run: 「통과한 요청」 표지 + 설명 + 도움말, 전환 단추는 없다", async () => {
+  it("나뉜 run: 단추 셋, 요청한 표본이 눌려 있다", async () => {
     const user = userEvent.setup();
     bar({ sample: { selected: "passed", default: "passed", split: true } });
     expect(screen.getByText(t.barLabel)).toBeInTheDocument();
-    expect(screen.getByText(t.passed)).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getByRole("radio", { name: t.passed })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText(t.passedHint)).toBeInTheDocument();
-    expect(screen.queryByText(t.all)).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: t.helpLabel }));
     expect(screen.getByRole("note")).toHaveTextContent(t.passedHelp);
+  });
+
+  it("실패한 요청을 받았고 요청했다: 설명 = failedHint, 안내 상자", () => {
+    bar({ sample: { selected: "failed", default: "passed", split: true } }, "failed");
+    expect(screen.getByRole("radio", { name: t.failed })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(t.failedHint)).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "응답 시간 숫자만 실패한 요청 기준으로 바꿔 보여 줍니다. 판정·인사이트·계단 표는 바뀌지 않습니다. 인쇄·CSV·XLSX는 통과한 요청 기준입니다.",
+    );
+  });
+
+  it("불러오는 중: 눌린 단추는 요청을 따르고 설명·상자는 받은 표본을 따른다", () => {
+    const { unmount } = bar(
+      { sample: { selected: "passed", default: "passed", split: true } },
+      "failed",
+    );
+    expect(screen.getByRole("radio", { name: t.failed })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: t.passed })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText(t.passedHint)).toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    unmount();
+    bar({ sample: { selected: "failed", default: "passed", split: true } });
+    expect(screen.getByRole("radio", { name: t.passed })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(t.failedHint)).toBeInTheDocument();
+    expect(screen.getByRole("note")).toBeInTheDocument();
+  });
+
+  it("pending이면 radiogroup이 aria-busy", () => {
+    render(
+      <SampleBar
+        report={{
+          windows: [win],
+          sample: { selected: "passed", default: "passed", split: true },
+        }}
+        pending
+      />,
+    );
+    expect(screen.getByRole("radiogroup")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("단추를 누르면 onSelect(그 표본)", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <SampleBar
+        report={{
+          windows: [win],
+          sample: { selected: "passed", default: "passed", split: true },
+        }}
+        onSelect={onSelect}
+      />,
+    );
+    await user.click(screen.getByRole("radio", { name: t.allShort }));
+    expect(onSelect).toHaveBeenCalledWith("all");
+  });
+
+  it("(?)를 누르면 세 표본 이름과 언제·무엇을 보는지·통과 정의", async () => {
+    const user = userEvent.setup();
+    bar({ sample: { selected: "passed", default: "passed", split: true } });
+    await user.click(screen.getByRole("button", { name: t.helpLabel }));
+    const panel = screen.getByRole("note");
+    for (const name of [t.passed, t.failed, t.allShort]) {
+      expect(within(panel).getByText(name)).toBeInTheDocument();
+    }
+    expect(panel).toHaveTextContent(t.whenFailed);
+    expect(panel).toHaveTextContent(t.lookAll);
+    expect(panel).toHaveTextContent(t.passedHelp);
+  });
+
+  it("radio마다 접근 가능한 설명에 「언제 고르는지」가 들어 있다", () => {
+    bar({ sample: { selected: "passed", default: "passed", split: true } });
+    expect(screen.getByRole("radio", { name: t.passed })).toHaveAccessibleDescription(
+      expect.stringContaining(t.whenPassed),
+    );
+    expect(screen.getByRole("radio", { name: t.failed })).toHaveAccessibleDescription(
+      expect.stringContaining(t.whenFailed),
+    );
+    expect(screen.getByRole("radio", { name: t.allShort })).toHaveAccessibleDescription(
+      expect.stringContaining(t.whenAll),
+    );
+  });
+
+  it("나눌 수 없는 run은 requested가 failed여도 단추·상자 없이 그대로(R14)", () => {
+    bar({ sample: { selected: "all", default: "all", split: false } }, "failed");
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.getByText(t.all)).toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
   it("옛 run(sample 없음): 「모든 요청 (실패한 요청 포함)」 표지 + 설명", () => {
