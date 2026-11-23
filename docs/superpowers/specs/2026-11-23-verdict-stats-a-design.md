@@ -1,7 +1,7 @@
 # 판정 기준·응답 시간 통계 슬라이스 A — 평균·최대·임의 백분위 판정 + 리포트 통계 칸 (verdict-stats-a) 설계
 
 - 날짜: 2026-11-23
-- 상태: 설계 초안
+- 상태: **보류 (2026-11-23)** — 사용자 결정: 응답 시간 통계를 「통과한 요청만」 기준으로 바꾸는 슬라이스(통과/실패 분리)를 먼저 한다. 그 뒤 이 설계를 그 위에서 다시 쓴다. 1차 검토 결과는 APPROVE-WITH-FIXES이고 지적은 아직 반영하지 않았다(§11). REVIEW-GATE 없음.
 - 유형: `user-path`
 - 출처: roadmap §A17 (사용자 결정 2026-11-23 — 프로토콜 말고는 LoadRunner 이상, `docs/dev/working-rules.md` §11). 실무가이드의 「평균 응답 시간 3초 이내」를 판정 기준으로 걸 수 없다.
 - 목업(시각 기준): `2026-11-23-verdict-stats-a-mockups/a-screens.html` — 점선 테두리가 새로 생기는 것.
@@ -268,3 +268,22 @@ grep -rln "CriteriaFields\|verdictFormat\|expandCriteria\|criteriaHasAny" ui/src
 grep -n "fmtMsExact\|fmtMsPair\|fmtCriterionPair" ui/src/print/format.ts
 grep -n "p50_ms\|p95_ms\|p99_ms\|mean_ms" ui/src/api/schemas.ts
 ```
+
+## 11. 1차 검토 지적 (spec-plan-reviewer, 2026-11-23 — 미반영, 재개할 때 처리)
+
+사실로 확인된 것: `build_report`가 `evaluate_criteria`의 유일한 비-테스트 호출자 · `export.rs`·`crates/tui`·`desktop`은 판정 기준을 읽지 않음 · hdrhistogram 7.5.4에 필요한 API 전부 있음 · 새 `Criteria` 칸을 막는 `deny_unknown_fields`/`.strict()` 없음 · 마이그레이션 불필요.
+
+고쳐야 할 것:
+
+1. **결과 행 순서**가 목업(평균 → p95 → p90 → 최대)과 R7(p50 → p95 → p99 → 평균 → 최대 → 백분위)에서 다르다. 하나로.
+2. **60초 상한 값의 표현**: `max()`는 칸의 위쪽 끝(60,030.975 ms)을 돌려준다 — §4.4 예시(60000)와 R5가 어긋난다. 서버가 60,000으로 자르거나 `CriterionResult`에 `capped` 표시를 더해, 목록 배지 툴팁·인쇄도 「≥」를 그릴 수 있게(둘은 리포트의 `latency`를 못 본다). `capped` 술어는 `h.max() >= h.lowest_equivalent(60_000_000)`(경계 59.998초 — §4.4의 「59.97초」는 틀림).
+3. **시간 글자 형식**: 인쇄 `fmtMsExact`는 `4,210ms`(띄어쓰기 없음·쉼표)라 화면이 그것을 쓰면 기존 행 글자(`4210 ms`)가 바뀐다 — US5와 충돌. 형식 하나를 정하고 R14·US5·목업을 맞춘다.
+4. **골든**: `report.rs`의 `whole_report_matches_golden`이 `testdata/report_whole_golden.json`과 바이트 비교한다 — `latency` 추가로 RED. 재생성(`REPORT_WHOLE_GOLDEN_UPDATE`)하고 「차이 = latency 키뿐」을 R19 acceptance로.
+5. **`measure_phases` run**: `StepPhaseBreakdown`의 기본 보기가 「waterfall」이라 `StepStatsTable`(과 새 버튼)이 「chips」로 바꿔야 보인다. 그 경로의 버튼 자리를 정하거나 §9에 좁힘으로 기록(사용자 질문).
+6. **`passed`는 반올림한 `actual`로** 계산(3000.0004 vs 3000이 「3,000 ≤ 3,000 ✗」로 보이지 않게).
+7. **최대·백분위는 항상 올림 쪽**(칸 위쪽 끝, 최대 약 0.1%) — §8에 적는다. 60초 칸에 걸린 백분위 행에도 안내.
+8. **인쇄 「평균」 KPI 카드**가 이미 있다(정수 `summary.mean_ms`, `CARD_METRIC`에 평균 없음 → 평균 기준을 걸어도 「목표 없음」). 연결 여부·어느 값을 찍는지 결정.
+9. **자릿수 규칙**(1000 이상은 정수인지, 뒤 0 생략) · **50/95/99**(run 목록은 거절, 스텝은 조용히 옛 경로 — UI 규칙 통일) · **60,000 ms 상한의 범위**(스텝 `p50/p95/p99_ms`는 면제임을 명시).
+10. **연기 행 추가**: 표준편차·최소를 판정 항목으로(Gatling·k6은 받는다), roadmap §A17 항목 5(다른 도구 대조). US1 문구 변경·US5 추가는 사용자 재확인.
+
+그 밖: `CriteriaState`에 배열 칸을 넣으면 `criteriaHasValue`의 `Object.values(...).trim()`이 깨진다 · `RunDialog`의 칸별 `useState`·`loadPreset`·조립·setter 네 곳이 새 칸을 알아야 한다(모르면 프리셋 불러오기가 조용히 버린다) · `canSubmit` 네 갈래 모두에 기준 검사 · 「프리셋으로 저장」 버튼은 `canSubmit` 게이트 밖 · `evaluate_criteria` 인자 추가는 테스트 호출 16곳 · `ReportJson.latency`(분포 곡선)가 이미 있어 이름이 겹친다(`latency_stats` 검토) · 인쇄 `stepStatus.ts`·`speedBands.ts`·`compare/dumbbell.ts`는 p95만 읽는다(§9에 기록) · 화면 「응답 시간」 vs 인쇄 「응답시간」 띄어쓰기 통일 · 예시 표 파일의 입력이 서버(이름)와 UI(숫자)에서 다르다 · 스텝 기준 `op=min`일 때 `capped` 표시 · US4 라이브는 run 길이를 60초 + 타임아웃보다 길게.
