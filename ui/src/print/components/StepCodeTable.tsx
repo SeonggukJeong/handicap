@@ -112,7 +112,7 @@ function StepRowView(props: {
         )}
       </td>
       <td>{fmtCount(row.count)}</td>
-      <td>{row.executed ? fmtMs(row.p95Ms) : DASH}</td>
+      <td>{row.executed && row.count - row.notSent > 0 ? fmtMs(row.p95Ms) : DASH}</td>
       {columns.map((col) => (
         <CodeCell key={col.key} row={row} col={col} />
       ))}

@@ -159,6 +159,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           verdict={report.verdict}
           validity={report.validity}
           setupOnly={setupOnly}
+          setup={report.setup}
         />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>

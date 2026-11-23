@@ -11,18 +11,13 @@ export type SetupLiveView = {
 };
 
 export function setupLiveView(
-  profile: Pick<
-    Profile,
-    "vus" | "max_in_flight" | "target_rps" | "stages" | "vu_stages" | "stair" | "steady"
-  >,
+  profile: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages" | "stair" | "steady">,
   live: SetupLive | undefined,
 ): SetupLiveView {
   const mode = deriveLoadMode(profile);
   const unit: "vu" | "slot" = mode.loadModel === "open" ? "slot" : "vu";
-  let raw: number | null | undefined;
-  if (mode.loadModel === "open") raw = profile.max_in_flight;
-  else if (mode.rateMode === "curve") raw = null;
-  else raw = profile.vus;
+  // open-loop 슬롯은 처음 쓰일 때 준비한다 — 설정 슬롯 수는 「준비할 수」가 아니라서 분모로 쓰지 않는다.
+  const raw = mode.loadModel === "open" || mode.rateMode === "curve" ? null : profile.vus;
   const total = raw != null && Number.isInteger(raw) && raw > 0 ? raw : null;
   const ok = live?.ok ?? 0;
   const failed = live?.failed ?? 0;

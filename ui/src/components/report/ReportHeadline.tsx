@@ -12,10 +12,26 @@ type Props = {
   validity?: Validity | null;
   /** 시나리오에 본 스텝이 없고 준비 스텝만 있다(spec D16) — 요청 0건이 정상 완료다. */
   setupOnly?: boolean;
+  /** 리포트의 준비 결과(실패·끝나기 전 종료 수) — 요청 0건의 원인이 준비 쪽인지 가린다. */
+  setup?: { failed: number; interrupted: number };
 };
 
+function zeroSentence(setupOnly: boolean, setup: Props["setup"]): string {
+  if (setupOnly) return ko.report.headlineSetupOnly;
+  if (setup && setup.failed > 0) return ko.report.headlineSetupFailed;
+  if (setup && setup.interrupted > 0) return ko.report.headlineSetupInterrupted;
+  return ko.report.headlineNoRequests;
+}
+
 /** §7.1 쉬운 요약 헤더 — 리포트 최상단 한 문장 + verdict 콜아웃(클라 파생, 백엔드 무변경). */
-export function ReportHeadline({ summary, profile, verdict, validity, setupOnly = false }: Props) {
+export function ReportHeadline({
+  summary,
+  profile,
+  verdict,
+  validity,
+  setupOnly = false,
+  setup,
+}: Props) {
   const common = {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),
@@ -27,9 +43,7 @@ export function ReportHeadline({ summary, profile, verdict, validity, setupOnly 
   const fixed = fixedTarget(profile);
   const sentence =
     summary.count === 0
-      ? setupOnly
-        ? ko.report.headlineSetupOnly
-        : ko.report.headlineNoRequests
+      ? zeroSentence(setupOnly, setup)
       : fixed != null
         ? ko.report.headlineOpenFixed({ ...common, targetRps: fixed })
         : isCurve

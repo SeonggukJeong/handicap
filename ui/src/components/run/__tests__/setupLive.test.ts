@@ -23,17 +23,17 @@ describe("setupLiveView", () => {
     expect(v.okPct).toBe(0);
   });
 
-  it("open 고정은 슬롯 + max_in_flight", () => {
-    const v = setupLiveView({ vus: 0, target_rps: 100, max_in_flight: 200 }, live(100, 0));
-    expect(v.unit).toBe("slot");
-    expect(v.total).toBe(200);
+  // 슬롯은 처음 쓰일 때 준비한다 — 도착이 적으면 설정 슬롯 수까지 차지 않으므로 분모로 쓰지 않는다.
+  it("open 고정은 슬롯 단위, 분모 없음(막대 없음)", () => {
+    const v = setupLiveView({ vus: 0, target_rps: 100 }, live(100, 3));
+    expect(v).toEqual({ unit: "slot", ok: 100, failed: 3, total: null, okPct: 0, failedPct: 0 });
   });
 
-  it("open 곡선·계단·유지 구간 open도 슬롯", () => {
+  it("open 곡선·계단·유지 구간 open도 슬롯, 분모 없음", () => {
     const stages = [{ target: 10, duration_seconds: 5 }];
-    expect(setupLiveView({ vus: 0, stages, max_in_flight: 30 }, undefined)).toMatchObject({
+    expect(setupLiveView({ vus: 0, stages }, undefined)).toMatchObject({
       unit: "slot",
-      total: 30,
+      total: null,
     });
     expect(
       setupLiveView(
@@ -50,7 +50,7 @@ describe("setupLiveView", () => {
         } as never,
         undefined,
       ),
-    ).toMatchObject({ unit: "slot", total: 40 });
+    ).toMatchObject({ unit: "slot", total: null });
     expect(
       setupLiveView(
         {
@@ -60,16 +60,7 @@ describe("setupLiveView", () => {
         } as never,
         undefined,
       ),
-    ).toMatchObject({ unit: "slot", total: 50 });
-  });
-
-  it("open인데 max_in_flight가 없거나 null이면 분모 null", () => {
-    const a = setupLiveView({ vus: 0, target_rps: 100, max_in_flight: null }, live(5, 0));
-    expect(a.total).toBeNull();
-    expect(a.okPct).toBe(0);
-    const b = setupLiveView({ vus: 0, target_rps: 100 }, live(5, 0));
-    expect(b.total).toBeNull();
-    expect(b.okPct).toBe(0);
+    ).toMatchObject({ unit: "slot", total: null });
   });
 
   it("VU 곡선은 명 단위·분모 null", () => {

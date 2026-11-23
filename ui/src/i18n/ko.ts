@@ -880,6 +880,7 @@ export const ko = {
     setupBadge: "준비",
     addSetupStep: "+ 준비 스텝",
     setupDropHint: "여기에 놓으면 준비 스텝이 됩니다",
+    setupDropPreviewHint: "놓으면 준비 스텝이 됩니다",
     setupDefaultUnused: "준비 스텝에서는 쓰이지 않습니다",
     problemGateIntro: "YAML이 유효하지 않아 에디터가 마지막 정상 상태로 표시될 수 있습니다.",
     editBlockedWhileInvalid: "YAML 오류를 고칠 때까지 아웃라인·인스펙터 편집이 차단됩니다.",
@@ -1627,6 +1628,10 @@ export const ko = {
     headlineClosedCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
       `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
+    headlineSetupFailed:
+      "준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — 아래 「준비 스텝」에서 원인을 확인하세요.",
+    headlineSetupInterrupted:
+      "준비 스텝이 끝나기 전에 실행이 끝나서 본 스텝을 실행하지 못했습니다.",
     headlineSetupOnly: "본 스텝이 없어서 준비 스텝만 실행했습니다.",
     // A11: SLO 수치 통과이더라도 시험 유효성이 limited/suspect일 때 emerald 강조 금지용 병기
     headlineSloPassLimited: "SLO 수치는 통과 · 시험 해석은 제한적",

@@ -514,6 +514,20 @@ export function OutlineRowPreview({ step, depth }: { step: Step; depth: number }
   return <div aria-hidden="true">{headerRow}</div>;
 }
 
+// 끄는 미리보기. 준비 놓을 자리가 열려 있으면 미리보기가 그 안내 글을 덮으므로 같은 안내를 미리보기 위에 붙인다.
+export function DragPreview({ step, toSetup }: { step: Step; toSetup: boolean }) {
+  return (
+    <div className="relative">
+      {toSetup && (
+        <span className="absolute -top-6 left-0 whitespace-nowrap rounded-md bg-accent-600 px-2 py-0.5 text-xs font-medium text-white shadow">
+          {ko.editor.setupDropPreviewHint}
+        </span>
+      )}
+      <OutlineRowPreview step={step} depth={0} />
+    </div>
+  );
+}
+
 function ContainerTag({ glyph, label }: { glyph: string; label: string }) {
   // glyph는 장식(aria-hidden), 라벨 텍스트만 ko 경유(ADR-0035).
   return (
@@ -898,7 +912,9 @@ export function FlowOutline({
         <p className="mt-1 text-xs text-slate-400">{ko.editor.containerCaption}</p>
       </div>
       <DragOverlay>
-        {activeStep ? <OutlineRowPreview step={activeStep} depth={0} /> : null}
+        {activeStep ? (
+          <DragPreview step={activeStep} toSetup={setupZoneShown && setup.length === 0} />
+        ) : null}
       </DragOverlay>
     </DndContext>
   );

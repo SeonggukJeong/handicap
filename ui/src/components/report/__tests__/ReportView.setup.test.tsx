@@ -155,7 +155,12 @@ describe("ReportView 준비 스텝", () => {
     expect(region).not.toHaveTextContent(NO_REQUESTS_LINE);
   });
 
-  it("본 스텝이 있는데 0건이면(준비가 모두 실패) 맨 위 문장은 예전 그대로다", () => {
+  const SETUP_FAILED_LINE =
+    "준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — 아래 「준비 스텝」에서 원인을 확인하세요.";
+  const SETUP_INTERRUPTED_LINE =
+    "준비 스텝이 끝나기 전에 실행이 끝나서 본 스텝을 실행하지 못했습니다.";
+
+  it("본 스텝이 있는데 준비가 실패해 0건이면 맨 위 문장이 준비 실패를 말한다", () => {
     renderIt({
       ...BASE,
       summary: ZERO_SUMMARY,
@@ -164,7 +169,34 @@ describe("ReportView 준비 스텝", () => {
       setup: { ...SETUP_REPORT, ok: 0, failed: 1 },
     });
     const region = screen.getByRole("region", { name: "쉬운 요약" });
-    expect(region).toHaveTextContent(NO_REQUESTS_LINE);
+    expect(region).toHaveTextContent(SETUP_FAILED_LINE);
+    expect(region).not.toHaveTextContent(NO_REQUESTS_LINE);
     expect(region).not.toHaveTextContent(SETUP_ONLY_LINE);
+  });
+
+  it("준비가 끝나기 전에 실행이 끝나 0건이면 맨 위 문장이 그렇게 말한다", () => {
+    renderIt({
+      ...BASE,
+      summary: ZERO_SUMMARY,
+      steps: [],
+      status_distribution: {},
+      setup: { ...SETUP_REPORT, ok: 0, failed: 0, interrupted: 2 },
+    });
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(SETUP_INTERRUPTED_LINE);
+    expect(region).not.toHaveTextContent(NO_REQUESTS_LINE);
+  });
+
+  it("준비는 끝났는데 본 요청이 0건이면 맨 위 문장은 예전 그대로다", () => {
+    renderIt({
+      ...BASE,
+      summary: ZERO_SUMMARY,
+      steps: [],
+      status_distribution: {},
+      setup: SETUP_REPORT,
+    });
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(NO_REQUESTS_LINE);
+    expect(region).not.toHaveTextContent(SETUP_FAILED_LINE);
   });
 });

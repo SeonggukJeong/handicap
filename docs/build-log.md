@@ -1342,3 +1342,27 @@ spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b2-design.md` · plan `do
 **라이브로 증명된 US**: US1·US2·US3·US4·US5. **못 한 것**: ① 준비 없는 run의 CSV를 master 바이너리 출력과 바이트 비교(메인 체크아웃 바이너리가 11-20 빌드라 DB 사본에서 404 — 대신 구현 전 출력으로 박은 `csv_without_setup_is_unchanged`와 라이브 CSV 모양 확인) ② 준비 요청 수 6자리(준비 요청 수는 VU 수를 못 넘는다 — 단위 테스트의 `123,456` 리터럴이 대신) ③ Windows 실제 글꼴(letter-spacing 흉내만) ④ 멀티 워커·풀 모드에서의 실행 중 줄(합산은 store 테스트로만).
 
 **함정 출처**: `ui/CLAUDE.md` 인쇄 보고서 절·`crates/controller/CLAUDE.md`의 `(vu-setup-steps-b2)` 줄.
+
+## setup-report-polish (2026-11-23) — 사용자 요청 소형 수정, spec/plan 없음
+
+화면이 틀린 말을 하거나 안 보이던 네 곳. `ui/`만(엔진·컨트롤러·와이어 0-diff). 판단·연기 roadmap §B90.
+
+- **리포트 머리 문장**(`ReportHeadline.tsx`): 본 스텝이 있는데 요청이 0건일 때, 리포트 `setup.failed > 0`이면 「준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — 아래 「준비 스텝」에서 원인을 확인하세요.」, `failed`는 0이고 `interrupted > 0`이면 「준비 스텝이 끝나기 전에 실행이 끝나서 본 스텝을 실행하지 못했습니다.」 그 밖의 0건은 예전 문장(「요청이 기록되지 않았습니다 — …」) 그대로(§B86 (1) 넷째 항목 해소).
+- **인쇄 2절 표의 95% 응답 칸**(`StepCodeTable.tsx`): 요청을 전부 보내지 않은 단계(`count − notSent ≤ 0`)는 「1ms 미만」 대신 「–」(§B78 (3) 해소, 덤벨과 같은 조건).
+- **준비 놓을 자리 안내**(`FlowOutline.tsx` `DragPreview`): 놓을 자리가 열려 있는 동안 끄는 미리보기 위에 「놓으면 준비 스텝이 됩니다」 표지를 붙인다(§B87 (0) 해소 — 놓을 자리의 글은 그대로 두었다).
+- **open-loop 실행 중 준비 줄**(`setupLive.ts`): 분모와 막대를 빼고 「N 슬롯 완료」만(§B89 (4) 다섯째 항목 해소 — 슬롯은 처음 쓰일 때 준비해서 설정 슬롯 수까지 차지 않는다).
+
+**검증**: 테스트 먼저 → 되돌려 확인(production 네 파일을 되돌리면 5건 RED: 머리 문장 2 · 슬롯 분모 2 · 인쇄 칸 1) → `pnpm lint`·`pnpm test`·`pnpm build` 통과. `DragPreview` 테스트는 표지 렌더만 본다 — 「놓을 자리가 열렸을 때만」 배선은 아래 라이브가 증거다.
+
+**라이브**(메인 체크아웃 바이너리 + 워크트리 `ui/dist`, 응답기 50ms, 격리 DB):
+
+| 무엇 | 절차 | 본 것 |
+|---|---|---|
+| 머리 문장 | 준비 스텝 주소를 닫힌 포트로, VU 2 → run `failed`, 리포트 `setup.failed = 2` · 본 요청 0건 | 「준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — …」 |
+| 인쇄 칸 | 조건 반복 안에서 못 뽑은 값을 다음 스텝 주소에 → 그 스텝 116건 전부 「보내지 않음」 | 그 행의 95% 응답 「–」, 정상 행 「0.05초」 |
+| 실행 중 줄 | open-loop 2 iter/s · 슬롯 50 · 준비 1개, 실행 중 run 상세 | 「준비 스텝 14 슬롯 완료」, 막대 없음, 폭 390에서 넘침 없음 |
+| 끄는 표지 | 준비 없는 시나리오에서 둘째 스텝을 목록 맨 위로(누른 채) | 중간에서는 표지 없음 → 맨 위에서 표지가 미리보기 바로 위에 보임(그 자리의 맨 위 요소가 표지) → 아래로 내리면 사라짐 → 맨 위에서 놓으면 준비 스텝이 됨 |
+
+콘솔 오류 0. **못 한 것**: 끄는 표지는 기본 보기 한 곳에서만 봤다(넓게 보기·변수 넓게 보기는 같은 `FlowOutline`·같은 `DragOverlay`) · Windows 글꼴 폭 · `interrupted`만 있는 0건 run은 라이브로 만들지 못했다(테스트만).
+
+**라이브 중 걸린 것**: `cargo build -p handicap-controller --bin controller -p handicap-worker`는 워커를 빌드하지 않는다(`--bin controller`가 대상을 그 바이너리로 좁힌다) — 옛 워커가 `setup`을 못 읽어 run이 바로 `failed`. 워커는 `cargo build -p handicap-worker`로 따로.
