@@ -28,6 +28,17 @@ setup:
 ${HTTP(S1, "준비 요청")}steps:
 ${HTTP(B1, "조회")}`;
 
+const T1 = "01HX00000000000000000000T1";
+const T2 = "01HX00000000000000000000T2";
+const T3 = "01HX00000000000000000000T3";
+
+const THREE_SETUP = `version: 1
+name: x
+setup:
+  steps:
+${HTTP(T1, "준비일")}${HTTP(T2, "준비이")}${HTTP(T3, "준비삼")}steps:
+${HTTP(B1, "조회")}`;
+
 const TWO_MAIN = `version: 1
 name: x
 steps:
@@ -75,12 +86,12 @@ describe("Inspector 준비 스텝", () => {
     expect(st().yamlText).toContain("새 준비");
   });
 
-  it("준비 스텝에는 ↑↓가 없고 안내 줄과 「본 스텝으로 옮기기」가 있다", () => {
+  it("준비 스텝에도 ↑↓가 있고 안내 줄과 「본 스텝으로 옮기기」가 있다", () => {
     st().loadFromString(WITH_SETUP);
     st().select(S1);
     render(<Inspector />);
-    expect(screen.queryByTitle(ko.common.moveUp)).not.toBeInTheDocument();
-    expect(screen.queryByTitle(ko.common.moveDown)).not.toBeInTheDocument();
+    expect(screen.getByTitle(ko.common.moveUp)).toBeInTheDocument();
+    expect(screen.getByTitle(ko.common.moveDown)).toBeInTheDocument();
     const hint = screen.getByText("VU마다 한 번만 실행됩니다.");
     expect(within(hint).getByText("준비")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "본 스텝으로 옮기기" })).toBeInTheDocument();
@@ -96,8 +107,33 @@ describe("Inspector 준비 스텝", () => {
     expect(m.setup).toBeUndefined();
     expect(m.steps[m.steps.length - 1].id).toBe(S1);
     expect(screen.getByRole("button", { name: "준비 스텝으로 옮기기" })).toBeInTheDocument();
-    expect(screen.getByTitle(ko.common.moveUp)).toBeInTheDocument();
-    expect(screen.getByTitle(ko.common.moveDown)).toBeInTheDocument();
+  });
+
+  it("준비 스텝의 ↓는 준비 구획 안에서 한 칸 내린다", async () => {
+    const user = userEvent.setup();
+    st().loadFromString(THREE_SETUP);
+    expect(st().yamlError).toBeNull();
+    expect(st().model).not.toBeNull();
+    st().select(T1);
+    render(<Inspector />);
+    await user.click(screen.getByTitle(ko.common.moveDown));
+    expect(st().model!.setup!.steps.map((s) => s.id)).toEqual([T2, T1, T3]);
+    expect(st().model!.steps.map((s) => s.id)).toEqual([B1]);
+  });
+
+  it("맨 위 준비 스텝은 ↑가, 맨 아래는 ↓가 꺼져 있다", () => {
+    st().loadFromString(THREE_SETUP);
+    expect(st().yamlError).toBeNull();
+    expect(st().model).not.toBeNull();
+    st().select(T1);
+    const { unmount } = render(<Inspector />);
+    expect(screen.getByTitle(ko.common.moveUp)).toBeDisabled();
+    expect(screen.getByTitle(ko.common.moveDown)).toBeEnabled();
+    unmount();
+    st().select(T3);
+    render(<Inspector />);
+    expect(screen.getByTitle(ko.common.moveDown)).toBeDisabled();
+    expect(screen.getByTitle(ko.common.moveUp)).toBeEnabled();
   });
 
   it("최상위 본 http 스텝에는 「준비 스텝으로 옮기기」가 있다", async () => {

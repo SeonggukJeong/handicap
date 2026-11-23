@@ -24,6 +24,7 @@ import {
   isInsideParallelBranch,
   allSteps,
   isSetupStep,
+  setupSteps,
   extractDefaultIssue,
   EXTRACT_DEFAULT_MAX,
 } from "../../scenario/model";
@@ -159,11 +160,11 @@ function removeAtPath(node: Condition, path: number[]): Condition {
 // which would mis-disable the buttons).
 function MoveButtons({ stepId }: { stepId: string }) {
   const moveStep = useScenarioEditor((s) => s.moveStep);
-  const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
-  const siblings = useMemo<ReadonlyArray<Step>>(
-    () => findStepSiblings(steps, stepId),
-    [steps, stepId],
-  );
+  const model = useScenarioEditor((s) => s.model);
+  const siblings = useMemo<ReadonlyArray<Step>>(() => {
+    if (!model) return EMPTY_STEPS;
+    return isSetupStep(model, stepId) ? setupSteps(model) : findStepSiblings(model.steps, stepId);
+  }, [model, stepId]);
   const index = siblings.findIndex((s) => s.id === stepId);
   return (
     <>
@@ -264,7 +265,7 @@ function HttpStepInspector({
       <header className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">{ko.editor.httpPanelTitle}</h3>
         <div className="flex gap-1">
-          {!inSetup && <MoveButtons stepId={step.id} />}
+          <MoveButtons stepId={step.id} />
           <SmallButton
             onClick={() => removeStep(step.id)}
             label={ko.common.delete}
