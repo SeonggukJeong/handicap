@@ -47,6 +47,7 @@ export type MkReportArgs = {
   status?: string;
   verdict?: Report["verdict"];
   basis?: Report["basis"];
+  sample?: Report["sample"];
 };
 
 const T0 = 1_700_000_000_000;
@@ -104,6 +105,7 @@ export function mkReport(a: MkReportArgs): Report {
     dropped: 0,
     latency: null,
     ...(a.basis ? { basis: a.basis } : {}),
+    ...(a.sample ? { sample: a.sample } : {}),
   } as Report;
 }
 

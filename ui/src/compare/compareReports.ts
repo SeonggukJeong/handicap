@@ -1,4 +1,5 @@
 import type { Report } from "../api/schemas";
+import { stepLatencyMissing, summaryLatencyMissing } from "./latencyMissing";
 
 export type Polarity = "good" | "bad" | "neutral";
 export type Delta = { pct: number | null; polarity: Polarity };
@@ -24,6 +25,7 @@ const LOWER_IS_BETTER = new Set([
   "setup_errors",
 ]);
 const SUMMARY_METRICS = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_rate"] as const;
+const LATENCY_METRICS = new Set<string>(["p50_ms", "p95_ms", "p99_ms"]);
 
 export function computeDelta(metric: string, base: number, val: number): Delta {
   const pct = base === 0 ? null : (val - base) / base;
@@ -99,27 +101,32 @@ export function compareReports(reports: Report[], baselineId: string): CompareRe
   const baselineIdx = Math.max(0, runIds.indexOf(baselineId));
 
   const summary: CompareRow[] = SUMMARY_METRICS.map((metric) => {
-    const base = summaryValue(reports[baselineIdx], metric);
+    const pick = (r: Report): number | null =>
+      LATENCY_METRICS.has(metric) && summaryLatencyMissing(r) ? null : summaryValue(r, metric);
+    const base = pick(reports[baselineIdx]);
     return {
       label: metric,
       metric,
       cells: reports.map((r, i) => {
-        const value = summaryValue(r, metric);
-        return { value, delta: i === baselineIdx ? null : computeDelta(metric, base, value) };
+        const value = pick(r);
+        if (i === baselineIdx || value === null || base === null) return { value, delta: null };
+        return { value, delta: computeDelta(metric, base, value) };
       }),
     };
   });
 
   const stepIds = Array.from(new Set(reports.flatMap((r) => r.steps.map((s) => s.step_id)))).sort();
   const steps: CompareRow[] = stepIds.map((sid) => {
-    const baseStep = reports[baselineIdx].steps.find((s) => s.step_id === sid);
-    const base = baseStep ? baseStep.p95_ms : null;
+    const p95Of = (r: Report): number | null => {
+      const st = r.steps.find((s) => s.step_id === sid);
+      return st && !stepLatencyMissing(r, st) ? st.p95_ms : null;
+    };
+    const base = p95Of(reports[baselineIdx]);
     return {
       label: sid,
       metric: "p95_ms",
       cells: reports.map((r, i) => {
-        const st = r.steps.find((s) => s.step_id === sid);
-        const value = st ? st.p95_ms : null;
+        const value = p95Of(r);
         if (i === baselineIdx || value === null || base === null) return { value, delta: null };
         return { value, delta: computeDelta("p95_ms", base, value) };
       }),

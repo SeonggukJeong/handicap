@@ -237,6 +237,22 @@ describe("CompareDocument 표준판", () => {
     expect(small.querySelector("b")).toBeNull();
   });
 
+  it("응답 시간 표본이 섞이면 표준판·요약판 모두 안내 한 줄이 있다", async () => {
+    const sample = { selected: "passed", default: "passed", split: true } as const;
+    const doc = makeDoc({ sample }, {});
+    for (const kind of ["standard", "summary"] as const) {
+      const { root, container } = renderDoc(doc, kind);
+      await ready(root);
+      const notes = [...container.querySelectorAll(".p-cmp-sample")];
+      expect(notes.length, kind).toBe(1);
+      expect(notes[0].textContent).toBe(doc.fairness.sampleLine);
+      expect(notes[0].textContent).toContain("실패한 요청을 포함해 응답 시간을 계산했습니다");
+    }
+    const same = renderDoc(makeDoc());
+    await ready(same.root);
+    expect(same.container.querySelector(".p-cmp-sample")).toBeNull();
+  });
+
   it("공정 비교 카드 넷의 제목이 글로 있다", async () => {
     const doc = makeDoc();
     const { root, container } = renderDoc(doc);

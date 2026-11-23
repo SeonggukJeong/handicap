@@ -1,3 +1,5 @@
+import { reportSample } from "../../api/schemas";
+import { hasLatency } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { niceTicks } from "../chartModel";
 import { fmtBoundary, fmtMs, fmtMsExact } from "../format";
@@ -63,6 +65,12 @@ function msOf(model: RunModel, stepId: string): number | null {
   const row = model.table.rows.find((r) => r.stepId === stepId);
   // 하나도 보내지 않은 쪽은 잰 시간이 없다(보냈지만 응답을 못 받은 요청은 걸린 시간이 표본에 있다)
   if (!row || !row.executed || requestsSent(row) <= 0 || !Number.isFinite(row.p95Ms)) {
+    return null;
+  }
+  if (
+    reportSample(model.report).default === "passed" &&
+    !hasLatency({ count: row.count, errors: row.errorCount, notSent: row.notSent }, "passed")
+  ) {
     return null;
   }
   return row.p95Ms;

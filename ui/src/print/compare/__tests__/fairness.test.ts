@@ -17,6 +17,7 @@ type Opts = {
   meta?: Partial<RunMeta>;
   status?: RunMeta["status"];
   basis?: Report["basis"];
+  sample?: Report["sample"];
 };
 
 function model(id: string, o: Opts = {}): RunModel {
@@ -31,6 +32,7 @@ function model(id: string, o: Opts = {}): RunModel {
     env: o.env,
     status: o.status,
     basis: o.basis,
+    sample: o.sample,
   });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(id, { status: o.status ?? "completed", ...o.meta }), report);
@@ -519,6 +521,20 @@ describe("판정 기준", () => {
     expect(card(f, "criteria").line).toBe("한쪽만 기준 있음");
     expect(f.criteriaSame).toBe(false);
     expect(card(fair(), "criteria").same).toBe(true);
+  });
+});
+
+describe("응답 시간 표본 안내", () => {
+  const passed = { selected: "passed", default: "passed", split: true } as const;
+  it("표본이 섞이면 안내 한 줄이 생긴다", () => {
+    const f = fair({ sample: passed }, {});
+    expect(f.sampleLine).toBe(
+      "고른 run 중 일부는 실패한 요청을 포함해 응답 시간을 계산했습니다. 응답 시간을 그대로 비교하기 어렵습니다.",
+    );
+  });
+  it("같으면 null", () => {
+    expect(fair({ sample: passed }, { sample: passed }).sampleLine).toBeNull();
+    expect(fair({}, {}).sampleLine).toBeNull();
   });
 });
 

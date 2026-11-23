@@ -2,6 +2,7 @@
 
 import { ko } from "../../i18n/ko";
 import { runShortLabel } from "../../compare/runLabel";
+import { summaryLatencyMissing } from "../../compare/latencyMissing";
 import { measuredWindow } from "../conditions";
 import { fmtDate } from "../format";
 import type { Block } from "../paginate";
@@ -92,6 +93,10 @@ export function buildCompareDoc(a: {
   const rows = metricRows(before.report.summary, after.report.summary, {
     errorRateReference: star,
     incomparable,
+    latencyMissing: {
+      before: summaryLatencyMissing(before.report),
+      after: summaryLatencyMissing(after.report),
+    },
   });
   const fairness = buildFairness(before, after);
   const headline = buildHeadline({

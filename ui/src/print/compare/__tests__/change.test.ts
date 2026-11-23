@@ -248,6 +248,24 @@ describe("metricRows", () => {
     }
   });
 
+  it("통과한 요청이 없는 쪽은 응답 시간 칸을 「–」로, 분류·막대 없음", () => {
+    const rows = metricRows(BEFORE, AFTER, {
+      ...OPTS,
+      latencyMissing: { before: true, after: false },
+    });
+    for (const k of ["p99_ms", "p95_ms", "mean_ms"]) {
+      const r = row(rows, k);
+      expect(r.beforeText, k).toBe("–");
+      expect(r.cls, k).toBe("none");
+      expect(r.arrow, k).toBe("–");
+      expect(r.changeText, k).toBe("");
+      expect(r.barBefore, k).toBe(0);
+    }
+    expect(row(rows, "p95_ms").afterText).toBe("1.6초");
+    expect(row(rows, "rps").cls).not.toBe("none");
+    expect(row(rows, "count").beforeText).toBe("144,000");
+  });
+
   it("완전히 같은 요약", () => {
     for (const r of metricRows(BEFORE, BEFORE, OPTS)) {
       expect(r.cls).toBe("similar");

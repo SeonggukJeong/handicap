@@ -118,6 +118,34 @@ describe("ScenarioComparePage", () => {
     expect(notice?.textContent).toContain("전체 구간");
   });
 
+  it("응답 시간 표본이 섞인 run을 비교하면 안내가 보이고, 통과한 요청 없는 칸은 「—」", async () => {
+    const passedA = {
+      ...baseReport,
+      summary: { ...baseReport.summary, errors: 100, p95_ms: 0 },
+      sample: { selected: "passed", default: "passed", split: true },
+    };
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
+      Promise.resolve((id === "A" ? passedA : reportB) as never),
+    );
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+    await screen.findByText("p95_ms");
+    const notice = screen.getByText(/실패한 요청을 포함해 응답 시간을 계산했습니다/);
+    expect(notice.closest('[role="status"]')).not.toBeNull();
+    const row = screen.getByText("p95_ms").closest("tr")!;
+    const cells = row.querySelectorAll("td");
+    expect(cells[1].textContent).toBe("—");
+    expect(cells[2].textContent).toBe("30");
+  });
+
+  it("표본이 같으면 응답 시간 표본 안내가 없다", async () => {
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
+      Promise.resolve(id === "A" ? baseReport : reportB),
+    );
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+    await screen.findByText("p95_ms");
+    expect(screen.queryByText(/실패한 요청을 포함해 응답 시간을/)).not.toBeInTheDocument();
+  });
+
   it("둘 다 basis 없으면 집계 기준 안내가 없다", async () => {
     vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
       Promise.resolve(id === "A" ? baseReport : reportB),

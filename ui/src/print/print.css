@@ -842,6 +842,12 @@
   overflow-wrap: anywhere;
 }
 
+.p-root .p-cmp-sample {
+  margin-top: 1.5mm;
+  font-size: 7.8pt;
+  overflow-wrap: anywhere;
+}
+
 /* 핵심 지표 표 */
 .p-root .p-cmp-kpi th,
 .p-root .p-cmp-kpi td,

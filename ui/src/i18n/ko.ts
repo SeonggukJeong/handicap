@@ -2159,6 +2159,8 @@ export const ko = {
   },
   compare: {
     basisMismatch: (parts: string) => `집계 기준이 다릅니다 — ${parts}`,
+    sampleNotice:
+      "고른 run 중 일부는 실패한 요청을 포함해 응답 시간을 계산했습니다. 응답 시간을 그대로 비교하기 어렵습니다.",
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,

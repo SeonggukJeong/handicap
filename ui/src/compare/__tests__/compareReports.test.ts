@@ -50,6 +50,73 @@ describe("golden cross-check vs Rust", () => {
   });
 });
 
+describe("golden missing_cases vs Rust (통과한 요청 없는 칸)", () => {
+  type Exp = {
+    metric: string;
+    values: (number | null)[];
+    deltas: (null | { pct: number | null; polarity: string })[];
+  };
+  const cases = golden.missing_cases as {
+    name: string;
+    reports: Report[];
+    baseline_id: string;
+    expected: { summary: Exp[] };
+  }[];
+  it("두 사례가 있다", () => {
+    expect(cases.map((c) => c.name)).toEqual(["baseline_missing", "candidate_missing"]);
+  });
+  for (const c of cases) {
+    it(`${c.name}: 값·Δ가 서버 기대와 같다(null 위치 포함)`, () => {
+      const result = compareReports(c.reports, c.baseline_id);
+      for (const row of c.expected.summary) {
+        const r = result.summary.find((m) => m.metric === row.metric)!;
+        expect(
+          r.cells.map((x) => x.value),
+          row.metric,
+        ).toEqual(row.values);
+        row.deltas.forEach((exp, i) => {
+          const cell = r.cells[i];
+          if (exp === null) expect(cell.delta, `${row.metric}[${i}]`).toBeNull();
+          else {
+            expect(cell.delta!.pct).toBeCloseTo(exp.pct!, 9);
+            expect(cell.delta!.polarity).toBe(exp.polarity);
+          }
+        });
+      }
+    });
+  }
+  it("스텝 p95도 같은 규칙: 통과한 요청이 없으면 null·Δ null", () => {
+    const step = (count: number, errors: number, p95: number) => ({
+      step_id: "s1",
+      count,
+      error_count: errors,
+      status_counts: {},
+      p50_ms: 0,
+      p95_ms: p95,
+      p99_ms: 0,
+    });
+    const mk = (id: string, st: ReturnType<typeof step>) =>
+      ({
+        ...(cases[0].reports[1] as Report),
+        run: { ...cases[0].reports[1].run, id },
+        steps: [st],
+      }) as Report;
+    const res = compareReports([mk("a", step(10, 10, 0)), mk("b", step(10, 1, 40))], "a");
+    expect(res.steps[0].cells.map((x) => x.value)).toEqual([null, 40]);
+    expect(res.steps[0].cells[1].delta).toBeNull();
+  });
+  it("옛 run(sample 없음)은 모두 실패여도 0 그대로 비교한다", () => {
+    const old = (id: string) =>
+      ({
+        ...(cases[0].reports[0] as Report),
+        run: { ...cases[0].reports[0].run, id },
+        sample: undefined,
+      }) as Report;
+    const res = compareReports([old("a"), old("b")], "a");
+    expect(res.summary[0].cells.map((x) => x.value)).toEqual([0, 0]);
+  });
+});
+
 describe("golden polarity block vs Rust", () => {
   it("computeDelta matches every polarity fixture entry", () => {
     const rows = golden.expected.polarity as {

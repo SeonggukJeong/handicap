@@ -312,6 +312,25 @@ describe("buildDumbbell", () => {
     expect(m.axisMaxMs).toBe(1);
   });
 
+  it("통과한 요청이 없는 단계는 점·변화를 내지 않는다(표본 passed)", () => {
+    const passed = { selected: "passed", default: "passed", split: true } as const;
+    const mk = (id: string, errors: number, p95: number, sample?: typeof passed) =>
+      sceneModel({
+        id,
+        steps: [{ id: "s1", name: "단계1" }],
+        rep: [{ id: "s1", counts: { "200": 10 - errors, "500": errors }, errors, p95 }],
+        profile: prof(),
+        sample,
+      });
+    const m = buildDumbbell(mk("b", 10, 0, passed), mk("a", 1, 400, passed));
+    const r = m.rows[0]!;
+    expect([r.beforeMs, r.afterMs, r.cls, r.shape]).toEqual([null, 400, null, "single"]);
+    expect(r.beforeText).toBe("–");
+    // 옛 run(표본 없음)은 모두 실패여도 값 그대로
+    const old = buildDumbbell(mk("b", 10, 0), mk("a", 1, 400));
+    expect(old.rows[0]!.beforeMs).toBe(0);
+  });
+
   it("최댓값이 1초 미만이면 ms 눈금", () => {
     const m = build([[150, 800]]);
     expect(m.axisMaxMs).toBe(800);
