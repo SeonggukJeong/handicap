@@ -27,6 +27,20 @@
       { "metric": "p99_ms", "values": [240, 251], "deltas": [null, { "pct": 0.04583333333333333, "polarity": "bad" }] },
       { "metric": "rps", "values": [20400, 19800], "deltas": [null, { "pct": -0.029411764705882353, "polarity": "bad" }] },
       { "metric": "error_rate", "values": [0.001, 0.002], "deltas": [null, { "pct": 1.0, "polarity": "bad" }] }
+    ],
+    "polarity": [
+      { "metric": "setup_ok", "base": 50, "val": 47, "pct": -0.06, "polarity": "bad" },
+      { "metric": "setup_ok", "base": 47, "val": 50, "pct": 0.06382978723404255, "polarity": "good" },
+      { "metric": "setup_ok", "base": 50, "val": 50, "pct": 0, "polarity": "neutral" },
+      { "metric": "setup_ok", "base": 0, "val": 5, "pct": null, "polarity": "good" },
+      { "metric": "setup_failed", "base": 2, "val": 3, "pct": 0.5, "polarity": "bad" },
+      { "metric": "setup_failed", "base": 3, "val": 2, "pct": -0.3333333333333333, "polarity": "good" },
+      { "metric": "setup_failed", "base": 3, "val": 3, "pct": 0, "polarity": "neutral" },
+      { "metric": "setup_failed", "base": 0, "val": 3, "pct": null, "polarity": "bad" },
+      { "metric": "setup_errors", "base": 4, "val": 6, "pct": 0.5, "polarity": "bad" },
+      { "metric": "setup_errors", "base": 6, "val": 3, "pct": -0.5, "polarity": "good" },
+      { "metric": "setup_errors", "base": 0, "val": 0, "pct": null, "polarity": "neutral" },
+      { "metric": "setup_errors", "base": 0, "val": 2, "pct": null, "polarity": "bad" }
     ]
   }
 }

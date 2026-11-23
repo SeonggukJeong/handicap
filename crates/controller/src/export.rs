@@ -21,7 +21,10 @@ pub struct Delta {
 
 /// lower_is_better metrics return true. count/duration are neutral (caller excludes them).
 fn delta(metric: &str, base: f64, val: f64) -> Delta {
-    let lower_is_better = matches!(metric, "p50_ms" | "p95_ms" | "p99_ms" | "error_rate");
+    let lower_is_better = matches!(
+        metric,
+        "p50_ms" | "p95_ms" | "p99_ms" | "error_rate" | "setup_failed" | "setup_errors"
+    );
     let pct = if base == 0.0 {
         None
     } else {
@@ -1439,6 +1442,35 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn golden_polarity_matches() {
+        let g: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/compare_golden.json"
+        )))
+        .expect("golden parse");
+        let rows = g["expected"]["polarity"].as_array().unwrap();
+        assert_eq!(rows.len(), 12);
+        for row in rows {
+            let metric = row["metric"].as_str().unwrap();
+            let base = row["base"].as_f64().unwrap();
+            let val = row["val"].as_f64().unwrap();
+            let d = delta(metric, base, val);
+            match row["pct"].as_f64() {
+                None => assert!(d.pct.is_none(), "{metric} {base}->{val}: pct null"),
+                Some(p) => assert!(
+                    (d.pct.unwrap() - p).abs() < 1e-12,
+                    "{metric} {base}->{val}: pct"
+                ),
+            }
+            assert_eq!(
+                format!("{:?}", d.polarity).to_lowercase(),
+                row["polarity"].as_str().unwrap(),
+                "{metric} {base}->{val}"
+            );
         }
     }
 

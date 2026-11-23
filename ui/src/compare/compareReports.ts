@@ -14,7 +14,14 @@ export type CompareResult = {
   stepMismatch: boolean;
 };
 
-const LOWER_IS_BETTER = new Set(["p50_ms", "p95_ms", "p99_ms", "error_rate"]);
+const LOWER_IS_BETTER = new Set([
+  "p50_ms",
+  "p95_ms",
+  "p99_ms",
+  "error_rate",
+  "setup_failed",
+  "setup_errors",
+]);
 const SUMMARY_METRICS = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_rate"] as const;
 
 export function computeDelta(metric: string, base: number, val: number): Delta {

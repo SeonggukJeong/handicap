@@ -49,6 +49,25 @@ describe("golden cross-check vs Rust", () => {
   });
 });
 
+describe("golden polarity block vs Rust", () => {
+  it("computeDelta matches every polarity fixture entry", () => {
+    const rows = golden.expected.polarity as {
+      metric: string;
+      base: number;
+      val: number;
+      pct: number | null;
+      polarity: string;
+    }[];
+    expect(rows).toHaveLength(12);
+    for (const row of rows) {
+      const d = computeDelta(row.metric, row.base, row.val);
+      if (row.pct === null) expect(d.pct).toBeNull();
+      else expect(d.pct).toBeCloseTo(row.pct, 12);
+      expect(d.polarity, `${row.metric} ${row.base}->${row.val}`).toBe(row.polarity);
+    }
+  });
+});
+
 describe("verdictPolarity (baseline-relative, spec R7)", () => {
   it("baseline PASS & candidate FAIL → bad (악화)", () => {
     expect(verdictPolarity(true, false)).toBe("bad");
