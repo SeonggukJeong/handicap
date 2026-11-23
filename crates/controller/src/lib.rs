@@ -15,6 +15,7 @@ pub mod insights;
 pub mod launch;
 pub mod monitor;
 pub mod report;
+pub mod sample;
 pub mod schedule;
 pub mod settings;
 pub mod speed_bands;
