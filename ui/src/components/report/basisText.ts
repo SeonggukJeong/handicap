@@ -51,7 +51,7 @@ export function basisOtherLine(
     : sample === "passed" && (other.count === 0 || other.error_rate >= 1);
   const name = basis.selected === "steady" ? t.whole : t.steady;
   return t.otherLine(
-    switched ? `${name} (${sampleName(sample)})` : name,
+    switched ? t.otherNameWithSample(name, sampleName(sample)) : name,
     other.rps.toFixed(1),
     noValue ? null : other.p95_ms,
     floorPct(other.error_rate * 100),

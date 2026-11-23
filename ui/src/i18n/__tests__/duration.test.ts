@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatDurationKo, formatSecondsKo } from "../duration";
+import { formatDurationKo, formatLatencyKo, formatSecondsKo } from "../duration";
 
 describe("formatDurationKo", () => {
   it("초 단위", () => expect(formatDurationKo(30)).toBe("30초"));
@@ -16,4 +16,16 @@ describe("formatSecondsKo", () => {
   it("1~10초는 소수 1자리", () => expect(formatSecondsKo(1234)).toBe("1.2초"));
   it("10초 이상은 정수", () => expect(formatSecondsKo(12345)).toBe("12초"));
   it("0ms", () => expect(formatSecondsKo(0)).toBe("0.00초"));
+});
+
+describe("formatLatencyKo", () => {
+  it("1초 미만은 ms 그대로", () => {
+    expect(formatLatencyKo(0)).toBe("0ms");
+    expect(formatLatencyKo(1)).toBe("1ms");
+    expect(formatLatencyKo(999)).toBe("999ms");
+  });
+  it("1초 이상은 초 표기", () => {
+    expect(formatLatencyKo(1000)).toBe("1.0초");
+    expect(formatLatencyKo(12_000)).toBe("12초");
+  });
 });

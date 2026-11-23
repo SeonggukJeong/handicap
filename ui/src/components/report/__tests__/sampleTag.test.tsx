@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { WorkerBreakdown } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
+import { SampleTag } from "../SampleTag";
 import { Summary } from "../Summary";
 import { StepStatsTable } from "../StepStatsTable";
 import { TimeSeriesChart } from "../TimeSeriesChart";
@@ -95,5 +96,14 @@ describe("구획 표본 표지", () => {
     expect(screen.queryByText(TAG)).not.toBeInTheDocument();
     rerender(<WorkerBreakdownTable breakdown={workers} />);
     expect(screen.queryByText(TAG)).not.toBeInTheDocument();
+  });
+});
+
+describe("SampleTag", () => {
+  it("이름이 두 줄로 꺾이지 않는다", () => {
+    render(<SampleTag name={TAG} className="ml-2" />);
+    const el = screen.getByText(TAG);
+    expect(el).toHaveClass("whitespace-nowrap");
+    expect(el).toHaveClass("ml-2");
   });
 });

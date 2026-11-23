@@ -18,3 +18,8 @@ export function formatSecondsKo(ms: number): string {
   if (s < 10) return `${s.toFixed(1)}초`;
   return `${Math.round(s)}초`;
 }
+
+/** ms → 1초 미만은 "44ms", 그 이상은 formatSecondsKo. 한 자리 ms 값이 "0.00초"로 뭉개지지 않게 한다. */
+export function formatLatencyKo(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : formatSecondsKo(ms);
+}

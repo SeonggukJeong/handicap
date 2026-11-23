@@ -7,7 +7,7 @@ import type {
 } from "../../api/schemas";
 import { hasLatency, type LatencyCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
-import { formatDurationKo, formatSecondsKo } from "../../i18n/duration";
+import { formatDurationKo, formatLatencyKo, formatSecondsKo } from "../../i18n/duration";
 import { noLatencyWord } from "../../report/sampleView";
 import { floorPct } from "./format";
 import { fixedTarget } from "../run/loadModel";
@@ -53,8 +53,8 @@ export function ReportHeadline({
     : noLatency
       ? noLatencyWord(latency.sample, summary.errors)
       : latency.sample === "failed"
-        ? ko.report.headlineLatencyFailed(p95)
-        : ko.report.headlineLatencyAll(p95);
+        ? ko.report.headlineLatencyFailed(formatLatencyKo(summary.p95_ms))
+        : ko.report.headlineLatencyAll(formatLatencyKo(summary.p95_ms));
   const common = {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),

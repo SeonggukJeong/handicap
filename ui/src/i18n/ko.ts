@@ -1267,6 +1267,7 @@ export const ko = {
       notReached: "유지 구간에 닿기 전에 끝나 전체 구간만 볼 수 있습니다",
       noCommonWindow:
         "워커 시작 시각 차이가 커서 공통 유지 구간이 없습니다 — 전체 구간만 볼 수 있습니다",
+      otherNameWithSample: (name: string, sample: string) => `${name} (${sample})`,
       otherLine: (label: string, rps: string, p95: number | null, errPct: string) =>
         `${label}: 초당 요청 ${rps} · ${p95 === null ? "p95 —" : `p95 ${p95} ms`} · 오류 ${errPct}`,
       chartLegend: (hasRamp: boolean, hasDiscard: boolean) => {

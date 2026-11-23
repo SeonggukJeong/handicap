@@ -65,7 +65,7 @@ export function SampleBar({
             label: sampleName(s),
             description: (
               <>
-                <span className="block">{copy[s].when}</span>
+                <span className="block">{copy[s].when}</span>{" "}
                 <span className="mt-1.5 block">{copy[s].look}</span>
               </>
             ),

@@ -119,6 +119,18 @@ describe("SampleBar", () => {
     );
   });
 
+  it("radio마다 접근 가능한 설명은 「언제」와 「무엇」을 공백 하나로 잇는다", () => {
+    bar({ sample: { selected: "passed", default: "passed", split: true } });
+    const pairs = [
+      [t.passed, t.whenPassed, t.lookPassed],
+      [t.failed, t.whenFailed, t.lookFailed],
+      [t.allShort, t.whenAll, t.lookAll],
+    ] as const;
+    for (const [name, when, look] of pairs) {
+      expect(screen.getByRole("radio", { name })).toHaveAccessibleDescription(`${when} ${look}`);
+    }
+  });
+
   it("나눌 수 없는 run은 requested가 failed여도 단추·상자 없이 그대로(R14)", () => {
     bar({ sample: { selected: "all", default: "all", split: false } }, "failed");
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();

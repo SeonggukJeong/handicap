@@ -197,7 +197,7 @@ describe("ReportView", () => {
     expect(screen.getByText(/전체 구간 \(실패한 요청\)/)).toBeInTheDocument();
   });
 
-  it("steady_run_reads_as_fixed_everywhere:버림이 전체 값이면 버림 비율 분모는 other.count", () => {
+  it("steady_run_reads_as_fixed_everywhere: 버림이 전체 값이면 버림 비율 분모는 other.count", () => {
     const steady = { ramp_seconds: 0, hold_seconds: 300, discard_seconds: 5 };
     const report: Report = {
       ...FIXTURE,
@@ -711,7 +711,7 @@ describe("ReportView", () => {
       { worker_id: "w1", count: 5, errors: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
     ];
     const names = [ko.report.sample.passed, ko.report.sample.failed, ko.report.sample.allShort];
-    const four = () => [
+    const threeRegions = () => [
       screen.getByRole("region", { name: /리포트 요약/ }),
       screen.getByRole("region", { name: /시계열 — p95/ }),
       screen.getByRole("region", { name: /스텝별 통계/ }),
@@ -730,7 +730,7 @@ describe("ReportView", () => {
       render(<ReportView report={report} profile={TEST_PROFILE} requestedSample="failed" />);
       const tag = ko.report.sample.failed;
       for (const el of [
-        ...four(),
+        ...threeRegions(),
         screen.getByRole("region", { name: ko.report.latencyTitle }),
         screen.getByRole("region", { name: ko.report.workerBreakdownLabel }),
       ]) {
@@ -761,7 +761,7 @@ describe("ReportView", () => {
       };
       render(<ReportView report={report} profile={TEST_PROFILE} />);
       for (const el of [
-        ...four(),
+        ...threeRegions(),
         screen.getByRole("region", { name: ko.report.workerBreakdownLabel }),
       ]) {
         noNames(el);
@@ -781,13 +781,70 @@ describe("ReportView", () => {
       noNames(screen.getByRole("region", { name: ko.report.latencyTitle }));
     });
 
+    it("나눌 수 없는 run은 failed를 요청해도 구획 표지·안내·다른 기준 접미가 없다 (R14)", () => {
+      const base: Report = {
+        ...FIXTURE,
+        sample: { selected: "all", default: "all", split: false },
+        latency: LAT,
+        worker_breakdown: WORKERS,
+        basis: {
+          selected: "steady",
+          default: "steady",
+          state: "measured",
+          config: { ramp_seconds: 0, hold_seconds: 10, discard_seconds: 0 },
+          window: { start_ms: 1000, end_ms: 2000, measured_seconds: 10 },
+          t0_estimated: false,
+          dropped_whole_run: false,
+          other: {
+            rps: 3,
+            p50_ms: 1,
+            p95_ms: 2,
+            p99_ms: 3,
+            error_rate: 0.5,
+            count: 100,
+            duration_seconds: 10,
+          },
+        },
+      };
+      const { unmount } = render(
+        <ReportView report={base} profile={TEST_PROFILE} requestedSample="failed" />,
+      );
+      for (const el of [
+        ...threeRegions(),
+        screen.getByRole("region", { name: ko.report.latencyTitle }),
+        screen.getByRole("region", { name: ko.report.workerBreakdownLabel }),
+      ]) {
+        noNames(el);
+      }
+      expect(screen.getByRole("region", { name: ko.report.headlineAria })).toHaveTextContent(
+        "안에 응답",
+      );
+      const other = screen.getByText(/^전체 구간:/);
+      expect(other.textContent).not.toContain("(");
+      expect(screen.queryByRole("note")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("radiogroup", { name: ko.report.sample.switchAria }),
+      ).not.toBeInTheDocument();
+      unmount();
+      render(
+        <ReportView
+          report={{ ...base, latency: undefined }}
+          profile={TEST_PROFILE}
+          requestedSample="failed"
+        />,
+      );
+      expect(
+        screen.queryByRole("region", { name: ko.report.latencyTitle }),
+      ).not.toBeInTheDocument();
+    });
+
     it("나눌 수 없는 run: 네 구획에 표본 이름이 없고 분포 구획은 latency 유무대로", () => {
       const base: Report = {
         ...FIXTURE,
         sample: { selected: "all", default: "all", split: false },
       };
       const { unmount } = render(<ReportView report={base} profile={TEST_PROFILE} />);
-      for (const el of four()) noNames(el);
+      for (const el of threeRegions()) noNames(el);
       expect(
         screen.queryByRole("region", { name: ko.report.latencyTitle }),
       ).not.toBeInTheDocument();

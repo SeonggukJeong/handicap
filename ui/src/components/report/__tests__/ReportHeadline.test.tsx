@@ -210,4 +210,46 @@ describe("ReportHeadline", () => {
     );
     expect(screen.getByText(ko.report.verdictPass)).toHaveClass("text-emerald-700");
   });
+
+  describe("응답 시간 문장의 단위", () => {
+    const counts = { count: 100, errors: 10, notSent: 0 };
+    const head = () => screen.getByRole("region", { name: ko.report.headlineAria });
+
+    it("바꿔 본 실패 표본: 1ms는 「1ms 안에 실패」", () => {
+      render(
+        <ReportHeadline
+          summary={{ ...SUMMARY, p95_ms: 1 }}
+          profile={CLOSED}
+          verdict={null}
+          latency={{ sample: "failed", counts, switched: true }}
+        />,
+      );
+      expect(head()).toHaveTextContent("1ms 안에 실패");
+      expect(head()).not.toHaveTextContent("0.00초");
+    });
+
+    it("바꿔 본 모든 요청 표본: 44ms는 「44ms 안에 끝남」", () => {
+      render(
+        <ReportHeadline
+          summary={{ ...SUMMARY, p95_ms: 44 }}
+          profile={CLOSED}
+          verdict={null}
+          latency={{ sample: "all", counts, switched: true }}
+        />,
+      );
+      expect(head()).toHaveTextContent("44ms 안에 끝남");
+    });
+
+    it("바꾸지 않았으면 옛 표기 그대로 — 3ms는 「0.00초 안에 응답」", () => {
+      render(
+        <ReportHeadline
+          summary={{ ...SUMMARY, p95_ms: 3 }}
+          profile={CLOSED}
+          verdict={null}
+          latency={{ sample: "passed", counts, switched: false }}
+        />,
+      );
+      expect(head()).toHaveTextContent("0.00초 안에 응답");
+    });
+  });
 });

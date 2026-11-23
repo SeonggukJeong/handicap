@@ -38,6 +38,9 @@ export function Segmented<T extends string>({
   const baseId = useId();
   const buttons = useRef(new Map<T, HTMLButtonElement>());
   const closeTimer = useRef<number | null>(null);
+  const group = useRef<HTMLDivElement>(null);
+  // Esc로 초점 툴팁을 닫은 단추 — 그 뒤 마우스로 다시 연 툴팁은 마우스가 떠나면 닫혀야 한다.
+  const escDismissed = useRef<T | null>(null);
   // 한 번에 하나만 — 열린 선택지와 그 단추(portal 앵커).
   const [open, setOpen] = useState<{ value: T; anchor: HTMLElement } | null>(null);
   // 열린 값이 아직 설명 있는 선택지로 남아 있을 때만 툴팁이 그려지고 리스너가 달린다.
@@ -68,7 +71,13 @@ export function Segmented<T extends string>({
   // 그 단추가 키보드 초점(:focus-visible)을 쥐고 있으면 마우스가 떠나도 닫지 않는다.
   const scheduleClose = (v: T) => {
     const b = buttons.current.get(v);
-    if (b && document.activeElement === b && b.matches(":focus-visible")) return;
+    if (
+      escDismissed.current !== v &&
+      b &&
+      document.activeElement === b &&
+      b.matches(":focus-visible")
+    )
+      return;
     clearTimer();
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
@@ -84,7 +93,12 @@ export function Segmented<T extends string>({
     const close = () => closeTip();
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (e.key !== "Escape") return;
-      e.stopPropagation();
+      const inside = group.current?.contains(document.activeElement) ?? false;
+      if (inside) {
+        e.stopPropagation();
+        escDismissed.current =
+          [...buttons.current].find(([, el]) => el === document.activeElement)?.[0] ?? null;
+      }
       close();
     }
     window.addEventListener("keydown", onKeyDown, true);
@@ -119,6 +133,7 @@ export function Segmented<T extends string>({
   }
   return (
     <div
+      ref={group}
       role="radiogroup"
       aria-label={ariaLabel}
       aria-busy={busy ? true : undefined}
@@ -150,12 +165,20 @@ export function Segmented<T extends string>({
               onFocus={
                 hasTip
                   ? (e) => {
+                      if (escDismissed.current === o.value) escDismissed.current = null;
                       if (e.currentTarget.matches(":focus-visible"))
                         openTip(o.value, e.currentTarget);
                     }
                   : undefined
               }
-              onBlur={hasTip ? () => closeTip(o.value) : undefined}
+              onBlur={
+                hasTip
+                  ? () => {
+                      if (escDismissed.current === o.value) escDismissed.current = null;
+                      closeTip(o.value);
+                    }
+                  : undefined
+              }
               className={`rounded-md px-3.5 py-1 text-sm font-semibold transition-colors ${
                 active
                   ? "bg-accent-600 text-white shadow-sm"

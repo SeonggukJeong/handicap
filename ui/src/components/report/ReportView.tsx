@@ -350,28 +350,25 @@ export function ReportView({
           sample={sample}
           sampleTag={view.tag}
         />
-        {report.latency ? (
+        {(report.latency || view.switched) && (
           <PageSection
             ariaLabel={ko.report.latencyTitle}
             title={ko.report.latencyTitle}
             className=""
             titleAside={view.tag && <SampleTag name={view.tag} />}
           >
-            <PercentileCurveChart curve={report.latency.percentile_curve} />
-            <LatencyHistogramChart buckets={report.latency.histogram} />
+            {report.latency ? (
+              <>
+                <PercentileCurveChart curve={report.latency.percentile_curve} />
+                <LatencyHistogramChart buckets={report.latency.histogram} />
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">
+                {noLatencyWord(view.selected, report.summary.errors)}
+              </p>
+            )}
           </PageSection>
-        ) : view.switched ? (
-          <PageSection
-            ariaLabel={ko.report.latencyTitle}
-            title={ko.report.latencyTitle}
-            className=""
-            titleAside={view.tag && <SampleTag name={view.tag} />}
-          >
-            <p className="text-sm text-slate-500">
-              {noLatencyWord(view.selected, report.summary.errors)}
-            </p>
-          </PageSection>
-        ) : null}
+        )}
         <StatusDistribution distribution={report.status_distribution} />
         <ErrorKindTable kinds={report.error_kinds ?? []} wholeRunBadge={wholeRunBadge} />
         {report.connection && (
