@@ -163,6 +163,12 @@ export type StepRow = {
   factsKnown: boolean;
 };
 
+/** 응답을 받은 요청 수 = 전체 − 보내지 않음 − 응답 없음(코드 0). 0이면 그 단계에는 응답 시간이 없다. */
+export function responsesReceived(row: Pick<StepRow, "count" | "notSent" | "perCode">): number {
+  const noResponse = row.perCode.filter((p) => p.code === 0).reduce((a, p) => a + p.count, 0);
+  return Math.max(0, row.count - row.notSent - noResponse);
+}
+
 export type FoldNote = { columnLabel: string; parts: Array<{ code: number; count: number }> };
 
 export type StepTableModel = {

@@ -1366,3 +1366,12 @@ spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b2-design.md` · plan `do
 콘솔 오류 0. **못 한 것**: 끄는 표지는 기본 보기 한 곳에서만 봤다(넓게 보기·변수 넓게 보기는 같은 `FlowOutline`·같은 `DragOverlay`) · Windows 글꼴 폭 · `interrupted`만 있는 0건 run은 라이브로 만들지 못했다(테스트만).
 
 **라이브 중 걸린 것**: `cargo build -p handicap-controller --bin controller -p handicap-worker`는 워커를 빌드하지 않는다(`--bin controller`가 대상을 그 바이너리로 좁힌다) — 옛 워커가 `setup`을 못 읽어 run이 바로 `failed`. 워커는 `cargo build -p handicap-worker`로 따로.
+
+## no-response-latency (2026-11-23) — 사용자 요청 소형 수정, spec/plan 없음
+
+setup-report-polish가 남긴 것(§B90 (1) 둘째)을 사용자 지적으로 고쳤다: 응답을 하나도 받지 못한 단계에 응답 시간을 찍지 않는다. `ui/`만.
+
+- **규칙**: 응답을 받은 요청 수 = 전체 − 보내지 않음 − 응답 없음(상태 코드 0). 0이면 그 단계의 응답 시간 칸은 「–」. 보내기 전에 실패한 단계(「1ms 미만」으로 찍히던 것)와 전부 시간 초과인 단계(기다린 시간이 찍히던 것) 둘 다 해당한다.
+- **적용한 곳**: 인쇄 2절 표의 95% 응답(`StepCodeTable.tsx`) · 인쇄 비교의 단계별 95% 응답 덤벨(`dumbbell.ts`) — 둘은 `stepTable.ts` `responsesReceived` 하나를 쓴다 · 화면 리포트 스텝 표의 p50·p95·p99(`StepStatsTable.tsx`, 「0」 대신 「—」).
+- **검증**: 테스트 먼저 → 되돌려 확인(production 네 파일을 되돌리면 5건 RED) → lint·test·build 통과. 라이브(메인 바이너리 + 워크트리 `ui/dist`): 주소가 깨져 114건 전부 보내기 전에 실패한 스텝 → 인쇄 표 95% 응답 「–」(그전 「1ms 미만」), 화면 표 「—」 셋(그전 0 셋), 정상 스텝은 그대로. 콘솔 오류 0.
+- 적용하지 않은 곳·남은 어긋남은 roadmap §B90 (1).

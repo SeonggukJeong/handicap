@@ -1,6 +1,7 @@
 import { ko } from "../../i18n/ko";
 import { niceTicks } from "../chartModel";
 import { fmtBoundary, fmtMs, fmtMsExact } from "../format";
+import { responsesReceived } from "../stepTable";
 import { classifyChange, FLOOR } from "./change";
 import type { StepPair } from "./errorCells";
 import type { RunModel } from "./runModel";
@@ -60,8 +61,8 @@ const MINUS = "−";
 
 function msOf(model: RunModel, stepId: string): number | null {
   const row = model.table.rows.find((r) => r.stepId === stepId);
-  // 보내지 않은 요청은 count에는 있으나 응답 시간 표본이 없어 p95가 0이다
-  if (!row || !row.executed || row.count - row.notSent <= 0 || !Number.isFinite(row.p95Ms)) {
+  // 응답을 하나도 받지 못한 쪽(보내지 않음·응답 없음뿐)은 응답 시간이 없다
+  if (!row || !row.executed || responsesReceived(row) <= 0 || !Number.isFinite(row.p95Ms)) {
     return null;
   }
   return row.p95Ms;

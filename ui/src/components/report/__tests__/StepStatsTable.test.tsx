@@ -44,6 +44,34 @@ describe("StepStatsTable", () => {
     expect(region).toHaveTextContent("stepB"); // missing meta → falls back to id
   });
 
+  it("응답을 하나도 받지 못한 스텝은 응답 시간 칸이 0이 아니라 「—」", () => {
+    const base = { loop_breakdown: [], p50_ms: 0, p95_ms: 0, p99_ms: 0 };
+    render(
+      <StepStatsTable
+        steps={[
+          { ...base, step_id: "refused", count: 7, error_count: 7, status_counts: { "0": 7 } },
+          { ...base, step_id: "blank", count: 6, error_count: 6, status_counts: {}, not_sent: 6 },
+          {
+            ...base,
+            step_id: "fast",
+            count: 5,
+            error_count: 0,
+            status_counts: { "200": 5 },
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    const cells = (id: string) =>
+      within(screen.getByText(id).closest("tr") as HTMLElement)
+        .getAllByRole("cell")
+        .slice(3)
+        .map((c) => c.textContent);
+    expect(cells("refused")).toEqual(["7", "7", "—", "—", "—"]);
+    expect(cells("blank")).toEqual(["6", "6", "—", "—", "—"]);
+    expect(cells("fast")).toEqual(["5", "0", "0", "0", "0"]);
+  });
+
   it("shows a per-loop drill-down when a step has loop_breakdown", async () => {
     const user = userEvent.setup();
     const steps = [

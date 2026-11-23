@@ -174,6 +174,24 @@ describe("buildDumbbell", () => {
     expect(r.cls).toBeNull();
   });
 
+  it("응답을 하나도 받지 못한 쪽(전부 응답 없음)은 응답 시간이 없어 점·분류·화살표가 없다", () => {
+    const steps = [{ id: "s1", name: "가" }];
+    const before = sceneModel({
+      id: "b",
+      steps,
+      rep: [{ id: "s1", counts: { "200": 10 }, errors: 0, p95: 2100 }],
+    });
+    const after = sceneModel({
+      id: "a",
+      steps,
+      rep: [{ id: "s1", counts: { "0": 10 }, count: 10, errors: 10, p95: 0 }],
+    });
+    const r = buildDumbbell(before, after).rows[0]!;
+    expect(r.afterMs).toBeNull();
+    expect(r.cls).toBeNull();
+    expect(r.valueText).toBe("2.1초 → –");
+  });
+
   it("요청이 전부 보내지 않음인 쪽은 응답 시간이 없어 점·분류·화살표가 없다", () => {
     const steps = [{ id: "s1", name: "가" }];
     const before = sceneModel({

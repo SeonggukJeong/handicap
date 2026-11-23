@@ -40,6 +40,30 @@ describe("StepTable 95% 응답시간 칸 — 표본이 없는 단계", () => {
     expect(text).not.toBe(ko.print.fmt.msUnderOne);
   });
 
+  const noResponse = (n: number) => [{ code: 0, count: n, cls: "counted" as const }];
+
+  it("전부 응답 없음(보내기 전 실패)인 단계는 「1ms 미만」이 아니라 「–」", () => {
+    const text = p95Cell(row({ count: 5, errorCount: 5, perCode: noResponse(5), p95Ms: 0 }));
+    expect(text).toBe(ko.print.fmt.noTarget);
+  });
+
+  it("전부 응답 없음(시간 초과)인 단계도 「–」 — 기다린 시간은 응답 시간이 아니다", () => {
+    const text = p95Cell(row({ count: 5, errorCount: 5, perCode: noResponse(5), p95Ms: 30000 }));
+    expect(text).toBe(ko.print.fmt.noTarget);
+  });
+
+  it("응답 없음과 보내지 않음이 섞여 응답이 0건이어도 「–」", () => {
+    const text = p95Cell(
+      row({ count: 5, errorCount: 5, notSent: 2, perCode: noResponse(3), p95Ms: 3 }),
+    );
+    expect(text).toBe(ko.print.fmt.noTarget);
+  });
+
+  it("응답을 하나라도 받았으면 잰 값을 찍는다", () => {
+    const perCode = [...noResponse(4), { code: 200, count: 1, cls: "plain" as const }];
+    expect(p95Cell(row({ count: 5, errorCount: 4, perCode, p95Ms: 120 }))).toBe("0.12초");
+  });
+
   it("일부만 보내지 않았으면 잰 값을 찍는다", () => {
     expect(p95Cell(row({ count: 5, errorCount: 2, notSent: 2, p95Ms: 120 }))).toBe("0.12초");
   });

@@ -16,6 +16,12 @@ type Props = {
   wholeRunBadge?: boolean;
 };
 
+// 응답을 하나도 받지 못한 스텝(보내지 않음·응답 없음뿐)에는 응답 시간이 없다 — 0으로 찍지 않는다.
+function latency(s: ReportStep, ms: number): number | string {
+  const received = s.count - (s.not_sent ?? 0) - (s.status_counts["0"] ?? 0);
+  return received > 0 ? ms : "—";
+}
+
 export function StepStatsTable({ steps, meta, retriedStepIds, wholeRunBadge }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -107,9 +113,9 @@ export function StepStatsTable({ steps, meta, retriedStepIds, wholeRunBadge }: P
                   <td className="py-2 pr-4 font-mono text-xs break-all">{m?.url ?? ""}</td>
                   <td className="py-2 pr-4">{s.count}</td>
                   <td className="py-2 pr-4">{s.error_count}</td>
-                  <td className="py-2 pr-4">{s.p50_ms}</td>
-                  <td className="py-2 pr-4">{s.p95_ms}</td>
-                  <td className="py-2 pr-4">{s.p99_ms}</td>
+                  <td className="py-2 pr-4">{latency(s, s.p50_ms)}</td>
+                  <td className="py-2 pr-4">{latency(s, s.p95_ms)}</td>
+                  <td className="py-2 pr-4">{latency(s, s.p99_ms)}</td>
                   {anyWait && <td className="py-2 pr-4">{s.wait?.p50_ms ?? "—"}</td>}
                   {anyDownload && (
                     <>
