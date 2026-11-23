@@ -185,6 +185,8 @@ pub struct StepWindow {
     pub error_count: u64,
     pub status_counts: HashMap<u16, u64>,
     pub histogram: Histogram<u64>,
+    /// 실패한 요청(`is_error`)의 응답 시간만 모은 분포. 실패가 없으면 `None`.
+    pub failed_histogram: Option<Histogram<u64>>,
 }
 
 impl StepWindow {
@@ -198,6 +200,7 @@ impl StepWindow {
             error_count: 0,
             status_counts: HashMap::new(),
             histogram: h,
+            failed_histogram: None,
         }
     }
 
@@ -207,6 +210,10 @@ impl StepWindow {
         self.count += 1;
         if is_error {
             self.error_count += 1;
+            let f = self.failed_histogram.get_or_insert_with(|| {
+                Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).expect("valid bounds")
+            });
+            let _ = f.record(v);
         }
         *self.status_counts.entry(status).or_insert(0) += 1;
     }
@@ -222,6 +229,17 @@ impl StepWindow {
         let mut ser = V2Serializer::new();
         ser.serialize(&self.histogram, &mut buf)
             .map_err(|e| EngineError::Histogram(e.to_string()))?;
+        Ok(buf)
+    }
+
+    /// 실패한 요청의 분포 V2 직렬화. 실패가 없으면 빈 벡터.
+    pub fn serialize_failed_histogram(&self) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        if let Some(f) = &self.failed_histogram {
+            let mut ser = V2Serializer::new();
+            ser.serialize(f, &mut buf)
+                .map_err(|e| EngineError::Histogram(e.to_string()))?;
+        }
         Ok(buf)
     }
 }
@@ -545,6 +563,31 @@ pub(crate) fn current_second() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_histogram_absent_when_no_errors() {
+        let mut w = StepWindow::new("s".into(), 1);
+        w.record(1_000, 200, false);
+        w.record(2_000, 200, false);
+        assert!(w.failed_histogram.is_none());
+        assert_eq!(w.serialize_failed_histogram().unwrap(), Vec::<u8>::new());
+        assert_eq!(w.histogram.len(), 2);
+    }
+
+    #[test]
+    fn failed_histogram_holds_only_error_samples() {
+        let mut w = StepWindow::new("s".into(), 1);
+        w.record(40_000, 200, false);
+        w.record(2_000, 500, true);
+        w.record(90_000_000, 0, true); // 60초로 잘린다
+        w.record_not_sent(); // 표본 없음
+        let f = w.failed_histogram.as_ref().expect("first error creates it");
+        assert_eq!(f.len(), 2);
+        assert_eq!(w.histogram.len(), 3); // 전체 분포는 지금과 같다
+        assert_eq!(w.error_count, 3); // 보내지 않음 포함
+        assert!(f.max() >= 59_998_208); // 같은 값(자른 값)이 들어간다
+        assert!(!w.serialize_failed_histogram().unwrap().is_empty());
+    }
 
     #[test]
     fn records_and_serializes() {

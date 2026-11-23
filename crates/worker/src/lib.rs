@@ -1200,6 +1200,7 @@ mod tests {
             error_count: 1,
             status_counts: [(200u16, 2u64)].into_iter().collect(),
             histogram,
+            failed_histogram: None,
         }];
         f.dropped = 1;
         let bytes = flush_to_batch(f, "r", "w").unwrap().encode_to_vec();
