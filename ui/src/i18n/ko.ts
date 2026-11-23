@@ -1674,6 +1674,8 @@ export const ko = {
       `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
     headlineLatency: (p95: string | null) =>
       p95 === null ? "통과한 요청 없음" : `95%가 ${p95} 안에 응답`,
+    headlineLatencyFailed: (p95: string) => `실패한 요청의 95%가 ${p95} 안에 실패`,
+    headlineLatencyAll: (p95: string) => `모든 요청의 95%가 ${p95} 안에 끝남`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
     headlineSetupFailed:
       "준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — 아래 「준비 스텝」에서 원인을 확인하세요.",

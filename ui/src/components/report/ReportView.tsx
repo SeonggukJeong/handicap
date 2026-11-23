@@ -41,6 +41,7 @@ import { Callout } from "../ui/Callout";
 import { PageSection } from "../ui/PageSection";
 import { BasisBar } from "./BasisBar";
 import { SampleBar } from "./SampleBar";
+import { sampleView } from "../../report/sampleView";
 import { steadyMarks } from "./steadyMarks";
 import { deriveLoadMode } from "../run/loadModel";
 
@@ -64,7 +65,11 @@ export function ReportView({
   const seconds = useMemo(() => bySecond(report), [report]);
   const sample = reportSample(report).selected;
   const mixedSample = reportSample(report).split;
-  const latency = useMemo(() => ({ sample, counts: summaryCounts(report) }), [sample, report]);
+  const view = sampleView(report);
+  const latency = useMemo(
+    () => ({ sample, counts: summaryCounts(report), switched: view.switched }),
+    [sample, report, view.switched],
+  );
   const marks = useMemo(
     () => steadyMarks(report.basis, seconds[0]?.ts_second ?? null),
     [report.basis, seconds],
@@ -169,6 +174,7 @@ export function ReportView({
           onSelect={(b) => onSelectBasis?.(b)}
           pending={pending}
           sample={sample}
+          switched={view.switched}
         />
       )}
       <SampleBar

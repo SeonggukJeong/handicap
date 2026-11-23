@@ -185,3 +185,140 @@ describe("ko — 머리말 응답 시간 조각", () => {
     expect(ko.report.basis.otherLine("a", "1.0", null, "0%")).toContain("p95 —");
   });
 });
+
+describe("표본을 바꿔 본 머리말·요약·다른 기준 줄", () => {
+  const headline = (
+    summary: ReportSummary,
+    latency: {
+      sample: "passed" | "failed" | "all";
+      counts: { count: number; errors: number; notSent: number };
+      switched?: boolean;
+    },
+  ) => {
+    render(<ReportHeadline summary={summary} profile={PROFILE} verdict={null} latency={latency} />);
+    return screen.getByRole("region", { name: "쉬운 요약" });
+  };
+  const mixed: ReportSummary = { ...okSummary, count: 10, errors: 4, p95_ms: 3 };
+
+  it("failed + 값 있음: 「실패한 요청의 95%가」 「안에 실패」", () => {
+    const r = headline(mixed, {
+      sample: "failed",
+      switched: true,
+      counts: { count: 10, errors: 4, notSent: 0 },
+    });
+    expect(r).toHaveTextContent("실패한 요청의 95%가");
+    expect(r).toHaveTextContent("안에 실패");
+    expect(r).not.toHaveTextContent("안에 응답");
+  });
+  it("failed + 오류 0건: 「실패한 요청 없음」", () => {
+    const r = headline(
+      { ...mixed, errors: 0 },
+      { sample: "failed", switched: true, counts: { count: 10, errors: 0, notSent: 0 } },
+    );
+    expect(r).toHaveTextContent("실패한 요청 없음");
+  });
+  it("failed + 오류가 전부 보내지 않음: 잰 시간이 없다고 말한다", () => {
+    const r = headline(
+      { ...mixed, errors: 5 },
+      { sample: "failed", switched: true, counts: { count: 10, errors: 5, notSent: 5 } },
+    );
+    expect(r).toHaveTextContent("실패한 요청은 모두 보내기 전에 실패해 잰 시간이 없음");
+    expect(r.textContent).not.toContain("실패한 요청 없음");
+    expect(r.textContent).not.toContain("0 ms");
+  });
+  it("all + 값 있음: 「모든 요청의 95%가」 「안에 끝남」", () => {
+    const r = headline(mixed, {
+      sample: "all",
+      switched: true,
+      counts: { count: 10, errors: 4, notSent: 0 },
+    });
+    expect(r).toHaveTextContent("모든 요청의 95%가");
+    expect(r).toHaveTextContent("안에 끝남");
+  });
+  it("all + 전부 보내지 않음: 「요청이 모두 보내기 전에 실패해 잰 시간이 없음」", () => {
+    const r = headline(
+      { ...mixed, count: 4, errors: 4 },
+      { sample: "all", switched: true, counts: { count: 4, errors: 4, notSent: 4 } },
+    );
+    expect(r).toHaveTextContent("요청이 모두 보내기 전에 실패해 잰 시간이 없음");
+  });
+  it("나눌 수 없는 run(all, switched 없음)은 지금 문장 그대로", () => {
+    const r = headline(
+      { ...okSummary, count: 10, errors: 0, p95_ms: 50 },
+      { sample: "all", counts: { count: 10, errors: 0, notSent: 0 } },
+    );
+    expect(r).toHaveTextContent("안에 응답");
+    expect(r.textContent).not.toContain("모든 요청의");
+  });
+  it("passed 값 없음은 「통과한 요청 없음」 그대로", () => {
+    const r = headline(failedSummary, { sample: "passed", counts: failedLatency.counts });
+    expect(r).toHaveTextContent("통과한 요청 없음");
+  });
+
+  it("Summary: failed + switched + 실패 0 → 「—」 셋", () => {
+    render(
+      <Summary
+        summary={{ ...okSummary, errors: 0 }}
+        latency={{ sample: "failed", switched: true, counts: { count: 10, errors: 0, notSent: 0 } }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: /리포트 요약/ });
+    expect(region.textContent?.match(/—/g)?.length).toBe(3);
+  });
+  it("Summary: all + switched + 전부 보내지 않음 → 「—」", () => {
+    render(
+      <Summary
+        summary={failedSummary}
+        latency={{ sample: "all", switched: true, counts: { count: 10, errors: 10, notSent: 10 } }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: /리포트 요약/ });
+    expect(region.textContent?.match(/—/g)?.length).toBe(3);
+    expect(region).not.toHaveTextContent("0 ms");
+  });
+  it("Summary: all, switched 없음, 전부 보내지 않음 → 지금처럼 0 ms", () => {
+    render(
+      <Summary
+        summary={failedSummary}
+        latency={{ sample: "all", counts: { count: 10, errors: 10, notSent: 10 } }}
+      />,
+    );
+    expect(screen.getByRole("region", { name: /리포트 요약/ })).toHaveTextContent("0 ms");
+  });
+
+  const otherBasis = (over: object): ReportBasis => ({
+    selected: "steady",
+    default: "steady",
+    state: "measured",
+    config: { ramp_seconds: 0, hold_seconds: 10, discard_seconds: 0 },
+    window: { start_ms: 0, end_ms: 10000, measured_seconds: 10 },
+    t0_estimated: false,
+    dropped_whole_run: false,
+    other: {
+      rps: 5,
+      p50_ms: 4,
+      p95_ms: 9,
+      p99_ms: 9,
+      error_rate: 0.5,
+      count: 10,
+      duration_seconds: 10,
+      ...over,
+    },
+  });
+  it("basisOtherLine: switched + failed 이름표", () => {
+    expect(basisOtherLine(otherBasis({}), "failed", true)).toContain("전체 구간 (실패한 요청):");
+  });
+  it("basisOtherLine: switched + failed + 오류율 0 → p95 —", () => {
+    expect(basisOtherLine(otherBasis({ error_rate: 0 }), "failed", true)).toContain("p95 —");
+  });
+  it("basisOtherLine: switched + all + 요청 0건 → p95 —", () => {
+    expect(basisOtherLine(otherBasis({ count: 0 }), "all", true)).toContain("p95 —");
+  });
+  it("basisOtherLine: switched 없으면 이름표가 그대로", () => {
+    expect(basisOtherLine(otherBasis({}), "all")).toContain("전체 구간: 초당");
+  });
+  it("BasisBar에 switched를 넘기면 반영", () => {
+    render(<BasisBar basis={otherBasis({})} onSelect={() => {}} sample="failed" switched />);
+    expect(screen.getByText(/\(실패한 요청\)/)).toBeInTheDocument();
+  });
+});

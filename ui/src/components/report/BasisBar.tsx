@@ -11,15 +11,17 @@ export function BasisBar({
   onSelect,
   pending,
   sample = "all",
+  switched = false,
 }: {
   basis: ReportBasis;
   onSelect: (b: Basis) => void;
   pending?: boolean;
   sample?: ReportSampleName;
+  switched?: boolean;
 }) {
   const t = ko.report.basis;
   const steadyOff = basis.state === "not_reached" || basis.state === "no_common_window";
-  const otherText = basisOtherLine(basis, sample);
+  const otherText = basisOtherLine(basis, sample, switched);
   return (
     <div className="mb-4">
       <Segmented<Basis>

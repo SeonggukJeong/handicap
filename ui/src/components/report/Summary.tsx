@@ -16,12 +16,14 @@ type Props = {
   /** 버림 수·달성 도착률이 run 전체 값일 때 그 카드 옆에 「전체 구간」 표지를 단다. */
   wholeRunBadge?: boolean;
   /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 「—」. 없으면 항상 값. */
-  latency?: { sample: ReportSampleName; counts: LatencyCounts };
+  latency?: { sample: ReportSampleName; counts: LatencyCounts; switched?: boolean };
 };
 
 export function Summary({ summary, dropped, openLoop, dropBase, wholeRunBadge, latency }: Props) {
   const noLatency =
-    latency != null && latency.sample !== "all" && !hasLatency(latency.counts, latency.sample);
+    latency != null &&
+    (latency.switched || latency.sample !== "all") &&
+    !hasLatency(latency.counts, latency.sample);
   const ms = (v: number) => (noLatency ? "—" : `${v} ms`);
   const cards: Array<{ label: string; value: string; help?: string; whole?: boolean }> = [
     { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },

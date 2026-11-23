@@ -163,6 +163,40 @@ describe("ReportView", () => {
     expect(onSelectSample).toHaveBeenCalledWith("failed");
   });
 
+  it("표본을 바꾸면 머리말·요약·다른 기준 줄이 그 표본을 따른다", () => {
+    const steady = { ramp_seconds: 0, hold_seconds: 10, discard_seconds: 0 };
+    const report: Report = {
+      ...FIXTURE,
+      summary: { ...FIXTURE.summary, errors: 0 },
+      sample: { selected: "failed", default: "passed", split: true },
+      basis: {
+        selected: "steady",
+        default: "steady",
+        state: "measured",
+        config: steady,
+        window: { start_ms: 1000, end_ms: 2000, measured_seconds: 10 },
+        t0_estimated: false,
+        dropped_whole_run: false,
+        other: {
+          rps: 3,
+          p50_ms: 1,
+          p95_ms: 2,
+          p99_ms: 3,
+          error_rate: 0.5,
+          count: 100,
+          duration_seconds: 10,
+        },
+      },
+    };
+    render(<ReportView report={report} profile={TEST_PROFILE} requestedSample="failed" />);
+    const head = screen.getByRole("region", { name: ko.report.headlineAria });
+    expect(head).toHaveTextContent("실패한 요청 없음");
+    expect(head).not.toHaveTextContent("통과한 요청 없음");
+    const summary = screen.getByRole("region", { name: /리포트 요약/ });
+    expect(summary.textContent?.match(/—/g)?.length).toBe(3);
+    expect(screen.getByText(/전체 구간 \(실패한 요청\)/)).toBeInTheDocument();
+  });
+
   it("steady_run_reads_as_fixed_everywhere:버림이 전체 값이면 버림 비율 분모는 other.count", () => {
     const steady = { ramp_seconds: 0, hold_seconds: 300, discard_seconds: 5 };
     const report: Report = {

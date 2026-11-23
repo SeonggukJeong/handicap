@@ -8,6 +8,7 @@ import type {
 import { hasLatency, type LatencyCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo, formatSecondsKo } from "../../i18n/duration";
+import { noLatencyWord } from "../../report/sampleView";
 import { floorPct } from "./format";
 import { fixedTarget } from "../run/loadModel";
 
@@ -22,7 +23,7 @@ type Props = {
   /** 리포트의 준비 결과(실패·끝나기 전 종료 수) — 요청 0건의 원인이 준비 쪽인지 가린다. */
   setup?: { failed: number; interrupted: number };
   /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 문장이 값을 말하지 않는다. */
-  latency?: { sample: ReportSampleName; counts: LatencyCounts };
+  latency?: { sample: ReportSampleName; counts: LatencyCounts; switched?: boolean };
 };
 
 function zeroSentence(setupOnly: boolean, setup: Props["setup"]): string {
@@ -43,11 +44,21 @@ export function ReportHeadline({
   latency,
 }: Props) {
   const noLatency =
-    latency != null && latency.sample !== "all" && !hasLatency(latency.counts, latency.sample);
+    latency != null &&
+    (latency.switched || latency.sample !== "all") &&
+    !hasLatency(latency.counts, latency.sample);
+  const p95 = formatSecondsKo(summary.p95_ms);
+  const latencyText = !latency?.switched
+    ? ko.report.headlineLatency(noLatency ? null : p95)
+    : noLatency
+      ? noLatencyWord(latency.sample, summary.errors)
+      : latency.sample === "failed"
+        ? ko.report.headlineLatencyFailed(p95)
+        : ko.report.headlineLatencyAll(p95);
   const common = {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),
-    latency: ko.report.headlineLatency(noLatency ? null : formatSecondsKo(summary.p95_ms)),
+    latency: latencyText,
     errPct: summary.count === 0 ? "0%" : floorPct((summary.errors / summary.count) * 100),
   };
   const isCurve = (profile.stages?.length ?? 0) > 0;

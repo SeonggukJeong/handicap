@@ -1,5 +1,6 @@
 import type { ReportBasis, ReportSampleName } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { sampleName } from "../../report/sampleView";
 import { floorPct } from "./format";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -33,13 +34,24 @@ export function basisLine(basis: ReportBasis): string {
   return parts.join(" · ");
 }
 
-export function basisOtherLine(basis: ReportBasis, sample: ReportSampleName): string | null {
+export function basisOtherLine(
+  basis: ReportBasis,
+  sample: ReportSampleName,
+  switched = false,
+): string | null {
   const t = ko.report.basis;
   const other = basis.other;
   if (!other) return null;
-  const noValue = sample === "passed" && (other.count === 0 || other.error_rate >= 1);
+  const noValue = switched
+    ? sample === "failed"
+      ? other.count === 0 || other.error_rate === 0
+      : sample === "all"
+        ? other.count === 0
+        : other.count === 0 || other.error_rate >= 1
+    : sample === "passed" && (other.count === 0 || other.error_rate >= 1);
+  const name = basis.selected === "steady" ? t.whole : t.steady;
   return t.otherLine(
-    basis.selected === "steady" ? t.whole : t.steady,
+    switched ? `${name} (${sampleName(sample)})` : name,
     other.rps.toFixed(1),
     noValue ? null : other.p95_ms,
     floorPct(other.error_rate * 100),
