@@ -1471,6 +1471,7 @@ mod tests {
         samples: &[u64],
     ) -> WindowWithHdr {
         WindowWithHdr {
+            failed_hdr_histogram: None,
             ts_second: ts,
             step_id: step.into(),
             worker_id: "w-0".into(),
@@ -1519,6 +1520,7 @@ mod tests {
                     let lat = base_us + (ts as u64 - 100) * 1_000;
                     let samples: Vec<u64> = (0..n as u64).map(|i| lat + i * 5_000).collect();
                     rows.push(WindowWithHdr {
+                        failed_hdr_histogram: None,
                         ts_second: ts,
                         step_id: step.into(),
                         worker_id: wid.into(),
@@ -1681,6 +1683,7 @@ mod tests {
         lat_us: u64,
     ) -> WindowWithHdr {
         WindowWithHdr {
+            failed_hdr_histogram: None,
             ts_second: ts,
             step_id: step.into(),
             worker_id: worker.into(),
@@ -2235,6 +2238,7 @@ mod tests {
         // A3a keep-first would drop one row -> undercount + half the histogram.
         let rows = vec![
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: 100,
                 step_id: "s".into(),
                 worker_id: "w-a".into(),
@@ -2244,6 +2248,7 @@ mod tests {
                 hdr_histogram: make_hdr_bytes(&[10_000, 10_000, 10_000]),
             },
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: 100,
                 step_id: "s".into(),
                 worker_id: "w-b".into(),
@@ -2560,6 +2565,7 @@ steps:
     fn build_report_tolerates_bad_hdr_blob() {
         let r = run_row();
         let bad = WindowWithHdr {
+            failed_hdr_histogram: None,
             ts_second: 100,
             step_id: "stepA".into(),
             worker_id: "w-0".into(),
@@ -4423,6 +4429,7 @@ steps:
         // Same (ts,step), two workers, distinct counts + latencies; rows out of worker order.
         let rows = vec![
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: 100,
                 step_id: "s".into(),
                 worker_id: "w-1".into(),
@@ -4432,6 +4439,7 @@ steps:
                 hdr_histogram: make_hdr_bytes(&[40_000, 40_000, 40_000, 40_000, 40_000]),
             },
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: 100,
                 step_id: "s".into(),
                 worker_id: "w-0".into(),
@@ -4514,6 +4522,7 @@ steps:
         let r = run_row();
         // legacy '' sentinel only -> 0 distinct non-empty -> no breakdown.
         let rows = vec![WindowWithHdr {
+            failed_hdr_histogram: None,
             ts_second: 100,
             step_id: "s".into(),
             worker_id: "".into(),
@@ -4548,6 +4557,7 @@ steps:
         let r = run_row();
         let rows = vec![
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: 100,
                 step_id: "s".into(),
                 worker_id: "w-0".into(),
@@ -4557,6 +4567,7 @@ steps:
                 hdr_histogram: vec![0xff, 0xff, 0xff, 0xff], // undecodable
             },
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: 100,
                 step_id: "s".into(),
                 worker_id: "w-1".into(),
@@ -5060,6 +5071,7 @@ steps:
             pairs: &[(u64, u64)],
         ) -> WindowWithHdr {
             WindowWithHdr {
+                failed_hdr_histogram: None,
                 ts_second: ts,
                 step_id: step.into(),
                 worker_id: w.into(),

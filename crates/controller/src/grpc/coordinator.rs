@@ -2371,6 +2371,7 @@ async fn ingest_metrics(
                 error_count: w.error_count as i64,
                 hdr_histogram: w.hdr_histogram.clone(),
                 status_counts: status_json,
+                failed_hdr_histogram: w.failed_hdr_histogram.clone(),
             }
         })
         .collect();
@@ -2885,6 +2886,7 @@ mod tests {
             .map(|o| {
                 let slow = o < 15;
                 crate::store::metrics::MetricRow {
+                    failed_hdr_histogram: None,
                     run_id: run_id.clone(),
                     ts_second: T0_MS / 1000 + o,
                     step_id: "s".to_string(),

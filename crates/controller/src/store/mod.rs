@@ -97,7 +97,25 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_runs_auto_stop_json(&pool).await?; // migration 0025 (Rust-guarded; see fn)
     ensure_scenarios_group_name(&pool).await?; // migration 0026 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0027).execute(&pool).await?; // migration 0027: run_section_metrics
+    ensure_run_metrics_failed_hdr(&pool).await?; // migration 0028 (Rust-guarded; see fn)
     Ok(pool)
+}
+
+/// migration 0028: run_metrics.failed_hdr_histogram (nullable BLOB). 창마다 실패한 요청만의
+/// 응답 시간 분포. NULL = 옛 워커가 보낸 행(나눌 수 없음), 길이 0 BLOB = 실패 없음.
+/// ADD COLUMN은 SQLite에서 멱등이 아니므로 pragma로 가드.
+async fn ensure_run_metrics_failed_hdr(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('run_metrics') WHERE name = 'failed_hdr_histogram'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE run_metrics ADD COLUMN failed_hdr_histogram BLOB")
+            .execute(db)
+            .await?;
+    }
+    Ok(())
 }
 
 /// migration 0008 (Rust-guarded): add `worker_id` to the `run_metrics` PRIMARY KEY

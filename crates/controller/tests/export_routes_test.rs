@@ -105,6 +105,7 @@ async fn seed_run_with_stair(
 
     let metric_rows = vec![
         MetricRow {
+            failed_hdr_histogram: None,
             run_id: row.id.clone(),
             ts_second: 100,
             step_id: "stepA".to_string(),
@@ -115,6 +116,7 @@ async fn seed_run_with_stair(
             status_counts: r#"{"200":5}"#.to_string(),
         },
         MetricRow {
+            failed_hdr_histogram: None,
             run_id: row.id.clone(),
             ts_second: 101,
             step_id: "stepA".to_string(),
@@ -341,6 +343,7 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
         .await
         .unwrap();
     let metrics_a = vec![MetricRow {
+        failed_hdr_histogram: None,
         run_id: run_a.id.clone(),
         ts_second: 100,
         step_id: "stepC".to_string(),
@@ -367,6 +370,7 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
         .await
         .unwrap();
     let metrics_b = vec![MetricRow {
+        failed_hdr_histogram: None,
         run_id: run_b.id.clone(),
         ts_second: 200,
         step_id: "stepC".to_string(),

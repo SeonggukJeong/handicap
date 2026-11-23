@@ -110,6 +110,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
 
     let metric_rows = vec![
         MetricRow {
+            failed_hdr_histogram: None,
             run_id: row.id.clone(),
             ts_second: 100,
             step_id: "stepA".to_string(),
@@ -120,6 +121,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
             status_counts: r#"{"200":5}"#.to_string(),
         },
         MetricRow {
+            failed_hdr_histogram: None,
             run_id: row.id.clone(),
             ts_second: 101,
             step_id: "stepA".to_string(),
@@ -324,6 +326,7 @@ async fn report_endpoint_includes_stair_for_stair_run() {
     let metric_rows: Vec<MetricRow> = ol
         .iter()
         .map(|&(ts, _, c, _)| MetricRow {
+            failed_hdr_histogram: None,
             run_id: row.id.clone(),
             ts_second: ts,
             step_id: "s".to_string(),
@@ -430,6 +433,7 @@ async fn record_ignored_unless_completed() {
         let metric_rows: Vec<MetricRow> = ol
             .iter()
             .map(|&(ts, _, c, _)| MetricRow {
+                failed_hdr_histogram: None,
                 run_id: row.id.clone(),
                 ts_second: ts,
                 step_id: "s".to_string(),
@@ -514,6 +518,7 @@ async fn insert_stall_repro_windows(db: &handicap_controller::store::Db, run_id:
     let rows: Vec<MetricRow> = stall_repro_rows()
         .iter()
         .map(|&(s, _, c, _)| MetricRow {
+            failed_hdr_histogram: None,
             run_id: run_id.to_string(),
             ts_second: 1000 + s,
             step_id: "s".to_string(),
@@ -773,6 +778,7 @@ async fn seed_steady(db: &handicap_controller::store::Db, s: SteadySeed) -> Stri
                 (10, 0, 20_000, r#"{"200":10}"#)
             };
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: row.id.clone(),
                 ts_second: base + o,
                 step_id: "s".to_string(),

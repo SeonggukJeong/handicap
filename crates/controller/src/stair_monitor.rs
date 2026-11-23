@@ -1435,6 +1435,7 @@ mod tests {
                             failed_hdr_histogram: None,
                         });
                         rows.push(WindowWithHdr {
+                            failed_hdr_histogram: None,
                             ts_second: ts,
                             step_id: (*step).into(),
                             worker_id: w.into(),
@@ -1577,6 +1578,7 @@ mod tests {
                     failed_hdr_histogram: None,
                 });
                 rows.push(WindowWithHdr {
+                    failed_hdr_histogram: None,
                     ts_second: ts,
                     step_id: "a".into(),
                     worker_id: "w0".into(),

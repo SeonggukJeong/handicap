@@ -565,6 +565,7 @@ mod window_tests {
 
     fn row(worker: &str, ts: i64) -> WindowWithHdr {
         WindowWithHdr {
+            failed_hdr_histogram: None,
             ts_second: ts,
             step_id: "s".into(),
             worker_id: worker.into(),

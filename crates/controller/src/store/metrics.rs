@@ -14,6 +14,8 @@ pub struct MetricRow {
     pub error_count: i64,
     pub hdr_histogram: Vec<u8>,
     pub status_counts: String,
+    /// None = 옛 워커(칸 NULL), Some(빈 벡터) = 실패 없음(길이 0 BLOB), Some(bytes) = V2 직렬화.
+    pub failed_hdr_histogram: Option<Vec<u8>>,
 }
 
 pub async fn insert_batch(db: &Db, rows: &[MetricRow]) -> sqlx::Result<()> {
@@ -29,8 +31,8 @@ pub async fn insert_batch(db: &Db, rows: &[MetricRow]) -> sqlx::Result<()> {
     let mut tx = db.begin().await?;
     for r in rows {
         sqlx::query(
-            "INSERT INTO run_metrics(run_id,ts_second,step_id,worker_id,count,error_count,hdr_histogram,status_counts) \
-             VALUES(?,?,?,?,?,?,?,?) \
+            "INSERT INTO run_metrics(run_id,ts_second,step_id,worker_id,count,error_count,hdr_histogram,status_counts,failed_hdr_histogram) \
+             VALUES(?,?,?,?,?,?,?,?,?) \
              ON CONFLICT(run_id,ts_second,step_id,worker_id) DO NOTHING",
         )
         .bind(&r.run_id)
@@ -41,6 +43,7 @@ pub async fn insert_batch(db: &Db, rows: &[MetricRow]) -> sqlx::Result<()> {
         .bind(r.error_count)
         .bind(&r.hdr_histogram)
         .bind(&r.status_counts)
+        .bind(r.failed_hdr_histogram.as_deref())
         .execute(&mut *tx)
         .await?;
     }
@@ -114,11 +117,12 @@ pub struct WindowWithHdr {
     pub error_count: i64,
     pub status_counts: String, // raw JSON text — same as the column
     pub hdr_histogram: Vec<u8>,
+    pub failed_hdr_histogram: Option<Vec<u8>>,
 }
 
 pub async fn windows_with_hdr(db: &Db, run_id: &str) -> sqlx::Result<Vec<WindowWithHdr>> {
     let rows = sqlx::query(
-        "SELECT ts_second, step_id, worker_id, count, error_count, status_counts, hdr_histogram \
+        "SELECT ts_second, step_id, worker_id, count, error_count, status_counts, hdr_histogram, failed_hdr_histogram \
          FROM run_metrics WHERE run_id = ? ORDER BY ts_second, step_id, worker_id",
     )
     .bind(run_id)
@@ -134,6 +138,7 @@ pub async fn windows_with_hdr(db: &Db, run_id: &str) -> sqlx::Result<Vec<WindowW
             error_count: r.get("error_count"),
             status_counts: r.get("status_counts"),
             hdr_histogram: r.get("hdr_histogram"),
+            failed_hdr_histogram: r.get("failed_hdr_histogram"),
         })
         .collect())
 }
@@ -566,6 +571,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_hdr_roundtrips_none_empty_and_bytes() {
+        let db = pool().await;
+        sqlx::query(
+            "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+             VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S-f")
+        .bind("test")
+        .bind("version: 1\nname: test\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id, scenario_id, scenario_yaml, profile_json, env_json, status, created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R-f")
+        .bind("S-f")
+        .bind("version: 1\nname: test\nsteps: []\n")
+        .bind("{}")
+        .bind("{}")
+        .bind("completed")
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        let mk = |step: &str, failed: Option<Vec<u8>>| MetricRow {
+            run_id: "R-f".into(),
+            ts_second: 100,
+            step_id: step.into(),
+            worker_id: "".into(),
+            count: 1,
+            error_count: 0,
+            hdr_histogram: vec![9],
+            status_counts: "{}".into(),
+            failed_hdr_histogram: failed,
+        };
+        insert_batch(
+            &db,
+            &[
+                mk("a-none", None),
+                mk("b-empty", Some(vec![])),
+                mk("c-bytes", Some(vec![1, 2, 3])),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let got = windows_with_hdr(&db, "R-f").await.unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].failed_hdr_histogram, None);
+        assert_eq!(got[1].failed_hdr_histogram, Some(vec![]));
+        assert_eq!(got[2].failed_hdr_histogram, Some(vec![1, 2, 3]));
+        let nulls: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM run_metrics WHERE failed_hdr_histogram IS NULL",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(nulls, 1, "빈 벡터는 NULL이 아니라 길이 0 BLOB이다");
+    }
+
+    #[tokio::test]
+    async fn migration_0028_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}?mode=rwc", dir.path().join("m.db").display());
+        let first = store::connect(&url).await.unwrap();
+        drop(first);
+        let db = store::connect(&url).await.expect("second connect");
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('run_metrics') WHERE name='failed_hdr_histogram'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
     async fn windows_with_hdr_returns_rows_in_order_with_hdr_bytes() {
         let db = pool().await;
 
@@ -603,6 +691,7 @@ mod tests {
         // 3) Insert two metric windows out of order (verify ORDER BY).
         let rows = vec![
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R1".into(),
                 ts_second: 101,
                 step_id: "stepA".into(),
@@ -613,6 +702,7 @@ mod tests {
                 status_counts: r#"{"200":5}"#.into(),
             },
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R1".into(),
                 ts_second: 100,
                 step_id: "stepA".into(),
@@ -677,6 +767,7 @@ mod tests {
 
         // First insert: count=5, error_count=0
         let first = vec![MetricRow {
+            failed_hdr_histogram: None,
             run_id: "R-idem".into(),
             ts_second: 1,
             step_id: "step-x".into(),
@@ -690,6 +781,7 @@ mod tests {
 
         // Duplicate resend (same key, different payload — simulates at-least-once gRPC resend)
         let second = vec![MetricRow {
+            failed_hdr_histogram: None,
             run_id: "R-idem".into(),
             ts_second: 1,
             step_id: "step-x".into(),
@@ -777,6 +869,7 @@ mod tests {
         // rows must survive.
         let rows = vec![
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R".into(),
                 ts_second: 1,
                 step_id: "s".into(),
@@ -787,6 +880,7 @@ mod tests {
                 status_counts: r#"{"200":5}"#.into(),
             },
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R".into(),
                 ts_second: 1,
                 step_id: "s".into(),
@@ -807,6 +901,7 @@ mod tests {
 
         // Same worker_id resend (same key, different payload) -> keep-first per worker.
         let resend = vec![MetricRow {
+            failed_hdr_histogram: None,
             run_id: "R".into(),
             ts_second: 1,
             step_id: "s".into(),
@@ -859,6 +954,7 @@ mod tests {
         // Two workers, same (ts_second=1, step_id="s"); plus a distinct window.
         let rows = vec![
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R".into(),
                 ts_second: 1,
                 step_id: "s".into(),
@@ -869,6 +965,7 @@ mod tests {
                 status_counts: r#"{"200":5}"#.into(),
             },
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R".into(),
                 ts_second: 1,
                 step_id: "s".into(),
@@ -879,6 +976,7 @@ mod tests {
                 status_counts: r#"{"200":1,"500":2}"#.into(),
             },
             MetricRow {
+                failed_hdr_histogram: None,
                 run_id: "R".into(),
                 ts_second: 2,
                 step_id: "s".into(),
@@ -1125,6 +1223,7 @@ mod tests {
             &db,
             &[
                 MetricRow {
+                    failed_hdr_histogram: None,
                     run_id: "RUN_R".into(),
                     ts_second: 100,
                     step_id: "s".into(),
@@ -1135,6 +1234,7 @@ mod tests {
                     status_counts: "{}".into(),
                 },
                 MetricRow {
+                    failed_hdr_histogram: None,
                     run_id: "RUN_R".into(),
                     ts_second: 250,
                     step_id: "s".into(),
@@ -1145,6 +1245,7 @@ mod tests {
                     status_counts: "{}".into(),
                 },
                 MetricRow {
+                    failed_hdr_histogram: None,
                     run_id: "RUN_T".into(),
                     ts_second: 999,
                     step_id: "s".into(),
