@@ -80,7 +80,7 @@ describe("준비 구획으로 위치 지정 옮기기 · addSetupStep", () => {
     const t = st().yamlText;
     expect(t.indexOf("\nsetup:")).toBeGreaterThan(-1);
     expect(t.indexOf("\nsetup:")).toBeLessThan(t.indexOf("\nsteps:"));
-    expect(t).not.toMatch(/setup: *\{/);
+    expect(t).toMatch(/^setup:\n {2}steps:\n {4}- id: 01HX0000000000000000000B01$/m);
   });
 
   it("옮긴 스텝 안의 주석이 따라간다", () => {

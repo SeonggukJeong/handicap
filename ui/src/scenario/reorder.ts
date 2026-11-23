@@ -74,7 +74,7 @@ export function resolveDrop(
     stepId: activeId,
     target: {
       parentId: overBand.parentId,
-      band: overBand.parentId === null ? bandKey(overBand) : overBand.band,
+      band: overBand.band,
       index,
     },
   };

@@ -218,24 +218,31 @@ export function setupZoneOpen(pointerY: number, grabY: number): boolean {
   return pointerY < SETUP_ZONE_REACH_PX && grabY - pointerY > SETUP_ZONE_LIFT_PX;
 }
 
-/** 빈 준비 구획의 놓을 자리를 그릴지: 준비가 비어 있고, 끄는 중이고, 합법 목적지에 준비 밴드가 있고,
- *  포인터로 집었고(키보드 아님), 맨 위 영역에 들어왔을 때만. */
+/** 빈 준비 구획의 놓을 자리가 열려 있는가: 준비가 비어 있고, 합법 목적지에 준비 밴드가 있고,
+ *  맨 위 영역에 들어왔을 때만. 키보드로 집은 경우는 호출부가 grabY=null로 걸러 부르지 않는다. */
 export function showSetupZone(a: {
   setupCount: number;
-  dragging: boolean;
   legal: ReadonlySet<string> | null;
-  keyboard: boolean;
   pointerY: number;
   grabY: number;
 }): boolean {
   return (
     a.setupCount === 0 &&
-    a.dragging &&
     a.legal !== null &&
     a.legal.has(bandKey(SETUP_BAND)) &&
-    !a.keyboard &&
     setupZoneOpen(a.pointerY, a.grabY)
   );
+}
+
+/** 놓는 순간 결정: 놓을 자리가 (놓는 순간의 포인터 위치로) 열려 있으면 over와 무관하게 준비로,
+ *  닫혀 있는데 over가 낡은 준비 놓을 자리면 무시, 그 밖엔 기존 resolveDrop.
+ *  dnd-kit의 over는 충돌 계산보다 늦게 갱신되므로 over만 믿으면 막 열리고 닫힌 직후에 어긋난다. */
+export function setupDropDecision(a: {
+  open: boolean;
+  overId: string | null;
+}): "setup" | "none" | "resolve" {
+  if (a.open) return "setup";
+  return a.overId === SETUP_DROP_ID ? "none" : "resolve";
 }
 
 /** 준비 놓을 자리가 이번 충돌 계산의 대상인가. dnd-kit은 over를 overId가 바뀔 때만 다시 찾으므로

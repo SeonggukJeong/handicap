@@ -18,6 +18,7 @@ import {
   showSetupZone,
   showTopZone,
   setupZoneCollision,
+  setupDropDecision,
 } from "../dropRules";
 import { resolveDrop } from "../reorder";
 import { StepModel, type Step } from "../model";
@@ -240,19 +241,15 @@ describe("setupZoneCollision", () => {
 describe("showSetupZone / showTopZone", () => {
   const base = {
     setupCount: 0,
-    dragging: true,
     legal: new Set(["top", "setup"]) as ReadonlySet<string> | null,
-    keyboard: false,
     pointerY: 10,
     grabY: 100,
   };
-  it("showSetupZone: 다섯 조건이 모두 참일 때만", () => {
+  it("showSetupZone: 네 조건이 모두 참일 때만", () => {
     expect(showSetupZone(base)).toBe(true);
     expect(showSetupZone({ ...base, setupCount: 1 })).toBe(false);
-    expect(showSetupZone({ ...base, dragging: false })).toBe(false);
     expect(showSetupZone({ ...base, legal: new Set(["top"]) })).toBe(false);
     expect(showSetupZone({ ...base, legal: null })).toBe(false);
-    expect(showSetupZone({ ...base, keyboard: true })).toBe(false);
     expect(showSetupZone({ ...base, pointerY: 30 })).toBe(false);
     expect(showSetupZone({ ...base, grabY: 12 })).toBe(false);
   });
@@ -263,5 +260,22 @@ describe("showSetupZone / showTopZone", () => {
     expect(showTopZone({ mainCount: 0, draggingSetupStep: true })).toBe(true);
     expect(showTopZone({ mainCount: 1, draggingSetupStep: true })).toBe(false);
     expect(showTopZone({ mainCount: 0, draggingSetupStep: false })).toBe(false);
+  });
+});
+
+describe("setupDropDecision — 놓는 순간의 열림 여부로 결정", () => {
+  it("열림이면 over가 무엇이든 준비로", () => {
+    expect(setupDropDecision({ open: true, overId: S1 })).toBe("setup");
+    expect(setupDropDecision({ open: true, overId: null })).toBe("setup");
+    expect(setupDropDecision({ open: true, overId: SETUP_DROP_ID })).toBe("setup");
+  });
+  it("닫힘 + 준비 놓을 자리면 아무 일도 없다", () => {
+    expect(setupDropDecision({ open: false, overId: SETUP_DROP_ID })).toBe("none");
+  });
+  it("닫힘 + 그 밖이면 기존 판정", () => {
+    expect(setupDropDecision({ open: false, overId: B1 })).toBe("resolve");
+    expect(setupDropDecision({ open: false, overId: null })).toBe("resolve");
+    expect(setupDropDecision({ open: false, overId: TOP_DROP_ID })).toBe("resolve");
+    expect(setupDropDecision({ open: false, overId: "band:" + K1 + ":do" })).toBe("resolve");
   });
 });

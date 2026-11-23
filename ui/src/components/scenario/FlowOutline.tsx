@@ -49,6 +49,7 @@ import {
   SETUP_BAND,
   SETUP_DROP_ID,
   setupZoneCollision,
+  setupDropDecision,
   showSetupZone,
   showTopZone,
   TOP_BAND,
@@ -604,7 +605,10 @@ export function FlowOutline({
       if (zone === "none") return [];
       const dragId = args.active.id as string;
       const pointerY = args.pointerCoordinates?.y;
-      const allIds = args.droppableContainers.map((c) => c.id as string);
+      // 놓을 자리가 지금 충돌 대상이 아니면(닫힘) 언마운트 전까지 남은 낡은 droppable을 후보에서 뺀다.
+      const allIds = args.droppableContainers
+        .map((c) => c.id as string)
+        .filter((id) => id !== SETUP_DROP_ID);
       if (pointerY == null) {
         const kb = new Set(keyboardCandidateIds(steps, dragId, allIds, setup));
         const candidates = args.droppableContainers.filter((c) => kb.has(c.id as string));
@@ -666,9 +670,7 @@ export function FlowOutline({
     if (grabY !== null && calc) {
       const open = showSetupZone({
         setupCount: setup.length,
-        dragging: true,
         legal: calc.legal,
-        keyboard: false,
         pointerY: grabY + event.delta.y,
         grabY,
       });
@@ -686,6 +688,18 @@ export function FlowOutline({
     setOverInfo((prev) => (prev?.id === next?.id && prev?.half === next?.half ? prev : next));
   };
   const handleDragEnd = (event: DragEndEvent) => {
+    // 닫기 전에 읽는다: 놓는 순간의 포인터 위치(event.delta는 스크롤 반영 — move와 같은 값)로 열림을 다시 계산.
+    const grabY = grabYRef.current;
+    const calc = dragCalcRef.current;
+    const open =
+      grabY !== null &&
+      calc !== null &&
+      showSetupZone({
+        setupCount: setup.length,
+        legal: calc.legal,
+        pointerY: grabY + event.delta.y,
+        grabY,
+      });
     setActiveId(null);
     setOverInfo(null);
     closeSetupZone();
@@ -696,6 +710,12 @@ export function FlowOutline({
       overId !== null && halfRef.current?.overId === overId ? halfRef.current.half : null;
     dragCalcRef.current = null;
     halfRef.current = null;
+    const decision = setupDropDecision({ open, overId });
+    if (decision === "setup") {
+      reparentStep(dragId, { parentId: null, band: "setup", index: 0 });
+      return;
+    }
+    if (decision === "none") return;
     const res = resolveDrop(steps, dragId, overId, half, setup);
     if (res?.kind === "move") moveStep(res.stepId, res.toIndex);
     else if (res?.kind === "reparent") reparentStep(res.stepId, res.target);
@@ -820,15 +840,16 @@ export function FlowOutline({
               ))}
             </SortableContext>
           </div>
-          {steps.length === 0 &&
-            (showTopZone({
-              mainCount: steps.length,
-              draggingSetupStep: activeBandKey === bandKey(SETUP_BAND),
-            }) ? (
-              <EmptyBandDrop id={TOP_DROP_ID} />
-            ) : (
+          {showTopZone({
+            mainCount: steps.length,
+            draggingSetupStep: activeBandKey === bandKey(SETUP_BAND),
+          }) ? (
+            <EmptyBandDrop id={TOP_DROP_ID} />
+          ) : (
+            steps.length === 0 && (
               <p className="mt-2 text-xs text-slate-500">{ko.editor.canvasEmpty}</p>
-            ))}
+            )
+          )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
