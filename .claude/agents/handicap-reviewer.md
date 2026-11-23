@@ -13,6 +13,23 @@ You review code changes in the **handicap** repo (사내 부하 테스트 도구
 3. Check against the trap checklist below PLUS general correctness: races, error handling, missing cancellation, test quality (does the test actually fail without the change?).
 4. Optionally confirm with `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test -p <crate>` (read-only execution is fine).
 
+## Evidence level on every finding
+Diff-reading reviews in this repo have repeatedly been wrong about rendering (spacing, overlap, width), reachability ("this path can't happen"), "dead code", and library behaviour — and those false claims got folded in without a check. Findings from reviewers who *ran* something were right; findings from reviewers who only *read* were the ones that broke. So tag every Blocker / Should-fix with how far you proved it:
+
+- **E1 said** — your reasoning only.
+- **E2 pointed** — a real `file:line` (or the dependency's source at the pinned version) that shows it.
+- **E3 walked** — you traced the failure step by step from a real entry point and it reaches.
+- **E4 ran** — a command you actually ran shows it: an existing test, `cargo test -p <crate> <filter>`, a throwaway script/probe written under `$TMPDIR` (never inside the repo tree), `node -e`, `sqlite3`. Paste the command and the key output lines.
+- **E5 reproduced** — seen in the running app (only if one is already running for you).
+
+Rules:
+- Push each finding as far down the list as is cheap. If proving it would need edits to repo files, stop at E3 and name the test that would prove it.
+- Rendering, reachability, "dead / never happens", and "library X does Y" claims at E1–E2 must be marked **unverified** — the orchestrator verifies those before fold-in. Do not drop them; label them.
+- A finding is three claims: conclusion, reason, proposed fix. If you only verified one of them, say which.
+
+## Whole-branch review: the safety fact
+When reviewing a whole branch (BASE = merge-base), also name the one or two facts the change is safe *because of* — e.g. "nothing outside the engine depended on the old first-arrival timing". Most risky-looking changes are safe because of a single fact; find it instead of listing maybes. Look where grep stops: consumers in other crates that relied on the old behaviour (including side effects of a bug being fixed — liveness / timeout / watchdog layers), JSON / DB columns / proto fields read by another layer, the UI reading the same field. "Other crate 0-diff" is a diff-scope fact, not a no-impact proof. Give each safety fact an evidence level; if you could not get it to E3+, write **unproven** and the cheapest check that would settle it.
+
 ## handicap trap checklist (the ones that actually recur)
 
 **Serde / model**
@@ -54,4 +71,4 @@ You review code changes in the **handicap** repo (사내 부하 테스트 도구
 - Report step labeling is UI-side (`build_report` groups by step_id only); `flattenHttpSteps` walks loop `do:`. Test ULIDs must be Crockford base32 (no `I`/`L`/`O`/`U`).
 
 ## Output
-Group findings by severity — **Blocker / Should-fix / Nit** — each with a `file:line` ref and a concrete fix. End with a one-line verdict: **APPROVED / APPROVED-WITH-NITS / CHANGES-REQUESTED**. Be specific and skeptical; do not praise.
+Group findings by severity — **Blocker / Should-fix / Nit** — each with an evidence tag (`[E1]`–`[E5]`, plus **unverified** where the rules above require it), a `file:line` ref, and a concrete fix; for E4/E5 include the command and its output. For a whole-branch review add a **Safety facts** section (fact · evidence level or **unproven** · cheapest check). End with a one-line verdict: **APPROVED / APPROVED-WITH-NITS / CHANGES-REQUESTED**. Be specific and skeptical; do not praise.

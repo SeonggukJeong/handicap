@@ -1306,3 +1306,7 @@ spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b1-design.md`, plan `docs
 **라이브로 증명된 US**: US1·US2·US3·US4·US5. **못 한 것**: 키보드 끌기(Playwright에서 KeyboardSensor가 동작하지 않는다 — 놓을 자리가 키보드로는 열리지 않는다는 것은 코드와 순수 함수 테스트로만 확인), Windows 글꼴 폭, 실제 run 생성 → 리포트(이 슬라이스는 run 생성·리포트 파싱을 건드리지 않아 대상이 아니다 — test-run까지만 돌렸다).
 
 **함정 출처**: `ui/src/components/scenario/CLAUDE.md`·`ui/src/scenario/CLAUDE.md`의 `(vu-setup-steps-b1)` 줄.
+
+## pstack-adopt — pstack 검토·일부 도입 (2026-11-23, 사용자 요청 · 개발 도구만 · spec/plan 없음)
+
+pstack(Cursor 플러그인, MIT) 원문을 읽고 두 가지만 가져왔다. `handicap-reviewer`가 finding마다 근거 등급 `[E1]`(말함)–`[E5]`(앱 재현)을 달고 렌더·도달성·「죽은 코드」·라이브러리 동작 주장은 E1–E2면 `unverified`로 표시, 최종 리뷰에는 「이 변경이 안전한 근거 사실」과 그 증명 정도를 적는다(메모리 `review-findings-are-hypotheses` 다섯 사례를 출력 형식으로 옮김). `/why` 스킬은 「왜 이렇게 됐나」를 git 이력 → ADR → §B → spec/plan → build-log → CLAUDE.md 순으로 찾아 인용하고 추론·기록 없음을 따로 표시한다. 안 가져온 것·다음 후보 = roadmap §B88. 제품 코드 무변경이라 라이브 검증 대상 아님.

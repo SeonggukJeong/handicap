@@ -53,7 +53,7 @@ just build && just lint && just test
 
 **매 커밋 일상 규칙:** ① cargo-영향 커밋은 수 분 → `git commit`을 `run_in_background`, 그동안 다른 `cargo` 금지(`target/` 락). ② **커밋·게이트에 `| tail`/`| head` 파이프 금지**(종료코드 마스킹, git-guard deny) — 판정은 `; echo exit=$?`, 커밋 후 `git log -1`로 landed 확인. ③ **`--no-verify` 금지**(사용자 명시 요청 없이는). ④ 커밋 전 `git diff --cached --name-only`로 staged 확인 — 빈-staged는 full 게이트 후 'nothing to commit', macOS에서 케이스 틀린 `git add`(`justfile`↔`Justfile`)는 조용히 0건. ⑤ **워크트리-격리 세션은 "검증 불가" 형태의 git/gh/python을 거부** — `$VAR` 경로·`cd … && git …`·`;`/`|` 복합·`--jq '…|…'`·`git` 든 heredoc·문자열 `.github`·`PATH=…:$PATH`·인자 속 `$(…)`. 단독 호출·리터럴 경로로(스크립트는 Write 도구로 파일에, 커밋 메시지는 `-F <파일>`, 문서 스플라이스는 Edit).
 
-**Claude PreToolUse 훅 4종**(`.claude/hooks/`): `tdd-guard.sh`(src 편집 시 pending test 없으면 차단 — 인라인 `#[cfg(test)]`/`it.todo` stub로 unblock), `git-guard.sh`(파이프 커밋·`--no-verify` deny, `checkout/switch/stash` ask), `controller-bin-guard.sh`(`--bin` 없는 `cargo run -p handicap-controller` deny), `spec-review-guard.sh`(브랜치 plan에 EOL-앵커 `REVIEW-GATE: APPROVED` 없으면 `crates/*/src`·`ui/src` 편집 deny — 브랜치에 추가된 `plans/*.md` **전부**가 plan이므로 동반 문서는 `specs/`에). 스킬: `/start-slice`·`/finish-slice`·`/new-migration`·`/live-verify`·`/perf-ab`(워커 요청당 CPU, 기준 ref 대비).
+**Claude PreToolUse 훅 4종**(`.claude/hooks/`): `tdd-guard.sh`(src 편집 시 pending test 없으면 차단 — 인라인 `#[cfg(test)]`/`it.todo` stub로 unblock), `git-guard.sh`(파이프 커밋·`--no-verify` deny, `checkout/switch/stash` ask), `controller-bin-guard.sh`(`--bin` 없는 `cargo run -p handicap-controller` deny), `spec-review-guard.sh`(브랜치 plan에 EOL-앵커 `REVIEW-GATE: APPROVED` 없으면 `crates/*/src`·`ui/src` 편집 deny — 브랜치에 추가된 `plans/*.md` **전부**가 plan이므로 동반 문서는 `specs/`에). 스킬: `/start-slice`·`/finish-slice`·`/new-migration`·`/live-verify`·`/perf-ab`(워커 요청당 CPU, 기준 ref 대비)·`/why`(「왜 이렇게 됐나」를 ADR·§B·build-log·git 기록에서 인용).
 
 **git 토폴로지:** 통합 브랜치 `master`(`main` 없음), remote `origin`=`github.com/SeonggukJeong/handicap`(**PUBLIC** — push 전 민감정보 주의). 슬라이스 마무리는 **로컬 ff-merge(PR 아님)** + master 주기적 push. 릴리즈 = `v*` 태그 push → `release.yml`이 Windows 인스톨러·포터블 exe·macOS dmg를 GitHub Release로 자동 게시(절차 `docs/dev/tauri-desktop-build.md` §CI 릴리즈, 태그 전 master CI 녹색 확인). 머지 = `merge --ff-only worktree-<X>`(사전 `merge-base --is-ancestor master worktree-<X>` + 메인 `status --porcelain -uno` clean) — 워크트리-격리 세션은 `git -C <메인>`을 거부하므로 `ExitWorktree(keep)` 후 메인에서 실행하고 정리는 수동(`/finish-slice` §5–6), 격리가 아니면 워크트리 안에서 `git -C /Users/sgj/develop/handicap …` 후 `ExitWorktree(remove, discard_changes:true)`. **`EnterWorktree(name: X)` → 브랜치 `worktree-X`·디렉토리 `X`(비대칭)**.
 
@@ -139,7 +139,7 @@ docs/
 - 리뷰-수정 루프: read-only 리뷰는 같은 subagent `SendMessage` resume, 코드-fix는 fresh(자가검증 편향). clean APPROVE 목표+유한 valve: finding은 `receiving-code-review` 판정, 5회 초과 시 사용자 질문.
 - 리뷰어가 "later fold 가능"이라 해도 **spec invariant 위반이면 그 슬라이스 안에서 fix**(미룬 건 사라진다).
 - **finding을 뒤 task로 접으면 그 task brief에 명시 추가**(대화 결정은 brief에 도달하지 않는다) + 접을 task의 생존 보장 확인.
-- **리뷰 finding의 사실 주장도 가설 — fold-in 전 기계 검증**(특히 렌더: 간격·정렬·폭; fold-in은 리뷰 루프 우회). 틀린 근거 주석은 통째 삭제. → [[review-findings-are-hypotheses]]
+- **리뷰 finding도 가설 — fold-in 전 기계 검증**(렌더·도달성 특히; 근거 등급 `[E1]`–`[E3]`=미실행). 틀린 근거 주석은 통째 삭제. → [[review-findings-are-hypotheses]]
 - **결함을 변호하는 새 주석은 Important — 처방은 코드 수정**("주석 보완" 처방도 코드로 먼저; 못 고치면 §B에). 정본 `docs/dev/working-rules.md` §7.
 - 최종 whole-feature 리뷰는 `handicap-reviewer`(와이어 1:1·deferral 추적·게이트 재확인). 단일-task plan은 per-task와 병합 1회 — 리뷰 BASE는 디스패치 직전 커밋(`HEAD~1` 금지).
 - **버그 fix 최종 리뷰엔 "옛 동작 부수효과에 기대던 타 크레이트 소비자" 초점 명시** — "X 0-diff"는 행동 무영향 보증 아님. → [[whole-branch-review-catches-interaction-bugs]]

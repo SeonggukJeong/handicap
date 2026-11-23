@@ -2207,3 +2207,14 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **(4-1) D11 설계의 귀결**: 준비가 비어 있을 때 loop·if 안의 http를 본 스텝 **첫 행의 위쪽 절반**에 올리면 준비 놓을 자리가 열린다(맨 위 24px 영역과 첫 행이 겹친다). 그 스텝을 본 스텝 맨 앞으로 바로 보낼 수 없고, 첫 행 아래에 놓은 뒤 순서를 바꿔야 한다. 본 스텝끼리 맨 앞으로 옮기는 것은 그대로 된다.
 - **(5) 릴리즈 노트 줄**(가림 문구 슬라이스 뒤): 「에디터에서 준비 스텝을 바로 추가하고, 끌어서 순서를 바꾸거나 본 스텝과 서로 옮길 수 있습니다. 새 시나리오의 『로그인 흐름』 예시는 로그인을 준비 스텝으로 둡니다.」
 - **(6) 테스트 공백**: 끌기 배선(충돌 판정·`handleDragEnd`)은 jsdom이 밟지 못한다 — 가드는 순수 함수(`setupZoneOpen`·`showSetupZone`·`setupZoneCollision`·`setupDropDecision`) 테스트와 이번 라이브뿐이다. `FlowOutline.tsx`의 끌기 핸들러나 dnd-kit 판을 건드리면 build-log의 라이브 표(특히 「경합」 줄)를 다시 돌린다. 키보드 끌기는 자동으로 확인하지 못했다.
+
+### B88. pstack 검토·일부 도입 (pstack-adopt, 2026-11-23) 판단·연기 — **사용자 요청 · 개발 도구만(`.claude/`·문서) · spec/plan 없음 · 제품 코드 무변경**
+
+pstack(Cursor 플러그인, Lauren Tan, MIT — `github.com/cursor/plugins/tree/main/pstack`) 원문 58개 스킬을 훑고 후보 14개를 읽었다. 가져온 것 둘: ① `handicap-reviewer` finding 근거 등급 `[E1]`–`[E5]` + 최종 리뷰 「안전 근거 사실」 칸(`blast-radius`·`interrogate`에서) ② `/why` 스킬(`why`를 이 리포 기록 체계에 맞춰 다시 씀).
+
+- **(1) 다음 후보 — 필요해지면 그때**
+  - **규칙 ↔ 강제 장치 표 점검**(pstack `correct`): 루트·도메인 `CLAUDE.md`·`working-rules.md`의 규칙마다 무엇이 강제하나(훅·lint·테스트·없음)를 표로 만들고, 글로만 있고 되풀이된 실수는 높은 층(구조 → 타입 → 오류 문구가 고칠 곳을 말하는 lint → 테스트)으로 옮기거나 지운다. 각 장치는 과거 실제 실수 하나에 대해 실패함을 보인다. 착수 신호: 같은 규칙 위반이 두 번째로 나오거나, 규칙 마찰 보고(루트 CLAUDE.md 슬라이스 파이프라인 마지막 문단)가 쌓일 때. 비용: 반나절~하루 + 규칙 삭감은 사용자 승인 필요.
+  - **`/perf-ab`에 「한계 요인」 한 줄**(pstack `benchmark-checklist` 1·3·6번): 일곱 질문 중 다섯(조건 맞춤·오류·교차 반복·실제로 일했나·A/A)은 스크립트가 이미 본다. 남는 것 = 차이가 없을 때 무엇이 막았는지, 바꾼 부분이 요청당 CPU에서 차지하는 몫의 산술 상한. 착수 신호: perf-ab 결과를 잘못 읽은 일이 생길 때.
+  - 제품 아이디어(개발 도구 아님, §A13 성격): `benchmark-checklist`의 「부하기가 먼저 포화되면 부하기를 잰 것」·「오류는 빠르다」는 리포트 인사이트가 이미 일부 다룬다(`loadgen_port_exhaustion`·stall 진단). 더 넓힐지는 도그푸딩 뒤.
+- **(2) 내가 정한 것 — 안 가져온 것**: `poteto-mode`(매 세션 시작 주입 라우터가 superpowers와 충돌) · `arena`·`interrogate`의 다중 모델(Grok 2차 의견·리뷰어 3종이 있음, 비용) · `tdd`·`no-comments`·`unslop`(겹침, `no-comments`는 출처 태그·연기 주석 규칙과 충돌) · 검증 스킬 생성기(`/live-verify`) · `recall`·`ketchup`(재개 규칙·finish-slice 보고) · 원칙 23개(대부분 CLAUDE.md에 있음). cost-if-wrong: 낮음 — 다시 보려면 원문을 받아 이 목록과 대조.
+  - **E1–E2 finding을 버리지 않고 표시만 한다** — pstack `interrogate`는 실행으로 증명 못 한 finding을 버리지만, 리뷰어가 버리면 진짜 결함도 사라진다(실행 못 하는 환경이 많다). 비용: orchestrator 검증 부담이 남는다. 고칠 곳: `.claude/agents/handicap-reviewer.md` §Evidence level.
