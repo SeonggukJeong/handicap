@@ -1,7 +1,7 @@
 # 응답 시간 표본 슬라이스 B — 화면 표본 전환 단추 (sample-switch) 설계
 
 - 날짜: 2026-11-24
-- 상태: **구현 끝**(2026-11-24, 코드 `80055439`..`98b7f7f4`, 최종 리뷰 READY-TO-MERGE, 라이브 US2·6·7·8·9 통과, 판단·연기 roadmap §B92 — master 머지는 사용자 지시 대기). 구현 전 기록: spec-plan-reviewer 3차에 clean APPROVE(2026-11-24), plan `docs/superpowers/plans/2026-11-24-sample-switch.md`도 3차에 clean APPROVE. 목업 사용자 확인 2026-11-24 「고칠 건 딱히 안 보인다」. US·툴팁 문구·「없음」 문구 사용자 확인 2026-11-24. 검토 지적 처리 §10.
+- 상태: **구현 끝**(2026-11-24, 코드 `80055439`..`98b7f7f4`, 최종 리뷰 READY-TO-MERGE, 라이브 US2·6·7·8·9 통과, 판단·연기 roadmap §B92 — 사용자 지시로 master에 머지 2026-11-24). 구현 전 기록: spec-plan-reviewer 3차에 clean APPROVE(2026-11-24), plan `docs/superpowers/plans/2026-11-24-sample-switch.md`도 3차에 clean APPROVE. 목업 사용자 확인 2026-11-24 「고칠 건 딱히 안 보인다」. US·툴팁 문구·「없음」 문구 사용자 확인 2026-11-24. 검토 지적 처리 §10.
 - 유형: `user-path`
 - 출처: roadmap §A17 진행 순서 ①B. 슬라이스 A(`2026-11-23-passed-latency-design.md`, ADR-0063)가 서버의 `?sample=`까지 했고 화면 전환을 이 슬라이스로 넘겼다(A의 US2).
 - 사용자 결정 (2026-11-24): ① 표본마다 「언제 고르고 무엇을 보는지」 설명을 툴팁으로 — 잘 모르는 사람도 고를 수 있게 ② 꼬리 몫 수치(Brooker 「Lorenz and Little」)는 미룬다(roadmap §A17 항목 6) ③ 「더 좋은 방법이 없으면 이대로」 — 검토 결과는 §3.
