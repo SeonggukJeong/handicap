@@ -92,6 +92,24 @@ describe("SetupPrintTable", () => {
     expect(trs[0].textContent).toContain("나");
   });
 
+  it("코드 칸은 짝마다 줄바꿈 금지 요소 하나이고 글자는 그대로", () => {
+    const m = model([
+      row({
+        stepId: "a",
+        codes: [
+          { label: "응답 없음", count: 1 },
+          { label: "200", count: 47 },
+          { label: "503", count: 2 },
+        ],
+      }),
+    ]);
+    const { container } = render(<SetupPrintTable model={m} from={0} to={1} />);
+    const cell = container.querySelector("tbody tr")!.children[6];
+    const pairs = Array.from(cell.querySelectorAll(".p-setup-code"));
+    expect(pairs.map((p) => p.textContent)).toEqual(["응답 없음: 1", "200: 47", "503: 2"]);
+    expect(cell.textContent).toBe("응답 없음: 1 · 200: 47 · 503: 2");
+  });
+
   it("측정 시트에서는 행마다 data-measure", () => {
     const { container } = render(
       <SetupPrintTable model={model([row({ stepId: "a" })])} from={0} to={1} measure />,

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { ko } from "../../i18n/ko";
 import type { LinePart } from "../../i18n/lineParts";
 import { fmtCount } from "../format";
@@ -72,7 +73,14 @@ function SetupRowView({ row, measure }: { row: SetupRow; measure?: boolean }) {
       <td>{ms(row.p50Ms)}</td>
       <td>{ms(row.p95Ms)}</td>
       <td>{ms(row.maxMs)}</td>
-      <td>{row.codes.map((c) => K.codeCount(c.label, fmtCount(c.count))).join(K.codeSep)}</td>
+      <td>
+        {row.codes.map((c, i) => (
+          <Fragment key={c.label}>
+            {i > 0 && K.codeSep}
+            <span className="p-setup-code">{K.codeCount(c.label, fmtCount(c.count))}</span>
+          </Fragment>
+        ))}
+      </td>
     </tr>
   );
 }

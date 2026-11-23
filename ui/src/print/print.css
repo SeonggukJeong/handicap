@@ -515,6 +515,9 @@
 .p-root .p-setup-lead b {
   font-weight: 700;
 }
+.p-root .p-setup-code {
+  white-space: nowrap;
+}
 .p-root .p-block--setup {
   padding-top: 1.5mm;
 }
