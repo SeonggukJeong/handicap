@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -39,45 +40,48 @@ export function Segmented<T extends string>({
   const closeTimer = useRef<number | null>(null);
   // 한 번에 하나만 — 열린 선택지와 그 단추(portal 앵커).
   const [open, setOpen] = useState<{ value: T; anchor: HTMLElement } | null>(null);
-  const tipOpen = open !== null;
+  // 열린 값이 아직 설명 있는 선택지로 남아 있을 때만 툴팁이 그려지고 리스너가 달린다.
+  const openOption = open ? options.find((o) => o.value === open.value) : undefined;
+  const tipOpen = openOption?.description !== undefined && openOption.description !== null;
 
   const idx = options.findIndex((o) => o.value === value);
   const stopIdx = options[idx]?.disabled ? options.findIndex((o) => !o.disabled) : idx;
 
-  const clearTimer = () => {
+  const clearTimer = useCallback(() => {
     if (closeTimer.current !== null) {
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
-  };
+  }, []);
   const openTip = (v: T, anchor: HTMLElement) => {
     clearTimer();
     setOpen({ value: v, anchor });
   };
-  const closeTip = () => {
-    clearTimer();
-    setOpen(null);
-  };
-  const scheduleClose = () => {
+  // v를 주면 그 선택지의 툴팁만 닫는다(다른 단추의 마우스·초점 툴팁은 건드리지 않는다).
+  const closeTip = useCallback(
+    (v?: T) => {
+      clearTimer();
+      setOpen((cur) => (v === undefined || cur?.value === v ? null : cur));
+    },
+    [clearTimer],
+  );
+  // 그 단추가 키보드 초점(:focus-visible)을 쥐고 있으면 마우스가 떠나도 닫지 않는다.
+  const scheduleClose = (v: T) => {
+    const b = buttons.current.get(v);
+    if (b && document.activeElement === b && b.matches(":focus-visible")) return;
     clearTimer();
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
-      setOpen(null);
+      setOpen((cur) => (cur?.value === v ? null : cur));
     }, CLOSE_DELAY_MS);
   };
 
-  useEffect(() => clearTimer, []);
+  useEffect(() => clearTimer, [clearTimer]);
 
   // Esc·스크롤·리사이즈 리스너는 툴팁이 열려 있을 때만 단다(열린 모달의 Esc를 가로채지 않게).
   useEffect(() => {
     if (!tipOpen) return;
-    const close = () => {
-      if (closeTimer.current !== null) {
-        window.clearTimeout(closeTimer.current);
-        closeTimer.current = null;
-      }
-      setOpen(null);
-    };
+    const close = () => closeTip();
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (e.key !== "Escape") return;
       e.stopPropagation();
@@ -91,7 +95,7 @@ export function Segmented<T extends string>({
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
     };
-  }, [tipOpen]);
+  }, [tipOpen, closeTip]);
 
   function step(dir: 1 | -1) {
     const n = options.length;
@@ -113,7 +117,6 @@ export function Segmented<T extends string>({
       step(-1);
     }
   }
-  const openOption = open ? options.find((o) => o.value === open.value) : undefined;
   return (
     <div
       role="radiogroup"
@@ -143,7 +146,7 @@ export function Segmented<T extends string>({
               aria-disabled={o.disabled ? true : undefined}
               onClick={() => onChange(o.value)}
               onPointerEnter={hasTip ? (e) => openTip(o.value, e.currentTarget) : undefined}
-              onPointerLeave={hasTip ? scheduleClose : undefined}
+              onPointerLeave={hasTip ? () => scheduleClose(o.value) : undefined}
               onFocus={
                 hasTip
                   ? (e) => {
@@ -152,7 +155,7 @@ export function Segmented<T extends string>({
                     }
                   : undefined
               }
-              onBlur={hasTip ? closeTip : undefined}
+              onBlur={hasTip ? () => closeTip(o.value) : undefined}
               className={`rounded-md px-3.5 py-1 text-sm font-semibold transition-colors ${
                 active
                   ? "bg-accent-600 text-white shadow-sm"
@@ -171,8 +174,12 @@ export function Segmented<T extends string>({
           </Fragment>
         );
       })}
-      {open && openOption && (
-        <OptionTip anchor={open.anchor} onPointerEnter={clearTimer} onPointerLeave={scheduleClose}>
+      {open && tipOpen && (
+        <OptionTip
+          anchor={open.anchor}
+          onPointerEnter={clearTimer}
+          onPointerLeave={() => scheduleClose(open.value)}
+        >
           {openOption.description}
         </OptionTip>
       )}

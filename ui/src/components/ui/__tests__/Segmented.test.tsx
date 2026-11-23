@@ -161,7 +161,6 @@ describe("Segmented — 초점 이동과 설명 툴팁", () => {
     expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("가 설명");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
-    expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
     await user.tab({ shift: true });
     await user.tab();
     expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("가 설명");
@@ -184,6 +183,82 @@ describe("Segmented — 초점 이동과 설명 툴팁", () => {
     const tips = screen.getAllByRole("tooltip", { hidden: true });
     expect(tips).toHaveLength(1);
     expect(tips[0]).toHaveTextContent("나 설명");
+  });
+
+  it("키보드 초점이 있는 단추 위로 마우스가 지나가도 그 툴팁은 열려 있다", () => {
+    vi.useFakeTimers();
+    render(<Wrapper />);
+    const a = screen.getByRole("radio", { name: "가" });
+    act(() => a.focus());
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("가 설명");
+    fireEvent.pointerEnter(a);
+    fireEvent.pointerLeave(a);
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("가 설명");
+  });
+
+  it("초점을 잃는 단추는 자기 툴팁만 닫는다(다른 단추의 마우스 툴팁은 그대로)", () => {
+    vi.useFakeTimers();
+    render(<Wrapper />);
+    const a = screen.getByRole("radio", { name: "가" });
+    const b = screen.getByRole("radio", { name: "나" });
+    act(() => a.focus());
+    fireEvent.pointerEnter(b);
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("나 설명");
+    act(() => a.blur());
+    expect(screen.getByRole("tooltip", { hidden: true })).toHaveTextContent("나 설명");
+  });
+
+  it("툴팁이 열려 있을 때 Esc는 부모 keydown까지 가지 않는다", async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    document.addEventListener("keydown", spy);
+    try {
+      render(<Wrapper />);
+      await user.tab();
+      expect(screen.getByRole("tooltip", { hidden: true })).toBeInTheDocument();
+      spy.mockClear();
+      await user.keyboard("{Escape}");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", spy);
+    }
+  });
+
+  it("description이 없으면 Esc가 그대로 부모 keydown에 닿는다", async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    document.addEventListener("keydown", spy);
+    try {
+      render(<Wrapper options={PLAIN} />);
+      await user.tab();
+      await user.keyboard("{Escape}");
+      expect(spy.mock.calls.some(([e]) => (e as KeyboardEvent).key === "Escape")).toBe(true);
+    } finally {
+      document.removeEventListener("keydown", spy);
+    }
+  });
+
+  it("열린 선택지가 options에서 사라지면 툴팁도 Esc 리스너도 없다", async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    document.addEventListener("keydown", spy);
+    try {
+      const { rerender } = render(
+        <Segmented value="a" onChange={() => {}} options={OPTS} ariaLabel="표본" />,
+      );
+      await user.tab();
+      expect(screen.getByRole("tooltip", { hidden: true })).toBeInTheDocument();
+      rerender(<Segmented value="a" onChange={() => {}} options={PLAIN} ariaLabel="표본" />);
+      expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
+      spy.mockClear();
+      await user.keyboard("{Escape}");
+      expect(spy.mock.calls.some(([e]) => (e as KeyboardEvent).key === "Escape")).toBe(true);
+    } finally {
+      document.removeEventListener("keydown", spy);
+    }
   });
 
   it("description이 없으면 숨은 설명·aria-describedby·툴팁이 없다", () => {
