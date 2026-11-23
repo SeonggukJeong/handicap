@@ -238,7 +238,7 @@ describe("Task 7+8 신규 키 (closed+curve / ramp_down)", () => {
     const result = ko.report.headlineClosedCurve({
       duration: "1분",
       count: "12,345",
-      p95: "0.21초",
+      latency: "95%가 0.21초 안에 응답",
       errPct: "0.3%",
     });
     expect(result).toBeTypeOf("string");

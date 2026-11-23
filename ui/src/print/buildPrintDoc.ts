@@ -3,6 +3,7 @@
 import { ko } from "../i18n/ko";
 import {
   ProfileSchema,
+  reportSample,
   type Criteria,
   type Report,
   type Run,
@@ -151,7 +152,7 @@ export function buildPrintDoc(a: {
       )
     : report.windows;
   const scopeEndSec = scoped ? bw.end_ms / 1000 - t0 : undefined;
-  const basisOther = basis ? basisOtherLine(basis) : null;
+  const basisOther = basis ? basisOtherLine(basis, reportSample(report).selected) : null;
   const readingBase = chartReadingLine(chart);
   const readingLine =
     basis && chart.steady

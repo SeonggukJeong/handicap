@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
-import type { ReportStep } from "../../api/schemas";
+import type { ReportSampleName, ReportStep } from "../../api/schemas";
+import { hasLatency, stepCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
@@ -14,15 +15,23 @@ type Props = {
   retriedStepIds?: ReadonlySet<string>;
   /** 반복 횟수별 집계·응답 분리·대기/다운로드 열이 run 전체 값일 때 「전체 구간」 표지를 단다. */
   wholeRunBadge?: boolean;
+  /** 응답 시간을 계산한 표본 — 그 표본에 요청이 없으면 「—」. */
+  sample?: ReportSampleName;
 };
 
 // 하나도 보내지 않은 스텝에는 잰 시간이 없다 — 0으로 찍지 않는다.
 // 보냈지만 응답을 못 받은 요청(시간 초과·거부)은 실패까지 걸린 시간이 표본에 들어 있어 그대로 찍는다.
-function latency(s: ReportStep, ms: number): number | string {
-  return s.count - (s.not_sent ?? 0) > 0 ? ms : "—";
+function latency(s: ReportStep, ms: number, sample: ReportSampleName): number | string {
+  return hasLatency(stepCounts(s), sample) ? ms : "—";
 }
 
-export function StepStatsTable({ steps, meta, retriedStepIds, wholeRunBadge }: Props) {
+export function StepStatsTable({
+  steps,
+  meta,
+  retriedStepIds,
+  wholeRunBadge,
+  sample = "all",
+}: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
@@ -113,9 +122,9 @@ export function StepStatsTable({ steps, meta, retriedStepIds, wholeRunBadge }: P
                   <td className="py-2 pr-4 font-mono text-xs break-all">{m?.url ?? ""}</td>
                   <td className="py-2 pr-4">{s.count}</td>
                   <td className="py-2 pr-4">{s.error_count}</td>
-                  <td className="py-2 pr-4">{latency(s, s.p50_ms)}</td>
-                  <td className="py-2 pr-4">{latency(s, s.p95_ms)}</td>
-                  <td className="py-2 pr-4">{latency(s, s.p99_ms)}</td>
+                  <td className="py-2 pr-4">{latency(s, s.p50_ms, sample)}</td>
+                  <td className="py-2 pr-4">{latency(s, s.p95_ms, sample)}</td>
+                  <td className="py-2 pr-4">{latency(s, s.p99_ms, sample)}</td>
                   {anyWait && <td className="py-2 pr-4">{s.wait?.p50_ms ?? "—"}</td>}
                   {anyDownload && (
                     <>

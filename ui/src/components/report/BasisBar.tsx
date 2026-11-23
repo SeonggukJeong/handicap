@@ -1,4 +1,4 @@
-import type { ReportBasis } from "../../api/schemas";
+import type { ReportBasis, ReportSampleName } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { Segmented } from "../ui/Segmented";
@@ -10,14 +10,16 @@ export function BasisBar({
   basis,
   onSelect,
   pending,
+  sample = "all",
 }: {
   basis: ReportBasis;
   onSelect: (b: Basis) => void;
   pending?: boolean;
+  sample?: ReportSampleName;
 }) {
   const t = ko.report.basis;
   const steadyOff = basis.state === "not_reached" || basis.state === "no_common_window";
-  const otherText = basisOtherLine(basis);
+  const otherText = basisOtherLine(basis, sample);
   return (
     <div className="mb-4">
       <Segmented<Basis>

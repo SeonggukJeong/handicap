@@ -1267,8 +1267,8 @@ export const ko = {
       notReached: "유지 구간에 닿기 전에 끝나 전체 구간만 볼 수 있습니다",
       noCommonWindow:
         "워커 시작 시각 차이가 커서 공통 유지 구간이 없습니다 — 전체 구간만 볼 수 있습니다",
-      otherLine: (label: string, rps: string, p95: number, errPct: string) =>
-        `${label}: 초당 요청 ${rps} · p95 ${p95} ms · 오류 ${errPct}`,
+      otherLine: (label: string, rps: string, p95: number | null, errPct: string) =>
+        `${label}: 초당 요청 ${rps} · ${p95 === null ? "p95 —" : `p95 ${p95} ms`} · 오류 ${errPct}`,
       chartLegend: (hasRamp: boolean, hasDiscard: boolean) => {
         const bands =
           hasRamp && hasDiscard
@@ -1611,22 +1611,29 @@ export const ko = {
       duration: string;
       vus: number;
       count: string;
-      p95: string;
+      latency: string;
       errPct: string;
     }) =>
-      `${p.duration} 동안 동시 사용자 ${p.vus}명이 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+      `${p.duration} 동안 동시 사용자 ${p.vus}명이 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
     headlineOpenFixed: (p: {
       duration: string;
       targetRps: number;
       count: string;
-      p95: string;
+      latency: string;
       errPct: string;
     }) =>
-      `${p.duration} 동안 목표 도착률 초당 ${p.targetRps}회로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
-    headlineOpenCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
-      `${p.duration} 동안 단계별 도착률 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
-    headlineClosedCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
-      `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+      `${p.duration} 동안 목표 도착률 초당 ${p.targetRps}회로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
+    headlineOpenCurve: (p: { duration: string; count: string; latency: string; errPct: string }) =>
+      `${p.duration} 동안 단계별 도착률 곡선으로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
+    headlineClosedCurve: (p: {
+      duration: string;
+      count: string;
+      latency: string;
+      errPct: string;
+    }) =>
+      `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
+    headlineLatency: (p95: string | null) =>
+      p95 === null ? "통과한 요청 없음" : `95%가 ${p95} 안에 응답`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
     headlineSetupFailed:
       "준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — 아래 「준비 스텝」에서 원인을 확인하세요.",

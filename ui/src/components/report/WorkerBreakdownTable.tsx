@@ -1,12 +1,19 @@
-import type { WorkerBreakdown } from "../../api/schemas";
+import type { ReportSampleName, WorkerBreakdown } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { formatErrPct } from "./format";
 
-type Props = { breakdown: WorkerBreakdown[] };
+type Props = { breakdown: WorkerBreakdown[]; sample?: ReportSampleName };
 
-export function WorkerBreakdownTable({ breakdown }: Props) {
+// 워커별 「보내지 않음」 수는 와이어에 없어 all 표본은 지금처럼 늘 값.
+function workerLatency(w: WorkerBreakdown, ms: number, sample: ReportSampleName): number | string {
+  if (sample === "passed") return w.count - w.errors > 0 ? ms : "—";
+  if (sample === "failed") return w.errors > 0 ? ms : "—";
+  return ms;
+}
+
+export function WorkerBreakdownTable({ breakdown, sample = "all" }: Props) {
   // Server emits only when >=2 distinct workers; mirror that gate defensively.
   if (breakdown.length < 2) return null;
   return (
@@ -41,9 +48,9 @@ export function WorkerBreakdownTable({ breakdown }: Props) {
               <td className="py-2 pr-4">{w.count}</td>
               <td className="py-2 pr-4">{w.errors}</td>
               <td className="py-2 pr-4">{formatErrPct(w.errors, w.count)}</td>
-              <td className="py-2 pr-4">{w.p50_ms}</td>
-              <td className="py-2 pr-4">{w.p95_ms}</td>
-              <td className="py-2 pr-4">{w.p99_ms}</td>
+              <td className="py-2 pr-4">{workerLatency(w, w.p50_ms, sample)}</td>
+              <td className="py-2 pr-4">{workerLatency(w, w.p95_ms, sample)}</td>
+              <td className="py-2 pr-4">{workerLatency(w, w.p99_ms, sample)}</td>
             </tr>
           ))}
         </tbody>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { Profile, Report } from "../../api/schemas";
+import { reportSample, type Profile, type Report } from "../../api/schemas";
+import { summaryCounts } from "../../report/hasLatency";
 import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
 import { ko } from "../../i18n/ko";
@@ -51,6 +52,8 @@ type Props = {
 
 export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
+  const sample = reportSample(report).selected;
+  const latency = useMemo(() => ({ sample, counts: summaryCounts(report) }), [sample, report]);
   const marks = useMemo(
     () => steadyMarks(report.basis, seconds[0]?.ts_second ?? null),
     [report.basis, seconds],
@@ -150,7 +153,12 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
   return (
     <div>
       {report.basis && (
-        <BasisBar basis={report.basis} onSelect={(b) => onSelectBasis?.(b)} pending={pending} />
+        <BasisBar
+          basis={report.basis}
+          onSelect={(b) => onSelectBasis?.(b)}
+          pending={pending}
+          sample={sample}
+        />
       )}
       <div className={pending ? "opacity-60 transition-opacity" : "transition-opacity"}>
         <ReportHeadline
@@ -160,6 +168,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           validity={report.validity}
           setupOnly={setupOnly}
           setup={report.setup}
+          latency={latency}
         />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
@@ -262,6 +271,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           </p>
         )}
         <Summary
+          latency={latency}
           summary={report.summary}
           dropped={report.dropped}
           dropBase={dropOther ? { count: dropOther.count } : undefined}
@@ -309,7 +319,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
             byWorker={report.active_vu_by_worker ?? []}
           />
         ) : null}
-        <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} />
+        <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} sample={sample} />
         {report.latency ? (
           <PageSection
             ariaLabel={ko.report.latencyTitle}
@@ -330,6 +340,7 @@ export function ReportView({ report, profile, onSelectBasis, pending }: Props) {
           meta={stepMeta}
           retriedStepIds={retriedStepIds}
           wholeRunBadge={wholeRunBadge}
+          sample={sample}
         />
         {report.setup && (
           <SetupSection

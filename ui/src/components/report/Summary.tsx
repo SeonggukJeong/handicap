@@ -1,4 +1,5 @@
-import type { ReportSummary } from "../../api/schemas";
+import type { ReportSampleName, ReportSummary } from "../../api/schemas";
+import { hasLatency, type LatencyCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
@@ -14,17 +15,22 @@ type Props = {
   dropBase?: { count: number };
   /** 버림 수·달성 도착률이 run 전체 값일 때 그 카드 옆에 「전체 구간」 표지를 단다. */
   wholeRunBadge?: boolean;
+  /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 「—」. 없으면 항상 값. */
+  latency?: { sample: ReportSampleName; counts: LatencyCounts };
 };
 
-export function Summary({ summary, dropped, openLoop, dropBase, wholeRunBadge }: Props) {
+export function Summary({ summary, dropped, openLoop, dropBase, wholeRunBadge, latency }: Props) {
+  const noLatency =
+    latency != null && latency.sample !== "all" && !hasLatency(latency.counts, latency.sample);
+  const ms = (v: number) => (noLatency ? "—" : `${v} ms`);
   const cards: Array<{ label: string; value: string; help?: string; whole?: boolean }> = [
     { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },
     { label: ko.report.cardErrors, value: summary.errors.toLocaleString() },
     { label: ko.report.cardAvgRps, value: summary.rps.toFixed(1), help: ko.glossary.rps },
     { label: ko.report.cardDuration, value: `${summary.duration_seconds}s` },
-    { label: "p50", value: `${summary.p50_ms} ms`, help: ko.glossary.p50 },
-    { label: "p95", value: `${summary.p95_ms} ms`, help: ko.glossary.p95 },
-    { label: "p99", value: `${summary.p99_ms} ms`, help: ko.glossary.p99 },
+    { label: "p50", value: ms(summary.p50_ms), help: ko.glossary.p50 },
+    { label: "p95", value: ms(summary.p95_ms), help: ko.glossary.p95 },
+    { label: "p99", value: ms(summary.p99_ms), help: ko.glossary.p99 },
   ];
 
   if (openLoop != null) {

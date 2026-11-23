@@ -17,6 +17,21 @@ describe("runShortLabel", () => {
   });
 });
 
+describe("overlaySeries — 값 없는 초", () => {
+  it("p95가 null인 초는 null 그대로 넘긴다", () => {
+    const r = {
+      run: { id: "aaaaaa111111" },
+      windows: [
+        { ts_second: 1, count: 3, error_count: 3, p95_ms: 0, status_counts: { "500": 3 } },
+        { ts_second: 2, count: 3, error_count: 0, p95_ms: 7, status_counts: { "200": 3 } },
+      ],
+      sample: { selected: "passed", default: "passed", split: true },
+    } as unknown as Report;
+    const { rows } = overlaySeries([r], 0, "p95");
+    expect(rows.map((row) => row.run0)).toEqual([null, 7]);
+  });
+});
+
 describe("overlaySeries", () => {
   it("normalizes each run to its own t=0 and merges by elapsed with null gaps", () => {
     const a = rep("aaaaaa111111", [

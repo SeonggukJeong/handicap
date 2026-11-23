@@ -7,7 +7,7 @@ export type OverlayRun = { key: string; label: string; color: string; baseline: 
 export type OverlayRow = { elapsed: number } & Record<string, number | null>;
 export type OverlaySeries = { rows: OverlayRow[]; runs: OverlayRun[] };
 
-function metricValue(s: Sec, metric: MetricKey): number {
+function metricValue(s: Sec, metric: MetricKey): number | null {
   if (metric === "rps") return s.count;
   if (metric === "errors") return s.errors;
   return s.p95_ms;
@@ -26,7 +26,7 @@ export function overlaySeries(
   }));
 
   // Merge by elapsed-second (each run normalized to its own first window = t0).
-  const byElapsed = new Map<number, Record<string, number>>();
+  const byElapsed = new Map<number, Record<string, number | null>>();
   reports.forEach((r, i) => {
     const secs = bySecond(r);
     if (secs.length === 0) return;

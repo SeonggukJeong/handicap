@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import type { LoopSplit, ReportStep } from "../../api/schemas";
+import type { LoopSplit, ReportSampleName, ReportStep } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { RetryBadge } from "./LoopExitSummary";
@@ -13,6 +13,8 @@ type Props = {
   retriedStepIds?: ReadonlySet<string>;
   /** 대기·다운로드·반복·응답 분리 줄이 run 전체 값일 때 「전체 구간」 표지를 단다. */
   wholeRunBadge?: boolean;
+  /** 응답 시간 표본 — 표(StepStatsTable)에 그대로 넘긴다. */
+  sample?: ReportSampleName;
 };
 type View = "waterfall" | "chips";
 
@@ -47,7 +49,7 @@ function SplitLine({
   );
 }
 
-export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge }: Props) {
+export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge, sample }: Props) {
   const [view, setView] = useState<View>("waterfall");
   const anyPhase = steps.some((s) => s.wait != null || s.download != null);
   if (!anyPhase) {
@@ -58,6 +60,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge 
         meta={meta}
         retriedStepIds={retriedStepIds}
         wholeRunBadge={wholeRunBadge}
+        sample={sample}
       />
     );
   }
@@ -98,6 +101,7 @@ export function StepPhaseBreakdown({ steps, meta, retriedStepIds, wholeRunBadge 
           meta={meta}
           retriedStepIds={retriedStepIds}
           wholeRunBadge={wholeRunBadge}
+          sample={sample}
         />
       ) : (
         <div>

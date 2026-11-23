@@ -1,4 +1,4 @@
-import type { ReportBasis } from "../../api/schemas";
+import type { ReportBasis, ReportSampleName } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { floorPct } from "./format";
 
@@ -33,14 +33,15 @@ export function basisLine(basis: ReportBasis): string {
   return parts.join(" · ");
 }
 
-export function basisOtherLine(basis: ReportBasis): string | null {
+export function basisOtherLine(basis: ReportBasis, sample: ReportSampleName): string | null {
   const t = ko.report.basis;
   const other = basis.other;
   if (!other) return null;
+  const noValue = sample === "passed" && (other.count === 0 || other.error_rate >= 1);
   return t.otherLine(
     basis.selected === "steady" ? t.whole : t.steady,
     other.rps.toFixed(1),
-    other.p95_ms,
+    noValue ? null : other.p95_ms,
     floorPct(other.error_rate * 100),
   );
 }

@@ -57,6 +57,7 @@ export function StairTable({ stair }: { stair: StairReport }) {
           <tbody>
             {stair.steps.map((s) => {
               const measured = showsNumbers(s.state);
+              const timed = measured && s.p99_us > 0;
               const reasons = reasonTexts(stair, s);
               return (
                 <tr key={s.index} className="border-t border-slate-200">
@@ -66,9 +67,9 @@ export function StairTable({ stair }: { stair: StairReport }) {
                     {measured && s.achieved != null ? formatCount(s.achieved) : DASH}
                   </td>
                   <td className={td}>{measured ? formatCount(s.throughput_rps) : DASH}</td>
-                  <td className={td}>{measured ? formatMs(s.p50_us) : DASH}</td>
-                  <td className={td}>{measured ? formatMs(s.p95_us) : DASH}</td>
-                  <td className={td}>{measured ? formatMs(s.p99_us) : DASH}</td>
+                  <td className={td}>{timed ? formatMs(s.p50_us) : DASH}</td>
+                  <td className={td}>{timed ? formatMs(s.p95_us) : DASH}</td>
+                  <td className={td}>{timed ? formatMs(s.p99_us) : DASH}</td>
                   <td className={td}>{measured ? errorRateText(s.error_rate) : DASH}</td>
                   <td className={td}>
                     {measured && s.dropped != null ? s.dropped.toLocaleString("en-US") : DASH}

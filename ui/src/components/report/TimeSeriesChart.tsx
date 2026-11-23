@@ -13,7 +13,7 @@ import { ko } from "../../i18n/ko";
 import type { SteadyMarks } from "./steadyMarks";
 import { PageSection } from "../ui/PageSection";
 
-type Point = { ts_second: number; value: number };
+type Point = { ts_second: number; value: number | null };
 
 type Props = {
   title: string;

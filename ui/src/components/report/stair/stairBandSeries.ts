@@ -17,7 +17,7 @@ export function buildBandSeries(seconds: StairBandSecondRow[]): {
     rows.push({
       offset_s: o,
       launched: s?.launched ?? null,
-      p99_ms: s && s.count > 0 ? s.p99_us / 1000 : null,
+      p99_ms: s && s.count > 0 && s.p99_us > 0 ? s.p99_us / 1000 : null,
     });
   }
   return rows;
