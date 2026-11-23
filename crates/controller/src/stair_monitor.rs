@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use handicap_engine::percentiles::{decode_hdr, merge_into};
+use handicap_engine::percentiles::merge_into;
 use handicap_proto::v1 as pb;
 use hdrhistogram::Histogram;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -18,6 +18,7 @@ use crate::auto_stop::{
     EmergencyHit, EmergencyStats, EmergencyTracker, StopInfo, StopKind, saturation_stop,
 };
 use crate::grpc::coordinator::{CoordinatorState, plausible_second, plausible_start};
+use crate::sample::window_hist_per_window;
 use crate::stair::{
     BandKind, Bound, Judgement, SaturationStopMode, StairAccumulator, StairConfig, judge,
 };
@@ -688,7 +689,8 @@ impl StairMonitor {
             {
                 self.decodes += 1;
             }
-            let hist = decode_hdr(&win.hdr_histogram).ok().flatten();
+            let hist =
+                window_hist_per_window(&win.hdr_histogram, win.failed_hdr_histogram.as_deref());
             if to_secs {
                 let sec = self.secs.entry(win.ts_second).or_default();
                 sec.count = sec.count.saturating_add(win.count);
@@ -1389,6 +1391,22 @@ mod tests {
     /// 시작 시각이 어긋난 두 워커, 스텝 2개, 초마다 다른 값을 감시에 밀어 넣고 같은 행을 DB 행으로도 모은다.
     /// `fail_from` = dropped가 생기기 시작하는 절대 초.
     fn gen_run(c: &StairConfig, fail_from: i64) -> GenRun {
+        gen_run_with(c, fail_from, None)
+    }
+
+    /// 여러 표본을 한 분포에 기록한 HDR 바이트.
+    fn hdr_of(us: &[u64]) -> Vec<u8> {
+        let mut h = fresh_hist();
+        for &u in us {
+            h.record(u).unwrap();
+        }
+        let mut b = Vec::new();
+        V2Serializer::new().serialize(&h, &mut b).unwrap();
+        b
+    }
+
+    /// `failed_us`가 Some이면 창마다 전체 = 통과 1건 + 그 시간의 실패 1건, 실패 칸 = 실패 1건.
+    fn gen_run_with(c: &StairConfig, fail_from: i64, failed_us: Option<u64>) -> GenRun {
         let t0s = [("w0", T0MS + 300), ("w1", T0MS + 2700)];
         let mut rows: Vec<WindowWithHdr> = Vec::new();
         let mut ol: Vec<OpenLoopSecondRow> = Vec::new();
@@ -1424,7 +1442,11 @@ mod tests {
                     for (si, step) in ["a", "b"].iter().enumerate() {
                         let count = 20 + (k + si as i64) % 5;
                         let errors = if (k + si as i64) % 11 == 0 { 2 } else { 0 };
-                        let h = hdr(1000 + ((k * 37 + si as i64 * 101) % 5000) as u64);
+                        let passed_us = 1000 + ((k * 37 + si as i64 * 101) % 5000) as u64;
+                        let (h, failed) = match failed_us {
+                            None => (hdr(passed_us), None),
+                            Some(f) => (hdr_of(&[passed_us, f]), Some(hdr(f))),
+                        };
                         b.windows.push(pb::MetricWindow {
                             ts_second: ts,
                             step_id: (*step).into(),
@@ -1432,10 +1454,10 @@ mod tests {
                             error_count: errors as u64,
                             hdr_histogram: h.clone(),
                             status_counts: Default::default(),
-                            failed_hdr_histogram: None,
+                            failed_hdr_histogram: failed.clone(),
                         });
                         rows.push(WindowWithHdr {
-                            failed_hdr_histogram: None,
+                            failed_hdr_histogram: failed,
                             ts_second: ts,
                             step_id: (*step).into(),
                             worker_id: w.into(),
@@ -1532,6 +1554,64 @@ mod tests {
         let states: Vec<_> = rep.steps.iter().map(|s| s.state).collect();
         assert!(states.contains(&crate::stair::StepState::Ok));
         assert!(states.iter().any(|s| *s != crate::stair::StepState::Ok));
+    }
+
+    #[test]
+    fn monitor_matches_report_with_failed_samples() {
+        const FAILED_US: u64 = 30_000_000;
+        let c = cfg5(None);
+        let g = gen_run_with(&c, T0 + 70, Some(FAILED_US));
+        assert_eq!(g.m.judged_through(), 4);
+        let rep = report_of(&c, &g, None);
+        let mon = g.m.judged_numbers();
+        assert_eq!(mon.len(), 5);
+        for (i, n) in mon.iter().enumerate() {
+            assert_eq!(n.p99_us, rep.steps[i].p99_us, "step {i} p99");
+            // 통과한 요청(1–6 ms대)만 센다 — 실패 30 초를 섞으면 p99가 30 초 근처다.
+            assert!(
+                n.p99_us > 0 && n.p99_us < 1_000_000,
+                "step {i}: {}",
+                n.p99_us
+            );
+        }
+    }
+
+    /// 단일 워커 한 배치. 초 `from..=to`의 창을 전체 = `all_us`(표본들), 실패 칸 = `failed`로 채운다.
+    fn span_failed(from: i64, to: i64, all_us: &[u64], failed: Option<u64>) -> MonitorMsg {
+        let MonitorMsg::Batch(mut b) = span("w", T0MS, from, to, |_| OK) else {
+            unreachable!()
+        };
+        for w in &mut b.windows {
+            w.hdr_histogram = hdr_of(all_us);
+            w.failed_hdr_histogram = failed.map(hdr);
+        }
+        MonitorMsg::Batch(b)
+    }
+
+    #[test]
+    fn only_failed_second_has_zero_p99() {
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        let o = m.on_msg(span_failed(T0, T0 + 9, &[2000, 5], Some(5)), NOW2);
+        assert!(o.stop.is_none());
+        let before = m.live().emergency_now.expect("판정한 초");
+        assert!(before.p99_us > 0);
+        // 실패만 있는 초: 통과한 요청이 없으니 p99는 0 — 30 초가 아니다.
+        let o = m.on_msg(
+            span_failed(T0 + 10, T0 + 10, &[30_000_000], Some(30_000_000)),
+            NOW2,
+        );
+        assert!(o.stop.is_none());
+        let e = m.live().emergency_now.expect("판정한 초");
+        assert_eq!(e.p99_us, 0);
+    }
+
+    #[test]
+    fn old_worker_window_uses_all() {
+        let mut m = StairMonitor::new(&cfg_em(None), 1);
+        m.on_msg(span_failed(T0, T0 + 9, &[2000], None), NOW2);
+        m.on_msg(span_failed(T0 + 10, T0 + 10, &[30_000_000], None), NOW2);
+        let e = m.live().emergency_now.expect("판정한 초");
+        assert!(e.p99_us >= 29_000_000, "{}", e.p99_us);
     }
 
     /// 워커 1개, 계단 i마다 (100건 중 오류 수, p99 µs)를 초마다 밀어 넣는다.
@@ -2342,6 +2422,7 @@ mod perf {
     use super::*;
     use crate::report::fresh_hist;
     use crate::stair::{AutoStopConfig, EmergencyStop};
+    use handicap_engine::percentiles::decode_hdr;
     use hdrhistogram::serialization::{Serializer, V2Serializer};
     use std::time::{Duration, Instant};
 
@@ -2370,7 +2451,26 @@ mod perf {
     }
 
     /// `skew`: 마지막 워커 t0 +3 s, 세 번째 워커는 초 1000–1010분 배치가 10초 늦게 한꺼번에 도착.
+    /// `real_hdr`에 30 초 실패 1건을 더한 전체 분포와, 그 실패 1건만의 분포.
+    fn real_hdr_with_failure(seed: u64) -> (Vec<u8>, Vec<u8>) {
+        let mut all = decode_hdr(&real_hdr(seed)).unwrap().unwrap();
+        all.record(30_000_000).unwrap();
+        let mut failed = fresh_hist();
+        failed.record(30_000_000).unwrap();
+        let ser = |h: &Histogram<u64>| {
+            let mut b = Vec::new();
+            V2Serializer::new().serialize(h, &mut b).unwrap();
+            b
+        };
+        (ser(&all), ser(&failed))
+    }
+
     fn run(skew: bool, emergency: bool) -> usize {
+        run_with(skew, emergency, false)
+    }
+
+    /// `failures`: 모든 창에 실패 칸을 달아 통과 분포를 빼는 경로를 잰다.
+    fn run_with(skew: bool, emergency: bool, failures: bool) -> usize {
         let targets: Vec<u32> = (1..=STEPS as u32).map(|i| i * 40).collect();
         let cfg = StairConfig {
             targets: targets.clone(),
@@ -2401,7 +2501,16 @@ mod perf {
             );
         }
 
-        let hdrs: Vec<Vec<u8>> = (0..16).map(real_hdr).collect();
+        let pairs: Vec<(Vec<u8>, Option<Vec<u8>>)> = (0..16)
+            .map(|s| {
+                if failures {
+                    let (all, failed) = real_hdr_with_failure(s);
+                    (all, Some(failed))
+                } else {
+                    (real_hdr(s), None)
+                }
+            })
+            .collect();
         let total_s = STEPS * STEP_S;
         // (도착 시각 ms, 순번, 메시지). 배치 = 초 2개 + 시나리오 스텝 16개 x 2초 = window 32개.
         let mut batches: Vec<(i64, usize, MonitorMsg)> = Vec::new();
@@ -2423,14 +2532,15 @@ mod perf {
                         dropped: 0,
                     });
                     for k in 0..16 {
+                        let (all, failed) = &pairs[(ts as usize + k + w) % pairs.len()];
                         windows.push(pb::MetricWindow {
                             ts_second: ts,
                             step_id: format!("s{k}"),
                             count: (per / 16).max(1),
                             error_count: 0,
-                            hdr_histogram: hdrs[(ts as usize + k + w) % hdrs.len()].clone(),
+                            hdr_histogram: all.clone(),
                             status_counts: Default::default(),
-                            failed_hdr_histogram: None,
+                            failed_hdr_histogram: failed.clone(),
                         });
                     }
                 }
@@ -2496,7 +2606,7 @@ mod perf {
         judging.sort();
         let p = |v: &[Duration], q: f64| v[((v.len() as f64 * q) as usize).min(v.len() - 1)];
         println!(
-            "monitor_batch_cost skew={skew} emergency={emergency}: decodes={} batches={n} p50={:?} p99={:?} max={:?} | judging batches={} p50={:?} p99={:?} max={:?}",
+            "monitor_batch_cost skew={skew} emergency={emergency} failures={failures}: decodes={} batches={n} p50={:?} p99={:?} max={:?} | judging batches={} p50={:?} p99={:?} max={:?}",
             m.decodes,
             p(&times, 0.5),
             p(&times, 0.99),
@@ -2523,6 +2633,12 @@ mod perf {
     #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
     fn monitor_batch_cost_worst_case() {
         run(false, true);
+    }
+
+    #[test]
+    #[ignore = "수동 성능 측정 — cargo test -p handicap-controller --release monitor_batch_cost -- --ignored --nocapture"]
+    fn monitor_batch_cost_with_failures() {
+        run_with(false, true, true);
     }
 
     #[test]

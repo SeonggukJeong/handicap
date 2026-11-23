@@ -4,11 +4,12 @@
 use std::collections::BTreeMap;
 
 use handicap_engine::Stage;
-use handicap_engine::percentiles::{decode_hdr, merge_into};
+use handicap_engine::percentiles::merge_into;
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
 
 use crate::auto_stop::{AutoStopRecord, StopInfo, StopKind};
+use crate::sample::window_hist_per_window;
 use crate::store::metrics::WindowWithHdr;
 use crate::store::open_loop::{OpenLoopSecondRow, WorkerStartRow};
 use crate::store::runs::Profile;
@@ -957,7 +958,7 @@ pub fn build_stair_report(
             acc.push_open_loop(w.id, r.ts_second, r.launched, r.completed, r.dropped);
         }
         for r in &w.metrics {
-            let h = decode_hdr(&r.hdr_histogram).ok().flatten();
+            let h = window_hist_per_window(&r.hdr_histogram, r.failed_hdr_histogram.as_deref());
             let s = secs.entry(r.ts_second.saturating_sub(t0_s)).or_default();
             add(&mut s.count, r.count);
             if let Some(h) = &h {
