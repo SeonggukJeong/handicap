@@ -62,4 +62,24 @@ describe("SCENARIO_TEMPLATES", () => {
     expect(login.yaml).toContain("Bearer {{token}}");
     expect(login.yaml).toContain("${BASE_URL}");
   });
+
+  it("로그인 흐름: 로그인은 준비 스텝, 내 정보 조회는 본 스텝", () => {
+    const login = SCENARIO_TEMPLATES.find((t) => t.id === "login-flow")!;
+    const parsed = parseScenarioDoc(login.yaml);
+    if (!("model" in parsed)) throw new Error("parse failed");
+    const m = parsed.model;
+    expect(m.setup?.steps.map((s) => s.name)).toEqual(["로그인"]);
+    expect(m.steps.map((s) => s.name)).toEqual(["내 정보 조회"]);
+    const setupStep = m.setup!.steps[0];
+    expect(setupStep.extract?.[0].var).toBe("token");
+    const main = m.steps[0];
+    if (main.type !== "http") throw new Error("expected http");
+    expect(main.request.headers?.Authorization).toContain("{{token}}");
+  });
+
+  it("로그인 흐름: setup 키가 steps 키보다 앞", () => {
+    const login = SCENARIO_TEMPLATES.find((t) => t.id === "login-flow")!;
+    expect(login.yaml.indexOf("\nsetup:")).toBeGreaterThan(-1);
+    expect(login.yaml.indexOf("\nsetup:")).toBeLessThan(login.yaml.indexOf("\nsteps:"));
+  });
 });

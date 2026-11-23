@@ -45,27 +45,29 @@ const LOGIN_FLOW_YAML = `version: 1
 name: "로그인 흐름"
 cookie_jar: auto
 variables: {}
+# 준비 스텝: VU마다 한 번만 실행합니다 — 로그인으로 토큰을 받아 둡니다.
+setup:
+  steps:
+    - id: 01HX0000000000000000000320
+      name: "로그인"
+      type: http
+      request:
+        method: POST
+        # \${BASE_URL}은 실행 시 선택한 환경(예: dev/stage)에서 주입됩니다.
+        url: "\${BASE_URL}/login"
+        body:
+          json:
+            username: "tester"
+            password: "secret"
+      assert:
+        - status: 200
+      # 값 추출: 응답 JSON의 $.token을 {{token}}으로 저장해 본 스텝에서 씁니다.
+      extract:
+        - var: token
+          from: body
+          path: $.token
 steps:
-  # 1단계: 로그인 — 자격증명을 보내고 응답 본문에서 토큰을 꺼냅니다.
-  - id: 01HX0000000000000000000320
-    name: "로그인"
-    type: http
-    request:
-      method: POST
-      # \${BASE_URL}은 실행 시 선택한 환경(예: dev/stage)에서 주입됩니다.
-      url: "\${BASE_URL}/login"
-      body:
-        json:
-          username: "tester"
-          password: "secret"
-    assert:
-      - status: 200
-    # 값 추출: 응답 JSON의 $.token을 {{token}}으로 저장해 다음 스텝에서 씁니다.
-    extract:
-      - var: token
-        from: body
-        path: $.token
-  # 2단계: 인증 API 호출 — 헤더에 {{token}}을 넣습니다.
+  # 본 스텝: 반복 실행합니다 — 헤더에 {{token}}을 넣습니다.
   - id: 01HX0000000000000000000321
     name: "내 정보 조회"
     type: http

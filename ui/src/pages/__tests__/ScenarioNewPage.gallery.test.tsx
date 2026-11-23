@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -106,6 +106,18 @@ describe("ScenarioNewPage 템플릿 갤러리 (U3)", () => {
     expect(body.yaml).toContain("로그인 흐름");
     expect(body.yaml).toContain("Bearer {{token}}");
     expect(await screen.findByText("SAVED")).toBeInTheDocument();
+  });
+
+  it("「로그인 흐름」을 고르면 로그인은 준비 상자 안, 내 정보 조회는 밖에 있다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.templates.loginName) }),
+    );
+    const box = await screen.findByRole("group", { name: /준비 스텝/ });
+    expect(within(box).getByRole("option", { name: "스텝: 로그인" })).toBeInTheDocument();
+    expect(within(box).queryByRole("option", { name: "스텝: 내 정보 조회" })).toBeNull();
+    expect(screen.getByRole("option", { name: "스텝: 내 정보 조회" })).toBeInTheDocument();
   });
 
   it("미수정 템플릿에서 취소해도 confirm이 뜨지 않는다 (baseline 선험 확정)", async () => {
