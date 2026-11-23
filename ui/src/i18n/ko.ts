@@ -3189,6 +3189,7 @@ export const ko = {
       missed: "✕ 미달",
       measured: (v: string) => `(측정 ${v})`,
       measuredTiny: (v: string) => `(측정 ${v}, 기준과 차이가 아주 작음)`,
+      measuredNone: (v: string) => `(${v})`,
       notJudged: "(판정 안 함)",
       notEvaluable: "(평가 불가)",
       noTarget: "목표 없음 (참고값)",
@@ -3316,6 +3317,8 @@ export const ko = {
       metaIdent: "측정 식별",
       metaBasis: "집계 기준",
       metaBasisOther: "참고",
+      sampleNotePassed: "응답 시간 표본: 통과한 요청",
+      sampleNoteAll: "응답 시간 표본: 모든 요청 (실패한 요청 포함)",
       footerTitle: (title: string, id: string) => `${title} · ${id}`,
       footerTool: "Handicap 부하 테스트 도구로 생성",
       footerPage: (n: number, total: number) => `${n} / ${total}`,
@@ -3439,6 +3442,7 @@ export const ko = {
       noteDefaultMixed:
         "※ 응답 시간 기준이 없는 단계와 모든 단계 합계는 1초·3초로 나눠 보였습니다(판정과 무관).",
       noteBars: "※ 막대에는 실패한 응답의 시간도 들어 있습니다.",
+      noteBarsPassed: "※ 막대에는 통과한 요청만 들어 있습니다.",
       noteNamed: (
         glyph: string,
         name: string,
@@ -3476,6 +3480,8 @@ export const ko = {
         `${name}${subj} 기준을 넘었습니다 (측정 ${actual}, 기준 ${thr} 이하)`,
       verdictUnder: (name: string, subj: string, actual: string, thr: string) =>
         `${name}${subj} 기준에 못 미쳤습니다 (측정 ${actual}, 기준 ${thr} 이상)`,
+      verdictNoSample: (name: string, subj: string, noSample: string, thr: string) =>
+        `${name}${subj} 기준을 지키지 못했습니다 (${noSample}, 기준 ${thr} 이하)`,
       more: (n: number) => ` 외 ${n}개`,
       allMet: (n: number) => `기준 ${n}개를 모두 지켰습니다`,
       notJudgedAborted: "측정이 중단되어 기준 판정은 하지 않았습니다",
@@ -3507,6 +3513,7 @@ export const ko = {
       abortedBeforeStart: "측정이 시작되기 전에 중단되었습니다.",
       failedRun: "측정이 실패로 끝났습니다.",
       fallback: (p95: string) => `오류 없이 끝났습니다. 95% 응답시간은 ${p95}입니다.`,
+      fallbackNoLatency: "응답 시간을 계산할 요청이 없습니다.",
     },
   },
 } as const;

@@ -2,7 +2,9 @@ import { ko } from "../../i18n/ko";
 import { fmtCount, fmtMs, fmtPct } from "../format";
 import { middleEllipsis, requestLineBudget } from "../redact";
 import type { RankedRow, StatusTag } from "../stepStatus";
-import { requestsSent, type Column } from "../stepTable";
+import type { ReportSampleName } from "../../api/schemas";
+import { hasLatency } from "../../report/hasLatency";
+import type { Column } from "../stepTable";
 import { MEASURE_IDS } from "../buildPrintDoc";
 
 const C = ko.print.columns;
@@ -99,8 +101,13 @@ function StepRowView(props: {
   columns: Column[];
   budget: number;
   measure?: boolean;
+  sample: ReportSampleName;
 }) {
-  const { row, columns, budget, measure } = props;
+  const { row, columns, budget, measure, sample } = props;
+  const hasTime = hasLatency(
+    { count: row.count, errors: row.errorCount, notSent: row.notSent },
+    sample,
+  );
   const grade = row.status.grade;
   const rowCls = grade === 3 ? "p-row--bad" : grade === 2 ? "p-row--warn" : undefined;
   return (
@@ -112,7 +119,7 @@ function StepRowView(props: {
         )}
       </td>
       <td>{fmtCount(row.count)}</td>
-      <td>{row.executed && requestsSent(row) > 0 ? fmtMs(row.p95Ms) : DASH}</td>
+      <td>{row.executed && hasTime ? fmtMs(row.p95Ms) : DASH}</td>
       {columns.map((col) => (
         <CodeCell key={col.key} row={row} col={col} />
       ))}
@@ -130,8 +137,13 @@ function StepRowView(props: {
   );
 }
 
-export function StepTable(props: { columns: Column[]; items: TableItem[]; measure?: boolean }) {
-  const { columns, items, measure } = props;
+export function StepTable(props: {
+  columns: Column[];
+  items: TableItem[];
+  measure?: boolean;
+  sample?: ReportSampleName;
+}) {
+  const { columns, items, measure, sample = "all" } = props;
   const { nameMm, widths } = columnWidths(columns);
   const budget = requestLineBudget(nameMm);
   const total = widths.length;
@@ -181,6 +193,7 @@ export function StepTable(props: { columns: Column[]; items: TableItem[]; measur
               columns={columns}
               budget={budget}
               measure={measure}
+              sample={sample}
             />
           ) : (
             <tr

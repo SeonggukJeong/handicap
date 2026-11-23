@@ -119,12 +119,14 @@
   color: var(--sub);
   font-size: 7.5pt;
 }
-.p-root .p-meta-basis {
+.p-root .p-meta-basis,
+.p-root .p-meta-sample {
   border: 1px solid var(--line);
   border-top: 0;
   font-size: 8.5pt;
 }
-.p-root .p-meta-basis > div {
+.p-root .p-meta-basis > div,
+.p-root .p-meta-sample > div {
   display: flex;
   gap: 3mm;
   padding: 1.5mm 2mm;

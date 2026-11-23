@@ -33,6 +33,8 @@ export type SummaryInput = {
   stepName: (id: string) => string;
   /** 느림 줄의 "기준 Y" 출처(`stepThresholds`). */
   criteria: Criteria | null | undefined;
+  /** 요약의 응답 시간이 값을 가졌는가 — 없으면 응답 시간 문장을 내지 않는다. 기본 참. */
+  latency?: boolean;
 };
 
 const elapsed = (sec: number): string => formatDurationKo(Math.max(0, sec));
@@ -78,8 +80,9 @@ function verdictLine(i: SummaryInput): string | null {
   const pair = fmtCriterionPair(spec.metric, row.actual, spec.threshold);
   const thr = pair.threshold;
   const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
-  const head =
-    spec.op === "max"
+  const head = row.no_sample
+    ? S.verdictNoSample(subject, subj, ko.report.sample.noSample, thr)
+    : spec.op === "max"
       ? S.verdictOver(subject, subj, act, thr)
       : S.verdictUnder(subject, subj, act, thr);
   return head + (missed.length > 1 ? S.more(missed.length - 1) : "");
@@ -191,7 +194,8 @@ export function summaryLines(i: SummaryInput): SummaryLine[] {
   add("hidden", hiddenLine(i));
   add("slow", slowLine(i));
   if (lines.length === 0) {
-    return [{ kind: "fallback", text: S.fallback(fmtMs(i.summary.p95_ms)) }];
+    const text = i.latency === false ? S.fallbackNoLatency : S.fallback(fmtMs(i.summary.p95_ms));
+    return [{ kind: "fallback", text }];
   }
   return lines.slice(0, MAX_LINES);
 }

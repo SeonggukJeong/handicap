@@ -50,7 +50,7 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
         dash(formatCount(s.throughput_rps)),
         dash(formatMs(s.p50_us)),
         dash(formatMs(s.p95_us)),
-        dash(formatMs(s.p99_us)),
+        s.p99_us > 0 ? dash(formatMs(s.p99_us)) : DASH,
         dash(errorRateText(s.error_rate)),
         measured && s.dropped != null ? s.dropped.toLocaleString("en-US") : DASH,
         dash(`${formatHms(s.measure_start_ms)}–${formatHms(s.measure_end_ms)}`),

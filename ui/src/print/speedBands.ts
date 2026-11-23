@@ -254,6 +254,8 @@ export function buildSpeedModel(a: {
   matched: Matched[];
   criteria: Criteria | null;
   anyNotSent: boolean;
+  /** 응답 시간 표본이 「통과한 요청」인 run(실패한 요청의 시간이 막대에 없다). 기본 거짓. */
+  split?: boolean;
 }): SpeedModel {
   const { bands, ranked, summary, matched, criteria } = a;
   const overall = bands.overall;
@@ -409,8 +411,8 @@ export function buildSpeedModel(a: {
     const anyOwn = bands.steps.some((s) => s.own);
     notes.push([{ text: anyOwn ? K.noteDefaultMixed : K.noteDefault }]);
   }
-  const bars: Seg[] = [{ text: K.noteBars }];
-  if (named.length > 0) {
+  const bars: Seg[] = [{ text: a.split ? K.noteBarsPassed : K.noteBars }];
+  if (!a.split && named.length > 0) {
     let best = named[0];
     for (const n of named) if (n.rate > best.rate) best = n;
     bars.push({ text: " " }, ...K.noteNamed(best.glyph, best.label, best.text));

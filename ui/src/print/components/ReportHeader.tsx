@@ -44,6 +44,11 @@ export function ReportHeader({ doc }: { doc: PrintDoc }) {
           )}
         </div>
       )}
+      {doc.meta.sampleNote && (
+        <div className="p-meta-sample">
+          <div>{doc.meta.sampleNote}</div>
+        </div>
+      )}
       {doc.meta.setupNote && (
         <div className="p-meta-basis">
           <div>{doc.meta.setupNote}</div>

@@ -6,9 +6,11 @@ import {
   reportSample,
   type Criteria,
   type Report,
+  type ReportSampleName,
   type Run,
   type StairReport,
 } from "../api/schemas";
+import { hasLatency, summaryCounts } from "../report/hasLatency";
 import { envValueToRecord } from "../api/runPrefill";
 import { runShortLabel } from "../compare/runLabel";
 import { fmtDate } from "./format";
@@ -71,7 +73,10 @@ export type PrintDoc = {
     basisOther?: string;
     /** 준비 스텝이 있는 run의 머리 한 줄 안내. */
     setupNote?: string;
+    /** 응답 시간 표본 한 줄 — 리포트에 창이 없으면 없다. */
+    sampleNote?: string;
   };
+  sample: ReportSampleName;
   box: BoxState;
   boxText: { big: string; sub: string };
   lines: SummaryLine[];
@@ -152,6 +157,10 @@ export function buildPrintDoc(a: {
       )
     : report.windows;
   const scopeEndSec = scoped ? bw.end_ms / 1000 - t0 : undefined;
+  const sample = reportSample(report).default;
+  const hasTime = hasLatency(summaryCounts(report), sample);
+  const sampleNote =
+    report.windows.length === 0 ? null : sample === "passed" ? D.sampleNotePassed : D.sampleNoteAll;
   const basisOther = basis ? basisOtherLine(basis, reportSample(report).selected) : null;
   const readingBase = chartReadingLine(chart);
   const readingLine =
@@ -171,6 +180,7 @@ export function buildPrintDoc(a: {
         matched,
         criteria,
         anyNotSent: table.rows.some((r) => r.notSent > 0),
+        split: sample === "passed",
       })
     : null;
 
@@ -206,7 +216,9 @@ export function buildPrintDoc(a: {
       ...(basis ? { basis: basisLine(basis) } : {}),
       ...(basisOther !== null ? { basisOther } : {}),
       ...(report.setup ? { setupNote: ko.report.setup.summaryLine } : {}),
+      ...(sampleNote !== null ? { sampleNote } : {}),
     },
+    sample,
     box,
     boxText: boxText(box),
     lines: summaryLines({
@@ -225,8 +237,9 @@ export function buildPrintDoc(a: {
       chart,
       stepName,
       criteria,
+      latency: hasTime,
     }),
-    kpis: kpiCards(report.summary, matched, box),
+    kpis: kpiCards(report.summary, matched, box, { latency: hasTime }),
     otherRows: otherCriteriaRows(matched, box, stepName),
     table,
     ranked,

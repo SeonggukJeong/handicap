@@ -210,7 +210,12 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
         return (
           <div key={b.id}>
             <StepTableTitle continued={false} measure />
-            <StepTable columns={doc.table.columns} items={sheetTableItems(doc, kind)} measure />
+            <StepTable
+              columns={doc.table.columns}
+              items={sheetTableItems(doc, kind)}
+              measure
+              sample={doc.sample}
+            />
           </div>
         );
       })}
@@ -302,7 +307,11 @@ function PageBody(props: {
         return (
           <div key={`${it.id}:${it.from}`}>
             <StepTableTitle continued={it.continued} />
-            <StepTable columns={doc.table.columns} items={tableItems.slice(it.from, it.to)} />
+            <StepTable
+              columns={doc.table.columns}
+              items={tableItems.slice(it.from, it.to)}
+              sample={doc.sample}
+            />
           </div>
         );
       })}

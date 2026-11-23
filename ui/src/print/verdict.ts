@@ -123,7 +123,13 @@ function cardMatchIndex(matched: Matched[], metric: string): number {
   return matched.findIndex((m) => m.spec.metric === metric && m.spec.target === null);
 }
 
-export function kpiCards(summary: Report["summary"], matched: Matched[], box: BoxState): KpiCard[] {
+export function kpiCards(
+  summary: Report["summary"],
+  matched: Matched[],
+  box: BoxState,
+  opts: { latency: boolean } = { latency: true },
+): KpiCard[] {
+  const ms = (v: number): string => (opts.latency ? fmtMs(v) : k.fmt.noTarget);
   const targetFor = (key: string): { target: string; bad: boolean } => {
     const metric = CARD_METRIC[key];
     const i = metric ? cardMatchIndex(matched, metric) : -1;
@@ -135,7 +141,11 @@ export function kpiCards(summary: Report["summary"], matched: Matched[], box: Bo
     const head = spec.op === "max" ? k.kpi.targetMax(t) : k.kpi.targetMin(t);
     if (box.kind === "notJudged") return { target: `${head} ${k.kpi.notJudged}`, bad: false };
     if (!withRow || !pair) return { target: `${head} ${k.kpi.notEvaluable}`, bad: false };
-    const measured = pair.tiny ? k.kpi.measuredTiny(pair.actual) : k.kpi.measured(pair.actual);
+    const measured = withRow.no_sample
+      ? k.kpi.measuredNone(ko.report.sample.noSample)
+      : pair.tiny
+        ? k.kpi.measuredTiny(pair.actual)
+        : k.kpi.measured(pair.actual);
     return withRow.passed
       ? { target: `${head} ${k.kpi.met} ${measured}`, bad: false }
       : { target: `${head} ${k.kpi.missed} ${measured}`, bad: true };
@@ -152,14 +162,14 @@ export function kpiCards(summary: Report["summary"], matched: Matched[], box: Bo
     {
       key: "mean",
       label: k.kpi.mean.label,
-      value: fmtMs(summary.mean_ms),
+      value: ms(summary.mean_ms),
       unit: k.kpi.mean.unit,
       explain: k.kpi.mean.explain,
     },
     {
       key: "p95",
       label: k.kpi.p95.label,
-      value: fmtMs(summary.p95_ms),
+      value: ms(summary.p95_ms),
       unit: k.kpi.p95.unit,
       explain: k.kpi.p95.explain,
     },
@@ -200,7 +210,11 @@ export function otherCriteriaRows(
       out.push({
         name,
         target,
-        actual: pair.tiny ? `${pair.actual} ${k.fmt.tiny}` : pair.actual,
+        actual: row.no_sample
+          ? ko.report.sample.noSample
+          : pair.tiny
+            ? `${pair.actual} ${k.fmt.tiny}`
+            : pair.actual,
         judgement: row.passed ? "pass" : "fail",
       });
     } else {

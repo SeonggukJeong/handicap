@@ -164,8 +164,8 @@ export type StepRow = {
 };
 
 /**
- * 실제로 보낸 요청 수 = 전체 − 보내지 않음. 0이면 그 단계에는 잰 시간이 없다.
- * 보냈지만 응답을 못 받은 요청(시간 초과·거부 — 코드 0)은 실패까지 걸린 시간이 표본에 들어 있다.
+ * 실제로 보낸 요청 수 = 전체 − 보내지 않음(「모든 요청」 표본 기준).
+ * 인쇄 단계 표는 표본을 따르는 `hasLatency`를 쓴다 — 이 함수는 표본을 모르는 비교 표면용이다.
  */
 export function requestsSent(row: Pick<StepRow, "count" | "notSent">): number {
   return Math.max(0, row.count - row.notSent);
