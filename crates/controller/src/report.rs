@@ -859,32 +859,46 @@ pub fn build_report(
     // 느린 스텝 인사이트), 점유(항상 모든 요청 — 포화 원인의 `latency_rose`).
     // Emit one window per (ts_second, step_id) — BTreeMap iterates sorted by (ts, step),
     // matching the previous SQL ORDER BY. Percentiles come from the merged histogram.
-    let build_windows = |sample: Sample| -> Vec<ReportWindow> {
+    let window_of = |ts_second: i64,
+                     step_id: String,
+                     status_counts: BTreeMap<String, u64>,
+                     acc: &WindowAcc,
+                     sample: Sample|
+     -> ReportWindow {
+        let wp = acc
+            .hist
+            .resolve(sample)
+            .hist()
+            .map(percentiles_of)
+            .unwrap_or_else(Percentiles::empty);
+        ReportWindow {
+            ts_second,
+            step_id,
+            count: acc.count,
+            error_count: acc.error_count,
+            status_counts,
+            p50_ms: wp.p50_ms,
+            p95_ms: wp.p95_ms,
+            p99_ms: wp.p99_ms,
+        }
+    };
+    // 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이다. 아닐 때만 빌려서 따로 만든다.
+    let occupancy_windows: Option<Vec<ReportWindow>> = (selected != Sample::All).then(|| {
         window_acc
             .iter()
-            .map(|((ts_second, step_id), acc)| {
-                let wp = acc
-                    .hist
-                    .resolve(sample)
-                    .hist()
-                    .map(percentiles_of)
-                    .unwrap_or_else(Percentiles::empty);
-                ReportWindow {
-                    ts_second: *ts_second,
-                    step_id: step_id.clone(),
-                    count: acc.count,
-                    error_count: acc.error_count,
-                    status_counts: acc.status.clone(),
-                    p50_ms: wp.p50_ms,
-                    p95_ms: wp.p95_ms,
-                    p99_ms: wp.p99_ms,
-                }
+            .map(|((ts, step), acc)| {
+                window_of(*ts, step.clone(), acc.status.clone(), acc, Sample::All)
             })
             .collect()
-    };
-    let windows = build_windows(selected);
-    // 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이다.
-    let occupancy_windows = (selected != Sample::All).then(|| build_windows(Sample::All));
+    });
+    // 보여 주는 창은 누적을 옮겨 가며(복사 없이) 만든다.
+    let windows: Vec<ReportWindow> = window_acc
+        .into_iter()
+        .map(|((ts, step), mut acc)| {
+            let status = std::mem::take(&mut acc.status);
+            window_of(ts, step, status, &acc, selected)
+        })
+        .collect();
     let occupancy: &[ReportWindow] = occupancy_windows.as_deref().unwrap_or(&windows);
 
     let overall_judging = overall.resolve(default_sample);
@@ -3550,6 +3564,39 @@ steps:
                 serde_json::to_value(&by_default.insights).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn slowest_step_insight_ignores_requested_sample() {
+        use crate::sample::Sample;
+        // 스텝 a: 통과한 요청 40ms 1개 + 실패 2ms 39개, 스텝 b: 평평한 15ms.
+        // 통과한 요청 기준 p95는 a 40 / b 15(격차 25, 2.67배 → 발행),
+        // 모든 요청·실패한 요청 기준 p95는 a 2 / b 15(→ 미발행).
+        let mut all_a = vec![40_000];
+        all_a.extend([2_000; 39]);
+        let on = |step: &str, all: &[u64], failed: &[u64]| WindowWithHdr {
+            step_id: step.into(),
+            ..split_win(100, all, Some(failed))
+        };
+        let rows = vec![on("a", &all_a, &[2_000; 39]), on("b", &[15_000; 5], &[])];
+        let by_default = report_with(&rows, None);
+        let slow = by_default
+            .insights
+            .iter()
+            .find(|i| i.kind == "slowest_step")
+            .expect("통과한 요청 기준 느린 스텝 인사이트");
+        assert_eq!(slow.step_id.as_deref(), Some("a"));
+        assert_eq!(slow.value, Some(40.0));
+        for s in [Sample::All, Sample::Failed] {
+            let rep = report_with(&rows, Some(s));
+            assert_eq!(
+                serde_json::to_value(&rep.insights).unwrap(),
+                serde_json::to_value(&by_default.insights).unwrap(),
+                "sample={s:?}"
+            );
+        }
+        // 보여 주는 스텝 p95는 요청한 표본을 따른다(판정과 다르다).
+        assert_eq!(report_with(&rows, Some(Sample::All)).steps[0].p95_ms, 2);
     }
 
     #[test]
