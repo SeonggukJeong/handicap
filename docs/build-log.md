@@ -1307,6 +1307,6 @@ spec `docs/superpowers/specs/2026-11-23-vu-setup-steps-b1-design.md`, plan `docs
 
 **함정 출처**: `ui/src/components/scenario/CLAUDE.md`·`ui/src/scenario/CLAUDE.md`의 `(vu-setup-steps-b1)` 줄.
 
-## pstack-adopt — pstack 검토·일부 도입 (2026-11-23, 사용자 요청 · 개발 도구만 · spec/plan 없음)
+## pstack-adopt — pstack 검토, 도입 없음 (2026-11-23, 사용자 요청 · 개발 도구만 · spec/plan 없음)
 
-pstack(Cursor 플러그인, MIT) 원문을 읽고 두 가지만 가져왔다. `handicap-reviewer`가 finding마다 근거 등급 `[E1]`(말함)–`[E5]`(앱 재현)을 달고 렌더·도달성·「죽은 코드」·라이브러리 동작 주장은 E1–E2면 `unverified`로 표시, 최종 리뷰에는 「이 변경이 안전한 근거 사실」과 그 증명 정도를 적는다(메모리 `review-findings-are-hypotheses` 다섯 사례를 출력 형식으로 옮김). `/why` 스킬은 「왜 이렇게 됐나」를 git 이력 → ADR → §B → spec/plan → build-log → CLAUDE.md 순으로 찾아 인용하고 추론·기록 없음을 따로 표시한다. 안 가져온 것·다음 후보 = roadmap §B88. 제품 코드 무변경이라 라이브 검증 대상 아님.
+pstack(Cursor 플러그인, MIT) 원문을 읽고 두 가지를 시험 도입했다가 둘 다 뺐다. ① `handicap-reviewer` finding 근거 등급 `[E1]`–`[E5]` + 최종 리뷰 「안전 근거 사실」 칸 — 과거 사례 둘(report-advice-noise `2210e1fd^..ab16216b`, curve-arrival-integral `68498991..079c8a81`)을 옛·새 지시문 리뷰어에 한 번씩 돌린 결과 더 찾은 결함 0, 덜 찾은 사소 결함 2, 「안전 근거 사실」이 틀린 무영향 단언(「워치독 불변」)을 냈다. ② `/why` 스킬 — 루트 CLAUDE.md가 이미 기록 위치를 알려 주고 디버깅 질문에 잘못 발동할 위험이 있어 비교 없이 뺐다. 리포에 남은 것은 기록뿐(roadmap §B88: 안 가져온 것·다음 후보 둘·비교 결과·사용자 결정). 비교 실험 함정: 리뷰어 둘이 `CARGO_TARGET_DIR`를 공유하면 한쪽의 같은 버전 변이 복사본이 rlib를 덮어써 다른 쪽 테스트가 변이 코드로 돈다 — 리뷰어마다 target 폴더를 따로. 제품 코드 무변경이라 라이브 검증 대상 아님.
