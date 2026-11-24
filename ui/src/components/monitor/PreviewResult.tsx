@@ -217,7 +217,7 @@ function StepRow({
             <dt className="text-slate-500">{k.previewError}</dt>
             <dd className="break-all text-red-700">
               <DefaultRuleNote error={s.error} />
-              <span>{traceErrorText(s, (id) => stepNames[id])}</span>
+              <span className="mt-1 block">{traceErrorText(s, (id) => stepNames[id])}</span>
             </dd>
           </>
         )}
