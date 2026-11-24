@@ -203,6 +203,7 @@ export function ReportView({
           validity={report.validity}
           setupOnly={setupOnly}
           setup={report.setup}
+          status={report.run.status}
           latency={latency}
         />
         <div className="flex items-center justify-between mb-4">

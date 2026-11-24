@@ -1729,6 +1729,9 @@ export const ko = {
     verdictPass: "합격",
     verdictFail: "불합격",
     headlineNotJudged: "판정하지 않음 — 요청이 없어 판정할 값이 없습니다",
+    headlineNotJudgedAborted: "판정하지 않음 — 측정이 중단되어 기준 판정은 하지 않았습니다",
+    headlineNotJudgedFailed: "판정하지 않음 — 측정이 실패해 기준 판정은 하지 않았습니다",
+    headlineNotEvaluable: "판정하지 않음 — 기준은 있었지만 평가할 데이터가 부족했습니다",
     sloHint: "합격 기준(SLO)을 설정하면 다음 실행부터 합격/불합격을 자동 판정합니다.",
     failReasonTitle: "미달 기준",
     // §7.2 결과 표면 라벨 (Summary 카드 + 표 헤더 3종)

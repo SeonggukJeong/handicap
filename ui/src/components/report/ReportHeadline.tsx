@@ -11,7 +11,7 @@ import { formatDurationKo, formatLatencyKo, formatSecondsKo } from "../../i18n/d
 import { noLatencyWord } from "../../report/sampleView";
 import { floorPct } from "./format";
 import { fixedTarget } from "../run/loadModel";
-import { criteriaHasAny } from "../../print/verdict";
+import { criteriaHasAny, verdictBox } from "../../print/verdict";
 
 type Props = {
   summary: ReportSummary;
@@ -24,6 +24,8 @@ type Props = {
   /** 리포트의 준비 결과(실패·끝나기 전 종료 수) — 요청 0건의 원인이 준비 쪽인지 가린다. */
   setup?: { failed: number; interrupted: number };
   /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 문장이 값을 말하지 않는다. */
+  /** 실행 상태(`report.run.status`) — 판정이 없는 이유를 가른다. 모르면 완료로 본다. */
+  status?: string;
   latency?: { sample: ReportSampleName; counts: LatencyCounts; switched?: boolean };
 };
 
@@ -42,6 +44,7 @@ export function ReportHeadline({
   validity,
   setupOnly = false,
   setup,
+  status = "completed",
   latency,
 }: Props) {
   const noLatency =
@@ -76,14 +79,29 @@ export function ReportHeadline({
             ? ko.report.headlineClosedCurve(common)
             : ko.report.headlineClosed({ ...common, vus: profile.vus });
 
+  // 판정이 없을 때만: 기준이 있었는데 왜 판정이 없는지(인쇄 verdictBox와 같은 분기).
+  const box = verdictBox({
+    count: summary.count,
+    status,
+    criteria: profile.criteria,
+    verdict: null,
+  });
+  const noVerdictText = !criteriaHasAny(profile.criteria)
+    ? ko.report.sloHint
+    : box.kind === "notJudged" && box.reason === "zero"
+      ? ko.report.headlineNotJudged
+      : box.kind === "notJudged" && box.reason === "aborted"
+        ? ko.report.headlineNotJudgedAborted
+        : box.kind === "notJudged"
+          ? ko.report.headlineNotJudgedFailed
+          : ko.report.headlineNotEvaluable;
+
   return (
     <section aria-label={ko.report.headlineAria} className="mb-6">
       {verdict ? (
         <VerdictCallout verdict={verdict} validity={validity} />
-      ) : criteriaHasAny(profile.criteria) ? (
-        <p className="mb-1 text-sm text-slate-500">{ko.report.headlineNotJudged}</p>
       ) : (
-        <p className="mb-1 text-sm text-slate-500">{ko.report.sloHint}</p>
+        <p className="mb-1 text-sm text-slate-500">{noVerdictText}</p>
       )}
       <p className="text-base text-slate-800">{sentence}</p>
     </section>

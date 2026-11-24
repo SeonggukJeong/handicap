@@ -38,6 +38,65 @@ describe("ReportHeadline", () => {
     expect(region).not.toHaveTextContent("합격 기준(SLO)을 설정하면");
   });
 
+  it("중단된 run은 요청이 있어도 '요청이 없어'라 말하지 않고 중단 때문이라 말한다", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={{ ...CLOSED, criteria: { max_p95_ms: 1000 } }}
+        verdict={null}
+        status="aborted"
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent("판정하지 않음 — 측정이 중단되어 기준 판정은 하지 않았습니다");
+    expect(region).not.toHaveTextContent("요청이 없어");
+    expect(region).not.toHaveTextContent("합격 기준(SLO)을 설정하면");
+  });
+
+  it("실패한 run은 실패 때문이라 말한다", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={{ ...CLOSED, criteria: { max_p95_ms: 1000 } }}
+        verdict={null}
+        status="failed"
+      />,
+    );
+    expect(screen.getByRole("region", { name: "쉬운 요약" })).toHaveTextContent(
+      "판정하지 않음 — 측정이 실패해 기준 판정은 하지 않았습니다",
+    );
+  });
+
+  it("완료됐는데 판정이 없으면(요청 있음) 평가할 데이터 부족이라 말한다", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={{ ...CLOSED, criteria: { max_p95_ms: 1000 } }}
+        verdict={null}
+        status="completed"
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(
+      "판정하지 않음 — 기준은 있었지만 평가할 데이터가 부족했습니다",
+    );
+    expect(region).not.toHaveTextContent("요청이 없어");
+  });
+
+  it("판정이 있으면 요청 0건이어도 판정이 우선", () => {
+    render(
+      <ReportHeadline
+        summary={{ ...SUMMARY, count: 0, errors: 0 }}
+        profile={{ ...CLOSED, criteria: { max_error_rate: 1 } }}
+        verdict={{ passed: true, criteria: [] }}
+        status="completed"
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent("합격");
+    expect(region).not.toHaveTextContent("판정하지 않음");
+  });
+
   it("기준이 없으면 설정 안내 그대로", () => {
     render(
       <ReportHeadline
