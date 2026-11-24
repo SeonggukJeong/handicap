@@ -144,7 +144,7 @@ describe("ScenarioComparePage", () => {
       .mockImplementation((id: string) => Promise.resolve((id === "A" ? ruleA : reportB) as never));
     const { unmount } = renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
     await screen.findByText("p95_ms");
-    const notice = screen.getByText(/두 run이 오류를 세는 규칙이 다릅니다/);
+    const notice = screen.getByText(/선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다/);
     expect(notice.closest('[role="status"]')).not.toBeNull();
     unmount();
     spy.mockImplementation((id: string) =>
@@ -152,7 +152,7 @@ describe("ScenarioComparePage", () => {
     );
     renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
     await screen.findByText("p95_ms");
-    expect(screen.queryByText(/두 run이 오류를 세는 규칙이 다릅니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다/)).not.toBeInTheDocument();
   });
 
   it("표본이 같으면 응답 시간 표본 안내가 없다", async () => {

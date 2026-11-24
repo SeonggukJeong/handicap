@@ -548,7 +548,7 @@ describe("판정 기준", () => {
 
 describe("상태 코드 규칙 안내", () => {
   const text =
-    "두 run이 오류를 세는 규칙이 다릅니다. 한쪽은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.";
+    "선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.";
   it("규칙이 다르면 안내 한 줄이 생긴다", () => {
     expect(fair({ statusRule: 2 }, {}).statusRuleLine).toBe(text);
     expect(fair({ statusRule: 1 }, { statusRule: 2 }).statusRuleLine).toBe(text);
@@ -556,6 +556,101 @@ describe("상태 코드 규칙 안내", () => {
   it("같으면 null", () => {
     expect(fair({ statusRule: 2 }, { statusRule: 2 }).statusRuleLine).toBeNull();
     expect(fair({}, {}).statusRuleLine).toBeNull();
+  });
+});
+
+describe("검사 방식 차이 (R28)", () => {
+  const yml = (lines: Array<number[] | "any">) => {
+    const a = lines
+      .map((l) => `      - status: ${l === "any" ? "any" : `[${l.join(", ")}]`}\n`)
+      .join("");
+    return `version: 1\nname: "n"\nsteps:\n  - id: "s1"\n    name: "a"\n    request:\n      method: GET\n      url: "https://x/s1"\n${
+      lines.length > 0 ? `    assert:\n${a}` : ""
+    }`;
+  };
+  const line = (
+    a: Array<number[] | "any">,
+    b: Array<number[] | "any">,
+    ra: 1 | 2,
+    rb: 1 | 2,
+  ): string | null => {
+    const f = fair({ yaml: yml(a), statusRule: ra }, { yaml: yml(b), statusRule: rb });
+    const c = card(f, "scenario");
+    // 순서만 다른 YAML은 「그 밖의 설정」으로 잡힌다 — 여기서는 단계 줄이 없다는 뜻으로 읽는다.
+    return c.same || c.line.startsWith("그 밖의") ? null : c.line;
+  };
+
+  it("두 run 모두 규칙 1이면 옛 세 갈래 글 그대로", () => {
+    expect(line([], [[200]], 1, 1)).toBe("1곳 다름: ①에 응답 코드 검사 추가됨");
+    expect(line([[200]], [], 1, 1)).toBe("1곳 다름: ①에서 응답 코드 검사 제거됨");
+    expect(line([[200]], [[200, 409]], 1, 1)).toBe("1곳 다름: ①의 응답 코드 검사 바뀜");
+  });
+  it("두 run 모두 규칙 2", () => {
+    expect(line([], ["any"], 2, 2)).toBe(
+      "1곳 다름: ①의 상태 코드 검사 방식 바뀜: 400 이상은 오류 → 보지 않음",
+    );
+    expect(line([], [[200]], 2, 2)).toBe(
+      "1곳 다름: ①의 상태 코드 검사 방식 바뀜: 400 이상은 오류 → 적은 코드만 통과",
+    );
+    expect(line([[200]], [[200, 409]], 2, 2)).toBe("1곳 다름: ①의 기대 코드 바뀜: 200 → 200·409");
+    expect(line([[409, 200]], [[200, 409]], 2, 2)).toBeNull();
+    expect(line(["any", [200]], [[200]], 2, 2)).toBeNull();
+    expect(line(["any"], ["any"], 2, 2)).toBeNull();
+    expect(line([[200], [201]], [[200, 201]], 2, 2)).toBe(
+      "1곳 다름: ①의 기대 코드 바뀜: 200 / 201 → 200·201",
+    );
+  });
+  it("규칙 1(앞) ↔ 규칙 2(뒤)", () => {
+    expect(line([], [], 1, 2)).toBeNull();
+    expect(line([], [[200]], 1, 2)).toBe(
+      "1곳 다름: ①의 상태 코드 검사 방식 바뀜: 검사 없음 → 적은 코드만 통과",
+    );
+    expect(line([[200]], [[200]], 1, 2)).toBeNull();
+  });
+  it("규칙 2(앞) ↔ 규칙 1(뒤)", () => {
+    expect(line([], [], 2, 1)).toBeNull();
+    expect(line(["any"], [], 2, 1)).toBe(
+      "1곳 다름: ①의 상태 코드 검사 방식 바뀜: 보지 않음 → 검사 없음",
+    );
+  });
+});
+
+describe("규칙 차이를 다른 조건으로 (R26 보강)", () => {
+  it("같은 시나리오·부하에서 규칙만 다르면 이름·행이 생긴다", () => {
+    const f = fair({ statusRule: 1 }, { statusRule: 2 });
+    expect(f.diffNames).toContain("오류 집계 규칙");
+    expect(f.anyDiff).toBe(true);
+    expect(f.cards.every((c) => c.same)).toBe(true);
+    expect(f.statusRuleLine).not.toBeNull();
+    expect(f.condRows[f.condRows.length - 1]).toEqual({
+      label: "오류 집계 규칙",
+      before: "검사 없는 스텝은 모두 통과",
+      after: "검사 없는 스텝은 400 이상이 오류",
+      differs: true,
+    });
+  });
+  it("순서를 뒤집으면 칸 글이 바뀐다", () => {
+    const f = fair({ statusRule: 2 }, { statusRule: 1 });
+    expect(f.diffNames).toContain("오류 집계 규칙");
+    expect(f.condRows[f.condRows.length - 1]).toMatchObject({
+      before: "검사 없는 스텝은 400 이상이 오류",
+      after: "검사 없는 스텝은 모두 통과",
+    });
+  });
+  it("두 run 모두 1, 모두 2면 이름·행이 없다", () => {
+    for (const r of [1, 2] as const) {
+      const f = fair({ statusRule: r }, { statusRule: r });
+      expect(f.diffNames).not.toContain("오류 집계 규칙");
+      expect(f.condRows.some((x) => x.label === "오류 집계 규칙")).toBe(false);
+    }
+  });
+  it("다른 조건과 함께여도 규칙 이름이 맨 앞이다", () => {
+    const f = fair(
+      { statusRule: 1, env: { A: "1" } },
+      { statusRule: 2, env: { A: "2" }, profile: prof({ vus: 20 }) },
+    );
+    expect(f.diffNames[0]).toBe("오류 집계 규칙");
+    expect(f.diffNames.length).toBeGreaterThan(2);
   });
 });
 

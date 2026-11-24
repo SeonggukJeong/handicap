@@ -245,7 +245,7 @@ describe("CompareDocument 표준판", () => {
       const notes = [...container.querySelectorAll(".p-cmp-rule")];
       expect(notes.length, kind).toBe(1);
       expect(notes[0].textContent).toBe(
-        "두 run이 오류를 세는 규칙이 다릅니다. 한쪽은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.",
+        "선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.",
       );
     }
     const same = renderDoc(makeDoc());

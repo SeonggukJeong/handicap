@@ -2,7 +2,7 @@ import { sampleNotice } from "../../compare/sampleNotice";
 import { statusRuleNotice } from "../../compare/statusRuleNotice";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo } from "../../i18n/duration";
-import type { Profile } from "../../api/schemas";
+import { reportStatusRule, type Profile } from "../../api/schemas";
 import { profileDurationSeconds, seedBindingsFrom } from "../../api/runPrefill";
 import { deriveLoadMode, fixedTarget } from "../../components/run/loadModel";
 import { conditionsBox, rampSeconds } from "../conditions";
@@ -280,7 +280,54 @@ function sameChecks(a: StatusCheck[], b: StatusCheck[]): boolean {
   return x.length === y.length && x.every((v, i) => v === y[i]);
 }
 
-function stepDiffs(before: StepFacts[], after: StepFacts[]): StepDiff[] {
+type CheckMode = "legacyNone" | "default" | "codes" | "any";
+type Rules = { before: 1 | 2; after: 1 | 2 };
+
+function checkModeOf(checks: StatusCheck[], rule: 1 | 2): CheckMode {
+  if (checks.length === 0) return rule === 1 ? "legacyNone" : "default";
+  return checks.some((l) => l !== "any") ? "codes" : "any";
+}
+
+/** 코드 줄마다 `·`, 줄 사이 ` / `. `any` 줄은 건너뛴다. */
+function codesText(checks: StatusCheck[]): string {
+  return checks
+    .filter((l): l is number[] => l !== "any")
+    .map((l) => l.join("·"))
+    .join(" / ");
+}
+
+function assertDiff(no: string, prev: StepFacts, s: StepFacts, rules: Rules): StepDiff | null {
+  const pc = prev.statusChecks;
+  const sc = s.statusChecks;
+  if (rules.before === 1 && rules.after === 1) {
+    if (pc.length === 0 && sc.length > 0) return { kind: "assert", text: F.assertAdded(no) };
+    if (pc.length > 0 && sc.length === 0) return { kind: "assert", text: F.assertRemoved(no) };
+    if (!sameChecks(pc, sc)) return { kind: "assert", text: F.assertChanged(no) };
+    return null;
+  }
+  const ma = checkModeOf(pc, rules.before);
+  const mb = checkModeOf(sc, rules.after);
+  const noneLike = (m: CheckMode) => m === "legacyNone" || m === "default";
+  if (noneLike(ma) && noneLike(mb)) return null;
+  if (ma !== mb) {
+    return {
+      kind: "assert",
+      text: F.assertModeChanged(no, F.checkModeNames[ma], F.checkModeNames[mb]),
+    };
+  }
+  if (ma === "codes") {
+    const codeLines = (c: StatusCheck[]) => c.filter((l) => l !== "any");
+    if (!sameChecks(codeLines(pc), codeLines(sc))) {
+      return {
+        kind: "assert",
+        text: F.assertCodesChanged(no, codesText(pc), codesText(sc)),
+      };
+    }
+  }
+  return null;
+}
+
+function stepDiffs(before: StepFacts[], after: StepFacts[], rules: Rules): StepDiff[] {
   const out: StepDiff[] = [];
   const bIdx = new Map(before.map((s, i) => [s.id, i]));
   const aIdx = new Map(after.map((s, i) => [s.id, i]));
@@ -304,13 +351,8 @@ function stepDiffs(before: StepFacts[], after: StepFacts[]): StepDiff[] {
     if (prev.method !== s.method || prev.url !== s.url) {
       out.push({ kind: "request", text: F.stepRequest(no) });
     }
-    if (prev.statusChecks.length === 0 && s.statusChecks.length > 0) {
-      out.push({ kind: "assert", text: F.assertAdded(no) });
-    } else if (prev.statusChecks.length > 0 && s.statusChecks.length === 0) {
-      out.push({ kind: "assert", text: F.assertRemoved(no) });
-    } else if (!sameChecks(prev.statusChecks, s.statusChecks)) {
-      out.push({ kind: "assert", text: F.assertChanged(no) });
-    }
+    const ad = assertDiff(no, prev, s, rules);
+    if (ad) out.push(ad);
     if (!prev.fallibleExtract && s.fallibleExtract) {
       out.push({ kind: "extract", text: F.extractAdded(no) });
     } else if (prev.fallibleExtract && !s.fallibleExtract) {
@@ -322,10 +364,12 @@ function stepDiffs(before: StepFacts[], after: StepFacts[]): StepDiff[] {
 
 type ScenarioResult = { readable: false } | { readable: true; diffs: StepDiff[]; other: boolean };
 
-function compareScenario(before: RunModel, after: RunModel): ScenarioResult {
+function compareScenario(before: RunModel, after: RunModel, rules: Rules): ScenarioResult {
   if (before.yamlObj === null || after.yamlObj === null) return { readable: false };
   const diffs =
-    before.facts.ok && after.facts.ok ? stepDiffs(before.facts.steps, after.facts.steps) : [];
+    before.facts.ok && after.facts.ok
+      ? stepDiffs(before.facts.steps, after.facts.steps, rules)
+      : [];
   const other =
     diffs.length === 0 &&
     !deepEqualLoose(stripScenarioNames(before.yamlObj), stripScenarioNames(after.yamlObj));
@@ -406,7 +450,11 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
         ),
   };
 
-  const sc = compareScenario(before, after);
+  const rules: Rules = {
+    before: reportStatusRule(before.report),
+    after: reportStatusRule(after.report),
+  };
+  const sc = compareScenario(before, after, rules);
   const scenarioOf = (same: boolean, line: string): FairCard => ({
     key: "scenario",
     title: F.titles.scenario,
@@ -457,6 +505,8 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
   ].filter((s): s is string => s !== null);
   const diffNames = cards.filter((c) => !c.same).map((c) => c.title);
   if (statusLines.length > 0) diffNames.push(F.statusName);
+  const ruleDiffers = rules.before !== rules.after;
+  if (ruleDiffers) diffNames.unshift(F.statusRuleName);
 
   const condRows: CondRow[] = [];
   const addRow = (
@@ -525,6 +575,15 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
       if (n > 0) addRow(label, C.differs, C.differs, true, false);
     }
     if (sc.other) addRow(C.scenarioKinds.other, C.differs, C.differs, true, false);
+  }
+  if (ruleDiffers) {
+    addRow(
+      C.statusRule,
+      C.statusRuleText[rules.before],
+      C.statusRuleText[rules.after],
+      true,
+      false,
+    );
   }
 
   const same = cards.filter((c) => c.same).map((c) => c.title);

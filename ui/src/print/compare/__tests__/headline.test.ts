@@ -679,6 +679,12 @@ describe("cmpSummaryLines 4번 줄·비교 불가", () => {
     expect(t).toBe("두 측정의 부하 조건·환경 변수 외 1개가 달라 이 비교는 참고용입니다.");
   });
 
+  it("규칙만 다른 두 run은 큰 글이 참고용이고 4번 줄에 오류 집계 규칙이 있다", () => {
+    const s = scene({ summary: BEFORE, statusRule: 1 }, { summary: AFTER_GOOD, statusRule: 2 });
+    expect(s.headline.word).toBe("참고용");
+    expect(s.byId(4) ?? "").toContain("오류 집계 규칙");
+  });
+
   it("4번 줄 조사는 마지막 항목 이름의 받침을 따른다", () => {
     const crit = scene(
       { summary: BEFORE },

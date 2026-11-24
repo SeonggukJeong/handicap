@@ -2228,7 +2228,7 @@ export const ko = {
     sampleNotice:
       "고른 run 중 일부는 실패한 요청을 포함해 응답 시간을 계산했습니다. 응답 시간을 그대로 비교하기 어렵습니다.",
     statusRuleNotice:
-      "두 run이 오류를 세는 규칙이 다릅니다. 한쪽은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.",
+      "선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.",
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,
@@ -2786,6 +2786,17 @@ export const ko = {
           criteria: "판정 기준",
         },
         statusName: "측정 상태",
+        statusRuleName: "오류 집계 규칙",
+        checkModeNames: {
+          legacyNone: "검사 없음",
+          default: "400 이상은 오류",
+          codes: "적은 코드만 통과",
+          any: "보지 않음",
+        },
+        assertModeChanged: (no: string, a: string, b: string) =>
+          `${no}의 상태 코드 검사 방식 바뀜: ${a} → ${b}`,
+        assertCodesChanged: (no: string, a: string, b: string) =>
+          `${no}의 기대 코드 바뀜: ${a} → ${b}`,
         unreadable: "설정을 읽을 수 없음",
         scenarioUnreadable: "시나리오를 읽지 못해 확인하지 못함",
         sizeClosed: "동시 사용자",
@@ -2836,6 +2847,11 @@ export const ko = {
         differs: "다름",
         differsTag: " · 다름",
         unreadable: "읽을 수 없음",
+        statusRule: "오류 집계 규칙",
+        statusRuleText: {
+          1: "검사 없는 스텝은 모두 통과",
+          2: "검사 없는 스텝은 400 이상이 오류",
+        } as Record<1 | 2, string>,
         envCount: "환경 변수 개수",
         envCountDiff: (n: number, keys: number) => `${n}개 · 다른 키 ${keys}개`,
         criteriaCount: "판정 기준 개수",
