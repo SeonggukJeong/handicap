@@ -1492,3 +1492,12 @@ run 상세 리포트의 「응답 시간 표본」 줄에 단추 셋(통과한 �
 - 못 한 것: 모니터 점검 기록 창(보드 저장·시작까지 가지 않음 — 같은 컴포넌트를 RTL로 고정) · Windows 실기 글꼴.
 
 **함정**: 화면이 「400 이상은 오류」로 되돌리면 YAML에 `assert: []`가 남고 새 스텝은 키가 없다 — 키 유무로 견주는 곳(인쇄 비교 deep-equal)은 둘을 같게 봐야 한다 · 판정을 `status >= 400`으로 다시 계산하는 화면은 엔진 규칙(목록·`any`)과 어긋난다 — trace의 `error`가 판정이다.
+
+## verdict-stats ③a — 새 run µs 판정·평균/최대/임의 백분위·통계 블록 (2026-11-24, 코드 `fa8abe79`..`2f3d77e9`, ADR-0065, roadmap §B95)
+
+spec `docs/superpowers/specs/2026-11-23-verdict-stats-a-design.md`(③a = R1–R16·R19·R25 + UI Zod), plan `docs/superpowers/plans/2026-11-24-verdict-stats-3a.md`. 사용자 예약으로 18:03 자동 시작. 엔진·워커·proto 무변경 — 컨트롤러가 가진 HDR 분포에서 계산.
+- 결과: migration 0030 `runs.latency_rule`(새 run 2 = µs 비교, 옛 run 1 = 지금 동작) · `Criteria.max_mean_ms`·`max_max_ms`·`max_percentiles_ms` + 스텝 `mean_ms`·`max_ms`·`p<N>_ms`(정본 이름 문법 `percentile_name.rs`, 서버·UI가 `testdata/percentile_metric_cases.json` 공유) · µs 통계 블록 `stats`(요약·스텝·워커·「다른 기준」, 보여 주는 표본·기준을 따름, 정수 순위 백분위 — `value_at_quantile(99.9/100)`의 순위 밀림 회피) · 규칙 2 판정(`JudgeInput`, `capped` = 60초 칸 실측은 하한 → 상한 기준 실패, 쓸 분포가 없으면 `no_sample` 실패, 요청 0건이면 시간 행 없음) · 응답 속도 구간 `slow_us`(60초 칸은 초과) · 판정 표·배지 새 이름·소수 3자리·쉼표·「≥」+안내 · 머리말이 판정 없는 이유를 원인별로(요청 없음·중단·실패·데이터 부족).
+- **파이프라인**: task 6개(Task 4 구현만 Opus로 올림). task 리뷰 fix: T4 1회(R14 기준별 판정 테스트 누락). `handicap-reviewer` APPROVE-WITH-FIXES(작은 것 7) → fix 한 번(+ADR 보완·머리말 문구) → 머리말 문구가 중단/실패 run에도 「요청이 없어」 → 원인별로 다시 → APPROVE. 리포트 빌드 50스텝×600초: 1.596s → 1.551s.
+- **보안**: §0 grep 매치 없음 + 판단으로도 요청 실행·템플릿·바인딩 무접촉 → 보안 표면 무관(N/A).
+- **라이브**(워크트리 바이너리 + 변경 전 바이너리[메인 체크아웃 11-23 빌드], 격리 DB, 응답기 42ms·0ms): **US6 ✓** 변경 전 바이너리로 만든 run(p95 44.575 ms가 「≤ 44」 통과)을 새 바이너리로 열어 verdict·speed_bands JSON 바이트 동일·목록 배지 동일·`latency_rule` 1. **US5 ✓** 새 run 같은 조건 p95 44.639 ms ✗·실측 소수, 속도 구간 「초과」 7 → 125. **US1·US2·US3(서버) ✓** 행 순서 평균→p90→p95→p99.9→최대, 평균 실측 = `stats.mean_us`, 스텝 1ms 미만 평균 0.487 ms, 잘못된 기준 400 + 한국어 사유. 화면: 판정 표·배지 툴팁·중단 run 머리말, 콘솔 오류 0. **못 한 것**: 60초 넘는 응답의 「≥」·안내(단위·RTL만) · US4·US10·US11은 ③c.
+- **함정**: `?sample=`의 보여 주는 요약·스텝은 `..summary.clone()`으로 판정용 필드를 물려받는다 — 표본마다 다른 값(`stats`)은 그 계산 안에서 다시 넣는다 · 서버 판정은 Completed run만 만든다 — 「판정 없음」 문구는 원인(요청 0·중단·실패·평가 불가)별로 · `e2e_test::loop_breakdown_e2e` 간헐 실패(혼자·재시도 통과, 지난 슬라이스에도 — §B95 (3)).
