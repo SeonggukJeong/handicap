@@ -277,14 +277,23 @@ describe("AssertEditor — 깨진 YAML·손대지 않은 스텝", () => {
     const user = userEvent.setup();
     load("    assert: [{ status: [200, 200] }]  # 둘", "    assert: [{ status: any }]");
     const untouched = String(parseDocument(useScenarioEditor.getState().yamlText));
-    render(<Host />);
-    await user.click(radio("보지 않음"));
+    render(<Host id={ID2} />);
+    await user.click(radio("적은 코드만 통과"));
     const after = useScenarioEditor.getState().yamlText;
-    const lineOf = (y: string) => y.split("\n").filter((l) => l.includes("status: any"));
-    expect(lineOf(after).length).toBe(2);
-    const stepB = (y: string) => y.slice(y.indexOf(`id: "${ID2}"`));
-    expect(stepB(after)).toBe(stepB(untouched));
-    expect(after).not.toContain("# 둘 ");
-    expect(untouched).toContain("# 둘");
+    expect(stepAssert(ID2)).toEqual([{ kind: "status", codes: [200] }]);
+    const stepA = (y: string) => y.slice(0, y.indexOf(`id: "${ID2}"`));
+    expect(stepA(after)).toBe(stepA(untouched));
+    expect(stepA(after)).toContain("# 둘");
+    expect(stepA(after)).toContain("[ 200, 200 ]");
+  });
+
+  it("스텝을 바꾸면 추가 칸 입력이 비워진다", async () => {
+    const user = userEvent.setup();
+    load("    assert: [{ status: 200 }]", "    assert: [{ status: 201 }]");
+    const { rerender } = render(<Host id={ID1} />);
+    await user.type(screen.getByPlaceholderText("예: 201"), "409");
+    expect(screen.getByPlaceholderText("예: 201")).toHaveValue(409);
+    rerender(<Host id={ID2} />);
+    expect(screen.getByPlaceholderText("예: 201")).toHaveValue(null);
   });
 });

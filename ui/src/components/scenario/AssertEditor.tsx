@@ -27,6 +27,9 @@ export function AssertEditor({ step }: { step: HttpStep }) {
   const locked = yamlError !== null;
   const [newCode, setNewCode] = useState("");
   // 이 스텝에서 마지막으로 본 비지 않은 코드 목록 — 방식을 잘못 눌러도 목록을 잃지 않게(에디터엔 되돌리기가 없다).
+  useEffect(() => {
+    setNewCode("");
+  }, [step.id]);
   const lastCodes = useRef(new Map<string, number[]>());
 
   const mode = statusMode(step.assert);
@@ -110,14 +113,14 @@ export function AssertEditor({ step }: { step: HttpStep }) {
             {codes.map((c) => (
               <span
                 key={c}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white py-0.5 pl-2.5 pr-1 font-mono text-xs text-slate-700"
+                className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white py-0.5 pl-2.5 pr-1 font-mono text-xs"
               >
                 {c}
                 <button
                   type="button"
                   aria-label={ko.editor.assertRemoveCode(c)}
                   disabled={locked}
-                  className="px-1 text-slate-500 hover:text-red-600 disabled:opacity-50"
+                  className="rounded-full px-1 py-0.5 text-sm leading-none text-slate-500 hover:text-red-600 disabled:opacity-50"
                   onClick={() => remove(c)}
                 >
                   ×
