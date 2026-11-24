@@ -267,6 +267,14 @@ pub const STATUS_RULE_LEGACY: u8 = 1;
 /// 현재 규칙: 검사 없는 http 스텝의 400 이상도 오류로 센다. 새 run은 이 값으로 저장된다.
 pub const STATUS_RULE_CURRENT: u8 = 2;
 
+/// DB 정수를 규칙 값으로 좁힌다. 모르는 값은 옛 규칙으로 읽는다(잘라 내지 않는다).
+fn narrow_status_rule(v: i64) -> u8 {
+    u8::try_from(v)
+        .ok()
+        .filter(|r| matches!(*r, STATUS_RULE_LEGACY | STATUS_RULE_CURRENT))
+        .unwrap_or(STATUS_RULE_LEGACY)
+}
+
 pub struct RunRow {
     pub id: String,
     pub scenario_id: String,
@@ -375,7 +383,7 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
             .and_then(|s| serde_json::from_str(&s).ok()),
         label: r.get("label"),
         auto_stop: parse_auto_stop(r.get("auto_stop_json")),
-        status_rule: r.get::<i64, _>("status_rule") as u8,
+        status_rule: narrow_status_rule(r.get::<i64, _>("status_rule")),
     }))
 }
 
@@ -412,7 +420,7 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
                 .and_then(|s| serde_json::from_str(&s).ok()),
             label: r.get("label"),
             auto_stop: parse_auto_stop(r.get("auto_stop_json")),
-            status_rule: r.get::<i64, _>("status_rule") as u8,
+            status_rule: narrow_status_rule(r.get::<i64, _>("status_rule")),
         });
     }
     Ok(out)
@@ -644,6 +652,17 @@ pub async fn count_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<(i64,
 mod tests {
     use super::*;
     use crate::store;
+
+    #[test]
+    fn narrow_status_rule_maps_unknown_to_legacy() {
+        assert_eq!(narrow_status_rule(1), STATUS_RULE_LEGACY);
+        assert_eq!(narrow_status_rule(2), STATUS_RULE_CURRENT);
+        assert_eq!(narrow_status_rule(0), STATUS_RULE_LEGACY);
+        assert_eq!(narrow_status_rule(3), STATUS_RULE_LEGACY);
+        // 256 would wrap to 0 under `as u8`; 258 would wrap to 2.
+        assert_eq!(narrow_status_rule(258), STATUS_RULE_LEGACY);
+        assert_eq!(narrow_status_rule(-1), STATUS_RULE_LEGACY);
+    }
 
     async fn test_db() -> Db {
         store::connect("sqlite::memory:")

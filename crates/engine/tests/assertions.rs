@@ -214,6 +214,20 @@ mod status_rule_paths {
     }
 
     #[tokio::test]
+    async fn traced_list_mismatch_is_error() {
+        let srv = server_with(500).await;
+        let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let s = step(
+            format!("{}/p", srv.uri()),
+            vec![Assertion::Status(StatusExpect::AnyOf(vec![200, 409]))],
+        );
+        let t = execute_step_traced(&client, &s, &ctx(&vars, &env)).await;
+        assert_eq!(t.error.as_deref(), Some("status 500 not in [200, 409]"));
+        assert!(t.extracted.is_empty());
+    }
+
+    #[tokio::test]
     async fn traced_any_404_passes() {
         let srv = server_with(404).await;
         let (vars, env) = (BTreeMap::new(), BTreeMap::new());

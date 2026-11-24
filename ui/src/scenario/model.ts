@@ -38,11 +38,14 @@ export const RequestModel = z
   .strict();
 export type RequestSpec = z.infer<typeof RequestModel>;
 
+/** 엔진 `MAX_STATUS_CODES`와 같은 값 — 오류 글자에 목록이 통째로 실리므로 길이를 묶는다. */
+export const MAX_STATUS_CODES = 64;
+
 export const AssertionModel = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("status"),
-      codes: z.array(z.number().int().min(100).max(599)).min(1),
+      codes: z.array(z.number().int().min(100).max(599)).min(1).max(MAX_STATUS_CODES),
     })
     .strict(),
   z.object({ kind: z.literal("status_any") }).strict(),

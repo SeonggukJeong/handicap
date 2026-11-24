@@ -132,11 +132,7 @@ pub fn derive_validity(
         let mut main_ids: Vec<String> = Vec::new();
         collect_status_unchecked(&sc.steps, &mut main_ids);
         let err_count = |counts: &BTreeMap<String, u64>| -> u64 {
-            counts
-                .iter()
-                .filter(|(k, _)| k.starts_with('4') || k.starts_with('5'))
-                .map(|(_, v)| *v)
-                .sum()
+            status_class_count(counts, '4') + status_class_count(counts, '5')
         };
         let mut found: Vec<(String, u64)> = Vec::new();
         if let Some(setup) = setup {

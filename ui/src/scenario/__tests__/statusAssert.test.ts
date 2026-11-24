@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseDocument } from "yaml";
 import { applyEdit, parseScenarioDoc, serializeDoc, type Edit } from "../yamlDoc";
 import { assertionLabel } from "../assertLabel";
+import { AssertionModel, MAX_STATUS_CODES } from "../model";
 
 const ID1 = "01HX0000000000000000000001";
 const ID2 = "01HX0000000000000000000002";
@@ -72,6 +73,17 @@ describe("상태 코드 검사 — 쓰기", () => {
     });
     expect(y).toMatch(/- status: \[ ?200, 409 ?\]$/m);
     expect(firstAssert(y)).toEqual([{ kind: "status", codes: [200, 409] }]);
+  });
+
+  it("코드 목록은 64개까지 — 65개는 모델이 거절", () => {
+    const codes = (n: number) => Array.from({ length: n }, () => 200);
+    expect(
+      AssertionModel.safeParse({ kind: "status", codes: codes(MAX_STATUS_CODES) }).success,
+    ).toBe(true);
+    expect(
+      AssertionModel.safeParse({ kind: "status", codes: codes(MAX_STATUS_CODES + 1) }).success,
+    ).toBe(false);
+    expect(MAX_STATUS_CODES).toBe(64);
   });
 
   it("any는 따옴표 없이", () => {

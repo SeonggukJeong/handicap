@@ -381,7 +381,14 @@ impl<'de> Deserialize<'de> for Body {
     }
 }
 
-/// Assertion variant. Serializes/deserializes as a YAML map `{status: <code>}`.
+/// 상태 코드 목록의 최대 길이. 실패 요청마다 오류 글자에 목록이 통째로 실리므로
+/// 길이를 묶어 둔다(UI `MAX_STATUS_CODES`와 같은 값).
+pub const MAX_STATUS_CODES: usize = 64;
+
+/// Assertion variant. Serializes/deserializes as a YAML map `{status: <expect>}`
+/// where `<expect>` is one code (`200`), a list (`[200, 409]`), or `any`. A
+/// one-element list reads as one code; an empty list, any other word, or more
+/// than `MAX_STATUS_CODES` codes is an error.
 /// Manual impl required because serde_yaml 0.9 does not support externally-tagged
 /// enums backed by map values (it expects a `!tag` anchor instead).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -419,6 +426,11 @@ impl<'de> Deserialize<'de> for StatusExpect {
         match v {
             serde_yaml::Value::Number(_) => Ok(StatusExpect::One(code(v)?)),
             serde_yaml::Value::Sequence(items) => {
+                if items.len() > MAX_STATUS_CODES {
+                    return Err(de::Error::custom(format!(
+                        "status list must have at most {MAX_STATUS_CODES} codes"
+                    )));
+                }
                 let mut codes = items
                     .into_iter()
                     .map(code)
@@ -1190,6 +1202,20 @@ steps:
         from: body
 "#;
         assert!(Scenario::from_yaml(y).is_err());
+    }
+
+    #[test]
+    fn status_list_is_capped_at_max_codes() {
+        let list = |n: usize| {
+            let codes = vec!["200"; n].join(", ");
+            format!("[{codes}]")
+        };
+        let ok: StatusExpect = serde_yaml::from_str(&list(MAX_STATUS_CODES)).expect("cap ok");
+        assert!(matches!(ok, StatusExpect::AnyOf(ref v) if v.len() == MAX_STATUS_CODES));
+        let err = serde_yaml::from_str::<StatusExpect>(&list(MAX_STATUS_CODES + 1))
+            .expect_err("over cap")
+            .to_string();
+        assert!(err.contains("64"), "{err}");
     }
 
     #[test]
