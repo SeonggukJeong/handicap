@@ -276,11 +276,11 @@ expect(passingCodes([any, one(200)])).toEqual([200]);
   - **순서 뒤집기**: 규칙 2(앞) ↔ 규칙 1(뒤): `[]` → `[]` = 줄 없음. `["any"]` → `[]` = 「①의 상태 코드 검사 방식 바뀜: 보지 않음 → 검사 없음」.
   - 줄 단위 견줌(spec R28 정정): `[[200],[201]]` → `[[200,201]]` = 「①의 기대 코드 바뀜: 200 / 201 → 200·201」(코드 줄마다 `·`, 줄 사이 ` / `. 코드는 YAML에 적힌 순서대로 보인다 — plan 판단).
 - [ ] **Step 2: 실패하는 테스트 — 규칙 차이를 다른 조건으로 (R26 보강)**
-  - 같은 시나리오·같은 부하에서 규칙만 1 ↔ 2: `diffNames`에 「오류를 세는 규칙」이 있고, `anyDiff === true`다. 조건 차이 표에 행 `{ label: "오류를 세는 규칙", before: "검사 없는 스텝은 모두 통과", after: "검사 없는 스텝은 400 이상이 오류", differs: true }`가 있다. 카드 넷은 모두 `same`이고, `statusRuleLine`은 그대로 글을 가진다.
+  - 같은 시나리오·같은 부하에서 규칙만 1 ↔ 2: `diffNames`에 「오류 집계 규칙」이 있고, `anyDiff === true`다. 조건 차이 표에 행 `{ label: "오류 집계 규칙", before: "검사 없는 스텝은 모두 통과", after: "검사 없는 스텝은 400 이상이 오류", differs: true }`가 있다. 카드 넷은 모두 `same`이고, `statusRuleLine`은 그대로 글을 가진다.
   - 순서를 뒤집어도(2 ↔ 1) 이름이 있고, 칸 글이 서로 바뀐다.
-  - 두 run 모두 1, 모두 2: 「오류를 세는 규칙」 이름·행이 없다.
-  - 규칙과 부하 조건·환경 변수가 함께 다를 때 `diffNames[0]`이 「오류를 세는 규칙」이다(머리말 「참고」 문장은 앞의 두 이름만 쓰고 나머지는 「외 N개」로 접기 때문이다 — `headline.ts:224-226`).
-  - 머리말(`headline.test.ts`): 규칙만 다른 두 run의 비교에서 `h.word === "참고용"`(큰 글이 「※ 참고용」으로 바뀐다 — `headline.ts:95-96`)이고, 「참고」 문장 조각에 「오류를 세는 규칙」이 있다.
+  - 두 run 모두 1, 모두 2: 「오류 집계 규칙」 이름·행이 없다.
+  - 규칙과 부하 조건·환경 변수가 함께 다를 때 `diffNames[0]`이 「오류 집계 규칙」이다(머리말 「참고」 문장은 앞의 두 이름만 쓰고 나머지는 「외 N개」로 접기 때문이다 — `headline.ts:224-226`).
+  - 머리말(`headline.test.ts`): 규칙만 다른 두 run의 비교에서 `h.word === "참고용"`(큰 글이 「※ 참고용」으로 바뀐다 — `headline.ts:95-96`)이고, 「참고」 문장 조각에 「오류 집계 규칙」이 있다.
 - [ ] **Step 3: 실패하는 테스트 — 알림 글** — `statusRuleNotice([rep(1), rep(2)])`(기존 `rep` 도우미 — `statusRuleNotice.test.ts:4`)가 카피 정본의 새 글이다. `:8-9`의 리터럴 `text`를 새 글로 바꾼다. `CompareDocument.test.tsx:248`의 리터럴도 새 글로 바꾼다. 비교 화면·인쇄 비교 알림 줄이 같은 글을 보인다.
 - [ ] **Step 4: 실패 확인** — `cd ui && pnpm test fairness statusRuleNotice headline CompareDocument ScenarioComparePage` FAIL.
 - [ ] **Step 5: 구현**
@@ -328,11 +328,11 @@ expect(passingCodes([any, one(200)])).toEqual([200]);
 | `trust.checkAPass` | 모든 스텝이 오류 응답을 실패로 잡습니다 |
 | `common.defaultRuleExplain(n)` | `상태 코드 ${n}${josa(을/를)} 받아 오류로 셌습니다. 검사를 따로 적지 않은 스텝은 400 이상을 오류로 봅니다. ${n}${josa(이/가)} 정상이면 「응답 검증」에서 기대하는 코드에 ${n}${josa(을/를)} 넣으세요.` |
 | `compare.statusRuleNotice` | 선택한 run 가운데 오류를 세는 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요. |
-| `print.cmp.fair.statusRuleName` | 오류를 세는 규칙 |
+| `print.cmp.fair.statusRuleName` | 오류 집계 규칙 |
 | `print.cmp.fair.checkModeNames` | `legacyNone` 검사 없음 · `default` 400 이상은 오류 · `codes` 적은 코드만 통과 · `any` 보지 않음 |
 | `print.cmp.fair.assertModeChanged(no, a, b)` | `${no}의 상태 코드 검사 방식 바뀜: ${a} → ${b}` |
 | `print.cmp.fair.assertCodesChanged(no, a, b)` | `${no}의 기대 코드 바뀜: ${a} → ${b}` |
-| `print.cmp.cond.statusRule` | 오류를 세는 규칙 |
+| `print.cmp.cond.statusRule` | 오류 집계 규칙 |
 | `print.cmp.cond.statusRuleText` | `1` 검사 없는 스텝은 모두 통과 · `2` 검사 없는 스텝은 400 이상이 오류 |
 
 사용자 결정(2026-11-24, 다시 묻지 않는다): 화면은 상태 코드 검사를 한 줄로만 쓴다. 여러 줄은 지금 master 에디터의 「추가」(`Inspector.tsx:693` — 코드마다 줄 하나)가 만든 기존 시나리오를 읽을 때만 나오고, 경고 + 합치기 하나(늘 모두 합침)로 다룬다. 엔진은 여러 줄을 지금처럼 읽는다.
@@ -342,7 +342,7 @@ plan 판단(마무리 §B에 「사용자 확인 대기」로 적는다 — 목�
 - 합치기 단추 글: 코드 1개(「200만 통과」로)와 `any`(「「보지 않음」 한 줄로 합치기」).
 - 여러 줄 알림 색: 항상 실패만 붉은색, 나머지는 주의색.
 - 방식을 오갈 때 코드 목록을 기억했다가 되살린다(에디터에 되돌리기가 없어서). 기억은 `AssertEditor` 안이라 구획을 접거나 다른 스텝을 고르면 사라진다(`Section`은 열린 동안만 본문을 그린다 — `Section.tsx:59`). 넘어서려면 store로 옮긴다.
-- 인쇄 비교: 검사 차이를 줄 단위로 견준다(spec R28 정정). 코드 줄이 여럿인 스텝의 기대 코드 표시는 줄 사이 ` / `이고, 코드는 적힌 순서로 보인다. 「오류를 세는 규칙」 표 행은 맨 끝, 「다른 조건」 이름은 맨 앞이다. 그래서 규칙 1 ↔ 2 비교의 머리말 큰 글은 늘 「※ 참고용」이다.
+- 인쇄 비교: 검사 차이를 줄 단위로 견준다(spec R28 정정). 코드 줄이 여럿인 스텝의 기대 코드 표시는 줄 사이 ` / `이고, 코드는 적힌 순서로 보인다. 「오류 집계 규칙」 표 행은 맨 끝, 「다른 조건」 이름은 맨 앞이다. 그래서 규칙 1 ↔ 2 비교의 머리말 큰 글은 늘 「※ 참고용」이다.
 - `Segmented size="sm"`은 목업의 `white-space: nowrap` 대신 낱말 단위로 줄을 바꾼다(Review Focus 1 — 좁은 Inspector).
 - 「응답 검증」 머리 덧글을 열린 상태에서도 보인다(목업). 그래서 fieldset에 `aria-label`과 `aria-describedby`를 단다.
 
