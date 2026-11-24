@@ -913,6 +913,7 @@ mod tests {
                 passed: i >= fails,
                 target: None,
                 no_sample: false,
+                capped: false,
             });
         }
         Verdict { passed, criteria }

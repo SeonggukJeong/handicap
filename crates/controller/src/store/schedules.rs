@@ -638,6 +638,7 @@ mod tests {
                 passed: true,
                 target: None,
                 no_sample: false,
+                capped: false,
             }],
         };
         runs::set_verdict(&db, &run.id, &v).await.unwrap();

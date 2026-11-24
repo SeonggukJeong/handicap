@@ -414,6 +414,9 @@ pub struct CriterionResult {
     /// 응답 시간 기준인데 통과한 요청이 하나도 없어 실패한 행. 그 외에는 키 자체를 내지 않는다.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_sample: bool,
+    /// 실측이 60초 칸에 걸려 하한일 뿐인 행(규칙 2·새 항목만). 그 외에는 키 자체를 내지 않는다.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capped: bool,
 }
 
 /// 기본 표본(통과한 요청)에서 통과한 요청이 하나도 없는 자리. `Broken`(계산 실패)은 넣지 않는다.
@@ -469,37 +472,164 @@ fn min_window_rps(windows: &[ReportWindow], warmup_seconds: u32) -> Option<f64> 
         .min_by(|a, b| a.partial_cmp(b).unwrap())
 }
 
+/// 판정 입력. `overall_hist`·`step_hists`는 판정 표본(기본 표본) 분포 — 규칙 2와 새 시간 항목이 읽는다.
+pub struct JudgeInput<'a> {
+    pub summary: &'a ReportSummary,
+    pub status_dist: &'a BTreeMap<String, u64>,
+    pub windows: &'a [ReportWindow],
+    pub steps: &'a [ReportStep],
+    pub warmup_override: Option<u32>,
+    pub no_sample: &'a NoSample<'a>,
+    /// `store::runs::LATENCY_RULE_*`
+    pub latency_rule: u8,
+    /// run 판정 분포. 쓸 수 있는 분포가 없으면(통과 없음·계산 실패) None.
+    pub overall_hist: Option<&'a Histogram<u64>>,
+    /// 스텝 id → 판정 분포. 없는 스텝은 쓸 수 있는 분포가 없다.
+    pub step_hists: &'a BTreeMap<String, Histogram<u64>>,
+}
+
+/// 응답 시간 값 하나의 종류. 백분위는 N × 1000(정수 순위).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TimeKind {
+    Mean,
+    Max,
+    Milli(u32),
+}
+
+impl TimeKind {
+    /// `mean_ms`·`max_ms`·정본 `p<N>_ms`(p50·p95·p99 포함). 그 밖은 None.
+    fn of_metric(metric: &str) -> Option<Self> {
+        match metric {
+            "mean_ms" => Some(TimeKind::Mean),
+            "max_ms" => Some(TimeKind::Max),
+            _ => crate::percentile_name::parse_percentile_metric(metric)
+                .and_then(crate::percentile_name::to_milli)
+                .map(TimeKind::Milli),
+        }
+    }
+}
+
+/// 시간 값 하나(µs)와 「실측이 하한일 뿐인가」(60초 칸). 통계 블록(`latency_stats`)과 같은 식이다(R15).
+fn time_actual(kind: TimeKind, h: &Histogram<u64>) -> Option<(u64, bool)> {
+    use crate::latency_stats as ls;
+    match kind {
+        TimeKind::Mean => ls::latency_stats(h).map(|s| (s.mean_us, s.capped)),
+        TimeKind::Max => ls::max_us(h).map(|v| (v, ls::is_cap_value(h, h.max()))),
+        TimeKind::Milli(n) => ls::value_at_milli_capped(h, n),
+    }
+}
+
+/// 규칙 2 방식의 시간 기준 행. `hist`가 없거나 비었거나 `no_sample`이면 실패 + `no_sample`.
+fn time_row(
+    metric: String,
+    op: &str,
+    threshold: f64,
+    target: Option<String>,
+    kind: TimeKind,
+    hist: Option<&Histogram<u64>>,
+    no_sample: bool,
+) -> CriterionResult {
+    let measured = hist
+        .filter(|h| !no_sample && !h.is_empty())
+        .and_then(|h| time_actual(kind, h));
+    let (actual, passed, capped, no_sample) = match measured {
+        None => (0.0, false, false, true),
+        Some((us, capped)) => {
+            let t_us = (threshold * 1000.0).round() as u64;
+            // 실측이 하한일 뿐이면(60초 칸) 상한 기준은 실패(R12), 하한 기준은 보통 비교.
+            let passed = if op == "min" {
+                us >= t_us
+            } else {
+                !capped && us <= t_us
+            };
+            (us as f64 / 1000.0, passed, capped, false)
+        }
+    };
+    CriterionResult {
+        metric,
+        direction: op.to_string(),
+        threshold,
+        actual,
+        passed,
+        target,
+        no_sample,
+        capped,
+    }
+}
+
 /// 순수: 입력만으로 결정적. 활성(Some) 기준만 결과 행을 만든다.
-pub fn evaluate_criteria(
-    c: &crate::store::runs::Criteria,
-    s: &ReportSummary,
-    status_dist: &BTreeMap<String, u64>,
-    windows: &[ReportWindow],
-    steps: &[ReportStep],
-    warmup_override: Option<u32>,
-    no_sample: &NoSample<'_>,
-) -> Verdict {
+pub fn evaluate_criteria(c: &crate::store::runs::Criteria, input: &JudgeInput<'_>) -> Verdict {
+    let s = input.summary;
+    let no_sample = input.no_sample;
+    let rule2 = input.latency_rule == crate::store::runs::LATENCY_RULE_CURRENT;
     let mut criteria = Vec::new();
 
+    // run 시간 기준(R11): 평균 → 백분위(고정 + 목록, N 오름차순) → 최대.
+    // 규칙 2 행과 새 항목 행(규칙 1의 방어 경로 포함)은 요청이 0건이면 만들지 않는다(R10).
     {
-        let mut push_max = |metric: &str, threshold: Option<u64>, actual: u64| {
-            if let Some(t) = threshold {
-                let (threshold, actual) = (t as f64, actual as f64);
-                criteria.push(CriterionResult {
-                    metric: metric.to_string(),
-                    direction: "max".to_string(),
-                    threshold,
-                    actual,
-                    passed: actual <= threshold && !no_sample.run,
-                    target: None,
-                    no_sample: no_sample.run,
-                });
-            }
+        let rule2_row = |metric: String, threshold: f64, kind: TimeKind| {
+            time_row(
+                metric,
+                "max",
+                threshold,
+                None,
+                kind,
+                input.overall_hist,
+                no_sample.run,
+            )
         };
-        push_max("p50_ms", c.max_p50_ms, s.p50_ms);
-        push_max("p95_ms", c.max_p95_ms, s.p95_ms);
-        push_max("p99_ms", c.max_p99_ms, s.p99_ms);
-    } // push_max dropped here, releasing mutable borrow of criteria
+        let mut time_rows: Vec<(u32, CriterionResult)> = Vec::new();
+        let has_requests = s.count > 0;
+        if let (Some(t), true) = (c.max_mean_ms, has_requests) {
+            time_rows.push((0, rule2_row("mean_ms".into(), t, TimeKind::Mean)));
+        }
+        for (milli, metric, threshold, legacy_actual) in [
+            (50_000u32, "p50_ms", c.max_p50_ms, s.p50_ms),
+            (95_000, "p95_ms", c.max_p95_ms, s.p95_ms),
+            (99_000, "p99_ms", c.max_p99_ms, s.p99_ms),
+        ] {
+            let Some(t) = threshold else { continue };
+            if rule2 {
+                if has_requests {
+                    time_rows.push((
+                        milli,
+                        rule2_row(metric.into(), t as f64, TimeKind::Milli(milli)),
+                    ));
+                }
+            } else {
+                let (threshold, actual) = (t as f64, legacy_actual as f64);
+                time_rows.push((
+                    milli,
+                    CriterionResult {
+                        metric: metric.to_string(),
+                        direction: "max".to_string(),
+                        threshold,
+                        actual,
+                        passed: actual <= threshold && !no_sample.run,
+                        target: None,
+                        no_sample: no_sample.run,
+                        capped: false,
+                    },
+                ));
+            }
+        }
+        if has_requests {
+            for pl in &c.max_percentiles_ms {
+                // 검증이 N을 막는다 — 정본으로 못 쓰는 값은 건너뛴다(방어).
+                let Some(milli) = crate::percentile_name::to_milli(pl.percentile) else {
+                    continue;
+                };
+                let name = crate::percentile_name::percentile_metric_name(pl.percentile);
+                time_rows.push((milli, rule2_row(name, pl.max_ms, TimeKind::Milli(milli))));
+            }
+            if let Some(t) = c.max_max_ms {
+                time_rows.push((u32::MAX, rule2_row("max_ms".into(), t, TimeKind::Max)));
+            }
+        }
+        // 안정 정렬: 같은 N이면 넣은 순서(고정 칸 → 목록).
+        time_rows.sort_by_key(|(k, _)| *k);
+        criteria.extend(time_rows.into_iter().map(|(_, r)| r));
+    }
 
     if let Some(t) = c.max_error_rate {
         let actual = if s.count == 0 {
@@ -515,16 +645,17 @@ pub fn evaluate_criteria(
             passed: actual <= t,
             target: None,
             no_sample: false,
+            capped: false,
         });
     }
     // status-class rate(분모=HTTP 응답 수, transport "0" 제외) — 4xx, 5xx 순.
-    let http_total = http_response_total(status_dist);
+    let http_total = http_response_total(input.status_dist);
     for (first, rate_t, metric) in [
         ('4', c.max_4xx_rate, "4xx_rate"),
         ('5', c.max_5xx_rate, "5xx_rate"),
     ] {
         if let Some(t) = rate_t {
-            let class = status_class_count(status_dist, first);
+            let class = status_class_count(input.status_dist, first);
             let actual = if http_total == 0 {
                 0.0
             } else {
@@ -538,6 +669,7 @@ pub fn evaluate_criteria(
                 passed: actual <= t,
                 target: None,
                 no_sample: false,
+                capped: false,
             });
         }
     }
@@ -547,7 +679,10 @@ pub fn evaluate_criteria(
         ('5', c.max_5xx_count, "5xx_count"),
     ] {
         if let Some(t) = count_t {
-            let (threshold, actual) = (t as f64, status_class_count(status_dist, first) as f64);
+            let (threshold, actual) = (
+                t as f64,
+                status_class_count(input.status_dist, first) as f64,
+            );
             criteria.push(CriterionResult {
                 metric: metric.to_string(),
                 direction: "max".to_string(),
@@ -556,6 +691,7 @@ pub fn evaluate_criteria(
                 passed: actual <= threshold,
                 target: None,
                 no_sample: false,
+                capped: false,
             });
         }
     }
@@ -568,12 +704,15 @@ pub fn evaluate_criteria(
             passed: s.rps >= t,
             target: None,
             no_sample: false,
+            capped: false,
         });
     }
     // per-window 최소 RPS: 정상상태 윈도의 최소 RPS ≥ threshold. eligible 부족이면 skip(행 미생성).
     if let Some(t) = c.min_window_rps {
-        let warmup = warmup_override.unwrap_or_else(|| c.rps_warmup_seconds.unwrap_or(0));
-        if let Some(actual) = min_window_rps(windows, warmup) {
+        let warmup = input
+            .warmup_override
+            .unwrap_or_else(|| c.rps_warmup_seconds.unwrap_or(0));
+        if let Some(actual) = min_window_rps(input.windows, warmup) {
             criteria.push(CriterionResult {
                 metric: "min_window_rps".to_string(),
                 direction: "min".to_string(),
@@ -582,17 +721,32 @@ pub fn evaluate_criteria(
                 passed: actual >= t,
                 target: None,
                 no_sample: false,
+                capped: false,
             });
         }
     }
 
     // step-level criteria (spec §3.3) — fixed-field 행 뒤에 입력 순서대로 append.
     for sc in &c.step_criteria {
-        let Some(step) = steps.iter().find(|s| s.step_id == sc.target) else {
+        let Some(step) = input.steps.iter().find(|s| s.step_id == sc.target) else {
             continue; // 미존재 스텝 → skip (거짓 FAIL 금지)
         };
         if step.count == 0 {
             continue; // 실행 0회 → skip
+        }
+        let legacy_time = matches!(sc.metric.as_str(), "p50_ms" | "p95_ms" | "p99_ms");
+        // 규칙 2의 시간 기준, 그리고 새 시간 항목(규칙 1의 방어 경로 포함)은 그 스텝 분포에서 µs로.
+        if let Some(kind) = TimeKind::of_metric(&sc.metric).filter(|_| rule2 || !legacy_time) {
+            criteria.push(time_row(
+                sc.metric.clone(),
+                &sc.op,
+                sc.threshold,
+                Some(sc.target.clone()),
+                kind,
+                input.step_hists.get(&sc.target),
+                no_sample.steps.contains(&sc.target),
+            ));
+            continue;
         }
         let actual = match sc.metric.as_str() {
             "p50_ms" => step.p50_ms as f64,
@@ -612,8 +766,7 @@ pub fn evaluate_criteria(
             "5xx_count" => status_class_count(&step.status_counts, '5') as f64,
             _ => continue, // 검증으로 도달 불가(방어)
         };
-        let step_no_sample = matches!(sc.metric.as_str(), "p50_ms" | "p95_ms" | "p99_ms")
-            && no_sample.steps.contains(&sc.target);
+        let step_no_sample = legacy_time && no_sample.steps.contains(&sc.target);
         let passed = !step_no_sample
             && if sc.op == "min" {
                 actual >= sc.threshold
@@ -628,6 +781,7 @@ pub fn evaluate_criteria(
             passed,
             target: Some(sc.target.clone()),
             no_sample: step_no_sample,
+            capped: false,
         });
     }
 
@@ -1321,16 +1475,22 @@ pub fn build_report(
     };
     let verdict = match (run.status, run.profile.criteria.as_ref()) {
         (RunStatus::Completed, Some(c)) if c.has_any() => {
+            // 판정은 보여 주는 표본과 무관하게 기본 표본 분포(`overall_judging`·`per_step_hists`)로(R14).
             let v = evaluate_criteria(
                 c,
-                &summary,
-                &status_dist,
-                scoped_windows,
-                &steps,
-                scope.map(|s| s.warmup_seconds),
-                &NoSample {
-                    run: no_sample_run,
-                    steps: &no_sample_steps,
+                &JudgeInput {
+                    summary: &summary,
+                    status_dist: &status_dist,
+                    windows: scoped_windows,
+                    steps: &steps,
+                    warmup_override: scope.map(|s| s.warmup_seconds),
+                    no_sample: &NoSample {
+                        run: no_sample_run,
+                        steps: &no_sample_steps,
+                    },
+                    latency_rule: run.latency_rule,
+                    overall_hist: overall_judging.hist(),
+                    step_hists: &per_step_hists,
                 },
             );
             if v.criteria.is_empty() { None } else { Some(v) }
@@ -3100,6 +3260,470 @@ steps:
         }
     }
 
+    /// 규칙 1 판정(기존 테스트용) — 분포 없음.
+    fn judge(
+        c: &Criteria,
+        s: &ReportSummary,
+        dist: &BTreeMap<String, u64>,
+        windows: &[ReportWindow],
+        steps: &[ReportStep],
+        warmup: Option<u32>,
+        no_sample: &NoSample<'_>,
+    ) -> Verdict {
+        let hists = BTreeMap::new();
+        evaluate_criteria(
+            c,
+            &JudgeInput {
+                summary: s,
+                status_dist: dist,
+                windows,
+                steps,
+                warmup_override: warmup,
+                no_sample,
+                latency_rule: crate::store::runs::LATENCY_RULE_LEGACY,
+                overall_hist: None,
+                step_hists: &hists,
+            },
+        )
+    }
+
+    /// 규칙 2 판정 — 빈 상태 코드 분포·창 없음.
+    fn judge2(
+        c: &Criteria,
+        s: &ReportSummary,
+        steps: &[ReportStep],
+        overall: Option<&Histogram<u64>>,
+        step_hists: &BTreeMap<String, Histogram<u64>>,
+    ) -> Verdict {
+        evaluate_criteria(
+            c,
+            &JudgeInput {
+                summary: s,
+                status_dist: &BTreeMap::new(),
+                windows: &[],
+                steps,
+                warmup_override: None,
+                no_sample: &NoSample::none(),
+                latency_rule: crate::store::runs::LATENCY_RULE_CURRENT,
+                overall_hist: overall,
+                step_hists,
+            },
+        )
+    }
+
+    fn hist_of(vals: &[u64]) -> Histogram<u64> {
+        let mut h = fresh_hist();
+        for &v in vals {
+            h.record(v).unwrap();
+        }
+        h
+    }
+
+    fn step_crit(metric: &str, op: &str, threshold: f64, target: &str) -> Criterion {
+        Criterion {
+            metric: metric.into(),
+            op: op.into(),
+            threshold,
+            target: target.into(),
+        }
+    }
+
+    fn row<'a>(v: &'a Verdict, metric: &str, target: Option<&str>) -> &'a CriterionResult {
+        v.criteria
+            .iter()
+            .find(|r| r.metric == metric && r.target.as_deref() == target)
+            .unwrap_or_else(|| panic!("row {metric} {target:?}"))
+    }
+
+    #[test]
+    fn rule2_exact_compare() {
+        let h = hist_of(&[43_900]);
+        assert_eq!(h.highest_equivalent(43_900), 43_903);
+        let c = Criteria {
+            max_p95_ms: Some(43),
+            ..Default::default()
+        };
+        let s = summary(1, 0, 1.0, 43, 43);
+        let v = judge2(&c, &s, &[], Some(&h), &BTreeMap::new());
+        assert_eq!(v.criteria.len(), 1);
+        assert!(!v.criteria[0].passed);
+        assert_eq!(v.criteria[0].actual, 43.903);
+        assert!(!v.passed);
+        let v1 = judge(&c, &s, &BTreeMap::new(), &[], &[], None, &NoSample::none());
+        assert!(v1.criteria[0].passed);
+        assert_eq!(v1.criteria[0].actual, 43.0);
+        // op min도 µs로: 스텝 p95 ≥ 43.903 통과, ≥ 43.904 실패.
+        let steps = vec![rstep("A", 1, 0, 43, &[("200", 1)])];
+        let hs: BTreeMap<String, Histogram<u64>> = [("A".to_string(), h.clone())].into();
+        let c = Criteria {
+            step_criteria: vec![
+                step_crit("p95_ms", "min", 43.903, "A"),
+                step_crit("p95_ms", "min", 43.904, "A"),
+            ],
+            ..Default::default()
+        };
+        let v = judge2(&c, &s, &steps, Some(&h), &hs);
+        assert!(v.criteria[0].passed);
+        assert!(!v.criteria[1].passed);
+        assert_eq!(v.criteria[1].actual, 43.903);
+    }
+
+    #[test]
+    fn rule2_sub_ms() {
+        let h = hist_of(&[350]);
+        let s = summary(1, 0, 1.0, 0, 0);
+        for (t, pass) in [(0.5, true), (0.35, true), (0.3, false)] {
+            let c = Criteria {
+                max_mean_ms: Some(t),
+                ..Default::default()
+            };
+            let v = judge2(&c, &s, &[], Some(&h), &BTreeMap::new());
+            assert_eq!(v.criteria.len(), 1, "t={t}");
+            assert_eq!(v.criteria[0].metric, "mean_ms");
+            assert_eq!(v.criteria[0].actual, 0.35, "t={t}");
+            assert_eq!(v.criteria[0].passed, pass, "t={t}");
+        }
+    }
+
+    #[test]
+    fn rule2_new_metrics() {
+        use crate::latency_stats::{latency_stats, value_at_milli};
+        let overall = hist_of(&(1..=1000).map(|i| i * 100).collect::<Vec<_>>());
+        let step_a = hist_of(&(1..=200).map(|i| i * 1_000).collect::<Vec<_>>());
+        let os = latency_stats(&overall).unwrap();
+        let ss = latency_stats(&step_a).unwrap();
+        let c = Criteria {
+            max_mean_ms: Some(60_000.0),
+            max_max_ms: Some(60_000.0),
+            max_percentiles_ms: vec![
+                crate::store::runs::PercentileLimit {
+                    percentile: 90.0,
+                    max_ms: 60_000.0,
+                },
+                crate::store::runs::PercentileLimit {
+                    percentile: 99.9,
+                    max_ms: 60_000.0,
+                },
+            ],
+            step_criteria: vec![
+                step_crit("mean_ms", "max", 60_000.0, "A"),
+                step_crit("max_ms", "max", 60_000.0, "A"),
+                step_crit("p90_ms", "max", 60_000.0, "A"),
+                step_crit("p90_ms", "min", 150.0, "A"),
+            ],
+            ..Default::default()
+        };
+        let steps = vec![rstep("A", 200, 0, 0, &[("200", 200)])];
+        let hs: BTreeMap<String, Histogram<u64>> = [("A".to_string(), step_a.clone())].into();
+        let v = judge2(
+            &c,
+            &summary(1000, 0, 1.0, 0, 0),
+            &steps,
+            Some(&overall),
+            &hs,
+        );
+        let ms = |us: u64| us as f64 / 1000.0;
+        assert_eq!(row(&v, "mean_ms", None).actual, ms(os.mean_us));
+        assert_eq!(row(&v, "max_ms", None).actual, ms(os.max_us));
+        assert_eq!(row(&v, "p90_ms", None).actual, ms(os.p90_us));
+        assert_eq!(
+            row(&v, "p99.9_ms", None).actual,
+            ms(value_at_milli(&overall, 99_900).unwrap())
+        );
+        assert_eq!(row(&v, "mean_ms", Some("A")).actual, ms(ss.mean_us));
+        assert_eq!(row(&v, "max_ms", Some("A")).actual, ms(ss.max_us));
+        let p90: Vec<&CriterionResult> = v
+            .criteria
+            .iter()
+            .filter(|r| r.metric == "p90_ms" && r.target.as_deref() == Some("A"))
+            .collect();
+        assert_eq!(p90.len(), 2);
+        assert!(p90.iter().all(|r| r.actual == ms(ss.p90_us)));
+        assert_eq!(p90[1].direction, "min");
+        assert!(p90[1].passed, "p90 {} ≥ 150", p90[1].actual);
+        assert!(
+            v.criteria
+                .iter()
+                .all(|r| r.passed && !r.no_sample && !r.capped)
+        );
+    }
+
+    #[test]
+    fn rule2_order() {
+        let h = hist_of(&[1_000, 2_000, 3_000]);
+        let steps = vec![rstep("A", 3, 0, 0, &[("200", 3)])];
+        let hs: BTreeMap<String, Histogram<u64>> = [("A".to_string(), h.clone())].into();
+        let c = Criteria {
+            max_mean_ms: Some(100.0),
+            max_p99_ms: Some(100),
+            max_p50_ms: Some(100),
+            max_percentiles_ms: vec![
+                crate::store::runs::PercentileLimit {
+                    percentile: 99.9,
+                    max_ms: 100.0,
+                },
+                crate::store::runs::PercentileLimit {
+                    percentile: 90.0,
+                    max_ms: 100.0,
+                },
+            ],
+            max_max_ms: Some(100.0),
+            max_error_rate: Some(1.0),
+            step_criteria: vec![step_crit("mean_ms", "max", 100.0, "A")],
+            ..Default::default()
+        };
+        let s = summary(3, 0, 3.0, 2, 3);
+        let v = judge2(&c, &s, &steps, Some(&h), &hs);
+        let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
+        assert_eq!(
+            metrics,
+            vec![
+                "mean_ms",
+                "p50_ms",
+                "p90_ms",
+                "p99_ms",
+                "p99.9_ms",
+                "max_ms",
+                "error_rate",
+                "mean_ms"
+            ]
+        );
+        assert_eq!(v.criteria[7].target.as_deref(), Some("A"));
+        let c = Criteria {
+            max_p99_ms: Some(100),
+            max_p50_ms: Some(100),
+            max_p95_ms: Some(100),
+            ..Default::default()
+        };
+        let v = judge2(&c, &s, &steps, Some(&h), &hs);
+        let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
+        assert_eq!(metrics, vec!["p50_ms", "p95_ms", "p99_ms"]);
+    }
+
+    #[test]
+    fn rule2_capped() {
+        let h = hist_of(&[1_000, 2_000, 60_000_000]);
+        let steps = vec![rstep("A", 3, 0, 0, &[("200", 3)])];
+        let hs: BTreeMap<String, Histogram<u64>> = [("A".to_string(), h.clone())].into();
+        let c = Criteria {
+            max_max_ms: Some(60_000.0),
+            max_mean_ms: Some(60_000.0),
+            max_p50_ms: Some(60_000),
+            max_percentiles_ms: vec![crate::store::runs::PercentileLimit {
+                percentile: 99.9,
+                max_ms: 60_000.0,
+            }],
+            step_criteria: vec![
+                step_crit("max_ms", "min", 1_000.0, "A"),
+                step_crit("max_ms", "max", 60_000.0, "A"),
+            ],
+            ..Default::default()
+        };
+        let v = judge2(&c, &summary(3, 0, 3.0, 0, 0), &steps, Some(&h), &hs);
+        let max = row(&v, "max_ms", None);
+        assert!(max.capped && !max.passed);
+        assert_eq!(max.actual, 60_000.0);
+        let mean = row(&v, "mean_ms", None);
+        assert!(mean.capped && !mean.passed);
+        assert!(mean.actual < 60_000.0, "mean {}", mean.actual);
+        let p999 = row(&v, "p99.9_ms", None);
+        assert!(p999.capped && !p999.passed);
+        assert_eq!(p999.actual, 60_000.0);
+        let p50 = row(&v, "p50_ms", None);
+        assert!(!p50.capped && p50.passed);
+        let step_rows: Vec<&CriterionResult> = v
+            .criteria
+            .iter()
+            .filter(|r| r.target.as_deref() == Some("A"))
+            .collect();
+        assert!(step_rows[0].capped && step_rows[0].passed); // op min: 하한 ≥ 기준
+        assert!(step_rows[1].capped && !step_rows[1].passed); // op max: 기준과 상관없이 실패
+        let json = serde_json::to_value(max).unwrap();
+        assert_eq!(json["capped"], serde_json::Value::Bool(true));
+        let json = serde_json::to_value(p50).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("capped"));
+    }
+
+    #[test]
+    fn rule2_no_usable_hist() {
+        let c = Criteria {
+            max_p95_ms: Some(3000),
+            max_mean_ms: Some(3000.0),
+            max_max_ms: Some(3000.0),
+            max_percentiles_ms: vec![crate::store::runs::PercentileLimit {
+                percentile: 90.0,
+                max_ms: 3000.0,
+            }],
+            max_error_rate: Some(1.0),
+            step_criteria: vec![
+                step_crit("p95_ms", "max", 3000.0, "A"),
+                step_crit("mean_ms", "max", 3000.0, "A"),
+                step_crit("p95_ms", "max", 3000.0, "Z"),
+            ],
+            ..Default::default()
+        };
+        let steps = vec![
+            rstep("A", 5, 0, 0, &[("200", 5)]),
+            rstep("Z", 0, 0, 0, &[]), // 실행 0회 → 건너뜀
+        ];
+        let empty = fresh_hist();
+        for overall in [None, Some(&empty)] {
+            let v = judge2(
+                &c,
+                &summary(5, 0, 5.0, 0, 0),
+                &steps,
+                overall,
+                &BTreeMap::new(),
+            );
+            let time_rows: Vec<&CriterionResult> = v
+                .criteria
+                .iter()
+                .filter(|r| r.metric != "error_rate")
+                .collect();
+            assert_eq!(time_rows.len(), 6, "{:?}", v.criteria);
+            for r in &time_rows {
+                assert!(r.no_sample && !r.passed, "{} {:?}", r.metric, r.target);
+                assert_eq!(r.actual, 0.0);
+            }
+            assert!(row(&v, "error_rate", None).passed);
+            assert!(!v.passed);
+        }
+        // 요청 0건 run: 시간 행 없음.
+        let only_time = Criteria {
+            max_p95_ms: Some(3000),
+            max_mean_ms: Some(3000.0),
+            ..Default::default()
+        };
+        let v = judge2(
+            &only_time,
+            &summary(0, 0, 0.0, 0, 0),
+            &[],
+            None,
+            &BTreeMap::new(),
+        );
+        assert!(v.criteria.is_empty(), "{:?}", v.criteria);
+    }
+
+    #[test]
+    fn rule1_defensive_new_items() {
+        use crate::latency_stats::latency_stats;
+        let h = hist_of(&[43_900, 60_000_000]);
+        let c = Criteria {
+            max_p95_ms: Some(60_000),
+            max_mean_ms: Some(60_000.0),
+            ..Default::default()
+        };
+        let s = summary(2, 0, 2.0, 43, 43);
+        let hists = BTreeMap::new();
+        let v = evaluate_criteria(
+            &c,
+            &JudgeInput {
+                summary: &s,
+                status_dist: &BTreeMap::new(),
+                windows: &[],
+                steps: &[],
+                warmup_override: None,
+                no_sample: &NoSample::none(),
+                latency_rule: crate::store::runs::LATENCY_RULE_LEGACY,
+                overall_hist: Some(&h),
+                step_hists: &hists,
+            },
+        );
+        let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
+        assert_eq!(metrics, vec!["mean_ms", "p95_ms"]);
+        let mean = &v.criteria[0];
+        assert_eq!(
+            mean.actual,
+            latency_stats(&h).unwrap().mean_us as f64 / 1000.0
+        );
+        assert!(mean.capped && !mean.passed);
+        let p95 = &v.criteria[1];
+        assert_eq!(p95.actual, 43.0); // 규칙 1: 내린 정수
+        assert!(p95.passed && !p95.capped);
+    }
+
+    fn rule2_split_rows() -> Vec<WindowWithHdr> {
+        vec![
+            step_win(
+                100,
+                "a",
+                2,
+                &[2_000, 2_000, 3_000, 40_000, 50_000],
+                &[40_000, 50_000],
+            ),
+            step_win(101, "a", 0, &[1_500, 2_500, 2_500, 3_500, 4_500], &[]),
+        ]
+    }
+
+    fn rule2_run() -> RunRow {
+        let mut run = run_row();
+        run.latency_rule = crate::store::runs::LATENCY_RULE_CURRENT;
+        run.profile.criteria = Some(Criteria {
+            max_mean_ms: Some(60_000.0),
+            max_max_ms: Some(60_000.0),
+            max_p50_ms: Some(60_000),
+            max_p95_ms: Some(60_000),
+            max_p99_ms: Some(60_000),
+            max_percentiles_ms: vec![crate::store::runs::PercentileLimit {
+                percentile: 90.0,
+                max_ms: 60_000.0,
+            }],
+            step_criteria: ["mean_ms", "max_ms", "p50_ms", "p90_ms", "p95_ms", "p99_ms"]
+                .iter()
+                .map(|m| step_crit(m, "max", 60_000.0, "a"))
+                .collect(),
+            ..Default::default()
+        });
+        run
+    }
+
+    #[test]
+    fn verdict_ignores_shown_sample() {
+        use crate::sample::Sample;
+        let run = rule2_run();
+        let rows = rule2_split_rows();
+        let base = report_with_run(&run, &rows, None);
+        let v = base.verdict.clone().expect("verdict");
+        for s in [Sample::All, Sample::Failed] {
+            let rep = report_with_run(&run, &rows, Some(s));
+            assert_ne!(
+                rep.summary.stats, base.summary.stats,
+                "{s:?} 표본이 달라야 의미가 있다"
+            );
+            assert_eq!(rep.verdict.as_ref(), Some(&v), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn rule2_summary_stats_equal_actual() {
+        let rep = report_with_run(&rule2_run(), &rule2_split_rows(), None);
+        let v = rep.verdict.expect("verdict");
+        let ms = |us: u64| us as f64 / 1000.0;
+        let st = rep.summary.stats.expect("summary stats");
+        for (metric, us) in [
+            ("mean_ms", st.mean_us),
+            ("max_ms", st.max_us),
+            ("p50_ms", st.p50_us),
+            ("p90_ms", st.p90_us),
+            ("p95_ms", st.p95_us),
+            ("p99_ms", st.p99_us),
+        ] {
+            assert_eq!(row(&v, metric, None).actual, ms(us), "{metric}");
+        }
+        let a = rep.steps.iter().find(|s| s.step_id == "a").unwrap();
+        let st = a.stats.expect("step stats");
+        for (metric, us) in [
+            ("mean_ms", st.mean_us),
+            ("max_ms", st.max_us),
+            ("p50_ms", st.p50_us),
+            ("p90_ms", st.p90_us),
+            ("p95_ms", st.p95_us),
+            ("p99_ms", st.p99_us),
+        ] {
+            assert_eq!(row(&v, metric, Some("a")).actual, ms(us), "step {metric}");
+        }
+    }
+
     #[test]
     fn step_criteria_pass_fail_skip_and_order() {
         let c = Criteria {
@@ -3130,7 +3754,7 @@ steps:
             rstep("A", 10, 0, 150, &[("200", 10)]),
             rstep("B", 10, 5, 9, &[("200", 5), ("500", 5)]),
         ];
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(20, 5, 20.0, 9, 150),
             &BTreeMap::new(),
@@ -3162,7 +3786,7 @@ steps:
             ..Default::default()
         };
         let steps = vec![rstep("A", 4, 0, 1, &[("404", 2), ("200", 2), ("0", 100)])];
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(4, 0, 4.0, 1, 1),
             &BTreeMap::new(),
@@ -3188,7 +3812,7 @@ steps:
             ..Default::default()
         };
         let steps = vec![rstep("A", 0, 0, 0, &[])]; // count==0 → 미실행 → skip
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(0, 0, 0.0, 0, 0),
             &BTreeMap::new(),
@@ -3225,7 +3849,7 @@ steps:
             rstep("A", 10, 0, 150, &[("200", 10)]),
             rstep("B", 10, 0, 150, &[("200", 10)]),
         ];
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(20, 0, 20.0, 150, 150),
             &BTreeMap::new(),
@@ -3255,7 +3879,7 @@ steps:
             min_rps: Some(100.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(1000, 10, 200.0, 300, 400),
             &BTreeMap::new(),
@@ -3274,7 +3898,7 @@ steps:
             max_p95_ms: Some(200),
             ..Default::default()
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(100, 0, 50.0, 300, 400),
             &BTreeMap::new(),
@@ -3297,7 +3921,7 @@ steps:
         };
         // 0 errors / 0 count => 0.0 <= 0.0 → pass
         assert!(
-            evaluate_criteria(
+            judge(
                 &c,
                 &summary(0, 0, 0.0, 0, 0),
                 &BTreeMap::new(),
@@ -3318,7 +3942,7 @@ steps:
         };
         // rps 0.0 < 1.0 → fail (degenerate 0-throughput completed run)
         assert!(
-            !evaluate_criteria(
+            !judge(
                 &c,
                 &summary(0, 0, 0.0, 0, 0),
                 &BTreeMap::new(),
@@ -3567,7 +4191,7 @@ steps:
             run: true,
             steps: &steps,
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(5, 5, 5.0, 0, 0),
             &BTreeMap::new(),
@@ -3598,7 +4222,7 @@ steps:
             run: false,
             steps: &set,
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(10, 5, 10.0, 40, 40),
             &BTreeMap::new(),
@@ -3618,7 +4242,7 @@ steps:
             max_p95_ms: Some(3000),
             ..Default::default()
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(5, 0, 5.0, 40, 40),
             &BTreeMap::new(),
@@ -4197,7 +4821,7 @@ steps:
             ..Default::default()
         };
         let d = dist(&[("200", 90), ("500", 10)]);
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(100, 0, 100.0, 5, 5),
             &d,
@@ -4219,7 +4843,7 @@ steps:
             ..Default::default()
         };
         let d = dist(&[("0", 5)]);
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(5, 5, 5.0, 0, 0),
             &d,
@@ -4239,7 +4863,7 @@ steps:
             ..Default::default()
         };
         let d = dist(&[("200", 10), ("500", 1)]);
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(11, 1, 11.0, 5, 5),
             &d,
@@ -4294,7 +4918,7 @@ steps:
             min_window_rps: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(0, 0, 0.0, 0, 0),
             &BTreeMap::new(),
@@ -4304,6 +4928,78 @@ steps:
             &NoSample::none(),
         );
         assert!(v.criteria.is_empty());
+    }
+
+    /// 규칙 1 run의 판정 결과는 규칙 2 도입 전과 바이트가 같다(R9·US6). 리터럴은 도입 전 코드로 뽑았다.
+    #[test]
+    fn rule1_bytes_unchanged() {
+        let c = Criteria {
+            max_p50_ms: Some(100),
+            max_p95_ms: Some(200),
+            max_p99_ms: Some(300),
+            max_error_rate: Some(0.1),
+            max_4xx_rate: Some(0.5),
+            max_5xx_count: Some(3),
+            min_rps: Some(5.0),
+            step_criteria: vec![
+                Criterion {
+                    metric: "p95_ms".into(),
+                    op: "max".into(),
+                    threshold: 100.0,
+                    target: "A".into(),
+                },
+                Criterion {
+                    metric: "error_rate".into(),
+                    op: "max".into(),
+                    threshold: 0.1,
+                    target: "B".into(),
+                },
+                Criterion {
+                    metric: "p99_ms".into(),
+                    op: "min".into(),
+                    threshold: 1.0,
+                    target: "C".into(),
+                },
+            ],
+            ..Default::default()
+        };
+        let mut s = summary(20, 5, 20.0, 150, 400);
+        s.p50_ms = 90;
+        let steps = vec![
+            rstep("A", 10, 0, 150, &[("200", 10)]),
+            rstep("B", 8, 5, 9, &[("200", 3), ("500", 5)]),
+            rstep("C", 2, 0, 0, &[("404", 2)]),
+        ];
+        let d = dist(&[("200", 13), ("404", 2), ("500", 5)]);
+        let ns_steps: BTreeSet<String> = ["C".to_string()].into();
+        let v1 = judge(
+            &c,
+            &s,
+            &d,
+            &[],
+            &steps,
+            None,
+            &NoSample {
+                run: false,
+                steps: &ns_steps,
+            },
+        );
+        let v2 = judge(
+            &c,
+            &s,
+            &d,
+            &[],
+            &steps,
+            None,
+            &NoSample {
+                run: true,
+                steps: &ns_steps,
+            },
+        );
+        assert_eq!(
+            serde_json::to_string(&(v1, v2)).unwrap(),
+            r#"[{"passed":false,"criteria":[{"metric":"p50_ms","direction":"max","threshold":100.0,"actual":90.0,"passed":true},{"metric":"p95_ms","direction":"max","threshold":200.0,"actual":150.0,"passed":true},{"metric":"p99_ms","direction":"max","threshold":300.0,"actual":400.0,"passed":false},{"metric":"error_rate","direction":"max","threshold":0.1,"actual":0.25,"passed":false},{"metric":"4xx_rate","direction":"max","threshold":0.5,"actual":0.1,"passed":true},{"metric":"5xx_count","direction":"max","threshold":3.0,"actual":5.0,"passed":false},{"metric":"rps","direction":"min","threshold":5.0,"actual":20.0,"passed":true},{"metric":"p95_ms","direction":"max","threshold":100.0,"actual":150.0,"passed":false,"target":"A"},{"metric":"error_rate","direction":"max","threshold":0.1,"actual":0.625,"passed":false,"target":"B"},{"metric":"p99_ms","direction":"min","threshold":1.0,"actual":0.0,"passed":false,"target":"C","no_sample":true}]},{"passed":false,"criteria":[{"metric":"p50_ms","direction":"max","threshold":100.0,"actual":90.0,"passed":false,"no_sample":true},{"metric":"p95_ms","direction":"max","threshold":200.0,"actual":150.0,"passed":false,"no_sample":true},{"metric":"p99_ms","direction":"max","threshold":300.0,"actual":400.0,"passed":false,"no_sample":true},{"metric":"error_rate","direction":"max","threshold":0.1,"actual":0.25,"passed":false},{"metric":"4xx_rate","direction":"max","threshold":0.5,"actual":0.1,"passed":true},{"metric":"5xx_count","direction":"max","threshold":3.0,"actual":5.0,"passed":false},{"metric":"rps","direction":"min","threshold":5.0,"actual":20.0,"passed":true},{"metric":"p95_ms","direction":"max","threshold":100.0,"actual":150.0,"passed":false,"target":"A"},{"metric":"error_rate","direction":"max","threshold":0.1,"actual":0.625,"passed":false,"target":"B"},{"metric":"p99_ms","direction":"min","threshold":1.0,"actual":0.0,"passed":false,"target":"C","no_sample":true}]}]"#
+        );
     }
 
     #[test]
@@ -4321,7 +5017,7 @@ steps:
         };
         let d = dist(&[("200", 30)]);
         let w = vec![rwin(0, 10), rwin(1, 20), rwin(2, 30)]; // eligible {1}=20
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(30, 0, 30.0, 1, 1),
             &d,
@@ -5194,7 +5890,7 @@ steps:
             max_5xx_rate: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(
+        let v = judge(
             &c,
             &summary(107, 22, 107.0, 5, 5),
             &d,

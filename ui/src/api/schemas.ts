@@ -365,6 +365,8 @@ export const CriterionResultSchema = z.object({
   target: z.string().nullish(),
   // 통과한 요청이 없어 계산하지 못한 기준만 true. 서버가 false·null은 보내지 않고 키를 생략한다.
   no_sample: z.boolean().optional(),
+  // 실측이 60초 칸에 걸려 하한일 뿐인 행(규칙 2)만 true. 서버가 false는 보내지 않고 키를 생략한다.
+  capped: z.boolean().optional(),
 });
 export const VerdictSchema = z.object({
   passed: z.boolean(),

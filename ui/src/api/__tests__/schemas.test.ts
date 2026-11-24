@@ -379,6 +379,28 @@ describe("ReportSchema.verdict", () => {
     expect(withV.verdict?.criteria[0].metric).toBe("p95_ms");
   });
 
+  it("keeps capped: true on a criterion row (not silently dropped)", () => {
+    const v = VerdictSchema.parse({
+      passed: false,
+      criteria: [
+        {
+          metric: "max_ms",
+          direction: "max",
+          threshold: 10000,
+          actual: 60000,
+          passed: false,
+          capped: true,
+        },
+      ],
+    });
+    expect(v.criteria[0].capped).toBe(true);
+    const plain = VerdictSchema.parse({
+      passed: true,
+      criteria: [{ metric: "rps", direction: "min", threshold: 1, actual: 2, passed: true }],
+    });
+    expect(plain.criteria[0].capped).toBeUndefined();
+  });
+
   it("VerdictSchema is exported and parses standalone", () => {
     const v = VerdictSchema.parse({
       passed: true,

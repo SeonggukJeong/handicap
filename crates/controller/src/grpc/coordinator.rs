@@ -2717,11 +2717,13 @@ mod tests {
     }
 
     /// criteria가 있는 run을 seed(메트릭 없음 → p95=0 <= 큰 임계 → verdict passed=true).
+    /// 요청 0건이어도 결과 행이 생기는 기준(오류율). 새 run은 응답 시간 판정 규칙 2라
+    /// 요청이 없으면 시간 기준 행을 만들지 않는다(R10) — 시간 기준만 두면 판정 자체가 없다.
     async fn seed_run_with_criteria(db: &Db) -> String {
         seed_run_criteria(
             db,
             runs::Criteria {
-                max_p95_ms: Some(100_000),
+                max_error_rate: Some(1.0),
                 ..Default::default()
             },
         )
@@ -2787,7 +2789,7 @@ mod tests {
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Completed);
         let v = row.verdict.expect("verdict persisted at finalize");
-        assert!(v.passed, "no metrics → p95=0 <= 100000 → passed");
+        assert!(v.passed, "no metrics → error_rate 0 <= 1.0 → passed");
         assert_eq!(v.criteria.len(), 1);
     }
 

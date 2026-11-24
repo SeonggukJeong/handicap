@@ -21,7 +21,14 @@ pub struct LatencyStats {
 }
 
 /// 정수 순위 백분위(`n_milli` = 백분위 × 1000, 예: p99.9 → 99_900). 60초로 자른다. 빈 분포는 None.
+/// `n_milli`는 0 < n < 100_000(검증된 백분위)만 받는다 — 100_000을 넘으면 순위가 표본 수를 넘어 None.
 pub fn value_at_milli(h: &Histogram<u64>, n_milli: u32) -> Option<u64> {
+    value_at_milli_capped(h, n_milli).map(|(v, _)| v)
+}
+
+/// `value_at_milli`와 같은 값 + 그 순위 표본이 60초 칸에 들어 있는지(판정의 `capped`).
+pub fn value_at_milli_capped(h: &Histogram<u64>, n_milli: u32) -> Option<(u64, bool)> {
+    debug_assert!(n_milli > 0 && n_milli < 100_000, "n_milli={n_milli}");
     let total = h.len();
     if total == 0 {
         return None;
@@ -31,7 +38,8 @@ pub fn value_at_milli(h: &Histogram<u64>, n_milli: u32) -> Option<u64> {
     for v in h.iter_recorded() {
         seen += v.count_at_value();
         if seen >= rank {
-            return Some(h.highest_equivalent(v.value_iterated_to()).min(CAP_US));
+            let raw = v.value_iterated_to();
+            return Some((h.highest_equivalent(raw).min(CAP_US), is_cap_value(h, raw)));
         }
     }
     None
