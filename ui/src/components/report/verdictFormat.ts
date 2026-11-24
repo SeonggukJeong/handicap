@@ -3,6 +3,8 @@
 // (예: error_rate 0.05 → "5.00%", latency → "420 ms").
 
 import { ko } from "../../i18n/ko";
+import { parsePercentileMetric } from "../../api/percentileName";
+import { msNumberText } from "./format";
 
 export const METRIC_LABEL: Record<string, string> = {
   p50_ms: "p50",
@@ -17,9 +19,27 @@ export const METRIC_LABEL: Record<string, string> = {
   min_window_rps: "최소 구간 RPS",
 };
 
-/** 실측 글자 — 통과한 요청이 없어 계산하지 못한 기준은 0이 아니라 안내 문구. */
-export function actualText(c: { metric: string; actual: number; no_sample?: boolean }): string {
-  return c.no_sample ? ko.report.sample.noSample : fmt(c.metric, c.actual);
+/** 기준 이름 — 고정 표 → 평균·최대 → 정본 백분위 이름(`p99.9`) → 모르는 이름은 그대로. */
+export function metricLabel(metric: string): string {
+  const fixed = METRIC_LABEL[metric];
+  if (fixed !== undefined) return fixed;
+  if (metric === "mean_ms") return ko.report.verdictMetricMean;
+  if (metric === "max_ms") return ko.report.verdictMetricMax;
+  const n = parsePercentileMetric(metric);
+  return n !== null ? `p${n}` : metric;
+}
+
+/** 실측 글자 — 통과한 요청이 없어 계산하지 못한 기준은 0이 아니라 안내 문구,
+ *  60초 칸에 걸린 행은 하한이라 「≥」. */
+export function actualText(c: {
+  metric: string;
+  actual: number;
+  no_sample?: boolean;
+  capped?: boolean;
+}): string {
+  if (c.no_sample) return ko.report.sample.noSample;
+  if (c.capped) return `≥ ${fmt(c.metric, c.actual)}`;
+  return fmt(c.metric, c.actual);
 }
 
 export function fmt(metric: string, v: number): string {
@@ -27,5 +47,6 @@ export function fmt(metric: string, v: number): string {
     return `${(v * 100).toFixed(2)}%`;
   if (metric === "rps" || metric === "min_window_rps") return v.toFixed(1);
   if (metric === "4xx_count" || metric === "5xx_count") return String(v);
-  return `${v} ms`; // p50/p95/p99
+  if (metric.endsWith("_ms")) return `${msNumberText(v)} ms`;
+  return `${v} ms`;
 }

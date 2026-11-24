@@ -15,6 +15,29 @@ const FAIL_VERDICT: Verdict = {
 };
 
 describe("VerdictBadge", () => {
+  it("새 이름·≥·쉼표가 툴팁에 보인다", async () => {
+    const user = userEvent.setup();
+    render(
+      <VerdictBadge
+        verdict={{
+          passed: false,
+          criteria: [
+            {
+              metric: "mean_ms",
+              direction: "max",
+              threshold: 1000,
+              actual: 1842.613,
+              passed: false,
+              capped: true,
+            },
+          ],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+    expect(screen.getByText("평균 응답 시간 ≥ 1,842.613 ms > 1,000 ms")).toBeInTheDocument();
+  });
+
   it("renders — for null/undefined", () => {
     render(<VerdictBadge verdict={null} />);
     expect(screen.getByText("—")).toBeInTheDocument();

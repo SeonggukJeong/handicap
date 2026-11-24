@@ -1,4 +1,5 @@
 import { ko } from "../i18n/ko";
+import { msNumberText } from "../components/report/format";
 
 const f = ko.print.fmt;
 
@@ -74,9 +75,7 @@ function digitPair(
 
 /** ms → "3,040ms". 소수가 있으면 소수 3자리까지 뒤 0 제거("2,999.5ms"). */
 export function fmtMsExact(ms: number): string {
-  return f.msExact(
-    roundTo(ms, 3).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 3 }),
-  );
+  return f.msExact(msNumberText(ms));
 }
 
 /** 경계값 글자: 0 → "0ms", 0이 아닌 1000의 배수 → "3초", 그 밖 → fmtMsExact. */

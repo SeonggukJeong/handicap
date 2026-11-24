@@ -18,6 +18,14 @@ export function floorPct(pct: number): string {
   return `${pct.toFixed(1)}%`;
 }
 
+/** 시간(ms) 숫자 글자 — 소수 3자리 반올림·뒤 0 생략·천 단위 쉼표(en-US). 판정 표·배지 전용. */
+export function msNumberText(ms: number): string {
+  return (Math.round(ms * 1000) / 1000).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
+}
+
 /** 에러율(errors/count) 표시 — count 0이면 "—". */
 export function formatErrPct(errors: number, count: number): string {
   return count === 0 ? "—" : floorPct((errors / count) * 100);

@@ -1,6 +1,6 @@
 import type { Verdict } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { METRIC_LABEL, actualText, fmt } from "./verdictFormat";
+import { metricLabel, actualText, fmt } from "./verdictFormat";
 
 // step-level criterion 행은 대상 스텝 *이름*을 보여준다. ReportView가 넘기는 stepMeta
 // (Map<id,{id,name,method,url}>)와 구조 호환되게 최소 `{name}`만 요구한다. 미주입이면
@@ -40,7 +40,7 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
               <tr key={`${r.metric}-${r.target ?? ""}-${idx}`}>
                 <td className="pr-4">
                   {stepName && <span className="text-slate-400">{stepName} · </span>}
-                  {METRIC_LABEL[r.metric] ?? r.metric}
+                  {metricLabel(r.metric)}
                 </td>
                 <td className="pr-4">
                   {r.direction === "max" ? "≤" : "≥"} {fmt(r.metric, r.threshold)}
@@ -57,6 +57,11 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
           })}
         </tbody>
       </table>
+      {verdict.criteria.some((c) => c.capped) && (
+        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+          {ko.report.verdictCappedNote}
+        </p>
+      )}
     </section>
   );
 }

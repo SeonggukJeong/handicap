@@ -1678,6 +1678,10 @@ export const ko = {
     verdictThreshold: "기준",
     verdictActual: "실측값",
     verdictResult: "결과",
+    verdictMetricMean: "평균 응답 시간",
+    verdictMetricMax: "최대 응답 시간",
+    verdictCappedNote:
+      "60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 「≥」가 붙은 실측은 실제보다 작게 나온 값이고, 상한 기준은 실패로 판정합니다.",
     // ── TestRunPanel 헤더 제목 ──
     requestHeadersTitle: "요청 헤더",
     responseHeadersTitle: "응답 헤더",

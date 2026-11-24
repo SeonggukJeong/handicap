@@ -12,6 +12,44 @@ const cr = (
 ) => ({ metric, direction, threshold, actual, passed });
 
 describe("VerdictPanel", () => {
+  it("µs 실측·쉼표·새 이름·capped 안내", () => {
+    const row = (metric: string, threshold: number, actual: number, extra = {}) => ({
+      metric,
+      direction: "max" as const,
+      threshold,
+      actual,
+      passed: false,
+      ...extra,
+    });
+    const { rerender } = render(
+      <VerdictPanel verdict={{ passed: false, criteria: [row("p95_ms", 43, 43.903)] }} />,
+    );
+    expect(screen.getByText("≤ 43 ms")).toBeInTheDocument();
+    expect(screen.getByText("43.903 ms")).toBeInTheDocument();
+    expect(screen.queryByText(/60초를 넘긴 응답/)).toBeNull();
+    rerender(<VerdictPanel verdict={{ passed: false, criteria: [row("p95_ms", 5000, 4210)] }} />);
+    expect(screen.getByText("≤ 5,000 ms")).toBeInTheDocument();
+    expect(screen.getByText("4,210 ms")).toBeInTheDocument();
+    rerender(
+      <VerdictPanel
+        verdict={{
+          passed: false,
+          criteria: [
+            row("mean_ms", 1000, 1842.613, { capped: true }),
+            row("max_ms", 1000, 60000, { capped: true }),
+            row("p99.9_ms", 1000, 5),
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText("평균 응답 시간")).toBeInTheDocument();
+    expect(screen.getByText("최대 응답 시간")).toBeInTheDocument();
+    expect(screen.getByText("p99.9")).toBeInTheDocument();
+    expect(screen.getByText("≥ 1,842.613 ms")).toBeInTheDocument();
+    expect(screen.getByText("≥ 60,000 ms")).toBeInTheDocument();
+    expect(screen.getByText(/60초를 넘긴 응답이 있습니다/)).toBeInTheDocument();
+  });
+
   it("renders PASS with the metric label", () => {
     render(
       <VerdictPanel

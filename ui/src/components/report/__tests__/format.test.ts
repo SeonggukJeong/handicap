@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { formatLatency, floorPct, formatErrPct } from "../format";
+import { formatLatency, floorPct, formatErrPct, msNumberText } from "../format";
+
+describe("msNumberText", () => {
+  it("소수 3자리·뒤 0 생략·쉼표", () => {
+    expect(msNumberText(43.903)).toBe("43.903");
+    expect(msNumberText(4210)).toBe("4,210");
+    expect(msNumberText(0.35)).toBe("0.35");
+    expect(msNumberText(1842.6130000001)).toBe("1,842.613");
+    expect(msNumberText(60000)).toBe("60,000");
+  });
+});
 
 describe("formatLatency", () => {
   it("formats sub-millisecond as µs", () => {
