@@ -164,6 +164,8 @@ pub struct BasisOther {
     pub error_rate: f64,
     pub count: u64,
     pub duration_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<crate::latency_stats::LatencyStats>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

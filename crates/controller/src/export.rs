@@ -1553,6 +1553,7 @@ mod tests {
 
     fn step(id: &str, count: u64, p95: u64) -> ReportStep {
         ReportStep {
+            stats: None,
             step_id: id.into(),
             count,
             error_count: 0,
@@ -1585,6 +1586,7 @@ mod tests {
             },
             scenario_yaml: String::new(),
             summary: ReportSummary {
+                stats: None,
                 count: 0,
                 errors: 0,
                 rps: 0.0,

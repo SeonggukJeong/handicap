@@ -12,6 +12,7 @@ pub mod grpc;
 #[cfg(feature = "in-process")]
 pub mod in_process;
 pub mod insights;
+pub mod latency_stats;
 pub mod launch;
 pub mod monitor;
 pub mod percentile_name;

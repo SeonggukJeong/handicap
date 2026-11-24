@@ -35,7 +35,18 @@
     "mean_ms": 54,
     "p50_ms": 49,
     "p95_ms": 83,
-    "p99_ms": 87
+    "p99_ms": 87,
+    "stats": {
+      "min_us": 20000,
+      "mean_us": 53504,
+      "max_us": 89023,
+      "stdev_us": 21148,
+      "p50_us": 49023,
+      "p90_us": 79039,
+      "p95_us": 83007,
+      "p99_us": 87039,
+      "capped": false
+    }
   },
   "windows": [
     {
@@ -551,6 +562,17 @@
       "p50_ms": 33,
       "p95_ms": 44,
       "p99_ms": 48,
+      "stats": {
+        "min_us": 20000,
+        "mean_us": 33504,
+        "max_us": 49023,
+        "stdev_us": 6874,
+        "p50_us": 33023,
+        "p90_us": 43007,
+        "p95_us": 44031,
+        "p99_us": 48031,
+        "capped": false
+      },
       "loop_breakdown": [
         {
           "loop_index": 0,
@@ -589,6 +611,17 @@
       "p50_ms": 73,
       "p95_ms": 84,
       "p99_ms": 88,
+      "stats": {
+        "min_us": 60000,
+        "mean_us": 73504,
+        "max_us": 89023,
+        "stdev_us": 6873,
+        "p50_us": 73023,
+        "p90_us": 83007,
+        "p95_us": 84031,
+        "p99_us": 88063,
+        "capped": false
+      },
       "loop_breakdown": [],
       "wait": {
         "count": 1,
@@ -982,7 +1015,18 @@
       "errors": 0,
       "p50_ms": 49,
       "p95_ms": 84,
-      "p99_ms": 88
+      "p99_ms": 88,
+      "stats": {
+        "min_us": 20000,
+        "mean_us": 54504,
+        "max_us": 89023,
+        "stdev_us": 21211,
+        "p50_us": 49023,
+        "p90_us": 81023,
+        "p95_us": 84031,
+        "p99_us": 88063,
+        "capped": false
+      }
     },
     {
       "worker_id": "w-1",
@@ -990,7 +1034,18 @@
       "errors": 20,
       "p50_ms": 44,
       "p95_ms": 80,
-      "p99_ms": 84
+      "p99_ms": 84,
+      "stats": {
+        "min_us": 20000,
+        "mean_us": 52004,
+        "max_us": 84031,
+        "stdev_us": 20964,
+        "p50_us": 44031,
+        "p90_us": 78015,
+        "p95_us": 80063,
+        "p99_us": 84031,
+        "capped": false
+      }
     }
   ],
   "connection": {

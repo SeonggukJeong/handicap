@@ -546,6 +546,21 @@ export const LoopSplitSchema = z
   .strict();
 export type LoopSplit = z.infer<typeof LoopSplitSchema>;
 
+export const LatencyStatsSchema = z
+  .object({
+    min_us: z.number().int().nonnegative(),
+    mean_us: z.number().int().nonnegative(),
+    max_us: z.number().int().nonnegative(),
+    stdev_us: z.number().int().nonnegative(),
+    p50_us: z.number().int().nonnegative(),
+    p90_us: z.number().int().nonnegative(),
+    p95_us: z.number().int().nonnegative(),
+    p99_us: z.number().int().nonnegative(),
+    capped: z.boolean(),
+  })
+  .strict();
+export type LatencyStats = z.infer<typeof LatencyStatsSchema>;
+
 export const ReportStepSchema = z
   .object({
     step_id: z.string(),
@@ -568,6 +583,7 @@ export const ReportStepSchema = z
     wait: PhaseStatsSchema.optional(),
     loop_split: LoopSplitSchema.optional(),
     not_sent: z.number().int().optional(),
+    stats: LatencyStatsSchema.optional(),
   })
   .strict();
 
@@ -669,6 +685,7 @@ export const ReportSummarySchema = z
     p50_ms: z.number().int().nonnegative(),
     p95_ms: z.number().int().nonnegative(),
     p99_ms: z.number().int().nonnegative(),
+    stats: LatencyStatsSchema.optional(),
   })
   .strict();
 
@@ -773,6 +790,7 @@ export const WorkerBreakdownSchema = z
     p50_ms: z.number(),
     p95_ms: z.number(),
     p99_ms: z.number(),
+    stats: LatencyStatsSchema.optional(),
   })
   .strict();
 export type WorkerBreakdown = z.infer<typeof WorkerBreakdownSchema>;
@@ -818,6 +836,7 @@ export const ReportBasisSchema = z
         error_rate: z.number(),
         count: z.number(),
         duration_seconds: z.number(),
+        stats: LatencyStatsSchema.optional(),
       })
       .strict()
       .nullable(),

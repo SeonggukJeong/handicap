@@ -846,6 +846,17 @@ async fn basis_whole_param_returns_whole_report() {
 }
 
 #[tokio::test]
+async fn basis_other_has_stats() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let id = seed_steady(&db, SteadySeed::closed()).await;
+    let whole = report_json(&db, &format!("/api/runs/{id}/report?basis=whole")).await;
+    let steady = report_json(&db, &format!("/api/runs/{id}/report?basis=steady")).await;
+    assert!(steady["summary"]["stats"].is_object());
+    assert_eq!(whole["basis"]["other"]["stats"], steady["summary"]["stats"]);
+    assert_eq!(steady["basis"]["other"]["stats"], whole["summary"]["stats"]);
+}
+
+#[tokio::test]
 async fn whole_basis_equals_report_without_steady() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let with = seed_steady(&db, SteadySeed::closed()).await;

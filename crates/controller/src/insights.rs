@@ -854,6 +854,7 @@ mod tests {
 
     fn step(id: &str, p95: u64) -> ReportStep {
         ReportStep {
+            stats: None,
             step_id: id.to_string(),
             count: 1,
             error_count: 0,
@@ -870,6 +871,7 @@ mod tests {
     }
     fn summary() -> ReportSummary {
         ReportSummary {
+            stats: None,
             count: 0,
             errors: 0,
             rps: 0.0,

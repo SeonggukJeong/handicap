@@ -1,3 +1,4 @@
+use crate::latency_stats::{LatencyStats, latency_stats};
 use crate::sample::{Resolved, Sample, SampleBlock, SplitHist};
 use crate::store::metrics::{
     GroupMetricRow, IfBranchRow, LoopMetricRow, PhaseMetricRow, WindowWithHdr,
@@ -197,6 +198,8 @@ pub struct ReportSummary {
     pub p50_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<crate::latency_stats::LatencyStats>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -269,6 +272,8 @@ pub struct ReportStep {
     pub p50_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<crate::latency_stats::LatencyStats>,
     pub loop_breakdown: Vec<LoopBucket>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download: Option<PhaseStats>,
@@ -387,6 +392,8 @@ pub struct WorkerBreakdown {
     pub p50_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<crate::latency_stats::LatencyStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1192,17 +1199,15 @@ pub fn build_report(
     let no_sample_run = split && total_count > 0 && overall_judging.is_empty_sample();
     // 스텝마다 표본별 분포를 한 번씩만 만든다: 보여 주는 표본이 기본 표본과 다를 때만 빌려서 계산하고,
     // 기본 표본(판정·속도 구간)은 소유권으로 옮겨 속도 구간 입력이 된다.
-    let shown_step_p: Option<BTreeMap<String, Percentiles>> =
+    let shown_step_p: Option<BTreeMap<String, (Percentiles, Option<LatencyStats>)>> =
         (selected != default_sample).then(|| {
             per_step
                 .iter()
                 .map(|(id, sh)| {
-                    let p = sh
-                        .resolve(selected)
-                        .hist()
-                        .map(percentiles_of)
-                        .unwrap_or_else(Percentiles::empty);
-                    (id.clone(), p)
+                    let resolved = sh.resolve(selected);
+                    let hist = resolved.hist();
+                    let p = hist.map(percentiles_of).unwrap_or_else(Percentiles::empty);
+                    (id.clone(), (p, hist.and_then(latency_stats)))
                 })
                 .collect()
         });
@@ -1229,6 +1234,7 @@ pub fn build_report(
                 .get(&step_id)
                 .map(percentiles_of)
                 .unwrap_or_else(Percentiles::empty);
+            let stats = per_step_hists.get(&step_id).and_then(latency_stats);
             let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
             let download = download_by_step.remove(&step_id);
             let wait = wait_by_step.remove(&step_id);
@@ -1248,6 +1254,7 @@ pub fn build_report(
                 p50_ms: p.p50_ms,
                 p95_ms: p.p95_ms,
                 p99_ms: p.p99_ms,
+                stats,
                 loop_breakdown: breakdown,
                 download,
                 wait,
@@ -1261,14 +1268,15 @@ pub fn build_report(
         steps
             .iter()
             .map(|s| {
-                let p = m
+                let (p, stats) = m
                     .get(&s.step_id)
                     .copied()
-                    .unwrap_or_else(Percentiles::empty);
+                    .unwrap_or_else(|| (Percentiles::empty(), None));
                 ReportStep {
                     p50_ms: p.p50_ms,
                     p95_ms: p.p95_ms,
                     p99_ms: p.p99_ms,
+                    stats,
                     ..s.clone()
                 }
             })
@@ -1286,6 +1294,7 @@ pub fn build_report(
         p50_ms: overall_p.p50_ms,
         p95_ms: overall_p.p95_ms,
         p99_ms: overall_p.p99_ms,
+        stats: latency_stats(overall_h),
     };
     let shown_summary: Option<ReportSummary> = overall_shown.as_ref().map(|r| {
         let h = r.hist().unwrap_or(&no_samples);
@@ -1295,6 +1304,7 @@ pub fn build_report(
             p50_ms: p.p50_ms,
             p95_ms: p.p95_ms,
             p99_ms: p.p99_ms,
+            stats: latency_stats(h),
             ..summary.clone()
         }
     });
@@ -1489,12 +1499,9 @@ pub fn build_report(
     let worker_breakdown: Vec<WorkerBreakdown> = worker_acc
         .into_iter()
         .map(|(worker_id, w)| {
-            let p = w
-                .hist
-                .resolve(selected)
-                .hist()
-                .map(percentiles_of)
-                .unwrap_or_else(Percentiles::empty);
+            let resolved = w.hist.resolve(selected);
+            let hist = resolved.hist();
+            let p = hist.map(percentiles_of).unwrap_or_else(Percentiles::empty);
             WorkerBreakdown {
                 worker_id,
                 count: w.count,
@@ -1502,6 +1509,7 @@ pub fn build_report(
                 p50_ms: p.p50_ms,
                 p95_ms: p.p95_ms,
                 p99_ms: p.p99_ms,
+                stats: hist.and_then(latency_stats),
             }
         })
         .collect();
@@ -3062,6 +3070,7 @@ steps:
 
     fn summary(count: u64, errors: u64, rps: f64, p95: u64, p99: u64) -> ReportSummary {
         ReportSummary {
+            stats: None,
             count,
             errors,
             rps,
@@ -3075,6 +3084,7 @@ steps:
 
     fn rstep(id: &str, count: u64, errors: u64, p95: u64, status: &[(&str, u64)]) -> ReportStep {
         ReportStep {
+            stats: None,
             step_id: id.into(),
             count,
             error_count: errors,
@@ -3828,6 +3838,116 @@ steps:
         assert_eq!(pick(None), [(40, 40), (50, 50)]);
         assert_eq!(pick(Some(Sample::All)), [(2, 40), (2, 50)]);
         assert_eq!(pick(Some(Sample::Failed)), [(2, 2), (2, 2)]);
+    }
+
+    #[test]
+    fn stats_follow_sample() {
+        use crate::sample::Sample;
+        let all = [40_000, 40_000, 2_000, 2_000, 2_000];
+        let failed = [2_000, 2_000, 2_000];
+        let rows = vec![
+            split_win(100, &all, Some(&failed)),
+            split_win(101, &all, Some(&failed)),
+        ];
+        let h = fresh_hist();
+        let (ms2, ms40) = (h.highest_equivalent(2_000), h.highest_equivalent(40_000));
+        let by_default = report_with(&rows, None);
+        assert_eq!(by_default.summary.stats.unwrap().p50_us, ms40);
+        assert_eq!(by_default.steps[0].stats.unwrap().p50_us, ms40);
+        let failed_req = report_with(&rows, Some(Sample::Failed));
+        assert_eq!(failed_req.summary.stats.unwrap().p50_us, ms2);
+        assert_eq!(failed_req.summary.stats.unwrap().max_us, ms2);
+        assert_eq!(failed_req.steps[0].stats.unwrap().p50_us, ms2);
+        assert_eq!(failed_req.steps[0].stats.unwrap().max_us, ms2);
+        let all_req = report_with(&rows, Some(Sample::All));
+        // 40ms 4개 + 2ms 6개 → p50은 2ms, 최대는 40ms
+        assert_eq!(all_req.summary.stats.unwrap().p50_us, ms2);
+        assert_eq!(all_req.summary.stats.unwrap().max_us, ms40);
+        assert_eq!(all_req.steps[0].stats.unwrap().p50_us, ms2);
+        assert_eq!(all_req.steps[0].stats.unwrap().max_us, ms40);
+    }
+
+    #[test]
+    fn worker_stats_follow_sample() {
+        use crate::sample::Sample;
+        let on = |w: &str, all: &[u64], failed: &[u64]| WindowWithHdr {
+            worker_id: w.into(),
+            ..split_win(100, all, Some(failed))
+        };
+        let rows = vec![
+            on("w-a", &[40_000, 40_000, 2_000, 2_000, 2_000], &[2_000; 3]),
+            on("w-b", &[50_000, 50_000, 2_000, 2_000], &[2_000, 2_000]),
+        ];
+        let pick = |s: Option<Sample>| -> Vec<(u64, u64)> {
+            let rep = report_with(&rows, s);
+            assert_eq!(rep.worker_breakdown.len(), 2);
+            rep.worker_breakdown
+                .iter()
+                .map(|w| {
+                    let st = w.stats.expect("stats");
+                    (st.p50_us / 1_000, st.p95_us / 1_000)
+                })
+                .collect()
+        };
+        assert_eq!(pick(None), [(40, 40), (50, 50)]);
+        assert_eq!(pick(Some(Sample::All)), [(2, 40), (2, 50)]);
+        assert_eq!(pick(Some(Sample::Failed)), [(2, 2), (2, 2)]);
+    }
+
+    #[test]
+    fn stats_follow_basis() {
+        let run = steady_run(130);
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let steady = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        let w = whole.summary.stats.expect("whole stats");
+        let s = steady.summary.stats.expect("steady stats");
+        assert_ne!(w.mean_us, s.mean_us);
+        let mut h = fresh_hist();
+        for _ in 0..200 {
+            h.record(20_000).unwrap();
+        }
+        assert_eq!(s, crate::latency_stats::latency_stats(&h).unwrap());
+        assert!(w.max_us >= 400_000);
+    }
+
+    #[test]
+    fn stats_absent_without_samples() {
+        let rep = report_with(&[], None);
+        assert!(rep.summary.stats.is_none());
+        let v = serde_json::to_string(&rep.summary).unwrap();
+        assert!(!v.contains("\"stats\""), "{v}");
+        let rows = vec![win(100, "a", 3, 0, r#"{"200":3}"#, &[])];
+        let rep = report_with(&rows, None);
+        assert!(rep.steps[0].stats.is_none());
+        let v = serde_json::to_string(&rep.steps[0]).unwrap();
+        assert!(!v.contains("\"stats\""), "{v}");
+    }
+
+    /// 성능 비교용(단언 없음): 50스텝 × 600초 행의 `build_report` 10회 평균.
+    #[test]
+    #[ignore]
+    fn bench_build_report_many_steps() {
+        let mut rows = Vec::new();
+        for ts in 100..700 {
+            for s in 0..50 {
+                let samples: Vec<u64> = (0..20)
+                    .map(|i| 1_000 + (i * 997 + s * 31) % 90_000)
+                    .collect();
+                rows.push(WindowWithHdr {
+                    failed_hdr_histogram: Some(make_hdr_bytes(&samples[..2])),
+                    ..win(ts, &format!("s{s:02}"), 20, 0, r#"{"200":20}"#, &samples)
+                });
+            }
+        }
+        let run = run_row();
+        report_with_run(&run, &rows, None);
+        let t = std::time::Instant::now();
+        for _ in 0..10 {
+            report_with_run(&run, &rows, None);
+        }
+        eprintln!("BENCH build_report avg {:?}", t.elapsed() / 10);
     }
 
     #[test]

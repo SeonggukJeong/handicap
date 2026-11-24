@@ -331,6 +331,7 @@ mod tests {
 
     fn summary(count: u64, errors: u64) -> ReportSummary {
         ReportSummary {
+            stats: None,
             count,
             errors,
             rps: 0.0,
@@ -957,6 +958,7 @@ steps:
 
     fn rstep(id: &str, sc: &[(&str, u64)]) -> ReportStep {
         ReportStep {
+            stats: None,
             step_id: id.to_string(),
             count: sc.iter().map(|(_, n)| n).sum(),
             error_count: 0,

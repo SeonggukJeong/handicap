@@ -1429,6 +1429,7 @@ pub async fn build_reports_for_run(
         },
         count: s.count,
         duration_seconds: s.duration_seconds,
+        stats: s.stats,
     };
     let block = |selected: Basis, other: Option<BasisOther>| BasisBlock {
         selected,

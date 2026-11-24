@@ -5,7 +5,10 @@ import {
   InsightSchema,
   NarrativeSchema,
   ProfileSchema,
+  LatencyStatsSchema,
+  ReportBasisSchema,
   ReportStepSchema,
+  WorkerBreakdownSchema,
   ReportRunSchema,
   ReportSchema,
   ReportSummarySchema,
@@ -781,5 +784,75 @@ describe("steady·basis 스키마", () => {
       noTarget,
     );
     expect(ProfileSchema.parse({ vus: 1, duration_seconds: 1 }).steady).toBeUndefined();
+  });
+});
+
+describe("LatencyStatsSchema (stats 블록)", () => {
+  const stats = {
+    min_us: 900,
+    mean_us: 1500,
+    max_us: 90000,
+    stdev_us: 300,
+    p50_us: 1000,
+    p90_us: 2000,
+    p95_us: 3000,
+    p99_us: 80000,
+    capped: false,
+  };
+  const summary = {
+    count: 10,
+    errors: 0,
+    rps: 1,
+    duration_seconds: 10,
+    mean_ms: 1,
+    p50_ms: 1,
+    p95_ms: 3,
+    p99_ms: 80,
+  };
+  const step = {
+    step_id: "s",
+    count: 1,
+    error_count: 0,
+    status_counts: { "200": 1 },
+    p50_ms: 1,
+    p95_ms: 1,
+    p99_ms: 1,
+  };
+  const worker = { worker_id: "w", count: 1, errors: 0, p50_ms: 1, p95_ms: 1, p99_ms: 1 };
+  const other = {
+    rps: 1,
+    p50_ms: 1,
+    p95_ms: 1,
+    p99_ms: 1,
+    error_rate: 0,
+    count: 1,
+    duration_seconds: 1,
+  };
+  const basis = {
+    selected: "whole",
+    default: "whole",
+    state: "measured",
+    config: { ramp_seconds: 0, hold_seconds: 10, discard_seconds: 0 },
+    window: null,
+    t0_estimated: false,
+    dropped_whole_run: false,
+    other: null,
+  };
+
+  it("accepts stats present or absent on all four holders", () => {
+    expect(ReportSummarySchema.safeParse(summary).success).toBe(true);
+    expect(ReportSummarySchema.safeParse({ ...summary, stats }).success).toBe(true);
+    expect(ReportStepSchema.safeParse({ ...step, stats }).success).toBe(true);
+    expect(WorkerBreakdownSchema.safeParse(worker).success).toBe(true);
+    expect(WorkerBreakdownSchema.safeParse({ ...worker, stats }).success).toBe(true);
+    const b = ReportBasisSchema.safeParse({ ...basis, other: { ...other, stats } });
+    expect(b.success).toBe(true);
+  });
+
+  it("rejects an unknown key inside stats (.strict())", () => {
+    expect(LatencyStatsSchema.safeParse({ ...stats, p999_us: 1 }).success).toBe(false);
+    expect(ReportSummarySchema.safeParse({ ...summary, stats: { ...stats, x: 1 } }).success).toBe(
+      false,
+    );
   });
 });
