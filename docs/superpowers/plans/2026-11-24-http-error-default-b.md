@@ -327,7 +327,7 @@ expect(passingCodes([any, one(200)])).toEqual([200]);
 | `trust.checkAFailWhy` | 이 스텝은 4xx·5xx가 와도 실패로 잡히지 않습니다 |
 | `trust.checkAPass` | 모든 스텝이 오류 응답을 실패로 잡습니다 |
 | `common.defaultRuleExplain(n)` | `상태 코드 ${n}${josa(을/를)} 받아 오류로 셌습니다. 검사를 따로 적지 않은 스텝은 400 이상을 오류로 봅니다. ${n}${josa(이/가)} 정상이면 「응답 검증」에서 기대하는 코드에 ${n}${josa(을/를)} 넣으세요.` |
-| `compare.statusRuleNotice` | 선택한 run 가운데 오류를 세는 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요. |
+| `compare.statusRuleNotice` | 선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요. |
 | `print.cmp.fair.statusRuleName` | 오류 집계 규칙 |
 | `print.cmp.fair.checkModeNames` | `legacyNone` 검사 없음 · `default` 400 이상은 오류 · `codes` 적은 코드만 통과 · `any` 보지 않음 |
 | `print.cmp.fair.assertModeChanged(no, a, b)` | `${no}의 상태 코드 검사 방식 바뀜: ${a} → ${b}` |
