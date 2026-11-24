@@ -19,6 +19,8 @@ export const ko = {
     jsonUnwrappedNotice: "문자열로 감싼 JSON을 풀어서 표시 중",
     blockedByBlank: (step: string, vars: string) =>
       `앞 스텝 ${step}이(가) ${vars} 값을 주지 않아 요청을 보내지 않음`,
+    defaultRuleExplain: (n: number) =>
+      `상태 코드 ${n}${josa(String(n), "을/를")} 받아 오류로 셌습니다. 검사를 따로 적지 않은 스텝은 400 이상을 오류로 봅니다. ${n}${josa(String(n), "이/가")} 정상이면 「응답 검증」에서 기대하는 코드에 ${n}${josa(String(n), "을/를")} 넣으세요.`,
     save: "저장",
     saving: "저장 중…",
     cancel: "취소",

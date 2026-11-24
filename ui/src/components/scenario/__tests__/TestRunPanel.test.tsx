@@ -557,3 +557,30 @@ describe("TestRunPanel 기본값 표지", () => {
     expect(screen.queryByText("기본값")).not.toBeInTheDocument();
   });
 });
+
+describe("TestRunPanel 기본 규칙 오류 이유 글", () => {
+  const withError = (error: string, extra: object = {}): ScenarioTrace => ({
+    ...TRACE,
+    steps: [{ ...TRACE.steps[1], error, ...extra }],
+  });
+  it("status 404 (>= 400)이면 이유 글이 오류 글보다 앞에 보인다", () => {
+    render(<TestRunPanel trace={withError("status 404 (>= 400)")} />);
+    const note = screen.getByText(/상태 코드 404를 받아 오류로 셌습니다/);
+    const raw = screen.getByText("status 404 (>= 400)");
+    expect(note.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it("다른 오류 글이면 이유 글이 없다", () => {
+    render(<TestRunPanel trace={withError("status 503 != 200")} />);
+    expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
+  });
+  it("blocked 스텝은 이유 글이 없다", () => {
+    render(
+      <TestRunPanel
+        trace={withError("not sent: blank value in url", {
+          blocked: { vars: ["a"], by_step: "S1" },
+        })}
+      />,
+    );
+    expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
+  });
+});

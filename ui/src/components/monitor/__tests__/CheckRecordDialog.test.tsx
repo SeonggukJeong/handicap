@@ -174,6 +174,29 @@ describe("CheckRecordDialog", () => {
     expect(err.className).toMatch(/red/);
   });
 
+  it("default_rule_note_before_error", async () => {
+    getRecord.mockResolvedValue(rec({}, [http({ error: "status 404 (>= 400)" })]));
+    wrap(dlg());
+    const note = await screen.findByText(/상태 코드 404를 받아 오류로 셌습니다/);
+    const raw = screen.getByText("status 404 (>= 400)");
+    expect(note.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("no_default_rule_note_for_other_error_or_blocked", async () => {
+    getRecord.mockResolvedValue(
+      rec({}, [
+        http({ error: "status 503 != 200" }),
+        http({
+          error: "not sent: blank value in url",
+          blocked: { vars: ["a"], by_step: "S1" },
+        }),
+      ]),
+    );
+    wrap(dlg());
+    expect(await screen.findByText("status 503 != 200")).toBeInTheDocument();
+    expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
+  });
+
   it("missing_record_shows_message", async () => {
     getRecord.mockRejectedValue(new ApiError(404, "not found"));
     wrap(dlg());

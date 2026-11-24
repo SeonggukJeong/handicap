@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import type { Condition, DisplayItem, PreviewResult as Preview } from "../../api/monitors";
 import { ko } from "../../i18n/ko";
 import { formatMs } from "../../monitor/logic";
+import { DefaultRuleNote } from "../response/DefaultRuleNote";
 import { defaultedText, traceErrorText } from "../../scenario/blockedText";
 import {
   defaultCondition,
@@ -214,7 +215,10 @@ function StepRow({
         {s.error != null && (
           <>
             <dt className="text-slate-500">{k.previewError}</dt>
-            <dd className="break-all text-red-700">{traceErrorText(s, (id) => stepNames[id])}</dd>
+            <dd className="break-all text-red-700">
+              <DefaultRuleNote error={s.error} />
+              <span>{traceErrorText(s, (id) => stepNames[id])}</span>
+            </dd>
           </>
         )}
       </dl>

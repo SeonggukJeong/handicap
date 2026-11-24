@@ -477,3 +477,37 @@ describe("PreviewResult 선택 상자 위치", () => {
     expect(follows(btn, confirmBtn())).toBe(true);
   });
 });
+
+describe("PreviewResult 기본 규칙 오류 이유 글", () => {
+  const withError = (error: string, extra: object = {}) => {
+    const p = preview("");
+    p.trace!.steps = [{ ...p.trace!.steps[0], error, ...extra }];
+    return p;
+  };
+  it("status 404 (>= 400)이면 이유 글이 오류 글보다 앞에 보인다", () => {
+    render(
+      <PreviewResult preview={withError("status 404 (>= 400)")} stepNames={{ [STEP]: "로그인" }} />,
+    );
+    const note = screen.getByText(/상태 코드 404를 받아 오류로 셌습니다/);
+    const raw = screen.getByText("status 404 (>= 400)");
+    expect(note.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it("다른 오류 글이면 이유 글이 없다", () => {
+    render(
+      <PreviewResult preview={withError("status 503 != 200")} stepNames={{ [STEP]: "로그인" }} />,
+    );
+    expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
+  });
+  it("blocked 스텝은 이유 글이 없다", () => {
+    render(
+      <PreviewResult
+        preview={withError("not sent: blank value in url", {
+          response: null,
+          blocked: { vars: ["a"], by_step: STEP },
+        })}
+        stepNames={{ [STEP]: "로그인" }}
+      />,
+    );
+    expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
+  });
+});

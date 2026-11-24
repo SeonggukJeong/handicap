@@ -5,6 +5,7 @@ import { suggestVarName } from "../../scenario/jsonPath";
 import type { Extract } from "../../scenario/model";
 import { branchText } from "../../scenario/chipResults";
 import { loopJudgeMeta } from "../../scenario/loopJudgeMeta";
+import { DefaultRuleNote } from "../response/DefaultRuleNote";
 import { traceErrorText } from "../../scenario/blockedText";
 import { Callout } from "../ui/Callout";
 import { LoopJudgeRow } from "./LoopJudgeRow";
@@ -131,6 +132,7 @@ function HttpRow({
           ),
         )}
       </button>
+      <DefaultRuleNote error={step.error} />
       {errorText && <div className="mt-1 text-xs text-red-700">{errorText}</div>}
       {!step.blocked && step.unbound_vars.length > 0 && (
         <div className="mt-1 flex flex-wrap items-center gap-1">

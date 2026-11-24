@@ -12,6 +12,7 @@ import { ko } from "../../i18n/ko";
 import { formatDateHms } from "../../monitor/time";
 import { branchText } from "../../scenario/chipResults";
 import { allSteps, flattenHttpSteps } from "../../scenario/model";
+import { DefaultRuleNote } from "../response/DefaultRuleNote";
 import { defaultedText, traceErrorText } from "../../scenario/blockedText";
 import { loopJudgeMeta, type LoopJudgeMeta } from "../../scenario/loopJudgeMeta";
 import { SetupBadge } from "../scenario/SetupBadge";
@@ -244,6 +245,9 @@ function StepRow({
         {step.section === "setup" && <SetupBadge />}
         <span className="font-mono">{summary}</span>
       </button>
+      <div className="px-2">
+        <DefaultRuleNote error={step.error} />
+      </div>
       {errorText && <div className="px-2 pb-1 text-xs text-red-600">{errorText}</div>}
       {defaulted && <div className="px-2 pb-1 text-xs break-all text-slate-600">{defaulted}</div>}
       {open && (
