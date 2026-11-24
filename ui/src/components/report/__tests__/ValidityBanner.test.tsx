@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ValidityBanner } from "../ValidityBanner";
 import type { Validity } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
@@ -178,6 +179,82 @@ describe("ValidityBanner", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: ko.narrative.title })).toBeNull();
+  });
+
+  it("status_unchecked_errors: 스텝 이름과 건수를 풀어 쓴다", () => {
+    render(
+      <ValidityBanner
+        validity={{
+          level: "limited",
+          reasons: [
+            { kind: "status_unchecked_errors", severity: "warning", step_id: "A", count: 1204 },
+          ],
+        }}
+        stepNames={new Map([["A", "상태 확인"]])}
+        statusRule={2}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "상태 코드를 보지 않는 스텝 「상태 확인」이 4xx·5xx 응답 1,204건을 받았습니다. 상태 코드로는 오류로 세지 않았습니다",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("status_unchecked_errors: 이름표에 없는 id는 id를 그대로 쓴다", () => {
+    render(
+      <ValidityBanner
+        validity={{
+          level: "limited",
+          reasons: [
+            { kind: "status_unchecked_errors", severity: "warning", step_id: "X9", count: 3 },
+          ],
+        }}
+        stepNames={new Map()}
+        statusRule={2}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "상태 코드를 보지 않는 스텝 「X9」이 4xx·5xx 응답 3건을 받았습니다. 상태 코드로는 오류로 세지 않았습니다",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("no_response_validation: 규칙 2면 새 글, 규칙 1·없음이면 지금 글", () => {
+    const validity: Validity = {
+      level: "limited",
+      reasons: [{ kind: "no_response_validation", severity: "warning" }],
+    };
+    const { unmount } = render(<ValidityBanner validity={validity} statusRule={2} />);
+    expect(
+      screen.getByText("상태 코드 검사와 판정 기준이 없어 성공·실패를 확정할 수 없습니다"),
+    ).toBeInTheDocument();
+    unmount();
+    const old = "응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다";
+    const r1 = render(<ValidityBanner validity={validity} statusRule={1} />);
+    expect(screen.getByText(old)).toBeInTheDocument();
+    r1.unmount();
+    render(<ValidityBanner validity={validity} />);
+    expect(screen.getByText(old)).toBeInTheDocument();
+  });
+
+  it("해석 상세: unchecked_steps_error_free 글", async () => {
+    const user = userEvent.setup();
+    render(
+      <ValidityBanner
+        validity={{
+          level: "limited",
+          reasons: [
+            { kind: "status_unchecked_errors", severity: "warning", step_id: "A", count: 1 },
+          ],
+        }}
+        narrative={{ can_claim: [], cannot_claim: ["unchecked_steps_error_free"] }}
+        statusRule={2}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.narrative.title }));
+    expect(screen.getByText("상태 코드를 보지 않는 스텝이 정상 응답했다")).toBeInTheDocument();
   });
 
   // 위 테스트만 두면 `hasDetail = narrative != null`로 잘못 써도 통과한다 —

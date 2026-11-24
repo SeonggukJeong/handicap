@@ -64,6 +64,15 @@ describe("SetupSection", () => {
     expect(screen.getByText(`${ko.report.errorKinds.labels.status_assert}: 2`)).toBeInTheDocument();
   });
 
+  it("준비 실패 종류 http_status는 「상태 코드 400 이상」으로 보이고 영문 키는 안 보인다", async () => {
+    const s = mk();
+    s.steps[0].failure_kinds = { http_status: 3 };
+    renderIt(s);
+    await userEvent.setup().click(screen.getByRole("button", { name: /준비 스텝 1개/ }));
+    expect(screen.getByText("상태 코드 400 이상: 3")).toBeInTheDocument();
+    expect(screen.queryByText(/http_status/)).not.toBeInTheDocument();
+  });
+
   it("failed > 0 이면 처음부터 펼쳐지고 경고가 나온다", () => {
     renderIt(mk({ failed: 2 }));
     expect(screen.getByRole("button", { name: /준비 스텝 1개/ })).toHaveAttribute(

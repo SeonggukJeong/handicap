@@ -1515,7 +1515,9 @@ pub fn build_report(
         has_active,
         &insights,
         stair.as_ref().is_some_and(|s| s.dropped_explained),
-        setup.map(|s| s.failed).unwrap_or(0),
+        run.status_rule,
+        &steps,
+        setup,
     );
     let narrative = crate::validity::derive_narrative(&validity, &summary, has_active, &insights);
 
@@ -1941,6 +1943,65 @@ mod tests {
     fn with_criteria(mut run: RunRow, c: Criteria) -> RunRow {
         run.profile.criteria = Some(c);
         run
+    }
+
+    const YAML_A_ANY: &str = "version: 1\nname: t\nsteps:\n  - type: http\n    id: a\n    name: a\n    request: { method: GET, url: \"http://x/\" }\n    assert:\n      - status: any\n";
+
+    #[test]
+    fn rule2_no_assert_no_criteria_has_no_no_response_validation() {
+        // 규칙 1 짝(build_report_attaches_validity_unchecked_limited)은 사유가 있다 — 규칙 2는 없다.
+        let mut run = run_row();
+        run.status_rule = crate::store::runs::STATUS_RULE_CURRENT;
+        let rows = vec![win(100, "step_a", 10, 0, r#"{"200":10}"#, &[10_000; 10])];
+        let rep = build_report(
+            &run,
+            YAML_NO_ASSERT,
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+            &[],
+            None,
+            None,
+            None,
+        );
+        assert!(
+            !rep.validity
+                .reasons
+                .iter()
+                .any(|r| r.kind == "no_response_validation")
+        );
+    }
+
+    #[test]
+    fn rule2_unchecked_errors_use_scoped_steps_not_whole() {
+        let mut run = steady_run(130);
+        run.status_rule = crate::store::runs::STATUS_RULE_CURRENT;
+        run.scenario_yaml = YAML_A_ANY.into();
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let whole_r = whole
+            .validity
+            .reasons
+            .iter()
+            .find(|r| r.kind == "status_unchecked_errors")
+            .expect("전체 구간엔 램프의 500이 보인다");
+        assert_eq!(whole_r.count, Some(10));
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let rep = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        assert!(
+            !rep.validity
+                .reasons
+                .iter()
+                .any(|r| r.kind == "status_unchecked_errors"),
+            "유지 구간(110..130)엔 오류 응답이 없다"
+        );
     }
 
     #[test]

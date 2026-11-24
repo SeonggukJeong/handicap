@@ -748,6 +748,38 @@ pub(crate) fn http_step_has_status_assert(steps: &[Step], id: &str) -> bool {
     })
 }
 
+/// 상태 코드 검사 줄이 모두 `any`뿐인(상태를 확인하지 않는) http 스텝인가 (규칙 2 유효성).
+pub(crate) fn http_step_status_unchecked(steps: &[Step], id: &str) -> bool {
+    find_http_step(steps, id).is_some_and(|h| handicap_engine::status_unchecked(&h.assert))
+}
+
+/// 스텝 트리(loop·if·parallel 안 포함) 전체에서 `status_unchecked`인 http 스텝 id를
+/// 시나리오 순서대로 모은다. 조건부 스텝도 포함한다(실제로 받은 응답을 세므로).
+pub(crate) fn collect_status_unchecked(steps: &[Step], out: &mut Vec<String>) {
+    for s in steps {
+        match s {
+            Step::Http(h) => {
+                if handicap_engine::status_unchecked(&h.assert) {
+                    out.push(h.id.clone());
+                }
+            }
+            Step::Loop(l) => collect_status_unchecked(&l.do_, out),
+            Step::If(i) => {
+                collect_status_unchecked(&i.then_, out);
+                for e in &i.elif {
+                    collect_status_unchecked(&e.then_, out);
+                }
+                collect_status_unchecked(&i.else_, out);
+            }
+            Step::Parallel(p) => {
+                for b in &p.branches {
+                    collect_status_unchecked(&b.steps, out);
+                }
+            }
+        }
+    }
+}
+
 fn find_http_step<'a>(steps: &'a [Step], id: &str) -> Option<&'a handicap_engine::HttpStep> {
     for s in steps {
         match s {

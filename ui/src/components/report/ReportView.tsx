@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { reportSample, type Profile, type Report, type ReportSampleName } from "../../api/schemas";
+import {
+  reportSample,
+  reportStatusRule,
+  type Profile,
+  type Report,
+  type ReportSampleName,
+} from "../../api/schemas";
 import { summaryCounts } from "../../report/hasLatency";
 import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
@@ -115,6 +121,11 @@ export function ReportView({
     }
     return m;
   }, [report.scenario_yaml, envMap]);
+
+  const stepNames = useMemo(
+    () => new Map(Array.from(stepMeta, ([id, meta]) => [id, meta.name] as const)),
+    [stepMeta],
+  );
 
   const ifMeta = useMemo(() => {
     const m = new Map<string, { name: string }>();
@@ -283,7 +294,12 @@ export function ReportView({
           </Callout>
         )}
         {/* spec §5.1: 유효성+해석 병합 → Verdict → Insight */}
-        <ValidityBanner validity={report.validity} narrative={report.narrative} />
+        <ValidityBanner
+          validity={report.validity}
+          narrative={report.narrative}
+          stepNames={stepNames}
+          statusRule={reportStatusRule(report)}
+        />
         <LoopRetryNotice views={loopExitViews} />
         {report.stair ? <StairResultSection stair={report.stair} /> : null}
         {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}

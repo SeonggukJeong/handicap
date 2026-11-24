@@ -1538,6 +1538,7 @@ export const ko = {
         blank_var: "보내지 않음 (앞 스텝 값 없음)",
         read_body: "응답 본문 읽기 실패",
         status_assert: "상태 코드 검증 실패",
+        http_status: "상태 코드 400 이상",
         extract: "값 추출 실패",
         unknown_var: "정의되지 않은 변수",
         malformed_template: "잘못된 변수 표기",
@@ -1746,6 +1747,10 @@ export const ko = {
       silent_http_errors: "HTTP 오류 상태코드가 있으나 엔진 에러 수는 0입니다(응답 검증 부재 가능)",
       no_response_validation:
         "응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다",
+      no_response_validation_rule2:
+        "상태 코드 검사와 판정 기준이 없어 성공·실패를 확정할 수 없습니다",
+      status_unchecked_errors: (name: string, count: string) =>
+        `상태 코드를 보지 않는 스텝 「${name}」이 4xx·5xx 응답 ${count}건을 받았습니다. 상태 코드로는 오류로 세지 않았습니다`,
       load_not_delivered: "목표한 부하를 다 걸지 못했습니다(도착 실패/드롭)",
       setup_failed: "준비 스텝 실패로 부하가 설정보다 적었습니다",
       loadgen_port_exhaustion: (count: string) =>
@@ -1773,6 +1778,7 @@ export const ko = {
       sut_capacity: "대상 서버(SUT) 용량 한계",
       slo_as_capacity: "SLO 통과를 용량 증명으로 해석하는 것",
       zero_engine_errors_means_ok: "엔진 에러 0 = 서비스 정상",
+      unchecked_steps_error_free: "상태 코드를 보지 않는 스텝이 정상 응답했다",
       functional_correctness: "기능 정확성(응답 본문·비즈니스 규칙)",
       error_free_service: "무오류 서비스",
       target_load_applied: "목표한 부하가 전부 걸렸다는 것",

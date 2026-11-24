@@ -1,7 +1,13 @@
 //! Soft validity + narrative derived from a built report (A11 trustworthy open test).
 //! Pure: orthogonal to run status and SLO verdict. Spec §4–§5.
-use crate::insights::{Insight, collect_unconditional, http_step_has_status_assert};
-use crate::report::{ReportSummary, http_response_total, status_class_count};
+use crate::insights::{
+    Insight, collect_status_unchecked, collect_unconditional, http_step_has_status_assert,
+    http_step_status_unchecked,
+};
+use crate::report::{
+    ReportStep, ReportSummary, SetupReport, http_response_total, status_class_count,
+};
+use crate::store::runs::STATUS_RULE_LEGACY;
 use handicap_engine::Scenario;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -64,6 +70,11 @@ fn has_reason(v: &Validity, kind: &str) -> bool {
 /// Derive soft validity reasons + level (spec §4). Reasons evaluated in fixed order;
 /// only emitted when conditions match. Transport failures raise engine errors —
 /// never gate `transport_heavy` on `errors==0` (H0).
+///
+/// `status_rule`: 규칙 1(`STATUS_RULE_LEGACY`)은 옛 갈래 그대로, 그 밖은 규칙 2 갈래다.
+/// `steps`는 범위가 적용된 스텝 통계, `setup`은 준비 구간 보고(`status_unchecked_errors`와
+/// `setup_failed`의 원천).
+#[allow(clippy::too_many_arguments)]
 pub fn derive_validity(
     summary: &ReportSummary,
     status_distribution: &BTreeMap<String, u64>,
@@ -71,8 +82,12 @@ pub fn derive_validity(
     has_active_criteria: bool,
     insights: &[Insight],
     stair_dropped_explained: bool,
-    setup_failed: u64,
+    status_rule: u8,
+    steps: &[ReportStep],
+    setup: Option<&SetupReport>,
 ) -> Validity {
+    let setup_failed = setup.map(|s| s.failed).unwrap_or(0);
+    let legacy = status_rule == STATUS_RULE_LEGACY;
     let mut reasons: Vec<ValidityReason> = Vec::new();
 
     // 1. zero_requests
@@ -99,7 +114,7 @@ pub fn derive_validity(
     let c4 = status_class_count(status_distribution, '4');
     let c5 = status_class_count(status_distribution, '5');
     let silent_n = c4 + c5;
-    if silent_n > 0 && summary.errors == 0 {
+    if legacy && silent_n > 0 && summary.errors == 0 {
         let mut r = reason_base("silent_http_errors", "warning");
         r.count = Some(silent_n);
         if n_http > 0 {
@@ -108,15 +123,59 @@ pub fn derive_validity(
         reasons.push(r);
     }
 
+    // 규칙 2 — 3'. status_unchecked_errors: 상태 코드를 보지 않는 스텝이 받은 4xx·5xx
+    // (준비 스텝 먼저·시나리오 순서로 모아 건수 내림차순 안정 정렬). fail-soft on YAML parse.
+    let parsed = Scenario::from_yaml(scenario_yaml).ok();
+    if !legacy && let Some(sc) = &parsed {
+        let mut setup_ids: Vec<String> = Vec::new();
+        collect_status_unchecked(sc.setup_steps(), &mut setup_ids);
+        let mut main_ids: Vec<String> = Vec::new();
+        collect_status_unchecked(&sc.steps, &mut main_ids);
+        let err_count = |counts: &BTreeMap<String, u64>| -> u64 {
+            counts
+                .iter()
+                .filter(|(k, _)| k.starts_with('4') || k.starts_with('5'))
+                .map(|(_, v)| *v)
+                .sum()
+        };
+        let mut found: Vec<(String, u64)> = Vec::new();
+        if let Some(setup) = setup {
+            for id in &setup_ids {
+                if let Some(s) = setup.steps.iter().find(|s| &s.step_id == id) {
+                    found.push((id.clone(), err_count(&s.status_counts)));
+                }
+            }
+        }
+        for id in &main_ids {
+            if let Some(s) = steps.iter().find(|s| &s.step_id == id) {
+                found.push((id.clone(), err_count(&s.status_counts)));
+            }
+        }
+        found.retain(|(_, n)| *n > 0);
+        found.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+        for (id, n) in found {
+            let mut r = reason_base("status_unchecked_errors", "warning");
+            r.step_id = Some(id);
+            r.count = Some(n);
+            reasons.push(r);
+        }
+    }
+
     // 4. no_response_validation (§4.3) — fail-soft on YAML parse
-    if let Ok(sc) = Scenario::from_yaml(scenario_yaml) {
+    if let Some(sc) = &parsed {
         let mut ids: Vec<String> = Vec::new();
         collect_unconditional(&sc.steps, false, &mut ids);
         if !ids.is_empty() {
-            let any_status = ids
-                .iter()
-                .any(|id| http_step_has_status_assert(&sc.steps, id));
-            if !any_status && !has_active_criteria {
+            let none_checked = if legacy {
+                // 규칙 1: 상태 검사 줄이 하나도 없다.
+                !ids.iter()
+                    .any(|id| http_step_has_status_assert(&sc.steps, id))
+            } else {
+                // 규칙 2: 검사 없는 스텝은 400 이상이 오류라 보는 스텝이다 — 모두 `any`일 때만.
+                ids.iter()
+                    .all(|id| http_step_status_unchecked(&sc.steps, id))
+            };
+            if none_checked && !has_active_criteria {
                 reasons.push(reason_base("no_response_validation", "warning"));
             }
         }
@@ -201,6 +260,10 @@ pub fn derive_narrative(
         push_unique(&mut can_claim, "http_error_statuses_seen");
         push_unique(&mut cannot_claim, "zero_engine_errors_means_ok");
     }
+    // 3' status_unchecked_errors (규칙 2)
+    if has_reason(validity, "status_unchecked_errors") {
+        push_unique(&mut cannot_claim, "unchecked_steps_error_free");
+    }
     // 4 no_response_validation
     if has_reason(validity, "no_response_validation") {
         if summary.count > 0 {
@@ -266,7 +329,8 @@ pub fn derive_narrative(
 mod tests {
     use super::*;
     use crate::insights::Insight;
-    use crate::report::ReportSummary;
+    use crate::report::{ReportStep, ReportSummary, SetupReport, SetupStepReport};
+    use crate::store::runs::{STATUS_RULE_CURRENT, STATUS_RULE_LEGACY};
     use std::collections::BTreeMap;
 
     fn summary(count: u64, errors: u64) -> ReportSummary {
@@ -840,6 +904,254 @@ steps:
         assert!(
             n.can_claim.contains(&"sut_errors_observed".to_string()),
             "level==ok + 5xx status_class 인사이트 → sut_errors_observed 주장 가능해야 함"
+        );
+    }
+
+    // ---- 규칙 갈래 (status_rule) ----
+
+    /// 기존(규칙 1) 테스트용 얇은 호출: 규칙 1·스텝 없음·`setup_failed`만 채운 준비 보고.
+    fn derive_validity(
+        summary: &ReportSummary,
+        d: &BTreeMap<String, u64>,
+        yaml: &str,
+        crit: bool,
+        ins: &[Insight],
+        stair: bool,
+        setup_failed: u64,
+    ) -> Validity {
+        let setup = (setup_failed > 0).then(|| SetupReport {
+            ok: 0,
+            failed: setup_failed,
+            interrupted: 0,
+            steps: vec![],
+        });
+        super::derive_validity(
+            summary,
+            d,
+            yaml,
+            crit,
+            ins,
+            stair,
+            STATUS_RULE_LEGACY,
+            &[],
+            setup.as_ref(),
+        )
+    }
+
+    fn rule2(
+        d: &BTreeMap<String, u64>,
+        yaml: &str,
+        crit: bool,
+        steps: &[ReportStep],
+        setup: Option<&SetupReport>,
+        errors: u64,
+    ) -> Validity {
+        super::derive_validity(
+            &summary(100, errors),
+            d,
+            yaml,
+            crit,
+            &[],
+            false,
+            STATUS_RULE_CURRENT,
+            steps,
+            setup,
+        )
+    }
+
+    fn rstep(id: &str, sc: &[(&str, u64)]) -> ReportStep {
+        ReportStep {
+            step_id: id.to_string(),
+            count: sc.iter().map(|(_, n)| n).sum(),
+            error_count: 0,
+            status_counts: dist(sc),
+            p50_ms: 0,
+            p95_ms: 0,
+            p99_ms: 0,
+            loop_breakdown: vec![],
+            download: None,
+            wait: None,
+            loop_split: None,
+            not_sent: None,
+        }
+    }
+
+    const YAML_MIXED: &str = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: A
+    name: a
+    request: { method: GET, url: "http://x/" }
+    assert:
+      - status: any
+  - type: http
+    id: B
+    name: b
+    request: { method: GET, url: "http://x/" }
+    assert:
+      - status: any
+  - type: http
+    id: C
+    name: c
+    request: { method: GET, url: "http://x/" }
+"#;
+
+    const YAML_ALL_ANY: &str = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: A
+    name: a
+    request: { method: GET, url: "http://x/" }
+    assert:
+      - status: any
+"#;
+
+    const YAML_SETUP_ANY: &str = r#"
+version: 1
+name: t
+setup:
+  steps:
+    - type: http
+      id: S
+      name: s
+      request: { method: GET, url: "http://x/" }
+      assert:
+        - status: any
+steps:
+  - type: http
+    id: M
+    name: m
+    request: { method: GET, url: "http://x/" }
+    assert:
+      - status: 200
+"#;
+
+    #[test]
+    fn rule1_unchanged_keeps_silent_http_errors_and_old_no_response() {
+        let d = dist(&[("200", 90), ("404", 10)]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_ALL_ANY, false, &[], false, 0);
+        assert!(kinds(&v).contains(&"silent_http_errors"));
+        assert!(!kinds(&v).contains(&"status_unchecked_errors"));
+        // 규칙 1: 상태 검사 줄이 있으면(any여도) no_response_validation 없음.
+        assert!(!kinds(&v).contains(&"no_response_validation"));
+    }
+
+    #[test]
+    fn rule2_no_silent_http_errors() {
+        let d = dist(&[("200", 90), ("404", 10)]);
+        let v = rule2(&d, YAML_WITH_ASSERT, true, &[], None, 0);
+        assert!(!kinds(&v).contains(&"silent_http_errors"));
+    }
+
+    #[test]
+    fn rule2_unchecked_errors_per_step() {
+        let d = dist(&[("200", 50), ("404", 8), ("500", 7)]);
+        let steps = vec![
+            rstep("A", &[("200", 10), ("404", 3)]),
+            rstep("B", &[("500", 7)]),
+            rstep("C", &[("404", 5)]),
+        ];
+        let v = rule2(&d, YAML_MIXED, false, &steps, None, 0);
+        let got: Vec<(&str, u64)> = v
+            .reasons
+            .iter()
+            .filter(|r| r.kind == "status_unchecked_errors")
+            .map(|r| (r.step_id.as_deref().unwrap(), r.count.unwrap()))
+            .collect();
+        assert_eq!(got, vec![("B", 7), ("A", 3)]);
+        assert!(
+            v.reasons
+                .iter()
+                .filter(|r| r.kind == "status_unchecked_errors")
+                .all(|r| r.severity == "warning")
+        );
+    }
+
+    #[test]
+    fn rule2_unchecked_ties_keep_scenario_order() {
+        let d = dist(&[("404", 8)]);
+        let steps = vec![rstep("B", &[("404", 4)]), rstep("A", &[("404", 4)])];
+        let v = rule2(&d, YAML_MIXED, false, &steps, None, 0);
+        let ids: Vec<&str> = v
+            .reasons
+            .iter()
+            .filter(|r| r.kind == "status_unchecked_errors")
+            .map(|r| r.step_id.as_deref().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["A", "B"], "동률이면 시나리오 순서(A 먼저)");
+    }
+
+    #[test]
+    fn rule2_unchecked_counts_setup() {
+        let d = dist(&[("200", 5)]);
+        let setup = SetupReport {
+            ok: 0,
+            failed: 0,
+            interrupted: 0,
+            steps: vec![SetupStepReport {
+                step_id: "S".into(),
+                count: 2,
+                errors: 0,
+                p50_ms: 0,
+                p95_ms: 0,
+                max_ms: 0,
+                status_counts: dist(&[("404", 2)]),
+                failure_kinds: BTreeMap::new(),
+            }],
+        };
+        let v = rule2(&d, YAML_SETUP_ANY, true, &[], Some(&setup), 0);
+        let r: Vec<_> = v
+            .reasons
+            .iter()
+            .filter(|r| r.kind == "status_unchecked_errors")
+            .collect();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].step_id.as_deref(), Some("S"));
+        assert_eq!(r[0].count, Some(2));
+    }
+
+    #[test]
+    fn rule2_no_response_validation_only_when_all_any() {
+        let d = dist(&[("200", 100)]);
+        let v = rule2(&d, YAML_NO_ASSERT, false, &[], None, 0);
+        assert!(
+            !kinds(&v).contains(&"no_response_validation"),
+            "검사 없음 → 없음"
+        );
+        let v = rule2(&d, YAML_ALL_ANY, false, &[], None, 0);
+        assert!(
+            kinds(&v).contains(&"no_response_validation"),
+            "모두 any → 있음"
+        );
+        let v = rule2(&d, YAML_MIXED, false, &[], None, 0);
+        assert!(
+            !kinds(&v).contains(&"no_response_validation"),
+            "섞임 → 없음"
+        );
+        let v = rule2(&d, YAML_ALL_ANY, true, &[], None, 0);
+        assert!(
+            !kinds(&v).contains(&"no_response_validation"),
+            "기준 있으면 없음"
+        );
+    }
+
+    #[test]
+    fn rule2_narrative_unchecked() {
+        let d = dist(&[("404", 3)]);
+        let steps = vec![rstep("A", &[("404", 3)])];
+        let v = rule2(&d, YAML_MIXED, true, &steps, None, 0);
+        let n = derive_narrative(&v, &summary(100, 0), true, &[]);
+        assert!(
+            n.cannot_claim
+                .contains(&"unchecked_steps_error_free".to_string())
+        );
+        assert!(
+            !n.cannot_claim
+                .contains(&"zero_engine_errors_means_ok".to_string())
         );
     }
 }

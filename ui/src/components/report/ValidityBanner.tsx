@@ -10,7 +10,11 @@ function pctDigits(fraction: number): string {
   return floorPct(fraction * 100).replace(/%$/, "");
 }
 
-function reasonText(r: ValidityReason): string {
+function reasonText(
+  r: ValidityReason,
+  stepNames: ReadonlyMap<string, string> | undefined,
+  statusRule: 1 | 2,
+): string {
   switch (r.kind) {
     case "zero_requests":
       return ko.validity.reason.zero_requests;
@@ -21,8 +25,17 @@ function reasonText(r: ValidityReason): string {
       );
     case "silent_http_errors":
       return ko.validity.reason.silent_http_errors;
+    case "status_unchecked_errors": {
+      const id = r.step_id ?? "";
+      return ko.validity.reason.status_unchecked_errors(
+        stepNames?.get(id) ?? id,
+        (r.count ?? 0).toLocaleString("en-US"),
+      );
+    }
     case "no_response_validation":
-      return ko.validity.reason.no_response_validation;
+      return statusRule === 2
+        ? ko.validity.reason.no_response_validation_rule2
+        : ko.validity.reason.no_response_validation;
     case "load_not_delivered":
       return ko.validity.reason.load_not_delivered;
     case "setup_failed":
@@ -78,9 +91,15 @@ function ClaimList({
 export function ValidityBanner({
   validity,
   narrative,
+  stepNames,
+  statusRule = 1,
 }: {
   validity?: Validity | null;
   narrative?: Narrative | null;
+  /** 스텝 id → 이름. 없으면 id를 그대로 쓴다. */
+  stepNames?: ReadonlyMap<string, string>;
+  /** 오류를 세는 규칙. 없으면 1(옛 글). */
+  statusRule?: 1 | 2;
 }) {
   const [open, setOpen] = useState(validity?.level === "suspect");
 
@@ -102,7 +121,7 @@ export function ValidityBanner({
       {validity.reasons.length > 0 ? (
         <ul className="list-disc space-y-0.5 pl-5">
           {validity.reasons.map((r, idx) => (
-            <li key={`${r.kind}-${idx}`}>{reasonText(r)}</li>
+            <li key={`${r.kind}-${idx}`}>{reasonText(r, stepNames, statusRule)}</li>
           ))}
         </ul>
       ) : null}
