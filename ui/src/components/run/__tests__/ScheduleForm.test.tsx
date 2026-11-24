@@ -602,3 +602,74 @@ describe("ScheduleForm — steady (상승·버림)", () => {
     expect(p).not.toHaveProperty("target_rps");
   });
 });
+
+describe("ScheduleForm — 새 판정 항목 다시 열기", () => {
+  const criteria = {
+    max_mean_ms: 3000,
+    max_max_ms: 10000.5,
+    max_percentiles_ms: [
+      { percentile: 90, max_ms: 2500 },
+      { percentile: 99.9, max_ms: 8000 },
+    ],
+    step_criteria: [
+      { target: "A", metric: "mean_ms", op: "max" as const, threshold: 500 },
+      { target: "A", metric: "p99.9_ms", op: "max" as const, threshold: 900 },
+    ],
+  };
+  const initial = {
+    name: "nightly",
+    scenario_id: "s1",
+    profile: {
+      vus: 1,
+      duration_seconds: 5,
+      ramp_up_seconds: 0,
+      loop_breakdown_cap: 256,
+      http_timeout_seconds: 30,
+      criteria,
+    } as Profile,
+    env: {},
+    trigger: { kind: "cron" as const, cron_expr: "0 2 * * *" },
+    enabled: true,
+  };
+
+  it("수정 열기 → 그대로 저장하면 같은 criteria, SLO 기준 섹션이 펼쳐져 있다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={initial}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /SLO 기준/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    expect(onSubmit.mock.calls[0][0].profile.criteria).toEqual(criteria);
+  });
+
+  it("시나리오를 바꾸면 step_criteria만 빠진다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[
+          { id: "s1", name: "scn" },
+          { id: "s2", name: "scn2" },
+        ]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={initial}
+      />,
+    );
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s2");
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    const c = onSubmit.mock.calls[0][0].profile.criteria;
+    expect(c.max_mean_ms).toBe(3000);
+    expect(c.max_percentiles_ms).toEqual(criteria.max_percentiles_ms);
+    expect("step_criteria" in c).toBe(false);
+  });
+});

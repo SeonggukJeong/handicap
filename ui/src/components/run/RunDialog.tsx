@@ -47,7 +47,7 @@ import {
 import {
   buildProfile as buildProfileShared,
   type CriteriaState,
-  type StepCriterionDraft,
+  type StringCriteriaKey,
   criteriaStateFrom,
   criteriaHasValue,
   criteriaActiveCount,
@@ -156,18 +156,7 @@ export function RunDialog({
   );
   const initC = initial?.profile.criteria ?? undefined;
   const initCriteria = criteriaStateFrom(initC);
-  const [maxP50, setMaxP50] = useState(initCriteria.maxP50);
-  const [maxP95, setMaxP95] = useState(initCriteria.maxP95);
-  const [maxP99, setMaxP99] = useState(initCriteria.maxP99);
-  const [maxErrPct, setMaxErrPct] = useState(initCriteria.maxErrPct);
-  const [minRps, setMinRps] = useState(initCriteria.minRps);
-  const [max4xxPct, setMax4xxPct] = useState(initCriteria.max4xxPct);
-  const [max5xxPct, setMax5xxPct] = useState(initCriteria.max5xxPct);
-  const [max4xxCount, setMax4xxCount] = useState(initCriteria.max4xxCount);
-  const [max5xxCount, setMax5xxCount] = useState(initCriteria.max5xxCount);
-  const [minWindowRps, setMinWindowRps] = useState(initCriteria.minWindowRps);
-  const [rpsWarmup, setRpsWarmup] = useState(initCriteria.rpsWarmup);
-  const [stepCriteria, setStepCriteria] = useState<StepCriterionDraft[]>(initCriteria.stepCriteria);
+  const [criteria, setCriteriaState] = useState<CriteriaState>(initCriteria);
   // think time(페이싱) draft. Empty inputs omit think_time / think_seed entirely
   // (byte-identical to pre-feature submit).
   const numToStr = (n?: number | null) => (n == null ? "" : String(n));
@@ -303,18 +292,7 @@ export function RunDialog({
       setSeedBindings(b);
       setPanelKey((k) => k + 1);
       const pc = criteriaStateFrom(prof.criteria ?? undefined);
-      setMaxP50(pc.maxP50);
-      setMaxP95(pc.maxP95);
-      setMaxP99(pc.maxP99);
-      setMaxErrPct(pc.maxErrPct);
-      setMinRps(pc.minRps);
-      setMax4xxPct(pc.max4xxPct);
-      setMax5xxPct(pc.max5xxPct);
-      setMax4xxCount(pc.max4xxCount);
-      setMax5xxCount(pc.max5xxCount);
-      setMinWindowRps(pc.minWindowRps);
-      setRpsWarmup(pc.rpsWarmup);
-      setStepCriteria(pc.stepCriteria);
+      setCriteriaState(pc);
       const ptt = prof.think_time ?? undefined;
       setThinkMin(numToStr(ptt?.min_ms));
       setThinkMax(numToStr(ptt?.max_ms));
@@ -392,21 +370,7 @@ export function RunDialog({
     }
   }, [mutation.error]);
 
-  // Assemble criteriaState early so criteriaActiveCount can be computed below.
-  const criteriaState: CriteriaState = {
-    maxP50,
-    maxP95,
-    maxP99,
-    maxErrPct,
-    minRps,
-    max4xxPct,
-    max5xxPct,
-    max4xxCount,
-    max5xxCount,
-    minWindowRps,
-    rpsWarmup,
-    stepCriteria,
-  };
+  // Assemble criteria early so criteriaActiveCount can be computed below.
   const stepOptions = useMemo<StepOption[]>(() => {
     if (!scenario) return [];
     return flattenHttpSteps(scenario.steps).map((s) => ({
@@ -437,7 +401,7 @@ export function RunDialog({
   const connectTimeoutInvalid = isConnectTimeoutDraftInvalid(connectTimeout, httpTimeout);
   // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
   // active criteria aren't silently hidden.
-  const sloActiveCount = criteriaActiveCount(criteriaState);
+  const sloActiveCount = criteriaActiveCount(criteria);
   // think_time requires both min & max (one alone is invalid); min ≤ max ≤ 600000.
   const thinkInvalid =
     (thinkMin.trim() !== "" || thinkMax.trim() !== "") &&
@@ -565,35 +529,21 @@ export function RunDialog({
   // selected, baseVars is {} and this is byte-identical to the old loop.
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
-  // Task 6: stepCriteria는 별도 array state로 다룬다(string setter 아님) — 여기선 제외.
-  const criteriaSetters: Record<
-    Exclude<keyof CriteriaState, "stepCriteria">,
-    (v: string) => void
-  > = {
-    maxP50: setMaxP50,
-    maxP95: setMaxP95,
-    maxP99: setMaxP99,
-    maxErrPct: setMaxErrPct,
-    minRps: setMinRps,
-    max4xxPct: setMax4xxPct,
-    max5xxPct: setMax5xxPct,
-    max4xxCount: setMax4xxCount,
-    max5xxCount: setMax5xxCount,
-    minWindowRps: setMinWindowRps,
-    rpsWarmup: setRpsWarmup,
-  };
-  const setCriteria = (key: keyof CriteriaState, val: string) => {
-    if (key === "stepCriteria") return; // Task 6: array state 경로로 분리
-    criteriaSetters[key](val);
-    // cross-field: minWindowRps 채우면 closed-loop에선 rpsWarmup을 rampUp으로 seed (기존 동작).
-    if (
-      key === "minWindowRps" &&
-      val.trim() !== "" &&
-      rpsWarmup.trim() === "" &&
-      loadModel === "closed"
-    ) {
-      setRpsWarmup(String(rampUp));
-    }
+  // 문자열 칸 하나 갱신 — 교차 규칙(minWindowRps를 채우면 closed-loop에선 rpsWarmup을
+  // 상승 시간으로 채운다)까지 한 번의 상태 갱신 안에서 처리.
+  const setCriteria = (key: StringCriteriaKey, val: string) => {
+    setCriteriaState((c) => {
+      const next = { ...c, [key]: val };
+      if (
+        key === "minWindowRps" &&
+        val.trim() !== "" &&
+        c.rpsWarmup.trim() === "" &&
+        loadModel === "closed"
+      ) {
+        next.rpsWarmup = String(rampUp);
+      }
+      return next;
+    });
   };
 
   function buildProfile(): Profile {
@@ -603,7 +553,7 @@ export function RunDialog({
       httpTimeout,
       bindings,
       loadState,
-      criteria: criteriaState,
+      criteria,
       measurePhases,
       applyScenarioThink,
       scenarioHasThink: scHasThink,
@@ -962,11 +912,11 @@ export function RunDialog({
               {ko.runDialog.sectionSlo}
               <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
             </h4>
-            <CriteriaFields value={criteriaState} onChange={setCriteria} />
+            <CriteriaFields value={criteria} onChange={setCriteria} />
             <StepCriteriaFields
-              value={stepCriteria}
+              value={criteria.stepCriteria}
               options={stepOptions}
-              onChange={setStepCriteria}
+              onChange={(rows) => setCriteriaState((c) => ({ ...c, stepCriteria: rows }))}
             />
 
             {loadModel === "closed" && (

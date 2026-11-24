@@ -84,8 +84,11 @@ mod tests {
         let c = cases();
         for row in c["numbers"].as_array().unwrap() {
             let input = row["input"].as_str().unwrap();
-            let n: f64 = input.parse().unwrap();
-            let got = to_milli(n).map(|_| percentile_metric_name(n));
+            let got = input
+                .parse::<f64>()
+                .ok()
+                .filter(|n| to_milli(*n).is_some())
+                .map(percentile_metric_name);
             assert_eq!(got.as_deref(), row["name"].as_str(), "{input}");
         }
     }

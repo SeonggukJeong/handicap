@@ -19,7 +19,7 @@ test("add appends a default row and remove drops it", async () => {
   );
   await user.click(screen.getByRole("button", { name: "+ 스텝 기준 추가" }));
   expect(rows).toHaveLength(1);
-  expect(rows[0]).toEqual({ target: "A", metric: "p95_ms", op: "max", threshold: "" });
+  expect(rows[0]).toEqual({ target: "A", metric: "p95_ms", op: "max", threshold: "", p: "" });
   rerender(<StepCriteriaFields value={rows} options={opts} onChange={onChange} />);
   await user.click(screen.getByRole("button", { name: "스텝 기준 1 삭제" }));
   expect(rows).toHaveLength(0);
@@ -28,7 +28,7 @@ test("add appends a default row and remove drops it", async () => {
 test("rate metric shows % unit, latency shows ms", () => {
   const { rerender } = render(
     <StepCriteriaFields
-      value={[{ target: "A", metric: "5xx_rate", op: "max", threshold: "2" }]}
+      value={[{ target: "A", metric: "5xx_rate", op: "max", threshold: "2", p: "" }]}
       options={opts}
       onChange={() => {}}
     />,
@@ -36,7 +36,7 @@ test("rate metric shows % unit, latency shows ms", () => {
   expect(screen.getByText("%")).toBeInTheDocument();
   rerender(
     <StepCriteriaFields
-      value={[{ target: "A", metric: "p95_ms", op: "max", threshold: "300" }]}
+      value={[{ target: "A", metric: "p95_ms", op: "max", threshold: "300", p: "" }]}
       options={opts}
       onChange={() => {}}
     />,

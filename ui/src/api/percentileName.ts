@@ -22,6 +22,6 @@ export function parsePercentileMetric(name: string): number | null {
 
 /** 입력 글자(`90`, `99.90`) → 정본 이름. 0 < N < 100·소수 3자리까지가 아니면 null. */
 export function percentileMetricName(input: string): string | null {
-  const n = canonicalNumber(input.trim());
+  const n = canonicalNumber(input);
   return n === null ? null : `p${n}_ms`;
 }

@@ -491,6 +491,7 @@ describe("RunDialog — env & ramp_up", () => {
 });
 
 import type { RunPrefill } from "../../../api/runPrefill";
+import type { Criteria } from "../../../api/schemas";
 
 function renderWithInitial(
   initial: RunPrefill,
@@ -4136,5 +4137,133 @@ describe("RunDialog — 준비 스텝 안내", () => {
   it("준비 스텝이 없는 시나리오에는 안내 구역이 없다", () => {
     renderDialog(false, { ...newEmptyScenario("s"), steps: [MAIN_STEP] });
     expect(screen.queryByText("준비 스텝 안내")).not.toBeInTheDocument();
+  });
+});
+
+describe("RunDialog — 새 판정 항목 다시 열기", () => {
+  const criteria: Criteria = {
+    max_mean_ms: 3000,
+    max_max_ms: 10000.5,
+    max_percentiles_ms: [
+      { percentile: 90, max_ms: 2500 },
+      { percentile: 99.9, max_ms: 8000 },
+    ],
+    step_criteria: [
+      { target: "A", metric: "mean_ms", op: "max", threshold: 500 },
+      { target: "A", metric: "p99.9_ms", op: "max", threshold: 900 },
+      { target: "A", metric: "p95_ms", op: "max", threshold: 700 },
+    ],
+  };
+  const created = {
+    id: "RX",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "pending",
+    profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+    env: {},
+    started_at: null,
+    ended_at: null,
+    created_at: 1,
+  };
+  const postedCriteria = () => {
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    return JSON.parse((call![1] as RequestInit).body as string).profile.criteria;
+  };
+  const posted = () =>
+    fetchMock.mock.calls.some(
+      ([u, i]) =>
+        String(u).endsWith("/api/runs") && (i as RequestInit | undefined)?.method === "POST",
+    );
+
+  it("다시 실행 프리필 → 그대로 실행하면 같은 criteria, 판정·고급이 펼쳐져 있다", async () => {
+    fetchMock.mockImplementation(() => jsonResponse(created));
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        criteria,
+      },
+      env: {},
+    } as RunPrefill);
+    expect(screen.getByRole("button", { name: /판정·고급/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(posted()).toBe(true));
+    expect(postedCriteria()).toEqual(criteria);
+  });
+
+  it("프리셋 불러오기 → 그대로 실행 → 같은 criteria", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "P1",
+                name: "heavy",
+                vus: 5,
+                duration_seconds: 6,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/P1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "P1",
+            scenario_id: "S1",
+            name: "heavy",
+            profile: {
+              vus: 5,
+              duration_seconds: 6,
+              ramp_up_seconds: 0,
+              loop_breakdown_cap: 256,
+              data_binding: null,
+              criteria,
+            },
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse(created));
+    });
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <RunDialog
+          scenarioId="S1"
+          hasLoop={true}
+          scenario={null}
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
+    await waitFor(() =>
+      expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(5),
+    );
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(posted()).toBe(true));
+    expect(postedCriteria()).toEqual(criteria);
   });
 });

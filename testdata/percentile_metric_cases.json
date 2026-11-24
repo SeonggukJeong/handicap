@@ -14,6 +14,7 @@
     {"input": "90", "name": "p90_ms"}, {"input": "90.0", "name": "p90_ms"},
     {"input": "99.90", "name": "p99.9_ms"}, {"input": "0.5", "name": "p0.5_ms"},
     {"input": "1.005", "name": "p1.005_ms"}, {"input": "100", "name": null},
-    {"input": "0", "name": null}, {"input": "99.9999", "name": null}, {"input": "-5", "name": null}
+    {"input": "0", "name": null}, {"input": "99.9999", "name": null}, {"input": "-5", "name": null},
+    {"input": " 90", "name": null}
   ]
 }

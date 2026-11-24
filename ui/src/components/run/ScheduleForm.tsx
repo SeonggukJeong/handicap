@@ -28,7 +28,7 @@ import {
   criteriaActiveCount,
   isConnectTimeoutDraftInvalid,
   type CriteriaState,
-  type StepCriterionDraft,
+  type StringCriteriaKey,
 } from "./profileForm";
 import { StepCriteriaFields, type StepOption } from "./StepCriteriaFields";
 import { DataBindingPanel } from "./DataBindingPanel";
@@ -130,18 +130,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   // ── SLO criteria ──────────────────────────────────────────────────────────
   const initC = init?.criteria ?? undefined;
   const initCriteria = criteriaStateFrom(initC);
-  const [maxP50, setMaxP50] = useState(initCriteria.maxP50);
-  const [maxP95, setMaxP95] = useState(initCriteria.maxP95);
-  const [maxP99, setMaxP99] = useState(initCriteria.maxP99);
-  const [maxErrPct, setMaxErrPct] = useState(initCriteria.maxErrPct);
-  const [minRps, setMinRps] = useState(initCriteria.minRps);
-  const [max4xxPct, setMax4xxPct] = useState(initCriteria.max4xxPct);
-  const [max5xxPct, setMax5xxPct] = useState(initCriteria.max5xxPct);
-  const [max4xxCount, setMax4xxCount] = useState(initCriteria.max4xxCount);
-  const [max5xxCount, setMax5xxCount] = useState(initCriteria.max5xxCount);
-  const [minWindowRps, setMinWindowRps] = useState(initCriteria.minWindowRps);
-  const [rpsWarmup, setRpsWarmup] = useState(initCriteria.rpsWarmup);
-  const [stepCriteria, setStepCriteria] = useState<StepCriterionDraft[]>(initCriteria.stepCriteria);
+  const [criteria, setCriteriaState] = useState<CriteriaState>(initCriteria);
   const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initCriteria));
 
   const stepOptions = useMemo<StepOption[]>(() => {
@@ -152,48 +141,21 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     }));
   }, [parsedScenario]);
 
-  const criteriaState: CriteriaState = {
-    maxP50,
-    maxP95,
-    maxP99,
-    maxErrPct,
-    minRps,
-    max4xxPct,
-    max5xxPct,
-    max4xxCount,
-    max5xxCount,
-    minWindowRps,
-    rpsWarmup,
-    stepCriteria,
-  };
-  // Task 6: stepCriteria는 별도 array state로 다룬다(string setter 아님) — 여기선 제외.
-  const criteriaSetters: Record<
-    Exclude<keyof CriteriaState, "stepCriteria">,
-    (v: string) => void
-  > = {
-    maxP50: setMaxP50,
-    maxP95: setMaxP95,
-    maxP99: setMaxP99,
-    maxErrPct: setMaxErrPct,
-    minRps: setMinRps,
-    max4xxPct: setMax4xxPct,
-    max5xxPct: setMax5xxPct,
-    max4xxCount: setMax4xxCount,
-    max5xxCount: setMax5xxCount,
-    minWindowRps: setMinWindowRps,
-    rpsWarmup: setRpsWarmup,
-  };
-  const setCriteria = (key: keyof CriteriaState, val: string) => {
-    if (key === "stepCriteria") return; // Task 6: array state 경로로 분리
-    criteriaSetters[key](val);
-    if (
-      key === "minWindowRps" &&
-      val.trim() !== "" &&
-      rpsWarmup.trim() === "" &&
-      loadModel === "closed"
-    ) {
-      setRpsWarmup(String(rampUp));
-    }
+  // 문자열 칸 하나 갱신 — 교차 규칙(minWindowRps를 채우면 closed-loop에선 rpsWarmup을
+  // 상승 시간으로 채운다)까지 한 번의 상태 갱신 안에서 처리.
+  const setCriteria = (key: StringCriteriaKey, val: string) => {
+    setCriteriaState((c) => {
+      const next = { ...c, [key]: val };
+      if (
+        key === "minWindowRps" &&
+        val.trim() !== "" &&
+        c.rpsWarmup.trim() === "" &&
+        loadModel === "closed"
+      ) {
+        next.rpsWarmup = String(rampUp);
+      }
+      return next;
+    });
   };
 
   // ── measure phases (진단/고급) ───────────────────────────────────────────
@@ -284,7 +246,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       httpTimeout,
       bindings,
       loadState,
-      criteria: criteriaState,
+      criteria,
       measurePhases,
       connectTimeout,
     });
@@ -302,7 +264,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     });
   };
 
-  const sloActiveCount = criteriaActiveCount(criteriaState);
+  const sloActiveCount = criteriaActiveCount(criteria);
 
   return (
     <div className="border border-slate-200 rounded-md p-4 bg-white">
@@ -329,7 +291,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
               setSeedBindings([]);
               setBindingBlock({ ok: true, reasons: [] });
               setPanelKey((k) => k + 1);
-              setStepCriteria([]);
+              setCriteriaState((c) => ({ ...c, stepCriteria: [] }));
             }}
           >
             <option value="">선택…</option>
@@ -445,8 +407,12 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         divider
         hint={!sloOpen && sloActiveCount > 0 ? `${sloActiveCount}개 설정됨` : undefined}
       >
-        <CriteriaFields value={criteriaState} onChange={setCriteria} />
-        <StepCriteriaFields value={stepCriteria} options={stepOptions} onChange={setStepCriteria} />
+        <CriteriaFields value={criteria} onChange={setCriteria} />
+        <StepCriteriaFields
+          value={criteria.stepCriteria}
+          options={stepOptions}
+          onChange={(rows) => setCriteriaState((c) => ({ ...c, stepCriteria: rows }))}
+        />
       </Section>
 
       {/* 진단/고급 (선택) */}

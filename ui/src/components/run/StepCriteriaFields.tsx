@@ -27,7 +27,7 @@ export function StepCriteriaFields({ value, options, onChange }: Props) {
   const add = () =>
     onChange([
       ...value,
-      { target: options[0]?.id ?? "", metric: "p95_ms", op: "max", threshold: "" },
+      { target: options[0]?.id ?? "", metric: "p95_ms", op: "max", threshold: "", p: "" },
     ]);
 
   return (

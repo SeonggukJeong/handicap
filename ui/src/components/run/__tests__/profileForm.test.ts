@@ -6,13 +6,16 @@ import {
   criteriaHasValue,
   criteriaActiveCount,
   criteriaStateFrom,
+  criteriaErrors,
+  hasCriteriaErrors,
   isConnectTimeoutDraftInvalid,
   EMPTY_CRITERIA,
   type CriteriaState,
   type ProfileFormInput,
 } from "../profileForm";
 import type { LoadModelState } from "../loadModel";
-import type { DataBinding } from "../../../api/schemas";
+import type { Criteria, DataBinding } from "../../../api/schemas";
+import { ko } from "../../../i18n/ko";
 
 const closedLoad: LoadModelState = {
   loadModel: "closed",
@@ -154,8 +157,8 @@ describe("criteriaStateFrom", () => {
       ],
     });
     expect(state.stepCriteria).toEqual([
-      { target: "A", metric: "5xx_rate", op: "max", threshold: "2" },
-      { target: "B", metric: "p95_ms", op: "max", threshold: "300" },
+      { target: "A", metric: "5xx_rate", op: "max", threshold: "2", p: "" },
+      { target: "B", metric: "p95_ms", op: "max", threshold: "300", p: "" },
     ]);
   });
 });
@@ -165,8 +168,8 @@ describe("step criteria", () => {
     const s = {
       ...EMPTY_CRITERIA,
       stepCriteria: [
-        { target: "A", metric: "p95_ms", op: "max" as const, threshold: "300" },
-        { target: "B", metric: "5xx_rate", op: "max" as const, threshold: "2" }, // 2% → 0.02
+        { target: "A", metric: "p95_ms", op: "max" as const, threshold: "300", p: "" },
+        { target: "B", metric: "5xx_rate", op: "max" as const, threshold: "2", p: "" }, // 2% → 0.02
       ],
     };
     const c = buildCriteria(s);
@@ -182,7 +185,7 @@ describe("step criteria", () => {
   it("empty rows are dropped from build", () => {
     const s = {
       ...EMPTY_CRITERIA,
-      stepCriteria: [{ target: "", metric: "p95_ms", op: "max" as const, threshold: "" }],
+      stepCriteria: [{ target: "", metric: "p95_ms", op: "max" as const, threshold: "", p: "" }],
     };
     expect(buildCriteria(s)).toBeUndefined();
   });
@@ -287,5 +290,164 @@ describe("isConnectTimeoutDraftInvalid (timeout-knob-ui — RunDialog·ScheduleF
     expect(isConnectTimeoutDraftInvalid("0", 30)).toBe(true);
     expect(isConnectTimeoutDraftInvalid("601", 700)).toBe(true);
     expect(isConnectTimeoutDraftInvalid("1.5", 30)).toBe(true);
+  });
+});
+
+describe("새 판정 항목", () => {
+  const full: Criteria = {
+    max_mean_ms: 3000,
+    max_max_ms: 10000.5,
+    max_percentiles_ms: [
+      { percentile: 90, max_ms: 2500 },
+      { percentile: 99.9, max_ms: 8000 },
+    ],
+    step_criteria: [
+      { target: "A", metric: "mean_ms", op: "max", threshold: 500 },
+      { target: "A", metric: "p99.9_ms", op: "max", threshold: 900 },
+      { target: "A", metric: "p95_ms", op: "max", threshold: 700 },
+    ],
+  };
+  const row = (p: string, ms: string) => ({ p, ms });
+
+  it("buildCriteria: 평균·최대·백분위 행", () => {
+    const c = buildCriteria({
+      ...EMPTY_CRITERIA,
+      maxMean: "3000",
+      maxMax: "10000.5",
+      percentiles: [row("90", "2500"), row("99.9", "8000"), row("90", "")],
+    });
+    expect(c).toEqual({
+      max_mean_ms: 3000,
+      max_max_ms: 10000.5,
+      max_percentiles_ms: [
+        { percentile: 90, max_ms: 2500 },
+        { percentile: 99.9, max_ms: 8000 },
+      ],
+    });
+  });
+  it("buildCriteria: ms 빈 행뿐이면 키 없음", () => {
+    const c = buildCriteria({ ...EMPTY_CRITERIA, maxMean: "1", percentiles: [row("90", "")] });
+    expect("max_percentiles_ms" in c!).toBe(false);
+  });
+  it("buildCriteria: 스텝 mean/max/백분위 행", () => {
+    const mk = (metric: string, p: string) => ({
+      target: "A",
+      metric,
+      op: "max" as const,
+      threshold: "5",
+      p,
+    });
+    const c = buildCriteria({
+      ...EMPTY_CRITERIA,
+      stepCriteria: [
+        mk("mean_ms", ""),
+        mk("max_ms", ""),
+        mk("percentile", "90"),
+        mk("percentile", "95"),
+        mk("percentile", "99.90"),
+      ],
+    });
+    expect(c!.step_criteria!.map((r) => r.metric)).toEqual([
+      "mean_ms",
+      "max_ms",
+      "p90_ms",
+      "p95_ms",
+      "p99.9_ms",
+    ]);
+  });
+  it("criteriaStateFrom: 새 칸·스텝 표지", () => {
+    const st = criteriaStateFrom(full);
+    expect(st.maxMean).toBe("3000");
+    expect(st.maxMax).toBe("10000.5");
+    expect(st.percentiles).toEqual([row("90", "2500"), row("99.9", "8000")]);
+    expect(st.stepCriteria.map((r) => [r.metric, r.p])).toEqual([
+      ["mean_ms", ""],
+      ["percentile", "99.9"],
+      ["p95_ms", ""],
+    ]);
+    expect(
+      criteriaStateFrom({
+        step_criteria: [{ target: "A", metric: "p90_ms", op: "max", threshold: 1 }],
+      }).stepCriteria[0],
+    ).toMatchObject({ metric: "percentile", p: "90" });
+  });
+  it("왕복", () => {
+    expect(buildCriteria(criteriaStateFrom(full))).toEqual(full);
+  });
+  it("criteriaHasValue·criteriaActiveCount", () => {
+    expect(criteriaHasValue({ ...EMPTY_CRITERIA, maxMean: "1" })).toBe(true);
+    expect(criteriaHasValue({ ...EMPTY_CRITERIA, percentiles: [row("90", "")] })).toBe(false);
+    expect(criteriaHasValue({ ...EMPTY_CRITERIA, percentiles: [row("90", "1")] })).toBe(true);
+    expect(
+      criteriaActiveCount({
+        ...EMPTY_CRITERIA,
+        maxMean: "1",
+        maxMax: "2",
+        percentiles: [row("90", "1"), row("99", "2"), row("80", "")],
+      }),
+    ).toBe(4);
+  });
+
+  describe("criteriaErrors", () => {
+    const err = (patch: Partial<CriteriaState>) => criteriaErrors({ ...EMPTY_CRITERIA, ...patch });
+    it("시간 값", () => {
+      for (const v of ["60000.001", "-1", "1.0005", "abc"]) {
+        expect(err({ maxMean: v }).maxMean).toBe(ko.criteria.errTime);
+      }
+      for (const v of ["", "60000", "1.005"]) expect(err({ maxMean: v }).maxMean).toBeUndefined();
+      expect(err({ maxMax: "70000" }).maxMax).toBe(ko.criteria.errTime);
+    });
+    it("백분위 행", () => {
+      expect(err({ percentiles: [row("50", "1")] }).percentiles[0].p).toBe(
+        ko.criteria.errPercentileFixed("50"),
+      );
+      expect(ko.criteria.errPercentileFixed("50")).toContain("p50은");
+      expect(ko.criteria.errPercentileFixed("95")).toContain("p95는");
+      expect(err({ percentiles: [row("95", "1")] }).percentiles[0].p).toBe(
+        ko.criteria.errPercentileFixed("95"),
+      );
+      for (const p of ["100", "90.0001"]) {
+        expect(err({ percentiles: [row(p, "1")] }).percentiles[0].p).toBe(
+          ko.criteria.errPercentileRange,
+        );
+      }
+      expect(err({ percentiles: [row("", "1")] }).percentiles[0].p).toBe(
+        ko.criteria.errPercentileMissing,
+      );
+      const dup = err({ percentiles: [row("90", "1"), row("90.0", "2")] }).percentiles;
+      expect(dup[0].p).toBeUndefined();
+      expect(dup[1].p).toBe(ko.criteria.errPercentileDuplicate("90"));
+      expect(hasCriteriaErrors(err({ percentiles: [row("90", ""), row("90", "5")] }))).toBe(false);
+      expect(err({ percentiles: [row("90", "70000")] }).percentiles[0].ms).toBe(
+        ko.criteria.errTime,
+      );
+      expect(hasCriteriaErrors(err({ percentiles: [row("150", "")] }))).toBe(false);
+    });
+    it("10개 초과", () => {
+      const rows = Array.from({ length: 11 }, (_, i) => row(String(i + 1), "1"));
+      expect(err({ percentiles: rows }).percentilesList).toBe(ko.criteria.errPercentilesMax);
+    });
+    it("스텝 행", () => {
+      const st = (metric: string, p: string, threshold: string) => ({
+        target: "A",
+        metric,
+        op: "max" as const,
+        threshold,
+        p,
+      });
+      const e = (r: ReturnType<typeof st>) => err({ stepCriteria: [r] }).steps[0];
+      expect(e(st("percentile", "", "5")).p).toBe(ko.criteria.errPercentileMissing);
+      expect(e(st("percentile", "100", "5")).p).toBe(ko.criteria.errPercentileRange);
+      expect(e(st("percentile", "95", "70000")).threshold).toBeUndefined();
+      expect(e(st("percentile", "95.0", "70000")).threshold).toBeUndefined();
+      expect(e(st("percentile", "90", "70000")).threshold).toBe(ko.criteria.errTime);
+      expect(e(st("mean_ms", "", "0.0005")).threshold).toBe(ko.criteria.errTime);
+      expect(e(st("p95_ms", "", "70000")).threshold).toBeUndefined();
+      expect(e(st("max_ms", "", "")).threshold).toBeUndefined();
+    });
+    it("hasCriteriaErrors", () => {
+      expect(hasCriteriaErrors(criteriaErrors(EMPTY_CRITERIA))).toBe(false);
+      expect(hasCriteriaErrors(err({ maxMax: "-1" }))).toBe(true);
+    });
   });
 });

@@ -1,5 +1,7 @@
 import type { Criteria, DataBinding, Profile } from "../../api/schemas";
 import { buildLoadProfile, type LoadModelState } from "./loadModel";
+import { parsePercentileMetric, percentileMetricName } from "../../api/percentileName";
+import { ko } from "../../i18n/ko";
 
 /** step-level SLO 한 행의 draft 상태(threshold는 rate metric이면 % 표시, 저장은 분수). */
 export type StepCriterionDraft = {
@@ -7,7 +9,19 @@ export type StepCriterionDraft = {
   metric: string;
   op: "max" | "min";
   threshold: string; // rate metric은 % 표시(저장은 분수)
+  /** 「백분위」 행(metric === "percentile")의 N 글자. 다른 항목이면 "". */
+  p: string;
 };
+
+/** run 백분위 기준 한 행의 draft(p = N 글자, ms = 기준값). ms가 빈 행은 보내지 않는다. */
+export type PercentileDraft = { p: string; ms: string };
+
+export const NEW_PERCENTILE_ROW: PercentileDraft = { p: "90", ms: "" };
+export const MAX_PERCENTILE_ROWS = 10;
+
+/** 스텝 「백분위」 행의 metric 표지. */
+const PERCENTILE_MARK = "percentile";
+const FIXED_PERCENTILE_NAMES = new Set(["p50_ms", "p95_ms", "p99_ms"]);
 
 const RATE_METRICS = new Set(["error_rate", "4xx_rate", "5xx_rate"]);
 
@@ -24,8 +38,14 @@ export type CriteriaState = {
   max5xxCount: string;
   minWindowRps: string;
   rpsWarmup: string; // 수식자(criterion 아님)
+  maxMean: string; // ms(소수 가능)
+  maxMax: string; // ms(소수 가능)
+  percentiles: PercentileDraft[];
   stepCriteria: StepCriterionDraft[];
 };
+
+/** 문자열 한 칸으로 들어가는 기준 키(배열 칸 제외). */
+export type StringCriteriaKey = Exclude<keyof CriteriaState, "stepCriteria" | "percentiles">;
 
 export const EMPTY_CRITERIA: CriteriaState = {
   maxP50: "",
@@ -39,6 +59,9 @@ export const EMPTY_CRITERIA: CriteriaState = {
   max5xxCount: "",
   minWindowRps: "",
   rpsWarmup: "",
+  maxMean: "",
+  maxMax: "",
+  percentiles: [],
   stepCriteria: [],
 };
 
@@ -58,18 +81,30 @@ export function criteriaStateFrom(c?: Criteria | null): CriteriaState {
     max5xxCount: numToStr(c?.max_5xx_count),
     minWindowRps: numToStr(c?.min_window_rps),
     rpsWarmup: numToStr(c?.rps_warmup_seconds),
-    stepCriteria: (c?.step_criteria ?? []).map((r) => ({
-      target: r.target,
-      metric: r.metric,
-      op: r.op,
-      threshold: RATE_METRICS.has(r.metric) ? String(r.threshold * 100) : String(r.threshold),
+    maxMean: numToStr(c?.max_mean_ms),
+    maxMax: numToStr(c?.max_max_ms),
+    percentiles: (c?.max_percentiles_ms ?? []).map((r) => ({
+      p: String(r.percentile),
+      ms: String(r.max_ms),
     })),
+    stepCriteria: (c?.step_criteria ?? []).map((r) => {
+      // p50·p95·p99는 기존 항목으로 열고, 그 밖의 정본 이름만 「백분위」 행으로 연다.
+      const n = FIXED_PERCENTILE_NAMES.has(r.metric) ? null : parsePercentileMetric(r.metric);
+      return {
+        target: r.target,
+        metric: n === null ? r.metric : PERCENTILE_MARK,
+        op: r.op,
+        threshold: RATE_METRICS.has(r.metric) ? String(r.threshold * 100) : String(r.threshold),
+        p: n === null ? "" : String(n),
+      };
+    }),
   };
 }
 
 export function criteriaHasValue(s: CriteriaState): boolean {
-  const { stepCriteria, ...rest } = s;
+  const { stepCriteria, percentiles, ...rest } = s;
   if (stepCriteria.length > 0) return true;
+  if (percentiles.some((r) => r.ms.trim() !== "")) return true;
   return Object.values(rest).some((v) => v.trim() !== "");
 }
 
@@ -87,7 +122,11 @@ export function criteriaActiveCount(s: CriteriaState): number {
       s.max4xxCount,
       s.max5xxCount,
       s.minWindowRps,
-    ].filter((v) => v.trim() !== "").length + s.stepCriteria.length
+      s.maxMean,
+      s.maxMax,
+    ].filter((v) => v.trim() !== "").length +
+    s.percentiles.filter((r) => r.ms.trim() !== "").length +
+    s.stepCriteria.length
   );
 }
 
@@ -104,16 +143,112 @@ export function buildCriteria(s: CriteriaState): Criteria | undefined {
   if (s.max5xxCount.trim() !== "") c.max_5xx_count = Number(s.max5xxCount);
   if (s.minWindowRps.trim() !== "") c.min_window_rps = Number(s.minWindowRps);
   if (s.rpsWarmup.trim() !== "") c.rps_warmup_seconds = Number(s.rpsWarmup);
+  if (s.maxMean.trim() !== "") c.max_mean_ms = Number(s.maxMean);
+  if (s.maxMax.trim() !== "") c.max_max_ms = Number(s.maxMax);
+  const pcts: NonNullable<Criteria["max_percentiles_ms"]> = [];
+  for (const r of s.percentiles) {
+    if (r.ms.trim() === "") continue;
+    const name = percentileMetricName(r.p);
+    const n = name === null ? null : parsePercentileMetric(name);
+    if (n === null) continue; // 검사가 막는다 — 방어
+    pcts.push({ percentile: n, max_ms: Number(r.ms) });
+  }
+  if (pcts.length > 0) c.max_percentiles_ms = pcts;
   const steps = s.stepCriteria
     .filter((r) => r.target.trim() !== "" && r.threshold.trim() !== "")
-    .map((r) => ({
-      metric: r.metric,
-      op: r.op,
-      target: r.target,
-      threshold: RATE_METRICS.has(r.metric) ? Number(r.threshold) / 100 : Number(r.threshold),
-    }));
+    .flatMap((r) => {
+      const metric = r.metric === PERCENTILE_MARK ? percentileMetricName(r.p) : r.metric;
+      if (metric === null) return []; // 검사가 막는다 — 방어
+      return [
+        {
+          metric,
+          op: r.op,
+          target: r.target,
+          threshold: RATE_METRICS.has(metric) ? Number(r.threshold) / 100 : Number(r.threshold),
+        },
+      ];
+    });
   if (steps.length > 0) c.step_criteria = steps;
   return Object.keys(c).length > 0 ? c : undefined;
+}
+
+/** 새 시간 값 칸의 검사 — 서버 validate_criteria와 같은 규칙(유한·0 이상·60,000 이하·소수 3자리). */
+export function timeValueError(text: string): string | undefined {
+  if (text.trim() === "") return undefined;
+  const x = Number(text);
+  if (!Number.isFinite(x) || x < 0 || x > 60000) return ko.criteria.errTime;
+  if (Math.abs(x * 1000 - Math.round(x * 1000)) >= 1e-6) return ko.criteria.errTime;
+  return undefined;
+}
+
+export type CriteriaErrors = {
+  maxMean?: string;
+  maxMax?: string;
+  percentiles: Array<{ p?: string; ms?: string }>;
+  percentilesList?: string;
+  steps: Array<{ p?: string; threshold?: string }>;
+};
+
+/** 백분위 N 글자 → 오류 문구 또는 정본 이름. */
+function percentileNameError(text: string): { error: string } | { name: string } {
+  if (text.trim() === "") return { error: ko.criteria.errPercentileMissing };
+  const name = percentileMetricName(text);
+  if (name === null) return { error: ko.criteria.errPercentileRange };
+  return { name };
+}
+
+const nOf = (name: string) => String(parsePercentileMetric(name));
+
+export function criteriaErrors(s: CriteriaState): CriteriaErrors {
+  const seen = new Set<string>();
+  let sent = 0;
+  const percentiles = s.percentiles.map((r) => {
+    if (r.ms.trim() === "") return {}; // 보내지 않는 행 — 검사도 같은 N 비교도 하지 않는다
+    sent += 1;
+    const out: { p?: string; ms?: string } = {};
+    const res = percentileNameError(r.p);
+    if ("error" in res) out.p = res.error;
+    else if (FIXED_PERCENTILE_NAMES.has(res.name))
+      out.p = ko.criteria.errPercentileFixed(nOf(res.name));
+    else if (seen.has(res.name)) out.p = ko.criteria.errPercentileDuplicate(nOf(res.name));
+    else seen.add(res.name);
+    const ms = timeValueError(r.ms);
+    if (ms) out.ms = ms;
+    return out;
+  });
+  const steps = s.stepCriteria.map((r) => {
+    const out: { p?: string; threshold?: string } = {};
+    if (r.threshold.trim() === "") return out; // 보내지 않는 행
+    if (r.metric === PERCENTILE_MARK) {
+      const res = percentileNameError(r.p);
+      if ("error" in res) out.p = res.error;
+      else if (!FIXED_PERCENTILE_NAMES.has(res.name)) {
+        const t = timeValueError(r.threshold);
+        if (t) out.threshold = t;
+      }
+    } else if (r.metric === "mean_ms" || r.metric === "max_ms") {
+      const t = timeValueError(r.threshold);
+      if (t) out.threshold = t;
+    }
+    return out;
+  });
+  return {
+    maxMean: timeValueError(s.maxMean),
+    maxMax: timeValueError(s.maxMax),
+    percentiles,
+    ...(sent > MAX_PERCENTILE_ROWS ? { percentilesList: ko.criteria.errPercentilesMax } : {}),
+    steps,
+  };
+}
+
+export function hasCriteriaErrors(e: CriteriaErrors): boolean {
+  return (
+    !!e.maxMean ||
+    !!e.maxMax ||
+    !!e.percentilesList ||
+    e.percentiles.some((r) => !!r.p || !!r.ms) ||
+    e.steps.some((r) => !!r.p || !!r.threshold)
+  );
 }
 
 export type ProfileFormInput = {

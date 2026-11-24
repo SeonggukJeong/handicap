@@ -2731,6 +2731,16 @@ export const ko = {
     previewBody: "응답 본문",
     previewNoTrace: "시나리오를 실행하지 못했습니다(시간 초과 또는 설정 오류).",
   },
+  // 판정 기준 입력 검사 문구(실행 창·스케줄 폼 공용)
+  criteria: {
+    errTime: "0 이상 60,000 이하, 소수 셋째 자리까지 적어 주세요.",
+    errPercentileRange: "백분위는 0보다 크고 100보다 작은 수(소수 셋째 자리까지)로 적어 주세요.",
+    errPercentileMissing: "백분위를 적어 주세요.",
+    errPercentileFixed: (n: string) =>
+      `p${n}${josa(`p${n}`, "은/는")} 위의 「최대 p${n}(ms)」 칸을 쓰세요.`,
+    errPercentileDuplicate: (n: string) => `p${n} 기준이 이미 있습니다.`,
+    errPercentilesMax: "백분위 기준은 10개까지입니다.",
+  },
   print: {
     stair: {
       title: "계단 부하 판정 결과",
