@@ -65,6 +65,17 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+describe("executionFingerprint — 판정 규칙 (http-error-default ②b R22)", () => {
+  it("jar 앞에 rule:2를 담는다", () => {
+    expect(executionFingerprint(base())).toContain("v1|rule:2|jar:");
+  });
+  it("규칙 번호가 없던 옛 지문과 다르다 — 미리 실행 확인됨이 한 번 풀린다", () => {
+    const old = executionFingerprint(base()).replace("|rule:2|", "|");
+    expect(old).not.toContain("rule:");
+    expect(executionFingerprint(base())).not.toBe(old);
+  });
+});
+
 describe("executionFingerprint — 무효화하지 않아야 하는 변경", () => {
   it("시나리오 이름", () => {
     expect(executionFingerprint(sc({ name: "other", steps: [step(A)] }))).toBe(

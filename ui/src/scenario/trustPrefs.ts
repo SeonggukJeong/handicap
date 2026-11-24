@@ -1,3 +1,4 @@
+import { EDITOR_STATUS_RULE } from "./statusMode";
 import { hashSeed } from "./genVars";
 import { setupSteps, type Scenario, type Step } from "./model";
 import type { TestRunState } from "./trust";
@@ -87,6 +88,8 @@ export function executionFingerprint(scenario: Scenario): string {
   const setup = setupSteps(scenario);
   return [
     `v${scenario.version}`,
+    // 판정 규칙이 바뀌면 같은 시나리오도 다시 돌려 봐야 같은 결과인지 안다.
+    `rule:${EDITOR_STATUS_RULE}`,
     `jar:${scenario.cookie_jar}`,
     `vars:${canonJson(scenario.variables)}`,
     ...(setup.length > 0 ? [`setup:${canonSteps(setup)}`] : []),

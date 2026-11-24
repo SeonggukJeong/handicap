@@ -97,8 +97,8 @@ describe("RunDialog — 신뢰도 한 줄", () => {
     expect(screen.queryByText(/시나리오 신뢰도/)).not.toBeInTheDocument();
   });
 
-  it("검증 없는 스텝이 있으면 한 줄 + 에디터 링크", () => {
-    renderDialog(sc({ steps: [step({ assert: [] })] }));
+  it("상태 코드를 보지 않는 스텝이 있으면 한 줄 + 에디터 링크", () => {
+    renderDialog(sc({ steps: [step({ assert: [{ kind: "status_any" }] })] }));
     expect(screen.getByText(ko.trust.runDialogLine(ko.trust.level.caution, 1))).toBeInTheDocument();
     // 위 단언은 기대값과 렌더가 **같은 ko 함수**를 호출하므로, 카피에서 `(N건)` 보간이
     // 빠지면 양쪽이 함께 변해 green으로 남는다(self-referential formatter). US3가 요구하는

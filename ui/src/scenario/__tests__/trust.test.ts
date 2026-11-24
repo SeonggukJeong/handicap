@@ -29,6 +29,8 @@ function step(id: string, over: Record<string, unknown> = {}): Record<string, un
 }
 
 const OK = [{ kind: "status", codes: [200] }];
+/** 상태 코드를 보지 않음(status_any) */
+const ANY = [{ kind: "status_any" }];
 /** 추출만 하고 아무도 안 씀 → C 실패 */
 const DANGLING = { extract: [{ var: "tok", from: "body", path: "$.t" }] };
 /** 어디서도 안 만드는 변수 참조 → B 실패 */
@@ -40,25 +42,25 @@ describe("evaluateTrust — 진리표 (spec §5)", () => {
   });
 
   it("행 2: 검증 전무 + C 실패 = weak", () => {
-    const r = evaluateTrust(sc({ steps: [step(A, DANGLING)] }));
+    const r = evaluateTrust(sc({ steps: [step(A, { ...DANGLING, assert: ANY })] }));
     expect(r.noValidationAtAll).toBe(true);
     expect(r.level).toBe("weak");
   });
 
   it("행 3: 검증 전무 + C 통과/na = caution", () => {
-    const r = evaluateTrust(sc({ steps: [step(A)] }));
+    const r = evaluateTrust(sc({ steps: [step(A, { assert: ANY })] }));
     expect(r.noValidationAtAll).toBe(true);
     expect(r.level).toBe("caution");
   });
 
   it("행 4: 검증 부분 + C 실패 = caution (행 2와의 차이는 A의 전무/부분뿐)", () => {
-    const r = evaluateTrust(sc({ steps: [step(A, { assert: OK }), step(B, DANGLING)] }));
+    const r = evaluateTrust(sc({ steps: [step(A, { assert: OK }), step(B, { ...DANGLING, assert: ANY })] }));
     expect(r.noValidationAtAll).toBe(false);
     expect(r.level).toBe("caution");
   });
 
   it("행 5: 검증 부분 + C 통과/na = caution", () => {
-    expect(evaluateTrust(sc({ steps: [step(A, { assert: OK }), step(B)] })).level).toBe("caution");
+    expect(evaluateTrust(sc({ steps: [step(A, { assert: OK }), step(B, { assert: ANY })] })).level).toBe("caution");
   });
 
   it("행 6: A 통과 + C 실패 = caution", () => {
@@ -74,6 +76,44 @@ describe("evaluateTrust — 진리표 (spec §5)", () => {
   });
 });
 
+describe("evaluateTrust — A는 상태 코드를 보지 않는 스텝 (http-error-default ②b R22)", () => {
+  const a = (r: ReturnType<typeof evaluateTrust>) =>
+    r.checks.find((c) => c.id === "response_validation")!;
+
+  it("검사 없는 http 스텝뿐이면 A 통과, 검증 전무 아님", () => {
+    const r = evaluateTrust(sc({ steps: [step(A), step(B)] }));
+    expect(a(r).status).toBe("pass");
+    expect(r.noValidationAtAll).toBe(false);
+  });
+
+  it("코드 검사 스텝 + any 스텝 → A 실패, any 스텝만 싣는다", () => {
+    const r = evaluateTrust(
+      sc({ steps: [step(A, { assert: OK }), step(B, { name: "상태 확인", assert: ANY })] }),
+    );
+    expect(a(r).status).toBe("fail");
+    expect(a(r).steps).toEqual([{ id: B, name: "상태 확인" }]);
+  });
+
+  it("모든 http 스텝이 any면 A 실패 + 검증 전무", () => {
+    const r = evaluateTrust(sc({ steps: [step(A, { assert: ANY }), step(B, { assert: ANY })] }));
+    expect(a(r).status).toBe("fail");
+    expect(r.noValidationAtAll).toBe(true);
+  });
+
+  it("[any, 200] 두 줄 스텝은 A에 들지 않는다", () => {
+    const r = evaluateTrust(sc({ steps: [step(A, { assert: [...ANY, ...OK] })] }));
+    expect(a(r).status).toBe("pass");
+  });
+
+  it("준비 스텝의 any 스텝도 A에 든다", () => {
+    const r = evaluateTrust(
+      sc({ setup: { steps: [step(A, { assert: ANY })] }, steps: [step(B, { assert: OK })] }),
+    );
+    expect(a(r).status).toBe("fail");
+    expect(a(r).steps).toEqual([{ id: A, name: "s-A" }]);
+  });
+});
+
 describe("evaluateTrust — 점검 상세", () => {
   it("A는 검증 없는 스텝의 id와 이름을 문서순으로 싣는다 (중첩 컨테이너 포함)", () => {
     const r = evaluateTrust(
@@ -83,7 +123,7 @@ describe("evaluateTrust — 점검 상세", () => {
             id: A,
             name: "p",
             type: "parallel",
-            branches: [{ name: "b1", steps: [step(B)] }],
+            branches: [{ name: "b1", steps: [step(B, { assert: ANY })] }],
           },
         ],
       }),
@@ -236,7 +276,7 @@ describe("C 모집단 확장 — 선언-충돌 dangling (trust-check-precision U
   });
 
   it("등급 파급(caution→weak): 검증 전무 + 선언-충돌 dangling → 증폭 경유 weak", () => {
-    const r = evaluateTrust(sc({ variables: { tok: "" }, steps: [step(A, DANGLING)] }));
+    const r = evaluateTrust(sc({ variables: { tok: "" }, steps: [step(A, { ...DANGLING, assert: ANY })] }));
     expect(r.noValidationAtAll).toBe(true);
     expect(r.level).toBe("weak");
   });

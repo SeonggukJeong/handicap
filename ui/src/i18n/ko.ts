@@ -2378,9 +2378,9 @@ export const ko = {
     boardGateBlocked: "YAML 오류를 먼저 해결하세요",
 
     // ── 점검 A: 응답 검증 ──
-    checkAFailTitle: "응답 검증이 없는 스텝이 있습니다",
-    checkAFailWhy: "4xx·5xx가 와도 실패로 잡히지 않습니다",
-    checkAPass: "모든 스텝에 응답 검증이 있습니다",
+    checkAFailTitle: "상태 코드를 보지 않는 스텝이 있습니다",
+    checkAFailWhy: "이 스텝은 4xx·5xx가 와도 실패로 잡히지 않습니다",
+    checkAPass: "모든 스텝이 오류 응답을 실패로 잡습니다",
     /** na — 통과 줄과 같이 **어떤 점검이 왜** 해당 없는지 말한다(맥락 없는 "해당 항목 없음" 금지). */
     checkANa: "요청 스텝이 없어 응답 검증을 점검할 것이 없습니다",
 

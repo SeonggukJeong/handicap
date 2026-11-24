@@ -21,7 +21,7 @@ steps:
       - status: 200
 `;
 
-// assert 없는 http 스텝 1개 → A fail(1건) · B pass · C na = 보완 필요 1.
+// status: any(상태 코드를 보지 않음) http 스텝 1개 → A fail(1건) · B pass · C na = 보완 필요 1.
 const CAUTION_YAML = `version: 1
 name: t
 steps:
@@ -31,6 +31,8 @@ steps:
     request:
       method: GET
       url: https://e.test/a
+    assert:
+      - status: any
 `;
 
 const EMPTY_YAML = `version: 1

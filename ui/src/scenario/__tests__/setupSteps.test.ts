@@ -187,11 +187,12 @@ describe("실행 지문 — 준비 스텝", () => {
 });
 
 describe("trust — 준비 스텝", () => {
+  const ANY_ASSERT = "    assert:\n      - status: any\n";
   const NO_ASSERT_SETUP = docYaml(
-    `setup:\n  steps:\n${LOGIN.replace("    assert:\n      - status: 200\n", "")}`,
+    `setup:\n  steps:\n${LOGIN.replace("    assert:\n      - status: 200\n", ANY_ASSERT)}`,
   );
 
-  it("준비 스텝에 상태 검증이 없으면 항목에 나온다", () => {
+  it("준비 스텝이 상태 코드를 보지 않으면 항목에 나온다", () => {
     const a = evaluateTrust(modelOf(NO_ASSERT_SETUP)).checks.find(
       (c) => c.id === "response_validation",
     );
@@ -200,7 +201,7 @@ describe("trust — 준비 스텝", () => {
   });
 
   it("본 스텝에 없을 때와 같은 항목 모양이다", () => {
-    const inBody = docYaml("", LOGIN.replace("    assert:\n      - status: 200\n", ""));
+    const inBody = docYaml("", LOGIN.replace("    assert:\n      - status: 200\n", ANY_ASSERT));
     const a = evaluateTrust(modelOf(inBody)).checks.find((c) => c.id === "response_validation");
     expect(a?.status).toBe("fail");
     expect(a?.steps.map((s) => s.id)).toEqual([S1]);

@@ -1,4 +1,5 @@
 import { allSteps, flattenHttpSteps, type Scenario } from "./model";
+import { statusUnchecked } from "./statusMode";
 import { undefinedVarRefs } from "./scanVars";
 import { buildVarRows } from "./varRows";
 
@@ -14,7 +15,7 @@ export type TestRunState = "verified" | "stale" | "never";
 export interface TrustCheck {
   id: TrustCheckId;
   status: TrustCheckStatus;
-  /** A 전용: 검증이 없는 http 스텝(문서순). B·C는 항상 빈 배열(spec D14). */
+  /** A 전용: 상태 코드를 보지 않는 http 스텝(문서순). B·C는 항상 빈 배열(spec D14). */
   steps: Array<{ id: string; name: string }>;
   /** B·C 전용: 걸린 변수 개수. A는 0. */
   count: number;
@@ -56,16 +57,16 @@ export function isTrustApplicable(scenario: Scenario): boolean {
 export function evaluateTrust(scenario: Scenario): TrustReport {
   const https = flattenHttpSteps(allSteps(scenario));
 
-  // A — 모든 http 스텝이 status assert를 가져야 통과(전칭). 1차 서버 판정은 존재 한정이다.
-  const missing = https.filter((s) => !s.assert.some((x) => x.kind === "status"));
-  const withAssertCount = https.length - missing.length;
+  // A — 상태 코드를 보지 않는(`status_any`뿐인) http 스텝이 하나라도 있으면 실패.
+  // 검사 줄이 없는 스텝은 4xx·5xx를 오류로 잡으니 통과다(엔진 `status_unchecked`와 같은 판정).
+  const unchecked = https.filter((s) => statusUnchecked(s.assert));
   const a: TrustCheck =
     https.length === 0
       ? { id: "response_validation", status: "na", steps: [], count: 0, vars: [] }
       : {
           id: "response_validation",
-          status: missing.length > 0 ? "fail" : "pass",
-          steps: missing.map((s) => ({ id: s.id, name: s.name })),
+          status: unchecked.length > 0 ? "fail" : "pass",
+          steps: unchecked.map((s) => ({ id: s.id, name: s.name })),
           count: 0,
           vars: [],
         };
@@ -105,9 +106,9 @@ export function evaluateTrust(scenario: Scenario): TrustReport {
   const passed = checks.filter((x) => x.status === "pass").length;
   const applicable = checks.filter((x) => x.status !== "na").length;
 
-  // 증폭 조건은 "검증 **전무**"다 — 부분 검증(9/10)은 그 9개에서 시끄럽게 실패하므로
-  // 증폭기가 아니다. `A fail`로 바꾸면 진리표 행 4가 깨진다.
-  const noValidationAtAll = https.length > 0 && withAssertCount === 0;
+  // 증폭 조건은 "http 스텝이 **모두** 상태 코드를 보지 않음"이다 — 일부만 안 보는 경우(9/10)는
+  // 나머지 9개에서 시끄럽게 실패하므로 증폭기가 아니다. `A fail`로 바꾸면 진리표 행 4가 깨진다.
+  const noValidationAtAll = https.length > 0 && unchecked.length === https.length;
 
   const level: TrustLevel =
     b.status === "fail" || (noValidationAtAll && c.status === "fail")

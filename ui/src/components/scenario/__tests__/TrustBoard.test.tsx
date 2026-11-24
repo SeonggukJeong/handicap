@@ -119,6 +119,14 @@ describe("TrustBoard", () => {
     expect(screen.getByText(ko.trust.boardSubtitle)).toBeInTheDocument();
   });
 
+  it("A 실패 제목·이유는 새 규칙의 글을 말한다 (http-error-default ②b R22)", () => {
+    board({ report: CAUTION });
+    expect(screen.getByText("상태 코드를 보지 않는 스텝이 있습니다")).toBeInTheDocument();
+    expect(
+      screen.getByText("이 스텝은 4xx·5xx가 와도 실패로 잡히지 않습니다"),
+    ).toBeInTheDocument();
+  });
+
   it("A 실패는 스텝 **이름** 칩을 내고 클릭하면 그 스텝을 선택하며 닫힌다", async () => {
     const onSelectStep = vi.fn();
     const onClose = vi.fn();
@@ -162,6 +170,7 @@ describe("TrustBoard", () => {
     board();
     await userEvent.click(screen.getByText(ko.trust.boardPassedFold(2)));
     expect(screen.getByText(ko.trust.checkAPass)).toBeInTheDocument();
+    expect(screen.getByText("모든 스텝이 오류 응답을 실패로 잡습니다")).toBeInTheDocument();
     expect(screen.getByText(ko.trust.checkBPass)).toBeInTheDocument();
     // B는 "변수가 정의돼 있다"를 말해야 한다 — 앱의 다른 표면(변수 패널 배지 `정의안됨`,
     // aria `정의되지 않은 변수`)과 같은 어휘여야 사용자가 두 화면을 같은 개념으로 읽는다.
@@ -211,6 +220,8 @@ setup:
       request:
         method: GET
         url: "http://x/p"
+      assert:
+        - status: any
 steps: []
 `);
     if (!("model" in parsed)) throw new Error(parsed.error);
