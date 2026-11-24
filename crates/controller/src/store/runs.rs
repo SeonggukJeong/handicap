@@ -1518,15 +1518,19 @@ mod tests {
     async fn legacy_row_reads_status_rule_1() {
         use crate::store::scenarios;
         use handicap_engine::Scenario;
+        use sqlx::Connection;
         let dir = tempfile::tempdir().unwrap();
         let url = format!("sqlite://{}", dir.path().join("b.db").display());
         let db = store::connect(&url).await.unwrap();
         let yaml = "version: 1\nname: legacy\nsteps: []";
         let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
         let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
-        // 칸이 생기기 전의 옛 스키마를 흉내낸다: 칸을 지우고 옛 모양으로 행을 넣는다.
+        // 칸이 생기기 전의 옛 스키마를 흉내낸다: 풀을 닫고 새 단일 연결로 칸을 지우고
+        // 옛 모양으로 행을 넣는다(풀 연결마다 스키마 캐시가 달라 DROP이 간헐 실패했다).
+        db.close().await;
+        let mut c = sqlx::SqliteConnection::connect(&url).await.unwrap();
         sqlx::query("ALTER TABLE runs DROP COLUMN status_rule")
-            .execute(&db)
+            .execute(&mut c)
             .await
             .unwrap();
         let pj = serde_json::to_string(&profile_fixture(|_| {})).unwrap();
@@ -1537,10 +1541,10 @@ mod tests {
         .bind(&sc.id)
         .bind(yaml)
         .bind(&pj)
-        .execute(&db)
+        .execute(&mut c)
         .await
         .unwrap();
-        db.close().await;
+        c.close().await.unwrap();
         let db = store::connect(&url).await.unwrap();
         let got = get(&db, "OLD1").await.unwrap().unwrap();
         assert_eq!(got.status_rule, STATUS_RULE_LEGACY);
