@@ -247,6 +247,24 @@
 - 현재 우회: 「평균 3초」 권고는 p95 ≤ 3000ms로 걸고 리포트의 평균값을 눈으로 대조한다.
 - 출처: 2026-11-23 사용자 — 신규 시스템 성능 시험의 목표 응답 속도를 정하다가 "LoadRunner가 제공하는거는 다 제공해야지", "일반적으로 사람들이 판정 기준으로 삼는걸 할 수 있어야", "우리는 LoadRunner 보다 지원하는 프로토콜이 부족할 뿐, 이외의 기능은 그 이상을 목표로 해야해".
 
+### A18. LoadRunner·JMeter·k6·Gatling 대비 빠진 기능 (프로토콜 제외) — **후보 (2026-11-24 등록)**
+- **방향**: working-rules §11(프로토콜 말고는 LoadRunner 이상). 2026-11-24 기능 단위로 다른 도구와 맞대어 handicap 코드에서 빠진 것을 확인했다. 그전에는 맞대어 본 적이 없으면서 「빠진 것 없다」고 답했었다 — 평균 판정(§A17)도 실제 일에서 부딪혀 드러났다. 판정 기준만의 대조는 §A17 항목 5로 따로 남는다.
+- **순서 (사용자 결정 2026-11-24)**: §A17(③b → ③c → ④)을 **다 끝낸 뒤** 착수. 사용자는 **항목 3(시나리오 섞기)이 가장 가치 있다**고 봄 → 3을 먼저. 나머지 순서는 그때 정한다(내 의견: 항목 1이 ②와 같은 종류의 거짓 통과라 그다음).
+- 다른 도구 쪽 기능은 내 지식 기준(이 대조 때 문서를 다시 찾아보지 않았다) — 착수 때 해당 도구 문서로 확인한다.
+- **항목** (각 줄 끝 = 빠졌음을 확인한 명령, 2026-11-24 master `467a1033`):
+  1. **응답 본문 검사** — 「본문에 X가 있어야 통과」(LR `web_reg_find`, JMeter Response Assertion, k6 `check`, Gatling `check`). 검사는 상태 코드뿐이라 200으로 오류 화면을 주는 서버는 성공으로 센다. `grep -n 'pub enum Assertion' -A 3 crates/engine/src/scenario.rs`(변형 `Status` 하나).
+  2. **여러 스텝을 묶은 트랜잭션 시간** — 「로그인 전체」「결제 전체」(LR `lr_start/end_transaction`, JMeter Transaction Controller, Gatling `group`). 묶음 시간은 Parallel에만 있다. `grep -n 'pub enum Step' -A 6 crates/engine/src/scenario.rs`(Http·Loop·If·Parallel).
+  3. **한 run에 여러 시나리오를 비율로 섞기** — 「조회 70%·주문 20%·관리 10%」(LR 시나리오 그룹, JMeter 스레드 그룹 여럿, k6 `scenarios`). run은 시나리오 하나. `grep -n 'pub struct CreateRunRequest' -A 8 crates/controller/src/api/runs.rs`(`scenario_id` 하나). §A13-e(페르소나 믹스)와 같은 것 — 착수 때 합친다. **사용자가 가장 가치 있다고 본 항목.**
+  4. **전송량(바이트/초) 지표·그래프** (LR Throughput, JMeter Received/Sent KB/sec). 바이트를 세지 않는다. `grep -rn 'bytes_received\|bytes_sent' crates/proto crates/engine/src` → 0건.
+  5. **파일 업로드(multipart)** (넷 다 지원). `grep -n 'pub enum Body' -A 5 crates/engine/src/scenario.rs`(Json·Form·Raw).
+  6. **TLS·프록시 설정** — 자체 서명 인증서 허용·클라이언트 인증서·프록시 지정(넷 다 지원). `grep -rn 'danger_accept_invalid\|add_root_certificate\|Identity::\|Proxy::' crates/` → 0건. reqwest 기본값으로 `HTTPS_PROXY` 환경 변수를 따르는지는 미확인.
+  7. **실패 응답 저장** — 실패한 요청의 응답 본문 몇 개를 남기기(LR snapshot on error, JMeter 실패 결과 저장). 실패는 개수·분류만 남는다(미리 실행 trace만 본문 있음). `grep -rln 'error_sample\|sample_body\|snapshot_on_error' crates/` → 테스트 이름 하나뿐.
+  8. **집결 지점(rendezvous)** — VU를 모았다가 동시에 보내기(LR rendezvous, JMeter Synchronizing Timer). `grep -rni 'rendezvous\|barrier' crates/engine/src` → 0건.
+  9. **VU별 반복 간격 고정(pacing)** — 「매 반복을 N초마다 시작」(LR pacing, JMeter Constant Throughput Timer). 생각 시간과 open-loop 목표 rps만 있다(전체 처리량 맞추기는 open-loop로 대체됨). `grep -n 'pub struct Profile' -A 70 crates/controller/src/store/runs.rs`에 pacing 칸 없음.
+- **결정으로 뺀 것 — 「LR 이상」 목표로 다시 판단할 후보**: ① 서버 자원 감시(LR Analysis의 서버 CPU·메모리 그래프 합치기) — ADR-0009가 실시간을 APM에 맡겼다. 종료 리포트에 APM 지표를 붙이는 정도는 재판단 대상. ② 스크립트 코드(k6 JS·LR C) — GUI·YAML 모델이라 일부러 안 넣음. 대신 1·2·8 같은 것을 노드로 직접 줘야 한다.
+- 유형: 항목마다 user-path, 엔진·와이어 변경이 많아 정식 파이프라인(US 초안부터). 항목 하나 = 슬라이스 하나 이상.
+- 출처: 2026-11-24 사용자 — "프로토콜을 제외하고 다른 부하테스터 대비 지원하지 못하고 있는게 뭐지? 예전에는 없다고 했었는데 이번에는 발견이 됐잖아." → "다 등록해두고, 하던 작업은 다 끝나고 수행하자. 나는 개인적으로 3번이 더 가치있을거 같은데".
+
 ## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
 
 각 항목은 출처 슬라이스 기준으로 "왜 연기했나 + 어느 슬라이스에서 자연히 풀리나"를 적는다. 어느 슬라이스를 하든 그 슬라이스 plan 작성 시 이 목록을 훑어 관련 항목을 흡수한다.
