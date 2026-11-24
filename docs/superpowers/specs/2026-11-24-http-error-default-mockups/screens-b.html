@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>http-error-default ②b — 추가 목업</title>
+<style>
+  :root { --s50:#f8fafc; --s100:#f1f5f9; --s200:#e2e8f0; --s300:#cbd5e1; --s400:#94a3b8; --s500:#64748b; --s600:#475569; --s700:#334155; --s900:#0f172a; --accent:#4f46e5; --amber-bg:#fffbeb; --amber-bd:#fcd34d; --amber-tx:#92400e; --red-bg:#fef2f2; --red-bd:#fecaca; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--s50); color:var(--s900); font:14px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:36px 0 8px; color:var(--s600); }
+  .note { color:var(--s500); font-size:12px; margin:0 0 12px; max-width:900px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+  .cap { font-size:12px; color:var(--s500); margin:0 0 6px; }
+  .new { outline:2px dashed #a5b4fc; outline-offset:3px; border-radius:6px; }
+
+  /* ── 에디터 (screens.html과 같은 CSS) ── */
+  /* 판 폭 = Inspector 안쪽 폭(카드 테두리 포함). 268px = 지금 기본 화면의 실제 폭(추정, 라이브에서 잰다) */
+  .inspector { background:#fff; border:1px solid var(--s200); border-radius:8px; padding:12px; }
+  .w268 { width:292px; } /* 판 padding 12×2 + 카드 268 */
+  .w360 { width:384px; }
+  fieldset.sec { margin:0; min-width:0; border:1px solid var(--s200); border-radius:4px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+  fieldset.sec legend { font-size:12px; font-weight:600; color:var(--s700); padding:0 4px; }
+  fieldset.sec legend .tw { color:var(--s400); margin-right:4px; }
+  fieldset.sec legend .cnt { font-weight:400; color:var(--s500); margin-left:6px; }
+  fieldset.sec legend .cnt.warn { color:var(--amber-tx); }
+  .lbl { font-size:12px; color:var(--s600); }
+  /* Segmented size="sm" — 낱말 단위 줄바꿈(white-space: nowrap 없음) */
+  .seg { display:flex; width:100%; border:1px solid var(--s200); border-radius:8px; background:var(--s100); padding:2px; }
+  .seg button { flex:1 1 0; min-width:0; font:inherit; font-size:12px; font-weight:600; line-height:1.25; padding:4px 6px; border:0; border-radius:6px; background:transparent; color:var(--s600); word-break:keep-all; }
+  .seg button[aria-checked="true"] { background:var(--accent); color:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .seg.nowrap button { white-space:nowrap; }
+  .hint { font-size:12px; color:var(--s500); margin:0; }
+  .hint.warn { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:6px 8px; }
+  .hint.bad { background:var(--red-bg); border:1px solid var(--red-bd); color:#991b1b; border-radius:6px; padding:6px 8px; }
+  .codes { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .code { display:inline-flex; align-items:center; gap:4px; font:12px ui-monospace,Menlo,monospace; border:1px solid var(--s300); border-radius:9999px; padding:2px 4px 2px 10px; background:#fff; }
+  .code button { border:0; background:transparent; color:var(--s500); font-size:14px; line-height:1; padding:2px 4px; border-radius:9999px; }
+  .add { display:flex; gap:8px; }
+  .add input { width:96px; font:12px ui-monospace,Menlo,monospace; border:1px solid var(--s300); border-radius:4px; padding:4px 8px; }
+  .btn { font:inherit; font-size:12px; border:1px solid var(--s300); border-radius:4px; background:#fff; padding:4px 8px; text-align:left; }
+  .outline { width:560px; max-width:100%; background:#fff; border:1px solid var(--s200); border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:4px; }
+  .step { display:flex; align-items:center; gap:8px; border:1px solid var(--s200); border-radius:6px; padding:6px 10px; font-size:13px; }
+  .m { font:600 11px ui-monospace,Menlo,monospace; color:#047857; background:#ecfdf5; border-radius:4px; padding:1px 6px; }
+  .chips { margin-left:auto; display:flex; gap:4px; flex-shrink:0; }
+  .chip { border:1px solid var(--s200); background:var(--s50); color:var(--s600); border-radius:9999px; padding:2px 8px; font-size:10px; }
+  .chip.warn { border-color:var(--amber-bd); background:var(--amber-bg); color:var(--amber-tx); }
+  .callout { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:8px 12px; font-size:13px; max-width:760px; }
+
+  /* ── 인쇄 비교 (ui/src/print/print.css의 p-cmp-* 값을 옮김) ── */
+  .paper { --ink:#1a1d24; --sub:#5b6170; --line:#c9ccd3; --faint:#eef0f3; --ok:#1f7a4d; --warn:#a15c00; --warnbg:#fff3df; --accent:#3b4bc8;
+    width:210mm; max-width:100%; background:#fff; color:var(--ink); border:1px solid var(--s300); box-shadow:0 1px 3px rgba(0,0,0,.08); padding:8mm 15mm; font-size:8.3pt; line-height:1.45; }
+  .paper h3 { font-size:10.5pt; margin:4mm 0 2mm; border-bottom:1px solid var(--line); padding-bottom:1mm; }
+  .paper h3:first-child { margin-top:0; }
+  .paper h3 .no { color:var(--accent); margin-right:2mm; }
+  .vrow { display:flex; gap:3mm; align-items:stretch; }
+  .vbox { width:42mm; flex-shrink:0; border:1px solid var(--line); border-radius:1.5mm; padding:2mm; text-align:center; background:#f4f5f7; }
+  .vbox .t { font-size:7.5pt; color:var(--sub); }
+  .vbox .big { font-size:13pt; font-weight:700; margin:1mm 0; }
+  .vbox .s { font-size:7.5pt; color:var(--sub); }
+  .lines { flex:1; border:1px solid var(--line); border-radius:1.5mm; padding:2mm 3mm; }
+  .lines .t { font-size:7.5pt; color:var(--sub); margin-bottom:1mm; }
+  .lines ol { margin:0; padding-left:4.5mm; }
+  .fair { display:grid; grid-template-columns:repeat(4,1fr); gap:2mm; font-size:7.8pt; }
+  .fair > div { min-width:0; word-break:keep-all; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:1.5mm; padding:1.3mm 2mm; }
+  .fair > div small { display:block; color:var(--sub); }
+  .fair > .diff { border-color:var(--warn); background:var(--warnbg); }
+  .fair .warntx { color:var(--warn); }
+  .ok { color:var(--ok); font-weight:700; } .warn { color:var(--warn); font-weight:700; }
+  .sample { margin-top:1.5mm; font-size:7.8pt; }
+  table.p { table-layout:fixed; width:100%; border-collapse:collapse; font-size:8.3pt; margin-top:2mm; }
+  table.p th, table.p td { border:1px solid var(--line); padding:1.3mm 1.8mm; text-align:center; vertical-align:middle; overflow-wrap:anywhere; }
+  table.p th { background:var(--faint); font-weight:700; word-break:keep-all; }
+  table.p .l { text-align:left; }
+  table.p tr.diff { background:var(--warnbg); }
+  .paper .new { outline-offset:1px; }
+</style>
+</head>
+<body>
+<h1>http-error-default ②b — 추가 목업</h1>
+<p class="note"><code>screens.html</code>(승인됨)에 없거나 그 목업과 달라지는 부분만 그렸다. 점선 테두리 = 이번에 새로 정하는 것. 에디터 CSS는 <code>screens.html</code>과 같고, 인쇄 비교 CSS는 <code>ui/src/print/print.css</code>의 <code>p-cmp-*</code> 값을 옮겼다.</p>
+
+<h2>1. 좁은 Inspector — 세 방식 단추가 줄을 바꾼다</h2>
+<p class="note">승인된 목업 1은 360px 판에 한 줄이다. 지금 기본 화면의 Inspector 카드 폭은 약 268px(추정 — 라이브에서 잰다)라서 세 글이 12px 한 줄에 들어가지 않는다. 그래서 단추 안에서 낱말 단위로 줄을 바꾼다(<code>Segmented size="sm"</code>, <code>word-break: keep-all</code>). 넓은 칸에서는 한 줄 그대로다.</p>
+<div class="row">
+  <div>
+    <p class="cap">가. 268px — 기본 (줄바꿈)</p>
+    <div class="inspector w268">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증</legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg new" role="radiogroup" aria-label="상태 코드 검사 방식">
+          <button role="radio" aria-checked="true">400 이상은 오류</button><button role="radio" aria-checked="false">적은 코드만 통과</button><button role="radio" aria-checked="false">보지 않음</button>
+        </div>
+        <p class="hint">따로 적지 않아도 400 이상(4xx·5xx) 응답은 오류로 셉니다. 399까지는 통과입니다.</p>
+      </fieldset>
+    </div>
+  </div>
+  <div>
+    <p class="cap">나. 268px — 적은 코드만 통과</p>
+    <div class="inspector w268">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt new">200만 통과</span></legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg" role="radiogroup" aria-label="상태 코드 검사 방식">
+          <button role="radio" aria-checked="false">400 이상은 오류</button><button role="radio" aria-checked="true">적은 코드만 통과</button><button role="radio" aria-checked="false">보지 않음</button>
+        </div>
+        <div class="codes"><span class="code">200<button aria-label="200 빼기">×</button></span></div>
+        <div class="add"><input placeholder="예: 201" inputmode="numeric"><button class="btn">추가</button></div>
+        <p class="hint">적은 코드 가운데 하나를 받으면 통과입니다. 그 밖의 코드는 오류로 셉니다.</p>
+      </fieldset>
+    </div>
+    <p class="note" style="max-width:292px">코드가 하나면 머리 덧글은 「200만 통과」(목업 1 나의 「200, 409만 통과」와 같은 꼴).</p>
+  </div>
+  <div>
+    <p class="cap">다. 360px — 넓은 칸은 한 줄 그대로</p>
+    <div class="inspector w360">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt warn">상태 코드를 보지 않음</span></legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg" role="radiogroup" aria-label="상태 코드 검사 방식">
+          <button role="radio" aria-checked="false">400 이상은 오류</button><button role="radio" aria-checked="false">적은 코드만 통과</button><button role="radio" aria-checked="true">보지 않음</button>
+        </div>
+        <p class="hint warn">이 스텝은 어떤 상태 코드를 받아도 오류로 세지 않습니다. 4xx·5xx를 받으면 리포트가 따로 알려 줍니다.</p>
+      </fieldset>
+    </div>
+  </div>
+</div>
+<div class="row" style="margin-top:12px">
+  <div>
+    <p class="cap">비교용 — 268px에서 한 줄로 고정하면(기각한 안): 단추가 칸 밖으로 밀린다</p>
+    <div class="inspector w268" style="overflow:hidden">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증</legend>
+        <div class="seg nowrap"><button aria-checked="true">400 이상은 오류</button><button aria-checked="false">적은 코드만 통과</button><button aria-checked="false">보지 않음</button></div>
+      </fieldset>
+    </div>
+  </div>
+</div>
+
+<h2>2. 여러 줄 알림 — 항상 실패하지는 않는 경우</h2>
+<p class="note">여러 줄은 지금 master 에디터의 「추가」가 코드마다 줄을 하나씩 더해서 생긴다. 새 에디터는 한 줄만 쓴다. 목업 3은 「항상 실패」 갈래다(<code>200</code> / <code>201</code> — 함께 통과하는 코드가 없다). 함께 든 코드가 있으면 붉은 경고 대신 주의색으로 지금 무엇이 통과하는지 말한다. 합치기는 늘 모든 코드를 합친 한 줄을 만들고, 단추 글이 그 결과를 말한다(사용자 결정 2026-11-24).</p>
+<div class="row">
+  <div>
+    <p class="cap">가. 200·409 / 200 — 지금은 200만 통과</p>
+    <div class="inspector w268">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt warn">확인 필요</span></legend>
+        <span class="lbl">상태 코드</span>
+        <p class="hint warn new">상태 코드 검사가 2줄입니다(200·409 / 200). 지금은 200만 통과합니다.</p>
+        <div class="add"><button class="btn">「200, 409 가운데 하나면 통과」로 합치기</button></div>
+      </fieldset>
+    </div>
+    <p class="note" style="max-width:292px">합치면 409도 통과가 된다. 알림이 지금 상태를, 단추 글이 합친 뒤 상태를 말하므로 누르기 전에 둘 다 보인다.</p>
+  </div>
+  <div>
+    <p class="cap">나. 200 / 200 — 같은 줄이 둘</p>
+    <div class="inspector w268">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt warn">확인 필요</span></legend>
+        <span class="lbl">상태 코드</span>
+        <p class="hint warn">상태 코드 검사가 2줄입니다(200 / 200). 지금은 200만 통과합니다.</p>
+        <div class="add"><button class="btn new">「200만 통과」로 합치기</button></div>
+      </fieldset>
+    </div>
+  </div>
+  <div>
+    <p class="cap">다. 보지 않음 / 보지 않음</p>
+    <div class="inspector w268">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt warn">확인 필요</span></legend>
+        <span class="lbl">상태 코드</span>
+        <p class="hint warn">상태 코드 검사가 2줄입니다(보지 않음 / 보지 않음). 지금은 상태 코드를 보지 않습니다.</p>
+        <div class="add"><button class="btn new">「보지 않음」 한 줄로 합치기</button></div>
+      </fieldset>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:12px">스텝 목록(넓은 화면)에서 여러 줄 스텝의 칩:</p>
+<div class="outline">
+  <div class="step"><span class="m">GET</span>옛 YAML 스텝<span class="chips"><span class="chip warn new">검증 확인 필요</span></span></div>
+  <div class="step"><span class="m">POST</span>주문 생성<span class="chips"><span class="chip">검증 200·409</span><span class="chip">추출 2</span></span></div>
+</div>
+
+<h2>3. 인쇄 비교 — 규칙만 다른 두 run (R26 보강)</h2>
+<p class="note">같은 시나리오·같은 부하로, 앞 run은 이 변경 전(규칙 1), 뒤 run은 이 변경 뒤(규칙 2)에 실행했다. 지금(②a)은 카드 넷이 모두 「같음」이고 머리말에 「참고」 문장이 없어 「조건이 같은데 오류율이 0% → 100%」로 읽힌다. ②b는 규칙 차이를 「다른 조건」으로 세어 머리말이 참고용이라고 말하고, 조건 차이 표 맨 끝에 행을 더한다. 카드 아래 알림 줄은 그대로 두고 글만 바꾼다.</p>
+<div class="paper">
+  <h3><span class="no">1</span>한눈에 보기</h3>
+  <div class="vrow">
+    <div class="vbox new">
+      <div class="t">비교 결과</div>
+      <div class="big">※ 참고용</div>
+      <div class="s">조건이 달라 단정하지 않음</div>
+    </div>
+    <div class="lines">
+      <div class="t">요약 (자동 작성)</div>
+      <ol>
+        <li>오류율이 <b>0.00% → 100.0%</b>로 늘었습니다.</li>
+        <li class="new">두 측정의 <b>오류를 세는 규칙</b>이 달라 이 비교는 참고용입니다.</li>
+      </ol>
+    </div>
+  </div>
+  <div class="fair" style="margin-top:3mm">
+    <div><span class="ok">●</span> 부하 조건 같음<small>고정 · 동시 사용자 10</small></div>
+    <div><span class="ok">●</span> 환경 변수 같음<small>1개 모두 같음</small></div>
+    <div><span class="ok">●</span> 시나리오 내용 같음<small>단계 2개 · 내용 같음</small></div>
+    <div><span class="ok">●</span> 판정 기준 같음<small>기준 1개 같음</small></div>
+  </div>
+  <div class="sample new">선택한 run 가운데 오류를 세는 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.</div>
+
+  <h3><span class="no">2</span>측정 조건 대조</h3>
+  <table class="p">
+    <colgroup><col style="width:60mm"><col style="width:60mm"><col style="width:60mm"></colgroup>
+    <thead><tr><th class="l">항목</th><th>이전</th><th>이후</th></tr></thead>
+    <tbody>
+      <tr><td class="l">부하 모델</td><td>고정</td><td>고정</td></tr>
+      <tr><td class="l">동시 사용자</td><td>10</td><td>10</td></tr>
+      <tr><td class="l">실행 시간</td><td>1분</td><td>1분</td></tr>
+      <tr><td class="l">환경 변수 개수</td><td>1개</td><td>1개</td></tr>
+      <tr><td class="l">판정 기준 개수</td><td>1개</td><td>1개</td></tr>
+      <tr class="diff new"><td class="l"><span class="warn">▲ </span>오류를 세는 규칙</td><td>검사 없는 스텝은 모두 통과</td><td class="warn">검사 없는 스텝은 400 이상이 오류</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4. 인쇄 비교 — 검사 방식이 바뀐 두 run (R28)</h2>
+<p class="note">둘 다 이 변경 뒤의 run이고, 첫 단계(①)를 「400 이상은 오류」(검사 없음)에서 「보지 않음」으로 바꿨다. 지금(②a)은 「①에 응답 코드 검사 추가됨」으로 나와 4xx·5xx를 그만 센 것이 「검사를 강화했다」로 읽힌다. ②b는 검사 방식 이름으로 말한다. 기대 코드만 바뀌면 「기대 코드 바뀜: 200 → 200·409」.</p>
+<div class="paper">
+  <div class="fair">
+    <div><span class="ok">●</span> 부하 조건 같음<small>고정 · 동시 사용자 10</small></div>
+    <div><span class="ok">●</span> 환경 변수 같음<small>1개 모두 같음</small></div>
+    <div class="diff new"><span class="warn">▲</span> 시나리오 내용 다름<small class="warntx">2곳 다름: ①의 상태 코드 검사 방식 바뀜: 400 이상은 오류 → 보지 않음 외 1곳</small></div>
+    <div><span class="ok">●</span> 판정 기준 같음<small>기준 1개 같음</small></div>
+  </div>
+  <table class="p">
+    <colgroup><col style="width:60mm"><col style="width:60mm"><col style="width:60mm"></colgroup>
+    <thead><tr><th class="l">항목</th><th>이전</th><th>이후</th></tr></thead>
+    <tbody>
+      <tr><td class="l">부하 모델</td><td>고정</td><td>고정</td></tr>
+      <tr><td class="l">환경 변수 개수</td><td>1개</td><td>1개</td></tr>
+      <tr><td class="l">판정 기준 개수</td><td>1개</td><td>1개</td></tr>
+      <tr class="diff"><td class="l"><span class="warn">▲ </span>시나리오 응답 코드 검사</td><td>다름</td><td class="warn">다름</td></tr>
+    </tbody>
+  </table>
+  <p class="note" style="margin-top:3mm">「외 1곳」에 든 둘째 줄 예: <b>②의 기대 코드 바뀜: 200 → 200·409</b>. 규칙 1 run과 견주면 앞 방식 이름은 「검사 없음」이다(예: <b>①의 상태 코드 검사 방식 바뀜: 검사 없음 → 적은 코드만 통과</b>). 두 run이 모두 이 변경 전 run이면 지금 글(「추가됨·제거됨·바뀜」)을 그대로 쓴다.</p>
+</div>
+
+<h2>5. 비교 화면 알림 — 글만 바뀜</h2>
+<div class="callout new">선택한 run 가운데 오류를 세는 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.</div>
+<p class="note" style="margin-top:10px">자리와 모양은 ②a 그대로(표본 알림 옆). 비교 화면은 run을 여럿 고를 수 있어 「두 run이」를 「선택한 run 가운데」로 바꿨다(사용자 결정 2026-11-24).</p>
+</body>
+</html>
