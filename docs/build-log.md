@@ -1447,3 +1447,27 @@ run 상세 리포트의 「응답 시간 표본」 줄에 단추 셋(통과한 �
 - 못 한 것: §B92 (3).
 
 **함정**(도메인 `CLAUDE.md`에 적음): 툴팁의 Esc 전파 · `sampleView` 한 곳 · 「보내지 않음」만 실패하는 run 만드는 법.
+
+## http-error-default ②a — 4xx·5xx를 기본 오류로: 판정 (2026-11-24, 코드 `58ed2318`..`2aac5fda`, ADR-0064, roadmap §B93)
+
+상태 코드 검사를 적지 않은 http 스텝이 400 이상을 받으면 오류로 센다. 검사 표기에 목록(`status: [200, 409]`)과 `any`(보지 않음)를 더했다. run마다 규칙 번호(마이그레이션 0029 `runs.status_rule`, 새 run = 2)를 저장해 옛 run(1)은 리포트·인쇄·비교가 옛 규칙으로 읽는다. 에디터·안내 화면은 ②b(같은 브랜치에서 이어 한다).
+
+**파이프라인**: spec 4차 clean APPROVE → plan 2차 clean APPROVE → subagent 6 task(엔진 판정 `judge_status`·`status_unchecked`·오류 글 계약 → 컨트롤러 0029·`ReportRun.status_rule` + Zod → 유효성 규칙 2 갈래(`status_unchecked_errors`·`no_response_validation` 좁힘) + ValidityBanner 스텝 이름 → 화면 검사 모델 `{codes}`·`status_any` + 임시 `AssertEditor` → 인쇄 분류 R25·표본 설명 → 비교 알림) task마다 spec+품질 리뷰 → 최종 `handicap-reviewer` READY-TO-MERGE + `security-reviewer` APPROVE-WITH-FIXES(S1 목록 상한) → 수정 한 묶음(`2aac5fda`: 상한 64·`status_class_count` 단일 소스·문서·traced 목록 테스트·`status_rule` 정직한 좁히기) → 재검토 통과·보안 APPROVE.
+
+**리뷰가 찾은 것**: `status_unchecked`가 `matches!`로 숨은 `_` 갈래를 가졌다(새 변형이 조용히 「검사 있음」) → 전수 match · plan Step 6의 「통과하지만 뜻이 바뀐 테스트」 감사를 건너뛰었다 → 기본 규칙 갈래에 임시 로그를 넣고 워크스페이스 전체를 돌려 실제로 닿는 테스트를 찾았다(엔진 테스트만; `trace_setup_failure_stops`의 주석이 401로 거짓이 됨 → 200+비-JSON) · 검사 없는 스텝의 1xx를 인쇄가 규칙 2에서 오류로 칠했다(엔진은 400 미만 통과) → 400 미만은 plain · 인쇄 규칙 인자가 기본값 1이라 빠뜨린 호출이 조용히 옛 글을 냈을 것 → 필수 · Task 2의 `legacy_row_reads_status_rule_1`이 전체 게이트에서 가끔 「no such column」(풀의 다른 연결로 `DROP COLUMN`) → 옛 스키마 흉내를 새 단일 연결로(`a3561622`) · 보안: 목록 길이 무제한이라 오류 글이 행마다 수 MB(미리 실행 10만 행·모니터 기록) → 64개 상한(엔진 읽기 오류 + Zod `.max`).
+
+**성능**(`/perf-ab master`, 검사 없는 GET 한 스텝, VU 50·20초·6회 교차): 요청당 워커 CPU 기준 `86c845e2` 26.71µs(26.50–26.91) → `2aac5fda` 25.85µs(25.45–26.44), −3.2%, 범위 겹치지 않음(측정 전 load 14.1 — 빌드 직후). 느려지지 않았다.
+
+**보안**: `finish-slice` §0 grep이 `executor.rs`에 매치 → `security-reviewer` APPROVE(재검토). 오류 글·사유·기록에 주소·헤더·본문·추출 값이 실리지 않는다. 스텝 이름은 React 글자 노드로만 그린다.
+
+**라이브 검증**(master 바이너리로 규칙 1 run을 만든 DB에 워크트리 바이너리를 올림, 경로별 상태 코드 응답기):
+- US1 ✓ 검사 없는 스텝 + 500, 오류율 기준 1%: 옛 run(규칙 1) 401건·오류 0·`silent_http_errors`·판정 통과 그대로 / 새 run(규칙 2) 오류 401/401·판정 실패·`status_rule` 2. 인쇄: 규칙 1 run만 「응답 코드 검사가 없어 오류에서 제외됐습니다」, 규칙 2 run은 500 칸을 오류로.
+- US1 변형 ✓ 로그인(검사 없음) 401 → 다음 스텝이 `{{token}}` 사용: run `failed` 「all VUs failed (2/2): template: unknown variable token」, 다음 스텝은 응답기에 닿지 않음(spec §5-2대로).
+- US2 ✓ `status: [200, 409]` + 200·409·500 순환: 오류 = 500 수(1), 409에서 추출한 값이 다음 스텝 주소에(`t=m-409`). 500 뒤에는 추출을 건너뛰어 VU 하나가 멈춰 run `failed`.
+- US3(리포트) ✓ `status: any` + 404: 오류 0, 띠에 「상태 코드를 보지 않는 스텝 「상태 무시」이 4xx·5xx 응답 160건을 받았습니다. …」·규칙 2 `no_response_validation` 글.
+- 비교 ✓ 규칙 1 run ↔ 규칙 2 run 알림(화면·인쇄 비교), 규칙 2끼리는 없음. 인쇄 알림 줄과 표본 줄 사이 5.67px.
+- US5 ✓ GUI 보드: 검사 없는 점검 스텝 503 → 「✖ 실패 / HTTP 503」, 200 칸은 정상. `handicap-tui`(tmux, 보드 파일로) 같다. 칸 그리기를 바꾸지 않아 칸 1–9 전수는 하지 않았다.
+- 콘솔 Zod 오류 0(리포트·비교·인쇄·전시).
+- 못 한 것: 천 단위 쉼표가 든 사유 글 · K8s·LAN 풀 · Windows 글꼴(§B93 (3)). 관측: 모니터 첫 점검 한 번이 사유 없이 실패로 나왔다가 다음부터 「HTTP 503」(조사 안 함).
+
+**함정**(도메인 `CLAUDE.md`에 적음): 엔진 — wiremock 짝 없는 경로(404)를 받는 검사 없는 스텝이 이제 오류 · 컨트롤러 — 풀에서 `ALTER TABLE … DROP COLUMN`은 다른 연결의 옛 스키마로 가끔 「no such column」.

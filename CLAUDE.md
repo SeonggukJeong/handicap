@@ -6,7 +6,7 @@
 
 > **작업 규칙 정본(cloud 세션 포함 — 자동메모리를 못 읽는 세션도 지켜야 할 것)** → **[`docs/dev/working-rules.md`](docs/dev/working-rules.md)**: cloud↔로컬 머지 절차·§B 번호(`grep -n '^### B'`로 마지막+1)·판단 비용 기록·공용 개념 범위 질문·보안 grep은 하한선·극단값/모든 진입 화면 라이브·소형 수정 경로·UI 접힘 선호·TUI 사용자 결정(칸 1–9 검증 등). 세션 시작 시 한 번 읽을 것.
 
-**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = sample-switch (2026-11-24, `80055439`..`98b7f7f4` — 리포트 표본 전환 단추; A17 릴리즈 금지). 그 전 = passed-latency A·준비 스텝 B2–A1·steady-window·stall-saturation·scenario-nested-json·stage-live-reasons·stage-live-panel(계단 시험 c)·stage-auto-stop(b)·stage-saturation-table(a)·desktop-worker-mode 2b·조건 반복(v0.15.0 릴리즈). 판단·연기 roadmap §B58–§B92). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
+**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = http-error-default ②a (2026-11-24, `58ed2318`..`2aac5fda` — 4xx·5xx 기본 오류, ADR-0064; 머지 전). 그 전 = sample-switch·준비 스텝 B2–A1·steady-window·stall-saturation·scenario-nested-json·stage-live-reasons·stage-live-panel(계단 시험 c)·stage-auto-stop(b)·stage-saturation-table(a)·desktop-worker-mode 2b·조건 반복(v0.15.0 릴리즈). 판단·연기 roadmap §B58–§B92). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
 
 ## 한 줄 아키텍처
 
@@ -234,6 +234,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0061** 유지 구간 기준 리포트: run에 저장한 `steady` 표시 + 기준별 리포트(`?basis=`) + 기본 기준 (옛 run 숫자 불변)
 - **0062** 준비 구간: `setup: {steps}` VU당 한 번 + 본 집계와 분리한 구간 통계 + 실패 시 재시도 없음
 - **0063** 응답 시간 표본: 통과한 요청 기준 + 실패 분포 분리(`failed_hdr_histogram`) + 통과 표본 없으면 판정 실패
+- **0064** 상태 코드 기본 규칙: 검사 없으면 400 이상 오류 + `[200,409]`·`any` + run별 `status_rule`(옛 run 옛 규칙)
 
 ## 코딩 컨벤션
 

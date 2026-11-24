@@ -1,7 +1,7 @@
 # 4xx·5xx를 기본 오류로 (http-error-default) 설계
 
 - 날짜: 2026-11-24
-- 상태: **spec-plan-reviewer 4차 clean APPROVE (2026-11-24)** — 1차 NEEDS-REWORK · 2차·3차 APPROVE-WITH-FIXES 반영(처리 §12). plan: ②a `docs/superpowers/plans/2026-11-24-http-error-default-a.md`, ②b는 ②a 뒤에.
+- 상태: **②a 구현·최종 리뷰·라이브 끝 (2026-11-24, 코드 `58ed2318`..`2aac5fda`, ADR-0064, 판단·연기 roadmap §B93)** · ②b(에디터·안내) plan 작성 전. spec은 spec-plan-reviewer 4차 clean APPROVE(처리 §12). plan: ②a `docs/superpowers/plans/2026-11-24-http-error-default-a.md`.
 - 유형: `user-path`
 - 출처: roadmap §A17 진행 순서 ②. 사용자 순서 결정(2026-11-23): ① 통과/실패 분리 ✅ → **② 이 문서** → ③ 평균·백분위 판정 → ④ 그래프·내보내기. ①~④ 사이에는 릴리즈하지 않는다.
 - 사용자 결정 (2026-11-24, 다시 묻지 않는다):
