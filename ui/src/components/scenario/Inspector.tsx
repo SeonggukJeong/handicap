@@ -30,6 +30,7 @@ import {
 } from "../../scenario/model";
 import { classifyThink, formatThink } from "../../scenario/thinkTime";
 import { loopCountLabel } from "../../scenario/loopLabel";
+import { assertionLabel } from "../../scenario/assertLabel";
 import { useThinkTimePair } from "./useThinkTimePair";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
@@ -632,25 +633,8 @@ function AssertEditor({
     <div className="flex flex-col gap-2 min-w-0">
       <ul className="flex flex-col gap-1">
         {step.assert.map((a, idx) => (
-          <li key={`${a.kind}-${a.code}-${idx}`} className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-slate-600 w-16">{ko.editor.assertStatusField}</span>
-            <div className="w-24">
-              <Input
-                numeric
-                size="sm"
-                type="number"
-                min={100}
-                max={599}
-                value={a.code}
-                onChange={(e) => {
-                  const code = Number(e.target.value);
-                  if (!Number.isFinite(code)) return;
-                  const next = [...step.assert];
-                  next[idx] = { kind: "status", code };
-                  setStepAssert(step.id, next);
-                }}
-              />
-            </div>
+          <li key={`${assertionLabel(a)}-${idx}`} className="flex items-center gap-2 text-xs">
+            <span className="font-mono text-slate-600">{assertionLabel(a)}</span>
             <button
               type="button"
               aria-label={ko.editor.removeAssertion(idx)}
@@ -690,7 +674,7 @@ function AssertEditor({
           onClick={() => {
             const code = Number(newCode);
             if (!Number.isFinite(code) || code < 100 || code > 599) return;
-            setStepAssert(step.id, [...step.assert, { kind: "status", code }]);
+            setStepAssert(step.id, [...step.assert, { kind: "status", codes: [code] }]);
             setNewCode("");
           }}
         >

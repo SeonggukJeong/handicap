@@ -72,10 +72,13 @@ const httpStepArb: fc.Arbitrary<HttpStep> = fc.record({
     ),
   }),
   assert: fc.array(
-    fc.record({
-      kind: fc.constant("status" as const),
-      code: fc.integer({ min: 100, max: 599 }),
-    }),
+    fc.oneof(
+      fc.record({
+        kind: fc.constant("status" as const),
+        codes: fc.array(fc.integer({ min: 100, max: 599 }), { minLength: 1, maxLength: 3 }),
+      }),
+      fc.record({ kind: fc.constant("status_any" as const) }),
+    ),
     { maxLength: 2 },
   ),
   extract: fc.array(extractArb, { maxLength: 2 }),
@@ -212,7 +215,9 @@ function httpStepToYaml(st: HttpStep): Record<string, unknown> {
       url: st.request.url,
       headers: st.request.headers ?? {},
     },
-    assert: st.assert.map((a) => ({ status: a.code })),
+    assert: st.assert.map((a) => ({
+      status: a.kind === "status_any" ? "any" : a.codes.length === 1 ? a.codes[0] : a.codes,
+    })),
   };
   if (st.extract && st.extract.length > 0) {
     out.extract = st.extract.map((e) => {

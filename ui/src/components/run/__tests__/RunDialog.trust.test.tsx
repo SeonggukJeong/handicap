@@ -34,7 +34,7 @@ function step(over: Record<string, unknown> = {}): Record<string, unknown> {
     name: "s-A",
     type: "http",
     request: { method: "GET", url: "https://e.test/a", headers: {} },
-    assert: [{ kind: "status", code: 200 }],
+    assert: [{ kind: "status", codes: [200] }],
     extract: [],
     ...over,
   };

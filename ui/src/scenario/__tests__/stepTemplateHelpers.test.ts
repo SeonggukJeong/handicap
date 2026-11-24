@@ -134,7 +134,7 @@ describe("parseStepsFragment", () => {
       const s = r.steps[0];
       expect(s.type).toBe("http");
       if (s.type === "http") {
-        expect(s.assert).toEqual([{ kind: "status", code: 200 }]);
+        expect(s.assert).toEqual([{ kind: "status", codes: [200] }]);
         expect(s.request.body).toEqual({ kind: "json", value: { user: "{{u}}" } });
       }
     }

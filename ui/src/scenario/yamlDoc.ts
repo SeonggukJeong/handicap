@@ -18,6 +18,7 @@ import {
   type Step,
   type Condition,
   type Extract,
+  type Assertion,
   type ThinkTime,
 } from "./model";
 import { CAST_KEYWORDS } from "./cast";
@@ -88,7 +89,7 @@ export type Edit =
   | {
       type: "setStepAssert";
       stepId: string;
-      asserts: ReadonlyArray<{ kind: "status"; code: number }>;
+      asserts: ReadonlyArray<Assertion>;
     }
   | {
       type: "setStepExtract";
@@ -604,8 +605,19 @@ export function applyEdit(doc: Document, edit: Edit): void {
     case "setStepAssert": {
       const path = findStepPath(doc, edit.stepId);
       if (path === null) return;
-      const arr = edit.asserts.map((a) => ({ status: a.code }));
-      doc.setIn([...path, "assert"], doc.createNode(arr));
+      const arr = edit.asserts.map((a) => ({
+        status: a.kind === "status_any" ? "any" : a.codes.length === 1 ? a.codes[0] : a.codes,
+      }));
+      const node = doc.createNode(arr);
+      if (isSeq(node)) {
+        node.items.forEach((item, i) => {
+          const a = edit.asserts[i];
+          if (!isMap(item) || a.kind !== "status" || a.codes.length === 1) return;
+          const list = item.get("status", true);
+          if (isSeq(list)) list.flow = true;
+        });
+      }
+      doc.setIn([...path, "assert"], node);
       return;
     }
     case "setStepExtract": {
@@ -1044,7 +1056,13 @@ function normalizeBody(b: unknown): unknown {
 function normalizeAssertion(a: unknown): unknown {
   if (typeof a !== "object" || a === null) return a;
   const src = a as Record<string, unknown>;
-  if ("status" in src) return { kind: "status", code: src.status };
+  if ("status" in src) {
+    const s = src.status;
+    if (s === "any") return { kind: "status_any" };
+    if (typeof s === "number") return { kind: "status", codes: [s] };
+    if (Array.isArray(s)) return { kind: "status", codes: s };
+    return { kind: "status", codes: s };
+  }
   return a;
 }
 

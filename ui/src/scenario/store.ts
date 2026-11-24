@@ -3,6 +3,7 @@ import type { StoreApi } from "zustand";
 import { Document } from "yaml";
 import {
   type Extract,
+  type Assertion,
   type Scenario,
   type Condition,
   type ThinkTime,
@@ -104,7 +105,7 @@ export interface ScenarioEditorState {
   /** 최상위 http 스텝을 준비/본 구획 사이로 옮긴다(끝에 붙음). 선택은 그대로. */
   moveStepToSection(stepId: string, to: "setup" | "steps"): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
-  setStepAssert(stepId: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>): void;
+  setStepAssert(stepId: string, asserts: ReadonlyArray<Assertion>): void;
   setStepExtract(stepId: string, extract: ReadonlyArray<Extract>): void;
   /** Append one extract to an http step (response-based extract authoring).
    *  Commits any pending Monaco buffer first; no-ops if the buffer is unparseable

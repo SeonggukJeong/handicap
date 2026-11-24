@@ -36,7 +36,7 @@ describe("ScenarioModel", () => {
           name: "home",
           type: "http",
           request: { method: "GET", url: "{{base_url}}/", headers: {} },
-          assert: [{ kind: "status", code: 200 }],
+          assert: [{ kind: "status", codes: [200] }],
           extract: [],
         },
       ],

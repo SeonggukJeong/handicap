@@ -643,7 +643,7 @@ export const ko = {
     ifPanelTitle: "조건(if)",
     parallelPanelTitle: "동시 실행(parallel)",
     assertionsLegend: "응답 검증",
-    assertStatusField: "상태",
+    assertStatusAny: "보지 않음",
     extractsLegend: "값 추출",
     extractsHint: "응답에서 값을 꺼내 다음 스텝에서 {{이름}}으로 사용합니다.",
     // ── URL 필수 표시 (§5.2) ──

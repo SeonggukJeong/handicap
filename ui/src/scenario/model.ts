@@ -39,7 +39,13 @@ export const RequestModel = z
 export type RequestSpec = z.infer<typeof RequestModel>;
 
 export const AssertionModel = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("status"), code: z.number().int().min(100).max(599) }).strict(),
+  z
+    .object({
+      kind: z.literal("status"),
+      codes: z.array(z.number().int().min(100).max(599)).min(1),
+    })
+    .strict(),
+  z.object({ kind: z.literal("status_any") }).strict(),
 ]);
 export type Assertion = z.infer<typeof AssertionModel>;
 

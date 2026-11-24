@@ -18,8 +18,7 @@ steps:
       method: GET
       url: https://e.test/a
     assert:
-      - kind: status
-        code: 200
+      - status: 200
 `;
 
 // assert 없는 http 스텝 1개 → A fail(1건) · B pass · C na = 보완 필요 1.

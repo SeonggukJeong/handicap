@@ -1766,19 +1766,47 @@ describe("Inspector — U3 VarCheatSheet in Request fieldset", () => {
   });
 });
 
-describe("Inspector — assertion row status field label (ko-first)", () => {
+describe("Inspector — 검사 줄 임시 모양 (라벨 + ×)", () => {
   beforeEach(() => {
     window.localStorage.clear();
     loadAndSelect();
   });
 
-  it("assertion row renders the status field label from ko.editor.assertStatusField", async () => {
+  it("줄은 코드 글자와 × 단추로 보이고, ×가 그 줄을 지운다", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
     await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
-    // VALID_YAML has `assert: - status: 200`, so an assertion row is visible.
-    // The badge should show the localized 상태 label, not the bare English "status".
-    expect(screen.getByText(ko.editor.assertStatusField)).toBeInTheDocument();
+    const section = screen.getByRole("group", { name: ko.editor.assertionsLegend });
+    expect(within(section).getByText("200")).toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: ko.editor.removeAssertion(0) }));
+    expect(within(section).getByText(ko.editor.noAssertions)).toBeInTheDocument();
+  });
+
+  it("추가 칸에 201을 넣고 추가하면 codes:[201] 줄이 하나 더 생긴다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
+    const section = screen.getByRole("group", { name: ko.editor.assertionsLegend });
+    await user.type(within(section).getByPlaceholderText("200"), "201");
+    await user.click(within(section).getByRole("button", { name: ko.common.add }));
+    const step = useScenarioEditor.getState().model!.steps[0];
+    if (step.type !== "http") throw new Error("expected http");
+    expect(step.assert).toEqual([
+      { kind: "status", codes: [200] },
+      { kind: "status", codes: [201] },
+    ]);
+    expect(within(section).getByText("201")).toBeInTheDocument();
+  });
+
+  it("any 줄은 「보지 않음」으로 보인다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .loadFromString(VALID_YAML.replace("- status: 200", "- status: any"));
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
+    expect(screen.getByText(ko.editor.assertStatusAny)).toBeInTheDocument();
   });
 });
 
@@ -1855,22 +1883,22 @@ describe("Inspector — JSON 바디 캐스트 HelpTip (R7)", () => {
   });
 });
 
-describe("Inspector — assert existing-row density (design-system-editor Task2 fold-in)", () => {
+describe("Inspector — assert 추가 칸 밀도", () => {
   beforeEach(() => {
     window.localStorage.clear();
     loadAndSelect();
   });
 
-  it("existing-row assert code input inherits text-xs density, not primitive default text-sm", async () => {
+  it("추가 칸은 text-xs 밀도를 쓴다(줄에는 숫자 칸이 없다)", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
     await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
     const assertSection = screen.getByRole("group", { name: ko.editor.assertionsLegend });
-    // Existing-row input has no placeholder; the new-row sibling has placeholder="200".
     const inputs = within(assertSection).getAllByRole("spinbutton") as HTMLInputElement[];
-    const existingRow = inputs.find((i) => i.placeholder !== "200")!;
-    expect(existingRow).toHaveClass("text-xs");
-    expect(existingRow).not.toHaveClass("text-sm");
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].placeholder).toBe("200");
+    expect(inputs[0]).toHaveClass("text-xs");
+    expect(inputs[0]).not.toHaveClass("text-sm");
   });
 });
 

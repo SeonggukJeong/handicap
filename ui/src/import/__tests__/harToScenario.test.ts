@@ -176,7 +176,7 @@ describe("harToScenarioYaml", () => {
     );
     if ("model" in on) {
       const s = on.model.steps[0];
-      if (s.type === "http") expect(s.assert).toEqual([{ kind: "status", code: 200 }]);
+      if (s.type === "http") expect(s.assert).toEqual([{ kind: "status", codes: [200] }]);
     }
     const off = parseScenarioDoc(harToScenarioYaml(har([getEntry()]), DEFAULTS));
     if ("model" in off) {

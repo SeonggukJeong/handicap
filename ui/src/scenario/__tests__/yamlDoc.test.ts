@@ -51,7 +51,7 @@ describe("parseScenarioDoc", () => {
     const s0 = out.model.steps[0];
     if (s0.type !== "http") throw new Error("expected http step");
     expect(s0.request.method).toBe("POST");
-    expect(s0.assert).toEqual([{ kind: "status", code: 200 }]);
+    expect(s0.assert).toEqual([{ kind: "status", codes: [200] }]);
   });
 
   it("doc preserves the raw yaml extract key and comment", () => {

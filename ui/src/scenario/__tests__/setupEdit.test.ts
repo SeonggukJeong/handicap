@@ -173,8 +173,8 @@ describe("준비 스텝 쓰기 경로", () => {
     st().loadFromString(SETUP_ONE);
     st().setStepExtract(S1, []);
     expect(st().model!.setup!.steps[0].extract).toEqual([]);
-    st().setStepAssert(S1, [{ kind: "status", code: 201 }]);
-    expect(st().model!.setup!.steps[0].assert).toEqual([{ kind: "status", code: 201 }]);
+    st().setStepAssert(S1, [{ kind: "status", codes: [201] }]);
+    expect(st().model!.setup!.steps[0].assert).toEqual([{ kind: "status", codes: [201] }]);
   });
 
   it("마지막 준비 스텝을 지우면 setup 키가 사라진다", () => {

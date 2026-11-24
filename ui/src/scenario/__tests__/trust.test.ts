@@ -28,7 +28,7 @@ function step(id: string, over: Record<string, unknown> = {}): Record<string, un
   };
 }
 
-const OK = [{ kind: "status", code: 200 }];
+const OK = [{ kind: "status", codes: [200] }];
 /** 추출만 하고 아무도 안 씀 → C 실패 */
 const DANGLING = { extract: [{ var: "tok", from: "body", path: "$.t" }] };
 /** 어디서도 안 만드는 변수 참조 → B 실패 */

@@ -244,7 +244,9 @@ describe("executionFingerprint — 무효화해야 하는 변경", () => {
   });
   it("assert 추가", () => {
     expect(
-      executionFingerprint(sc({ steps: [step(A, { assert: [{ kind: "status", code: 200 }] })] })),
+      executionFingerprint(
+        sc({ steps: [step(A, { assert: [{ kind: "status", codes: [200] }] })] }),
+      ),
     ).not.toBe(executionFingerprint(base()));
   });
   it("스텝 순서", () => {
