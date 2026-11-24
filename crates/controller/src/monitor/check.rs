@@ -549,7 +549,7 @@ fn latency_step_exists(scenario: &Scenario, panel: &PanelConfig) -> bool {
     }
 }
 
-/// 그 스텝의 status assert 중 응답 status와 다른 값이 있으면 응답 status.
+/// 그 스텝의 상태 코드 판정이 통과가 아니면(검사 줄 불일치 또는 검사 없는 스텝의 400 이상) 응답 status.
 fn status_mismatch(http: Option<&HttpStep>, st: &StepTrace) -> Option<u16> {
     let resp = st.response.as_ref()?;
     let h = http?;
@@ -557,7 +557,7 @@ fn status_mismatch(http: Option<&HttpStep>, st: &StepTrace) -> Option<u16> {
 }
 
 /// 실패한 스텝 한 개의 사유(접미 제외). 분류 순서는 task-2 brief 정본:
-/// ① invalid header ② status assert 불일치 ③ read body ④ 그 외(응답 있음) ⑤ 응답 없음.
+/// ① invalid header ② 상태 코드 판정 실패(검사 불일치·기본 규칙) ③ read body ④ 그 외(응답 있음) ⑤ 응답 없음.
 pub(crate) fn classify(http: Option<&HttpStep>, st: &StepTrace, err: &str) -> String {
     if err.starts_with("invalid header") {
         return REASON_BAD_REQUEST_BUILD.to_string();

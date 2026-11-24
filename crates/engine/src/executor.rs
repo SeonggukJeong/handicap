@@ -313,12 +313,16 @@ pub async fn execute_step_with(
             let mut error: Option<String> = None;
             let mut error_class: Option<ErrorClass> = None;
             let verdict = judge_status(&step.assert, status);
-            if verdict != StatusVerdict::Pass {
-                error = status_error_text(&step.assert, status, verdict);
-                error_class = Some(match verdict {
-                    StatusVerdict::DefaultRule => ErrorClass::HttpStatus,
-                    StatusVerdict::Mismatch | StatusVerdict::Pass => ErrorClass::StatusAssert,
-                });
+            match verdict {
+                StatusVerdict::Pass => {}
+                StatusVerdict::Mismatch => {
+                    error = status_error_text(&step.assert, status, verdict);
+                    error_class = Some(ErrorClass::StatusAssert);
+                }
+                StatusVerdict::DefaultRule => {
+                    error = status_error_text(&step.assert, status, verdict);
+                    error_class = Some(ErrorClass::HttpStatus);
+                }
             }
 
             let mut extracted = BTreeMap::new();

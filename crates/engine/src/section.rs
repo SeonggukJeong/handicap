@@ -244,7 +244,7 @@ pub const SECTION_FIXED_FAILURE_KINDS: [&str; 7] = [
     KIND_CAST_FAILED,
 ];
 
-/// 구간 통계의 `failure_kinds`에 실릴 수 있는 글자인가: 전송 실패 kind 전부 + 고정 분류 여섯.
+/// 구간 통계의 `failure_kinds`에 실릴 수 있는 글자인가: 전송 실패 kind 전부 + 고정 분류 일곱.
 pub fn is_section_failure_kind(k: &str) -> bool {
     SECTION_FIXED_FAILURE_KINDS.contains(&k) || ErrorKind::ALL.iter().any(|e| e.as_str() == k)
 }

@@ -41,9 +41,12 @@ pub fn judge_status(asserts: &[Assertion], status: u16) -> StatusVerdict {
 /// 검사 줄이 모두 `any`뿐(1개 이상)이라 상태 코드를 확인하지 않는 스텝인가.
 pub fn status_unchecked(asserts: &[Assertion]) -> bool {
     !asserts.is_empty()
-        && asserts
-            .iter()
-            .all(|a| matches!(a, Assertion::Status(StatusExpect::Any)))
+        && asserts.iter().all(|a| match a {
+            Assertion::Status(e) => match e {
+                StatusExpect::Any => true,
+                StatusExpect::One(_) | StatusExpect::AnyOf(_) => false,
+            },
+        })
 }
 
 /// 판정에 대응하는 오류 글. `Pass`면 `None`. 불일치 글은 처음 어긋난 줄의 기대값.
@@ -51,21 +54,16 @@ pub fn status_error_text(asserts: &[Assertion], status: u16, v: StatusVerdict) -
     match v {
         StatusVerdict::Pass => None,
         StatusVerdict::DefaultRule => Some(format!("status {status} (>= 400)")),
-        StatusVerdict::Mismatch => {
-            let first = asserts.iter().find_map(|a| match a {
-                Assertion::Status(e) if !satisfies(e, status) => Some(e),
-                Assertion::Status(_) => None,
-            })?;
-            Some(match first {
-                StatusExpect::One(c) => format!("status {status} != {c}"),
-                StatusExpect::AnyOf(cs) => {
+        StatusVerdict::Mismatch => asserts.iter().find_map(|a| match a {
+            Assertion::Status(e) => match e {
+                StatusExpect::One(c) if *c != status => Some(format!("status {status} != {c}")),
+                StatusExpect::AnyOf(cs) if !cs.contains(&status) => {
                     let list = cs.iter().map(u16::to_string).collect::<Vec<_>>().join(", ");
-                    format!("status {status} not in [{list}]")
+                    Some(format!("status {status} not in [{list}]"))
                 }
-                // Any는 늘 만족하므로 어긋난 줄이 될 수 없다.
-                StatusExpect::Any => format!("status {status} != any"),
-            })
-        }
+                StatusExpect::One(_) | StatusExpect::AnyOf(_) | StatusExpect::Any => None,
+            },
+        }),
     }
 }
 
