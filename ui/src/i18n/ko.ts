@@ -705,7 +705,10 @@ export const ko = {
     dragHandleAria: (name: string) => `"${name}" 스텝 순서 이동 (드래그)`,
     outlineRowAria: (name: string) => `스텝: ${name}`,
     emptyBandDropHint: "여기로 드롭",
-    wideChipAssert: (n: number) => `검증 ${n}`,
+    chipAssertCodes: (codes: number[]) =>
+      codes.length <= 2 ? `검증 ${codes.join("·")}` : `검증 ${codes[0]} 외 ${codes.length - 1}`,
+    chipAssertAny: "상태 코드 안 봄",
+    chipAssertMulti: "검증 확인 필요",
     wideChipExtract: (n: number) => `추출 ${n}`,
     wideChipThink: (formatted: string) => `think ${formatted}`,
     containerLoop: "반복",

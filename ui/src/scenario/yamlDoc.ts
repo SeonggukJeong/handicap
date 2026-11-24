@@ -266,7 +266,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
             name: "Step 1",
             type: "http",
             request: { method: "GET", url: "/" },
-            assert: [{ status: 200 }],
           },
         ],
       });
@@ -283,7 +282,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
         name: edit.name,
         type: "http",
         request: { method: "GET", url: "/" },
-        assert: [{ status: 200 }],
       });
       body.add(node);
       return;
@@ -330,7 +328,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
             name: "Step 1",
             type: "http",
             request: { method: "GET", url: "/" },
-            assert: [{ status: 200 }],
           },
         ],
       });
@@ -360,7 +357,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
         name: edit.name,
         type: "http",
         request: { method: "GET", url: "/" },
-        assert: [{ status: 200 }],
       });
       body.add(node);
       return;
@@ -382,7 +378,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
             name: "Step 1",
             type: "http",
             request: { method: "GET", url: "/" },
-            assert: [{ status: 200 }],
           },
         ],
       });
@@ -405,7 +400,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
             name: "Step 1",
             type: "http",
             request: { method: "GET", url: "/" },
-            assert: [{ status: 200 }],
           },
         ],
       });
@@ -425,7 +419,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
             name: "Step 1",
             type: "http",
             request: { method: "GET", url: "/" },
-            assert: [{ status: 200 }],
           },
         ],
       });
@@ -446,7 +439,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
         name: "Step 1",
         type: "http",
         request: { method: "GET", url: "/" },
-        assert: [{ status: 200 }],
       });
       const node = doc.createNode({
         id: edit.id,
@@ -473,7 +465,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
             name: "Step 1",
             type: "http",
             request: { method: "GET", url: "/" },
-            assert: [{ status: 200 }],
           },
         ],
       });
@@ -496,7 +487,6 @@ export function applyEdit(doc: Document, edit: Edit): void {
         name: edit.name,
         type: "http",
         request: { method: "GET", url: "/" },
-        assert: [{ status: 200 }],
       });
       body.add(node);
       return;
@@ -829,14 +819,13 @@ function findStepPath(doc: Document, stepId: string): Array<string | number> | n
   );
 }
 
-// 새 http 스텝의 기본 노드(GET /, status 200 검증) — addStep·addSetupStep 공통.
+// 새 http 스텝의 기본 노드(GET /, 상태 코드 검사 없음 — 엔진이 400 이상을 오류로 센다) — addStep·addSetupStep 공통.
 function defaultHttpStepNode(doc: Document, id: string, name: string): unknown {
   return doc.createNode({
     id,
     name,
     type: "http",
     request: { method: "GET", url: "/" },
-    assert: [{ status: 200 }],
   });
 }
 

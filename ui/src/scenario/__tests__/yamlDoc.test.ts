@@ -171,6 +171,75 @@ describe("applyEdit — setStepField", () => {
   });
 });
 
+describe("새 http 스텝은 상태 코드 검사 없이 만든다 (http-error-default ②b R27)", () => {
+  const BASE = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "seed"
+    type: http
+    request:
+      method: GET
+      url: "/seed"
+`;
+  const id = (n: number) => `01HX00000000000000000001${String(n).padStart(2, "0")}`;
+
+  it("열 곳 뼈대 전부 — assert 키가 YAML에 없고 모델 assert는 []", () => {
+    const out = parseScenarioDoc(BASE);
+    if ("error" in out) throw new Error("expected ok");
+    const edits: Edit[] = [
+      { type: "addStep", id: id(1), name: "s1" },
+      { type: "addSetupStep", id: id(2), name: "s2" },
+      { type: "addLoopStep", id: id(3), name: "L", childId: id(4) },
+      { type: "addStepInLoop", loopId: id(3), id: id(5), name: "s5" },
+      { type: "addIfStep", id: id(6), name: "I", childId: id(7) },
+      { type: "addStepInBranch", ifId: id(6), branch: { kind: "else" }, id: id(8), name: "s8" },
+      { type: "addElif", ifId: id(6), childId: id(9) },
+      {
+        type: "addLoopInBranch",
+        ifId: id(6),
+        branch: { kind: "then" },
+        id: id(10),
+        name: "L2",
+        childId: id(11),
+      },
+      { type: "addIfInLoop", loopId: id(3), id: id(12), name: "I2", childId: id(13) },
+      { type: "addParallelStep", id: id(14), name: "P", branch1Id: id(15), branch2Id: id(16) },
+      { type: "addBranch", parallelId: id(14), name: "b3", childId: id(17) },
+      {
+        type: "addStepInParallelBranch",
+        parallelId: id(14),
+        branchIndex: 0,
+        id: id(18),
+        name: "s18",
+      },
+    ];
+    for (const e of edits) applyEdit(out.doc, e);
+    const round = serializeDoc(out.doc);
+    expect(round).not.toContain("assert:");
+    const out2 = parseScenarioDoc(round);
+    if ("error" in out2) throw new Error("re-parse failed");
+    const https: Array<{ assert: unknown[] }> = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const walk = (steps: any[]) => {
+      for (const st of steps) {
+        if (st.type === "http") https.push(st);
+        else if (st.type === "loop") walk(st.do);
+        else if (st.type === "if") {
+          walk(st.then);
+          for (const el of st.elif ?? []) walk(el.then);
+          walk(st.else ?? []);
+        } else if (st.type === "parallel") for (const b of st.branches) walk(b.steps);
+      }
+    };
+    walk([...(out2.model.setup?.steps ?? []), ...out2.model.steps]);
+    expect(https.length).toBeGreaterThanOrEqual(14);
+    for (const h of https) expect(h.assert).toEqual([]);
+  });
+});
+
 describe("applyEdit — addStep and removeStep", () => {
   it("appends a new step with given id", () => {
     const out = parseScenarioDoc(VALID_YAML);

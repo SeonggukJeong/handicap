@@ -35,6 +35,7 @@ import {
 } from "../../scenario/model";
 import { resolveDrop } from "../../scenario/reorder";
 import { formatThink } from "../../scenario/thinkTime";
+import { statusMode } from "../../scenario/statusMode";
 import { loopCountLabel } from "../../scenario/loopLabel";
 import { loopWarnings } from "../../scenario/loopWarnings";
 import {
@@ -192,6 +193,7 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
   }
   // http leaf
   const urlMissing = step.request.url.trim() === "";
+  const mode = statusMode(step.assert);
   return (
     <>
       <span
@@ -218,11 +220,16 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
         </span>
       )}
       {wide &&
-        (step.assert.length > 0 || step.extract.length > 0 || step.think_time !== undefined) && (
+        (mode.kind !== "default" || step.extract.length > 0 || step.think_time !== undefined) && (
           <span className="ml-auto flex shrink-0 items-center gap-1">
-            {step.assert.length > 0 && (
+            {mode.kind === "codes" && (
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
-                {ko.editor.wideChipAssert(step.assert.length)}
+                {ko.editor.chipAssertCodes(mode.codes)}
+              </span>
+            )}
+            {(mode.kind === "any" || mode.kind === "multi") && (
+              <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
+                {mode.kind === "any" ? ko.editor.chipAssertAny : ko.editor.chipAssertMulti}
               </span>
             )}
             {step.extract.length > 0 && (

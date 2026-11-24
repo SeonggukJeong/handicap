@@ -558,11 +558,63 @@ describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
     render(<FlowOutline wide />);
     const row = screen.getByRole("option", { name: ko.editor.outlineRowAria("login") });
     expect(row).toHaveAttribute("data-step-id", "01HX0000000000000000000001");
-    expect(within(row).getByText(ko.editor.wideChipAssert(1))).toBeInTheDocument();
+    expect(within(row).getByText("검증 200")).toBeInTheDocument();
+    expect(within(row).getByText(ko.editor.chipAssertCodes([200]))).toBeInTheDocument();
     expect(within(row).getByText(ko.editor.wideChipExtract(1))).toHaveAttribute("title", "token");
     expect(
       within(row).getByText(ko.editor.wideChipThink(ko.editor.thinkRange(100, 200))),
     ).toBeInTheDocument();
+  });
+
+  const chipYaml = (assertBlock: string) => `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "chip"
+    type: http
+    request:
+      method: GET
+      url: "/x"
+${assertBlock}`;
+  const renderChip = (assertBlock: string) => {
+    reset();
+    useScenarioEditor.getState().loadFromString(chipYaml(assertBlock));
+    render(<FlowOutline wide />);
+    return screen.getByRole("option", { name: ko.editor.outlineRowAria("chip") });
+  };
+
+  it("검사 없는 스텝 — 검증 칩이 없다", () => {
+    const row = renderChip("");
+    expect(within(row).queryByText(/^검증/)).not.toBeInTheDocument();
+    expect(within(row).queryByText("상태 코드 안 봄")).not.toBeInTheDocument();
+  });
+
+  it("코드 둘 — 「검증 200·409」", () => {
+    const row = renderChip("    assert:\n      - status: [200, 409]\n");
+    expect(within(row).getByText("검증 200·409")).toBeInTheDocument();
+    expect(within(row).getByText(ko.editor.chipAssertCodes([200, 409]))).toBeInTheDocument();
+  });
+
+  it("코드 열둘 — 「검증 200 외 11」", () => {
+    const codes = Array.from({ length: 12 }, (_, i) => 200 + i).join(", ");
+    const row = renderChip(`    assert:\n      - status: [${codes}]\n`);
+    expect(within(row).getByText("검증 200 외 11")).toBeInTheDocument();
+  });
+
+  it("any — 「상태 코드 안 봄」 + 주의색", () => {
+    const row = renderChip("    assert:\n      - status: any\n");
+    const chip = within(row).getByText("상태 코드 안 봄");
+    expect(within(row).getByText(ko.editor.chipAssertAny)).toBe(chip);
+    expect(chip.className).toContain("text-amber-800");
+  });
+
+  it("검사 두 줄 — 「검증 확인 필요」 + 주의색", () => {
+    const row = renderChip("    assert:\n      - status: 200\n      - status: 201\n");
+    const chip = within(row).getByText("검증 확인 필요");
+    expect(within(row).getByText(ko.editor.chipAssertMulti)).toBe(chip);
+    expect(chip.className).toContain("text-amber-800");
   });
 
   it("비-wide: 칩·data-step-id 부재 (byte-identical, R9)", () => {
@@ -570,7 +622,7 @@ describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
     render(<FlowOutline />);
     const row = screen.getByRole("option", { name: ko.editor.outlineRowAria("login") });
     expect(row).not.toHaveAttribute("data-step-id");
-    expect(within(row).queryByText(ko.editor.wideChipAssert(1))).not.toBeInTheDocument();
+    expect(within(row).queryByText("검증 200")).not.toBeInTheDocument();
   });
 
   it("행 클릭/Enter/Space는 onActivateStep 호출, 드래그 핸들 클릭은 select만", async () => {
