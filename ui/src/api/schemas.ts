@@ -59,6 +59,12 @@ export const CriteriaSchema = z.object({
   max_5xx_count: z.number().int().nonnegative().optional(),
   min_window_rps: z.number().nonnegative().optional(),
   rps_warmup_seconds: z.number().int().nonnegative().optional(),
+  // 평균·최대·임의 백분위 판정(µs 경계 비교용 소수 ms). 서버 skip_serializing_if → absent → .optional()
+  max_mean_ms: z.number().nonnegative().optional(),
+  max_max_ms: z.number().nonnegative().optional(),
+  max_percentiles_ms: z
+    .array(z.object({ percentile: z.number(), max_ms: z.number().nonnegative() }))
+    .optional(),
   // step-level SLO 기준. 서버 #[serde(skip_serializing_if="Vec::is_empty")] → absent → .optional()
   step_criteria: z.array(CriterionSchema).optional(),
 });

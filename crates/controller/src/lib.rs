@@ -14,6 +14,7 @@ pub mod in_process;
 pub mod insights;
 pub mod launch;
 pub mod monitor;
+pub mod percentile_name;
 pub mod report;
 pub mod sample;
 pub mod schedule;

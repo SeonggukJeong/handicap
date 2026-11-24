@@ -1209,6 +1209,21 @@ async fn post_run_status(
 }
 
 #[tokio::test]
+async fn run_create_rejects_p95_in_percentile_list() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = create_scenario(&app, STEADY_YAML).await;
+    let (status, body) = post_run_status(
+        &app,
+        &sid,
+        json!({ "vus": 1, "duration_seconds": 1,
+            "criteria": { "max_percentiles_ms": [{ "percentile": 95, "max_ms": 1 }] } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
 async fn run_create_with_steady_open_ramp_stores_stages() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db);

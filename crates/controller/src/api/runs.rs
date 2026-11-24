@@ -129,8 +129,65 @@ pub(crate) fn validate_criteria(c: &crate::store::runs::Criteria) -> Result<(), 
         "4xx_count",
         "5xx_count",
     ];
+    // 새 시간 값(평균·최대·백분위 한계·스텝 새 항목): 유한·0..=60000·소수 셋째 자리까지.
+    fn time_limit_ok(v: f64) -> bool {
+        v.is_finite()
+            && (0.0..=60000.0).contains(&v)
+            && crate::percentile_name::is_three_decimals(v)
+    }
+    for (name, v) in [("max_mean_ms", c.max_mean_ms), ("max_max_ms", c.max_max_ms)] {
+        if let Some(v) = v {
+            if !time_limit_ok(v) {
+                return Err(format!(
+                    "criteria.{name}은 0 이상 60000 이하, 소수 셋째 자리까지여야 합니다"
+                ));
+            }
+        }
+    }
+    if c.max_percentiles_ms.len() > 10 {
+        return Err("criteria.max_percentiles_ms는 10개까지입니다".into());
+    }
+    let mut seen_milli: Vec<u32> = Vec::new();
+    for (i, pl) in c.max_percentiles_ms.iter().enumerate() {
+        let Some(milli) = crate::percentile_name::to_milli(pl.percentile) else {
+            return Err(format!(
+                "criteria.max_percentiles_ms[{i}].percentile은 0보다 크고 100보다 작은 수(소수 셋째 자리까지)여야 합니다"
+            ));
+        };
+        if !time_limit_ok(pl.max_ms) {
+            return Err(format!(
+                "criteria.max_percentiles_ms[{i}].max_ms은 0 이상 60000 이하, 소수 셋째 자리까지여야 합니다"
+            ));
+        }
+        let n = crate::percentile_name::percentile_metric_name(pl.percentile);
+        let n = n
+            .trim_start_matches('p')
+            .trim_end_matches("_ms")
+            .to_string();
+        if seen_milli.contains(&milli) {
+            return Err(format!(
+                "criteria.max_percentiles_ms[{i}]: 같은 백분위(p{n})가 이미 있습니다"
+            ));
+        }
+        seen_milli.push(milli);
+        if matches!(milli, 50_000 | 95_000 | 99_000) {
+            return Err(format!(
+                "criteria.max_percentiles_ms[{i}]: p{n}은 위의 최대 p{n} 칸을 쓰세요"
+            ));
+        }
+    }
     for (i, sc) in c.step_criteria.iter().enumerate() {
-        if !STEP_METRICS.contains(&sc.metric.as_str()) {
+        // 기존 8개(p50/p95/p99 포함)는 옛 검증 그대로(면제) — 새 항목만 새 규칙.
+        let new_time_metric = !STEP_METRICS.contains(&sc.metric.as_str())
+            && (sc.metric == "mean_ms"
+                || sc.metric == "max_ms"
+                || crate::percentile_name::parse_percentile_metric(&sc.metric).is_some());
+        if new_time_metric && !time_limit_ok(sc.threshold) {
+            return Err(format!(
+                "criteria.step_criteria[{i}].threshold는 0 이상 60000 이하, 소수 셋째 자리까지여야 합니다"
+            ));
+        }
+        if !STEP_METRICS.contains(&sc.metric.as_str()) && !new_time_metric {
             return Err(format!(
                 "criteria.step_criteria[{i}].metric '{}'은 지원하지 않습니다",
                 sc.metric
@@ -2055,6 +2112,80 @@ mod tests {
             })
             .is_ok()
         );
+    }
+
+    #[test]
+    fn validate_criteria_new_time_fields() {
+        use crate::store::runs::{Criteria, Criterion, PercentileLimit};
+        let pl = |p: f64, m: f64| PercentileLimit {
+            percentile: p,
+            max_ms: m,
+        };
+        let step = |metric: &str, th: f64| Criteria {
+            step_criteria: vec![Criterion {
+                metric: metric.into(),
+                op: "max".into(),
+                threshold: th,
+                target: "a".into(),
+            }],
+            ..Default::default()
+        };
+        let ok: Vec<Criteria> = vec![
+            Criteria {
+                max_mean_ms: Some(3000.0),
+                ..Default::default()
+            },
+            Criteria {
+                max_max_ms: Some(60000.0),
+                ..Default::default()
+            },
+            Criteria {
+                max_percentiles_ms: vec![pl(90.0, 2500.0), pl(99.9, 8000.0)],
+                ..Default::default()
+            },
+            step("mean_ms", 1200.5),
+            step("max_ms", 1200.5),
+            step("p90_ms", 1200.5),
+            step("p99.9_ms", 1200.5),
+            step("p95_ms", 70000.0), // 기존 항목은 면제
+        ];
+        for (i, c) in ok.iter().enumerate() {
+            assert!(
+                validate_criteria(c).is_ok(),
+                "ok[{i}]: {:?}",
+                validate_criteria(c)
+            );
+        }
+        let mean = |v: f64| Criteria {
+            max_mean_ms: Some(v),
+            ..Default::default()
+        };
+        let list = |v: Vec<PercentileLimit>| Criteria {
+            max_percentiles_ms: v,
+            ..Default::default()
+        };
+        let bad: Vec<(Criteria, &str)> = vec![
+            (mean(60000.5), "60000"),
+            (mean(-1.0), "60000"),
+            (mean(f64::NAN), "60000"),
+            (mean(1.0005), "소수 셋째 자리"),
+            (
+                list((0..11).map(|i| pl(10.0 + i as f64, 1.0)).collect()),
+                "10개까지",
+            ),
+            (list(vec![pl(90.0, 1.0), pl(90.0, 2.0)]), "같은 백분위"),
+            (list(vec![pl(95.0, 1.0)]), "위의 최대 p95 칸을 쓰세요"),
+            (list(vec![pl(100.0, 1.0)]), "percentile"),
+            (list(vec![pl(0.0, 1.0)]), "percentile"),
+            (step("p90.0_ms", 1.0), "metric"),
+            (step("p100_ms", 1.0), "metric"),
+            (step("median_ms", 1.0), "metric"),
+            (step("mean_ms", 60001.0), "60000"),
+        ];
+        for (i, (c, want)) in bad.iter().enumerate() {
+            let e = validate_criteria(c).expect_err(&format!("bad[{i}] should fail"));
+            assert!(e.contains(want), "bad[{i}]: {e}");
+        }
     }
 
     #[test]

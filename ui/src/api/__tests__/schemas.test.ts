@@ -405,6 +405,26 @@ describe("CriteriaSchema status-class + window fields", () => {
   });
 });
 
+describe("CriteriaSchema mean/max/percentile fields", () => {
+  it("accepts the three new fields", () => {
+    const r = CriteriaSchema.safeParse({
+      max_mean_ms: 3000.5,
+      max_max_ms: 60000,
+      max_percentiles_ms: [{ percentile: 99.9, max_ms: 8000 }],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.max_percentiles_ms?.[0].percentile).toBe(99.9);
+  });
+  it("accepts absence", () => {
+    const r = CriteriaSchema.safeParse({ max_p95_ms: 100 });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.max_mean_ms).toBeUndefined();
+      expect(r.data.max_percentiles_ms).toBeUndefined();
+    }
+  });
+});
+
 describe("step_criteria wire (step-level SLO)", () => {
   it("CriteriaSchema parses step_criteria array", () => {
     const r = CriteriaSchema.safeParse({

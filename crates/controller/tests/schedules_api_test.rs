@@ -61,6 +61,26 @@ async fn seed_scenario(app: &axum::Router) -> String {
     v["id"].as_str().unwrap().to_string()
 }
 
+#[tokio::test]
+async fn schedule_rejects_p95_in_percentile_list() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let sid = seed_scenario(&app).await;
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(json!({
+            "name": "p", "scenario_id": sid, "env": {},
+            "profile": { "vus": 1, "duration_seconds": 1,
+                "criteria": { "max_percentiles_ms": [{ "percentile": 95, "max_ms": 1 }] } },
+            "trigger": { "kind": "cron", "cron_expr": "0 2 * * *" },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+}
+
 fn profile() -> Value {
     json!({ "vus": 1, "duration_seconds": 1 })
 }

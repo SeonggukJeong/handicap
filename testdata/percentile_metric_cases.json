@@ -1,0 +1,19 @@
+{
+  "names": [
+    {"input": "p90_ms", "percentile": 90}, {"input": "p99.9_ms", "percentile": 99.9},
+    {"input": "p99.99_ms", "percentile": 99.99}, {"input": "p0.5_ms", "percentile": 0.5},
+    {"input": "p99.999_ms", "percentile": 99.999}, {"input": "p1_ms", "percentile": 1},
+    {"input": "p90.0_ms", "percentile": null}, {"input": "p090_ms", "percentile": null},
+    {"input": "p100_ms", "percentile": null}, {"input": "p0_ms", "percentile": null},
+    {"input": "p99.9999_ms", "percentile": null}, {"input": "p.5_ms", "percentile": null},
+    {"input": "p00.5_ms", "percentile": null}, {"input": "p90", "percentile": null},
+    {"input": "P90_ms", "percentile": null}, {"input": "p-1_ms", "percentile": null},
+    {"input": "p9e1_ms", "percentile": null}, {"input": "p 90_ms", "percentile": null}
+  ],
+  "numbers": [
+    {"input": "90", "name": "p90_ms"}, {"input": "90.0", "name": "p90_ms"},
+    {"input": "99.90", "name": "p99.9_ms"}, {"input": "0.5", "name": "p0.5_ms"},
+    {"input": "1.005", "name": "p1.005_ms"}, {"input": "100", "name": null},
+    {"input": "0", "name": null}, {"input": "99.9999", "name": null}, {"input": "-5", "name": null}
+  ]
+}

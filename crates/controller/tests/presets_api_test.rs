@@ -425,6 +425,21 @@ async fn preset_create_and_update_roundtrip_auto_stop() {
     assert!(resp.to_string().contains(msg), "POST: {resp}");
 }
 
+#[tokio::test]
+async fn preset_rejects_p95_in_percentile_list() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, YAML).await;
+    let (s, _) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "p", "env": {}, "profile": { "vus": 1, "duration_seconds": 1,
+            "criteria": { "max_percentiles_ms": [{ "percentile": 95, "max_ms": 1 }] } } }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
 fn steady_profile() -> Value {
     json!({
         "max_in_flight": 50,

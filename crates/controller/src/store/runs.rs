@@ -92,6 +92,20 @@ pub struct Criteria {
     /// step-level criteria (spec §2.1). 빈 리스트면 직렬화 생략 → migration-0·byte-identical.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub step_criteria: Vec<Criterion>,
+    /// 평균·최대·임의 백분위 판정(소수 ms). 없으면 직렬화 생략 → 옛 run 바이트 동일.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mean_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_max_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub max_percentiles_ms: Vec<PercentileLimit>,
+}
+
+/// 임의 백분위 기준 한 줄(p50·p95·p99는 전용 칸을 쓴다).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PercentileLimit {
+    pub percentile: f64,
+    pub max_ms: f64,
 }
 
 impl Criteria {
@@ -108,6 +122,9 @@ impl Criteria {
             || self.max_5xx_count.is_some()
             || self.min_window_rps.is_some()
             || !self.step_criteria.is_empty()
+            || self.max_mean_ms.is_some()
+            || self.max_max_ms.is_some()
+            || !self.max_percentiles_ms.is_empty()
         // 주의: rps_warmup_seconds는 의도적으로 제외(수식자, spec §4 N-3).
     }
 }
@@ -1110,6 +1127,63 @@ mod tests {
         // None 필드는 직렬화에서 생략(skip_serializing_if).
         let empty = serde_json::to_string(&Criteria::default()).unwrap();
         assert_eq!(empty, "{}");
+    }
+
+    #[test]
+    fn criteria_new_fields_skip_when_empty() {
+        let c = Criteria {
+            max_p95_ms: Some(500),
+            max_error_rate: Some(0.01),
+            step_criteria: vec![Criterion {
+                metric: "p95_ms".into(),
+                op: "max".into(),
+                threshold: 300.0,
+                target: "a".into(),
+            }],
+            ..Default::default()
+        };
+        // 이 변경 전 코드로 만든 문자열을 그대로 고정.
+        assert_eq!(
+            serde_json::to_string(&c).unwrap(),
+            r#"{"max_p95_ms":500,"max_error_rate":0.01,"step_criteria":[{"metric":"p95_ms","op":"max","threshold":300.0,"target":"a"}]}"#
+        );
+        // 새 칸을 넣은 값은 왕복 동일.
+        let full = Criteria {
+            max_mean_ms: Some(3000.0),
+            max_max_ms: Some(60000.0),
+            max_percentiles_ms: vec![PercentileLimit {
+                percentile: 99.9,
+                max_ms: 8000.5,
+            }],
+            ..c.clone()
+        };
+        let back: Criteria = serde_json::from_str(&serde_json::to_string(&full).unwrap()).unwrap();
+        assert_eq!(full, back);
+        // has_any는 세 칸 각각만 있을 때 참.
+        assert!(
+            Criteria {
+                max_mean_ms: Some(1.0),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        assert!(
+            Criteria {
+                max_max_ms: Some(1.0),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        assert!(
+            Criteria {
+                max_percentiles_ms: vec![PercentileLimit {
+                    percentile: 90.0,
+                    max_ms: 1.0
+                }],
+                ..Default::default()
+            }
+            .has_any()
+        );
     }
 
     #[test]
