@@ -105,6 +105,12 @@ describe("classifyCell", () => {
     [404, F(["any"], true), "unknown"],
     [200, null, "plain"],
     [404, null, "unknown"],
+    [101, F([]), "plain"],
+    [99, F([]), "plain"],
+    [101, F(["any"]), "plain"],
+    [101, F(["any"], true), "plain"],
+    [101, null, "plain"],
+    [101, F([[200]]), "counted"],
   ])("classify_table_rows(rule 2) %i %j -> %s", (code, facts, expected) => {
     expect(classifyCell(code, facts, 2)).toBe(expected);
   });
@@ -152,6 +158,7 @@ describe("buildStepTable", () => {
     const t = buildStepTable(
       [rs("01JABCDEFGHJKMNPQRSTVWXYZ0", { "200": 5, "503": 3 }, { error_count: 3 })],
       facts,
+      1,
     );
     const row = t.rows[0];
     expect(row.factsKnown).toBe(true);
@@ -164,6 +171,7 @@ describe("buildStepTable", () => {
     const t = buildStepTable(
       [rs("A", { "200": 80, "503": 20 }, { count: 100, error_count: 30 })],
       facts,
+      1,
     );
     expect(t.rows[0].perCode.find((p) => p.code === 503)).toMatchObject({
       count: 20,
@@ -174,16 +182,17 @@ describe("buildStepTable", () => {
     const t2 = buildStepTable(
       [rs("A", { "200": 80, "503": 20 }, { count: 100, error_count: 5 })],
       facts,
+      1,
     );
     expect(t2.rows[0].residual).toBe(0);
   });
 
   it("residual_uncertain_only_with_unknown_cell_and_residual", () => {
     const facts = okFacts([sf("A", { fallibleExtract: true })]);
-    const t = buildStepTable([rs("A", { "200": 8, "503": 2 }, { error_count: 3 })], facts);
+    const t = buildStepTable([rs("A", { "200": 8, "503": 2 }, { error_count: 3 })], facts, 1);
     expect(t.rows[0].residual).toBe(3);
     expect(t.rows[0].residualUncertain).toBe(true);
-    const t2 = buildStepTable([rs("A", { "200": 8, "503": 2 }, { error_count: 0 })], facts);
+    const t2 = buildStepTable([rs("A", { "200": 8, "503": 2 }, { error_count: 0 })], facts, 1);
     expect(t2.rows[0].residual).toBe(0);
     expect(t2.rows[0].residualUncertain).toBe(false);
   });
@@ -203,13 +212,14 @@ describe("buildStepTable", () => {
         }),
       ],
       okFacts([sf("A")]),
+      1,
     );
     expect(t.rows[0].perCode).toEqual([{ code: 200, count: 4, cls: "plain" }]);
   });
 
   it("fold_spec_example", () => {
     const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
-    const t = buildStepTable([rs("A", SPEC_COUNTS, { error_count: 99999 })], facts);
+    const t = buildStepTable([rs("A", SPEC_COUNTS, { error_count: 99999 })], facts, 1);
     expect(labels(t.columns)).toEqual([
       "2xx",
       "404",
@@ -287,7 +297,7 @@ describe("buildStepTable", () => {
       rs("A", { ...BIG, "400": 3, "401": 2, "403": 1 }),
       rs("B", { "200": 1, "401": 3 }),
     ];
-    const t = buildStepTable(steps, facts);
+    const t = buildStepTable(steps, facts, 1);
     const folded = t.columns.find((c) => c.key === "f4xx");
     expect(folded).toBeDefined();
     expect(folded!.codes).toEqual([400, 401, 403]);
@@ -300,14 +310,14 @@ describe("buildStepTable", () => {
     // 한 행: 접힌 칸에 uncounted(검사 없음)가 아니라 expected + counted 가 섞이는 경우
     const facts = okFacts([sf("A", { statusChecks: [[400]] })]);
     const steps = [rs("A", { ...BIG, "400": 3, "401": 2, "403": 1 })];
-    const t = buildStepTable(steps, facts);
+    const t = buildStepTable(steps, facts, 1);
     // 400 은 expected, 401·403 은 counted → 접힌 4xx 칸은 counted
     expect(t.rows[0].cells["f4xx"]).toMatchObject({ count: 6, cls: "counted" });
   });
 
   it("class2xx_column_takes_strongest", () => {
     const facts = okFacts([sf("A", { statusChecks: [[201]] })]);
-    const t = buildStepTable([rs("A", { "200": 3, "201": 2 })], facts);
+    const t = buildStepTable([rs("A", { "200": 3, "201": 2 })], facts, 1);
     const c = t.rows[0].cells["2xx"];
     expect(c.count).toBe(5);
     expect(c.cls).toBe("counted");
@@ -315,7 +325,7 @@ describe("buildStepTable", () => {
 
   it("strongest_marks_max_counted_column", () => {
     const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
-    const t = buildStepTable([rs("A", { "200": 50, "503": 5, "502": 5, "404": 1 })], facts);
+    const t = buildStepTable([rs("A", { "200": 50, "503": 5, "502": 5, "404": 1 })], facts, 1);
     const cells = t.rows[0].cells;
     expect(cells["c502"].strongest).toBe(true);
     expect(cells["c503"].strongest).toBe(false);
@@ -328,6 +338,7 @@ describe("buildStepTable", () => {
     const t = buildStepTable(
       [rs("A", { ...SPEC_COUNTS, "201": 7 }, { error_count: 99999 })],
       facts,
+      1,
     );
     expect(t.foldNotes).toEqual([
       {
@@ -361,6 +372,7 @@ describe("buildStepTable", () => {
     const t = buildStepTable(
       [rs("A", { "200": 1 }), rs("C", { "200": 1 }), rs("Z", { "404": 2, "0": 1 })],
       facts,
+      1,
     );
     expect(t.rows.map((r) => r.stepId)).toEqual(["A", "B", "C", "Z"]);
     expect(t.rows.map((r) => r.no)).toEqual(["①", "②", "③", "④"]);
@@ -379,7 +391,7 @@ describe("buildStepTable", () => {
   });
 
   it("unreadable_scenario", () => {
-    const t = buildStepTable([rs("A", { "404": 1 }), rs("B", { "200": 1 })], { ok: false });
+    const t = buildStepTable([rs("A", { "404": 1 }), rs("B", { "200": 1 })], { ok: false }, 1);
     expect(t.scenarioUnreadable).toBe(true);
     expect(t.rows.every((r) => !r.factsKnown)).toBe(true);
     expect(t.rows[0].cells["c404"].cls).toBe("unknown");
@@ -392,6 +404,7 @@ describe("notSent column", () => {
     const t = buildStepTable(
       [rs("A", { "200": 6 }, { error_count: 4, count: 10, not_sent: 4 })],
       facts,
+      1,
     );
     const keys = t.columns.map((c) => c.key);
     expect(keys).toContain("notSent");
@@ -405,13 +418,14 @@ describe("notSent column", () => {
     const t = buildStepTable(
       [rs("A", { "200": 4, "0": 3 }, { error_count: 6, count: 10, not_sent: 3 })],
       okFacts([sf("A")]),
+      1,
     );
     expect(t.rows[0].cells.none).toEqual({ count: 3, cls: "counted", strongest: false });
     expect(t.rows[0].cells.notSent).toEqual({ count: 3, cls: "counted", strongest: true });
   });
 
   it("no not_sent -> no notSent column and row.notSent is 0", () => {
-    const t = buildStepTable([rs("A", { "200": 6 }, { error_count: 2 })], okFacts([sf("A")]));
+    const t = buildStepTable([rs("A", { "200": 6 }, { error_count: 2 })], okFacts([sf("A")]), 1);
     expect(t.columns.map((c) => c.key)).not.toContain("notSent");
     expect(t.rows[0].notSent).toBe(0);
     expect(t.rows[0].residual).toBe(2);

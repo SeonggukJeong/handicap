@@ -66,6 +66,7 @@ const base = (over: Partial<SummaryInput> = {}): SummaryInput => {
   const rows = over.rows ?? [];
   const t0 = over.t0 ?? null;
   return {
+    statusRule: 1,
     status: "completed",
     message: null,
     startedMs: 1_000_000,

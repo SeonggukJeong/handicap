@@ -35,8 +35,8 @@ export type SummaryInput = {
   criteria: Criteria | null | undefined;
   /** 요약의 응답 시간이 값을 가졌는가 — 없으면 응답 시간 문장을 내지 않는다. 기본 참. */
   latency?: boolean;
-  /** 상태 코드 규칙 번호 — 「제외됐습니다」 문장이 따른다. 없으면 규칙 1. */
-  statusRule?: 1 | 2;
+  /** 상태 코드 규칙 번호 — 「제외됐습니다」 문장이 따른다. */
+  statusRule: 1 | 2;
 };
 
 const elapsed = (sec: number): string => formatDurationKo(Math.max(0, sec));

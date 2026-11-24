@@ -31,7 +31,8 @@ export function classifyCell(
 ): CellClass {
   if (code === 0) return "counted";
   const fam = codeFamily(code);
-  const mild = fam === "2xx" || fam === "3xx";
+  // 규칙 2의 기본 오류는 400 이상뿐이다 — 1xx도 2xx·3xx처럼 통과 응답이다.
+  const mild = rule === 2 ? code < 400 : fam === "2xx" || fam === "3xx";
   if (facts === null) return mild ? "plain" : "unknown";
   const lines = facts.statusChecks.filter((l): l is number[] => l !== "any");
   if (lines.length > 0) return lines.some((l) => !l.includes(code)) ? "counted" : "expected";
@@ -191,7 +192,7 @@ type RStep = Report["steps"][number];
 export function buildStepTable(
   steps: Report["steps"],
   facts: ScenarioFacts,
-  rule: 1 | 2 = 1,
+  rule: 1 | 2,
 ): StepTableModel {
   const byId = new Map<string, RStep>();
   for (const s of steps) if (!byId.has(s.step_id)) byId.set(s.step_id, s);

@@ -18,6 +18,7 @@ type Opts = {
   status?: RunMeta["status"];
   basis?: Report["basis"];
   sample?: Report["sample"];
+  statusRule?: 1 | 2;
 };
 
 function model(id: string, o: Opts = {}): RunModel {
@@ -33,6 +34,7 @@ function model(id: string, o: Opts = {}): RunModel {
     status: o.status,
     basis: o.basis,
     sample: o.sample,
+    statusRule: o.statusRule,
   });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(id, { status: o.status ?? "completed", ...o.meta }), report);
@@ -541,6 +543,19 @@ describe("판정 기준", () => {
     expect(card(f, "criteria").line).toBe("한쪽만 기준 있음");
     expect(f.criteriaSame).toBe(false);
     expect(card(fair(), "criteria").same).toBe(true);
+  });
+});
+
+describe("상태 코드 규칙 안내", () => {
+  const text =
+    "두 run이 오류를 세는 규칙이 다릅니다. 한쪽은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.";
+  it("규칙이 다르면 안내 한 줄이 생긴다", () => {
+    expect(fair({ statusRule: 2 }, {}).statusRuleLine).toBe(text);
+    expect(fair({ statusRule: 1 }, { statusRule: 2 }).statusRuleLine).toBe(text);
+  });
+  it("같으면 null", () => {
+    expect(fair({ statusRule: 2 }, { statusRule: 2 }).statusRuleLine).toBeNull();
+    expect(fair({}, {}).statusRuleLine).toBeNull();
   });
 });
 

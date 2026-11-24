@@ -48,6 +48,7 @@ export type MkReportArgs = {
   verdict?: Report["verdict"];
   basis?: Report["basis"];
   sample?: Report["sample"];
+  statusRule?: 1 | 2;
 };
 
 const T0 = 1_700_000_000_000;
@@ -76,6 +77,7 @@ export function mkReport(a: MkReportArgs): Report {
       started_at: T0,
       ended_at: T0 + 300_000,
       created_at: T0,
+      ...(a.statusRule ? { status_rule: a.statusRule } : {}),
     },
     scenario_yaml: a.yaml,
     summary: {

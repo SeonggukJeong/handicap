@@ -12,6 +12,7 @@ import { InsightCompareMatrix } from "../components/compare/InsightCompareMatrix
 import { runDisplayLabel } from "../compare/runLabel";
 import { basisNotice } from "../compare/basisNotice";
 import { sampleNotice } from "../compare/sampleNotice";
+import { statusRuleNotice } from "../compare/statusRuleNotice";
 import { profileSummary } from "../runs/profileSummary";
 import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
@@ -189,6 +190,7 @@ function ScenarioCompareInner({
 
   const notice = useMemo(() => basisNotice(reports, runLabels), [reports, runLabels]);
   const sampleNote = useMemo(() => sampleNotice(reports), [reports]);
+  const ruleNote = useMemo(() => statusRuleNotice(reports), [reports]);
 
   // Run column sublines: created-at timestamp + profile summary (run-identity US1/US6).
   // fail-soft — an unparseable profile still shows the timestamp alone.
@@ -292,6 +294,12 @@ function ScenarioCompareInner({
       {sampleNote && (
         <Callout variant="info" role="status" className="mb-4">
           {sampleNote}
+        </Callout>
+      )}
+
+      {ruleNote && (
+        <Callout variant="info" role="status" className="mb-4">
+          {ruleNote}
         </Callout>
       )}
 

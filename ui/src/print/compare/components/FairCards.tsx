@@ -15,6 +15,10 @@ function StatusLines({ lines }: { lines: string[] }) {
   );
 }
 
+function RuleLine({ text }: { text: string | null }) {
+  return text === null ? null : <div className="p-cmp-sample p-cmp-rule">{text}</div>;
+}
+
 function SampleLine({ text }: { text: string | null }) {
   return text === null ? null : <div className="p-cmp-sample">{text}</div>;
 }
@@ -37,6 +41,7 @@ export function FairCards({
         </div>
         <StatusLines lines={fairness.statusLines} />
         <SampleLine text={fairness.sampleLine} />
+        <RuleLine text={fairness.statusRuleLine} />
       </section>
     );
   }
@@ -55,6 +60,7 @@ export function FairCards({
       </div>
       <StatusLines lines={fairness.statusLines} />
       <SampleLine text={fairness.sampleLine} />
+      <RuleLine text={fairness.statusRuleLine} />
     </section>
   );
 }

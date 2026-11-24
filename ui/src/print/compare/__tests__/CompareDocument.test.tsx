@@ -237,6 +237,22 @@ describe("CompareDocument 표준판", () => {
     expect(small.querySelector("b")).toBeNull();
   });
 
+  it("상태 코드 규칙이 다르면 표준판·요약판 모두 안내 한 줄이 있다", async () => {
+    const doc = makeDoc({ statusRule: 2 }, {});
+    for (const kind of ["standard", "summary"] as const) {
+      const { root, container } = renderDoc(doc, kind);
+      await ready(root);
+      const notes = [...container.querySelectorAll(".p-cmp-rule")];
+      expect(notes.length, kind).toBe(1);
+      expect(notes[0].textContent).toBe(
+        "두 run이 오류를 세는 규칙이 다릅니다. 한쪽은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.",
+      );
+    }
+    const same = renderDoc(makeDoc());
+    await ready(same.root);
+    expect(same.container.querySelector(".p-cmp-rule")).toBeNull();
+  });
+
   it("응답 시간 표본이 섞이면 표준판·요약판 모두 안내 한 줄이 있다", async () => {
     const sample = { selected: "passed", default: "passed", split: true } as const;
     const doc = makeDoc({ sample }, {});

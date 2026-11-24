@@ -1,4 +1,5 @@
 import { sampleNotice } from "../../compare/sampleNotice";
+import { statusRuleNotice } from "../../compare/statusRuleNotice";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo } from "../../i18n/duration";
 import type { Profile } from "../../api/schemas";
@@ -23,6 +24,7 @@ export type Fairness = {
   condRows: CondRow[];
   /** 두 측정의 응답 시간 표본이 달라 숫자를 그대로 비교하기 어렵다는 안내. */
   sampleLine: string | null;
+  statusRuleLine: string | null;
 };
 
 const F = ko.print.cmp.fair;
@@ -536,5 +538,6 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     oneLine: F.oneLine(same, diff),
     condRows,
     sampleLine: sampleNotice([before.report, after.report]),
+    statusRuleLine: statusRuleNotice([before.report, after.report]),
   };
 }

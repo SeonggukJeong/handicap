@@ -137,6 +137,24 @@ describe("ScenarioComparePage", () => {
     expect(cells[2].textContent).toBe("30");
   });
 
+  it("상태 코드 규칙이 다른 run을 비교하면 안내가 보이고, 같으면 없다", async () => {
+    const ruleA = { ...baseReport, run: { ...baseReport.run, status_rule: 2 } };
+    const spy = vi
+      .spyOn(api, "getRunReport")
+      .mockImplementation((id: string) => Promise.resolve((id === "A" ? ruleA : reportB) as never));
+    const { unmount } = renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+    await screen.findByText("p95_ms");
+    const notice = screen.getByText(/두 run이 오류를 세는 규칙이 다릅니다/);
+    expect(notice.closest('[role="status"]')).not.toBeNull();
+    unmount();
+    spy.mockImplementation((id: string) =>
+      Promise.resolve((id === "A" ? baseReport : reportB) as never),
+    );
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+    await screen.findByText("p95_ms");
+    expect(screen.queryByText(/두 run이 오류를 세는 규칙이 다릅니다/)).not.toBeInTheDocument();
+  });
+
   it("표본이 같으면 응답 시간 표본 안내가 없다", async () => {
     vi.spyOn(api, "getRunReport").mockImplementation((id: string) =>
       Promise.resolve(id === "A" ? baseReport : reportB),

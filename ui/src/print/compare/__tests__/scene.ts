@@ -15,6 +15,7 @@ export type SceneRun = {
   yaml?: string;
   meta?: Partial<RunMeta>;
   sample?: Report["sample"];
+  statusRule?: 1 | 2;
 };
 
 const DEFAULT_STEPS: StepSpec[] = [{ id: "s1", name: "접수", assert: [200] }];
@@ -30,6 +31,7 @@ export function sceneModel(o: SceneRun): RunModel {
     profile: o.profile,
     env: o.env,
     sample: o.sample,
+    statusRule: o.statusRule,
   });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(o.id, o.meta), report);
