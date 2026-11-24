@@ -670,18 +670,30 @@ async fn trace_setup_then_steps() {
 
 #[tokio::test]
 async fn trace_setup_failure_stops() {
-    let server = login_server("denied", 401).await;
+    // 200이지만 본문이 JSON이 아니라 추출이 실패한다(상태 코드와 무관한 옛 뜻 그대로).
+    let server = login_server("denied", 200).await;
     let base = server.uri();
     let y = setup_yaml(&login_req(&base), &format!("{base}/me"));
     let scenario = Scenario::from_yaml(&y).unwrap();
     let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
-    // 본문이 JSON이 아니라 추출이 실패한다.
     assert!(trace.setup_failed, "{trace:?}");
     assert!(!trace.ok);
     assert_eq!(trace.steps.len(), 1, "본 행 없음");
     assert_eq!(trace.steps[0].section, Some(Section::Setup));
     assert!(trace.steps[0].error.is_some());
     assert!(trace.error.is_none());
+}
+
+#[tokio::test]
+async fn trace_setup_401_without_assert_fails_with_status_error() {
+    let server = login_server(r#"{"token":"t1"}"#, 401).await;
+    let base = server.uri();
+    let y = setup_yaml(&login_req(&base), &format!("{base}/me"));
+    let scenario = Scenario::from_yaml(&y).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    assert!(trace.setup_failed, "{trace:?}");
+    assert_eq!(trace.steps.len(), 1, "본 행 없음");
+    assert_eq!(trace.steps[0].error.as_deref(), Some("status 401 (>= 400)"));
 }
 
 #[tokio::test]
