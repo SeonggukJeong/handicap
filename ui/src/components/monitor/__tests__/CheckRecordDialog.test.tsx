@@ -194,6 +194,10 @@ describe("CheckRecordDialog", () => {
     );
     wrap(dlg());
     expect(await screen.findByText("status 503 != 200")).toBeInTheDocument();
+    // 이유 글이 없을 땐 오류 줄 간격이 예전 그대로.
+    expect(screen.getByText("status 503 != 200").className.split(/\s+/).sort()).toEqual(
+      ["pb-1", "px-2", "text-red-600", "text-xs"].sort(),
+    );
     // 기본 규칙 글이 아니면 이유 글 자리에 빈 요소도 남지 않는다.
     expect(document.querySelectorAll("p.bg-red-50, div.px-2:empty").length).toBe(0);
     expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();

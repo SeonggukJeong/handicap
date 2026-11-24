@@ -245,8 +245,8 @@ function StepRow({
         {step.section === "setup" && <SetupBadge />}
         <span className="font-mono">{summary}</span>
       </button>
-      <DefaultRuleNote error={step.error} className="mx-2" />
-      {errorText && <div className="px-2 pt-1 pb-1 text-xs text-red-600">{errorText}</div>}
+      <DefaultRuleNote error={step.error} className="mx-2 mb-1" />
+      {errorText && <div className="px-2 pb-1 text-xs text-red-600">{errorText}</div>}
       {defaulted && <div className="px-2 pb-1 text-xs break-all text-slate-600">{defaulted}</div>}
       {open && (
         <div className="space-y-2 border-t border-slate-200 p-2">

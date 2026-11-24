@@ -496,6 +496,10 @@ describe("PreviewResult 기본 규칙 오류 이유 글", () => {
     render(
       <PreviewResult preview={withError("status 503 != 200")} stepNames={{ [STEP]: "로그인" }} />,
     );
+    // 이유 글이 없을 땐 오류 글이 예전 그대로 — 인라인 span, 여백 클래스 없음.
+    const err = screen.getByText("status 503 != 200");
+    expect(err.tagName).toBe("SPAN");
+    expect(err.className).toBe("");
     expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
   });
   it("blocked 스텝은 이유 글이 없다", () => {
