@@ -52,6 +52,11 @@ type Basis = SpeedBands["overall"]["basis"];
 type BandRow = SpeedBands["overall"];
 
 /** 판정용 — 컨트롤러 `exceeds_allowance`와 같은 정수식. */
+/** 경계(ms): 규칙 2 run은 `slow_us`(µs)를 ms로, 규칙 1 run은 `slow_ms`. */
+export function boundaryMs(row: { slow_ms: number; slow_us?: number }): number {
+  return row.slow_us != null ? row.slow_us / 1000 : row.slow_ms;
+}
+
 export function exceedsAllowance(basis: Basis, over: number, total: number): boolean {
   switch (basis) {
     case "p95":
@@ -159,7 +164,7 @@ function bandCells(row: BandRow, twoBand: boolean, matched: Matched[], isTotal: 
     };
   }
   const within = merged
-    ? cell(K.withinMerged(fmtBoundary(row.slow_ms), fmtPct(row.within / tot)), {
+    ? cell(K.withinMerged(fmtBoundary(boundaryMs(row)), fmtPct(row.within / tot)), {
         muted: row.within === 0,
       })
     : pctCell(row.within, tot);
@@ -183,7 +188,7 @@ function ownLine(r: BandRow, id: string, ranked: RankedRow[], matched: Matched[]
     if (m.spec.target !== id || m.spec.metric !== metric || m.spec.op !== "max") continue;
     if (pick === null || m.spec.threshold < pick.spec.threshold) pick = m;
   }
-  const threshold = pick ? pick.spec.threshold : r.slow_ms;
+  const threshold = pick ? pick.spec.threshold : boundaryMs(r);
   const critName = ko.print.criteria.names[metric]?.name ?? metric;
   const tot = rowTotal(r);
   let pct: string = K.dash;
@@ -197,7 +202,7 @@ function ownLine(r: BandRow, id: string, ranked: RankedRow[], matched: Matched[]
     fail: verdict === "fail",
     segs: K.stepRule(
       `${label} ${critName} ${ko.print.criteria.targetMax(fmtMsExact(threshold))}`,
-      fmtBoundary(r.slow_ms),
+      fmtBoundary(boundaryMs(r)),
       pct,
       verdict,
     ),
@@ -261,8 +266,8 @@ export function buildSpeedModel(a: {
   const overall = bands.overall;
   const stepBands = new Map(bands.steps.map((s) => [s.step_id, s]));
   const twoBand = overall.fast === null && bands.steps.every((s) => s.fast === null);
-  const uniform = bands.steps.every((s) => s.slow_ms === overall.slow_ms);
-  const B = fmtBoundary(overall.slow_ms);
+  const uniform = bands.steps.every((s) => boundaryMs(s) === boundaryMs(overall));
+  const B = fmtBoundary(boundaryMs(overall));
   const runJudged = overall.basis !== "default";
 
   const overSub = uniform
@@ -342,7 +347,7 @@ export function buildSpeedModel(a: {
       total: false,
       label,
       rowBad,
-      ownNote: sb.own ? K.ownNote(fmtBoundary(sb.slow_ms)) : null,
+      ownNote: sb.own ? K.ownNote(fmtBoundary(boundaryMs(sb))) : null,
       bar,
       ...c,
       fail: failC,
@@ -388,7 +393,7 @@ export function buildSpeedModel(a: {
     const crit = ko.print.criteria.names[metricOf(overall.basis)]?.name ?? metricOf(overall.basis);
     rule = {
       segs: K.rule(
-        `${crit} ${ko.print.criteria.targetMax(fmtMsExact(overall.slow_ms))}`,
+        `${crit} ${ko.print.criteria.targetMax(fmtMsExact(boundaryMs(overall)))}`,
         B,
         `${Math.round(allow * 100)}%`,
         pct,

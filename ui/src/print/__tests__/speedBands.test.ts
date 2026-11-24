@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ReportSchema, SpeedBandsSchema, type Criteria, type SpeedBands } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { ALLOWED, exceedsAllowance, type Seg } from "../speedBands";
+import { fmtBoundary } from "../format";
+import { ALLOWED, boundaryMs, exceedsAllowance, type Seg } from "../speedBands";
 import { band, build, case1Input, case4Input, case7Input, rr, summ } from "./speedFixtures";
 
 const threeBand = {
@@ -82,6 +83,32 @@ describe("SpeedBandsSchema", () => {
 
 const joined = (segs: Seg[]): string => segs.map((g) => g.text).join("");
 const SP = ko.print.speed;
+
+describe("boundaryMs·slow_us (규칙 2 run)", () => {
+  it("slow_us가 있으면 µs를 ms로, 없으면 slow_ms", () => {
+    expect(boundaryMs({ slow_ms: 43, slow_us: 43_500 })).toBe(43.5);
+    expect(boundaryMs({ slow_ms: 43 })).toBe(43);
+  });
+
+  it("SpeedBandsSchema가 overall·steps 행의 slow_us를 받는다", () => {
+    const r = SpeedBandsSchema.safeParse({
+      overall: { ...twoBand, slow_us: 800_000 },
+      steps: [{ step_id: "A", ...threeBand, slow_us: 3_000_500, own: true }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("slow_us가 있는 리포트의 경계 글자는 소수 ms를 보인다", () => {
+    const i = case4Input();
+    i.bands = {
+      overall: { ...i.bands.overall, slow_ms: 43, slow_us: 43_500 },
+      steps: [],
+    };
+    const m = build({ ...i, ranked: [] });
+    expect(m.head.over).toContain(fmtBoundary(43.5));
+    expect(fmtBoundary(43.5)).toBe("43.5ms");
+  });
+});
 
 describe("exceedsAllowance (컨트롤러 exceeds_allowance와 같은 표)", () => {
   it.each([

@@ -800,6 +800,8 @@ export type WorkerBreakdown = z.infer<typeof WorkerBreakdownSchema>;
 export const SpeedBandRowSchema = z
   .object({
     slow_ms: z.number(),
+    // 규칙 2 run만(서버 skip_serializing_if): 경계 µs. 없으면 slow_ms가 경계다.
+    slow_us: z.number().optional(),
     basis: z.enum(["p95", "p99", "p50", "default"]),
     own: z.boolean(),
     // 서버 Option에 skip_serializing_if 없음 → null로 온다 (두 구간)

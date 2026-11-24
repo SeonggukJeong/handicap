@@ -1,6 +1,10 @@
+use handicap_controller::latency_stats::value_at_milli;
 use handicap_controller::speed_bands::*;
 use handicap_controller::store::runs::{Criteria, Criterion};
+use handicap_controller::store::runs::{LATENCY_RULE_CURRENT, LATENCY_RULE_LEGACY};
 use hdrhistogram::Histogram;
+
+const LEGACY: u8 = LATENCY_RULE_LEGACY;
 use std::collections::BTreeMap;
 
 fn hist() -> Histogram<u64> {
@@ -161,7 +165,7 @@ fn build_none_when_overall_empty_and_skips_empty_steps() {
     let empty = hist();
     let mut per = BTreeMap::new();
     per.insert("A".to_string(), hist());
-    assert_eq!(build(&empty, &per, None), None);
+    assert_eq!(build(&empty, &per, None, LEGACY), None);
 
     let mut o = hist();
     rec_ms(&mut o, 100, 2);
@@ -170,7 +174,7 @@ fn build_none_when_overall_empty_and_skips_empty_steps() {
     let mut per = BTreeMap::new();
     per.insert("B".to_string(), a);
     per.insert("A".to_string(), hist());
-    let sb = build(&o, &per, None).unwrap();
+    let sb = build(&o, &per, None, LEGACY).unwrap();
     assert_eq!(sb.overall.basis, "default");
     assert!(!sb.overall.own);
     assert_eq!(sb.steps.len(), 1);
@@ -191,7 +195,7 @@ fn build_orders_steps_and_uses_own_boundary() {
         c.max_p95_ms = Some(3000);
         c.step_criteria = vec![sc("p95_ms", "max", 5000.0, "A")];
     });
-    let sb = build(&o, &per, Some(&c)).unwrap();
+    let sb = build(&o, &per, Some(&c), LEGACY).unwrap();
     assert_eq!(sb.steps[0].step_id, "A");
     assert_eq!(sb.steps[0].row.slow_ms, 5000);
     assert!(sb.steps[0].row.own);
@@ -210,7 +214,7 @@ fn wire_shape_flattens_step_and_serializes_null_fast() {
     let mut per = BTreeMap::new();
     per.insert("A".to_string(), o.clone());
     let c = crit(|c| c.max_p95_ms = Some(800));
-    let v = serde_json::to_value(build(&o, &per, Some(&c)).unwrap()).unwrap();
+    let v = serde_json::to_value(build(&o, &per, Some(&c), LEGACY).unwrap()).unwrap();
     assert!(v["overall"]["fast"].is_null());
     assert!(v["overall"].as_object().unwrap().contains_key("fast"));
     assert_eq!(v["steps"][0]["step_id"], "A");
@@ -312,6 +316,85 @@ fn verdict_agrees_with_over_share() {
                 passes,
                 !exceeds_allowance(basis, row.over, total),
                 "case {case} q={q} slow_ms={slow_ms} n={n} over={} total={total}",
+                row.over
+            );
+        }
+    }
+}
+
+#[test]
+fn rule2_counts_by_us() {
+    let mut h = hist();
+    h.record(43_900).unwrap();
+    let r1 = count_bands(&h, 43, "p95", false);
+    assert_eq!((r1.within, r1.over), (1, 0));
+    assert_eq!(r1.slow_us, None);
+    let r2 = count_bands_us(&h, 43_000, "p95", false);
+    assert_eq!((r2.within, r2.over), (0, 1));
+    assert_eq!(r2.slow_ms, 43);
+    assert_eq!(r2.slow_us, Some(43_000));
+}
+
+#[test]
+fn rule2_step_fraction() {
+    let c = crit(|c| c.step_criteria = vec![sc("p95_ms", "max", 43.5, "s1")]);
+    assert_eq!(step_boundary_us(Some(&c), "s1"), Some((43_500, "p95")));
+    assert_eq!(step_boundary(Some(&c), "s1"), Some((43, "p95")));
+}
+
+#[test]
+fn rule2_build_sets_slow_us() {
+    let mut o = hist();
+    rec_ms(&mut o, 10, 5);
+    let mut per = BTreeMap::new();
+    per.insert("s1".to_string(), o.clone());
+    let c = crit(|c| {
+        c.max_p95_ms = Some(200);
+        c.step_criteria = vec![sc("p95_ms", "max", 43.5, "s1")];
+    });
+    let sb = build(&o, &per, Some(&c), LATENCY_RULE_CURRENT).unwrap();
+    assert_eq!(sb.overall.slow_us, Some(200_000));
+    assert_eq!(sb.steps[0].row.slow_us, Some(43_500));
+    assert_eq!(sb.steps[0].row.slow_ms, 43);
+    let l = build(&o, &per, Some(&c), LATENCY_RULE_LEGACY).unwrap();
+    assert_eq!(l.overall.slow_us, None);
+    assert_eq!(l.steps[0].row.slow_us, None);
+    assert_eq!(l.steps[0].row.slow_ms, 43);
+    assert_eq!(sb.overall.within, l.overall.within);
+}
+
+#[test]
+fn verdict_agrees_with_over_share_rule2() {
+    let mut rng = Lcg(0x5eed_9876_abcd_ef01);
+    for case in 0..300 {
+        let n = 1 + (rng.next() % 5000);
+        let slow_ms = match rng.next() % 4 {
+            0 => 0,
+            1 => 1 + rng.next() % 50,
+            2 => 800 + rng.next() % 3000,
+            _ => 1 + rng.next() % 9000,
+        };
+        let slow_us = slow_ms * 1_000 + rng.next() % 1_000;
+        let mut h = hist();
+        for _ in 0..n {
+            let us = if rng.next() % 4 == 0 {
+                let off = (rng.next() % 4_001) as i64 - 2_000;
+                (slow_us as i64 + off).max(1) as u64
+            } else {
+                let e = rng.unit() * (10_000_000f64).ln();
+                (e.exp() as u64).clamp(1, 10_000_000)
+            };
+            h.record(us).unwrap();
+        }
+        let row = count_bands_us(&h, slow_us, "p95", false);
+        let total = row.fast.unwrap_or(0) + row.within + row.over;
+        assert_eq!(total, h.len());
+        for (milli, basis) in [(95_000, "p95"), (99_000, "p99"), (50_000, "p50")] {
+            let passes = value_at_milli(&h, milli).unwrap() <= slow_us;
+            assert_eq!(
+                passes,
+                !exceeds_allowance(basis, row.over, total),
+                "case {case} milli={milli} slow_us={slow_us} n={n} over={} total={total}",
                 row.over
             );
         }

@@ -42,6 +42,17 @@ function expectClean(v: unknown, path = "$"): void {
   }
 }
 
+describe("buildSpeedCompare slow_us", () => {
+  it("slow_us 43,500 vs 43,000은 경계가 다르다고 본다(slow_ms는 같다)", () => {
+    const m = buildSpeedCompare(
+      run("b", { ...b3(43), slow_us: 43_500 }),
+      run("a", { ...b3(43), slow_us: 43_000 }),
+    )!;
+    expect(m.same).toBe(false);
+    expect(m.rows[0].boundary).toBe("43.5ms 기준");
+  });
+});
+
 describe("buildSpeedCompare", () => {
   it("경계가 같으면 머리 하나를 공유하고 경고·경계 글자가 없다", () => {
     const m = buildSpeedCompare(run("b", b3(3000)), run("a", b3(3000)))!;

@@ -8,6 +8,7 @@ import { expandCriteria, matchVerdict, type Matched } from "../verdict";
 
 type BandIn = {
   slow_ms: number;
+  slow_us?: number;
   basis: "p95" | "p99" | "p50" | "default";
   own?: boolean;
   fast: number | null;

@@ -1,7 +1,7 @@
 // 응답 속도 구간 비교 모델(순수): 두 측정의 전체 요청 구간을 한 표로. spec §9.4.
 import { ko } from "../../i18n/ko";
 import { fmtBoundary, fmtPct } from "../format";
-import { buildOverallBand, rowTotal, type BandName, type OverallBand } from "../speedBands";
+import { boundaryMs, buildOverallBand, rowTotal, type BandName, type OverallBand } from "../speedBands";
 import type { RunModel } from "./runModel";
 
 const K = ko.print.speed;
@@ -32,7 +32,7 @@ function row(
   show: { same: boolean; threeCols: boolean },
 ): SpeedCompareRow {
   const band = buildOverallBand(o, run.report.summary);
-  const boundary = show.same ? null : C.boundary(fmtBoundary(o.slow_ms));
+  const boundary = show.same ? null : C.boundary(fmtBoundary(boundaryMs(o)));
   const merged = show.threeCols && band.twoBand && band.bar !== null;
   const total = rowTotal(o);
   return {
@@ -40,7 +40,7 @@ function row(
     boundary,
     band,
     merged,
-    mergedText: merged ? K.withinMerged(fmtBoundary(o.slow_ms), fmtPct(o.within / total)) : null,
+    mergedText: merged ? K.withinMerged(fmtBoundary(boundaryMs(o)), fmtPct(o.within / total)) : null,
   };
 }
 
@@ -49,9 +49,9 @@ export function buildSpeedCompare(before: RunModel, after: RunModel): SpeedCompa
   const a = after.report.speed_bands?.overall;
   if (!b || !a) return null;
   const same =
-    b.slow_ms === a.slow_ms && b.basis === a.basis && (b.fast === null) === (a.fast === null);
+    boundaryMs(b) === boundaryMs(a) && b.basis === a.basis && (b.fast === null) === (a.fast === null);
   const threeCols = b.fast !== null || a.fast !== null;
-  const B = fmtBoundary(b.slow_ms);
+  const B = fmtBoundary(boundaryMs(b));
   const head: SpeedCompare["head"] = same
     ? threeCols
       ? { fast: K.headFast, within: K.headWithin(B), over: K.headOver(B) }

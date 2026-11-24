@@ -1436,8 +1436,12 @@ pub fn build_report(
             })
             .collect()
     });
-    let speed_bands =
-        crate::speed_bands::build(overall_h, &per_step_hists, run.profile.criteria.as_ref());
+    let speed_bands = crate::speed_bands::build(
+        overall_h,
+        &per_step_hists,
+        run.profile.criteria.as_ref(),
+        run.latency_rule,
+    );
 
     let summary = ReportSummary {
         count: total_count,
