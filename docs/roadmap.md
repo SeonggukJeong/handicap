@@ -261,7 +261,7 @@
   7. **실패 응답 저장** — 실패한 요청의 응답 본문 몇 개를 남기기(LR snapshot on error, JMeter 실패 결과 저장). 실패는 개수·분류만 남는다(미리 실행 trace만 본문 있음). `grep -rln 'error_sample\|sample_body\|snapshot_on_error' crates/` → 테스트 이름 하나뿐.
   8. **집결 지점(rendezvous)** — VU를 모았다가 동시에 보내기(LR rendezvous, JMeter Synchronizing Timer). `grep -rni 'rendezvous\|barrier' crates/engine/src` → 0건.
   9. **VU별 반복 간격 고정(pacing)** — 「매 반복을 N초마다 시작」(LR pacing, JMeter Constant Throughput Timer). 생각 시간과 open-loop 목표 rps만 있다(전체 처리량 맞추기는 open-loop로 대체됨). `grep -n 'pub struct Profile' -A 70 crates/controller/src/store/runs.rs`에 pacing 칸 없음.
-- **결정으로 뺀 것 — 「LR 이상」 목표로 다시 판단할 후보**: ① 서버 자원 감시(LR Analysis의 서버 CPU·메모리 그래프 합치기) — ADR-0009가 실시간을 APM에 맡겼다. 종료 리포트에 APM 지표를 붙이는 정도는 재판단 대상. ② 스크립트 코드(k6 JS·LR C) — GUI·YAML 모델이라 일부러 안 넣음. 대신 1·2·8 같은 것을 노드로 직접 줘야 한다.
+- **결정으로 뺀 것 (사용자 판단 2026-11-24)**: ① 서버 자원 감시(LR Analysis의 서버 CPU·메모리 그래프 합치기) — ADR-0009가 실시간을 APM에 맡겼다. **추후 고려할 만한 후보**(사용자: "서버 자원 감시 정도는 추후에 고려해볼만 하겠다") — 종료 리포트에 APM 지표를 붙이는 정도부터. 위 1–9보다 뒤. ② 스크립트 코드(k6 JS·LR C) — **기각**(사용자: "아예 취지랑 안맞는거 같고" — GUI·YAML 모델이 취지). 다시 제안하지 않는다. 대신 1·2·8 같은 것을 노드로 직접 준다.
 - 유형: 항목마다 user-path, 엔진·와이어 변경이 많아 정식 파이프라인(US 초안부터). 항목 하나 = 슬라이스 하나 이상.
 - 출처: 2026-11-24 사용자 — "프로토콜을 제외하고 다른 부하테스터 대비 지원하지 못하고 있는게 뭐지? 예전에는 없다고 했었는데 이번에는 발견이 됐잖아." → "다 등록해두고, 하던 작업은 다 끝나고 수행하자. 나는 개인적으로 3번이 더 가치있을거 같은데".
 
