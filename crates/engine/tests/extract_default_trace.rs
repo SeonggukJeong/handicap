@@ -120,6 +120,10 @@ async fn trace_us3_outside_loop_ok() {
         .respond_with(json_resp("{}"))
         .mount(&server)
         .await;
+    Mock::given(path("/no-coupon"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
     let sc = Scenario::from_yaml(&fill(US3, &server.uri(), "")).unwrap();
     let t = trace_scenario(&sc, &opts()).await;
     assert_eq!(row(&t.steps, A_ID).error, None);

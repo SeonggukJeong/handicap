@@ -11,7 +11,8 @@ use crate::extract::{
     ResponseFacts, evaluate as evaluate_extracts, evaluate_lenient, evaluate_with_defaults,
     has_default,
 };
-use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
+use crate::scenario::{Body, CookieJarMode, HttpMethod, HttpStep};
+use crate::status_rule::{StatusVerdict, judge_status, status_error_text};
 use crate::template::{TemplateContext, render, render_collecting};
 use crate::trace::{HttpTrace, TracedRequest, TracedResponse};
 
@@ -96,6 +97,7 @@ pub enum ErrorClass {
     Send,
     ReadBody,
     StatusAssert,
+    HttpStatus,
     Extract,
 }
 
@@ -310,15 +312,13 @@ pub async fn execute_step_with(
 
             let mut error: Option<String> = None;
             let mut error_class: Option<ErrorClass> = None;
-            for a in &step.assert {
-                match a {
-                    Assertion::Status(want) if *want != status => {
-                        error = Some(format!("status {} != {}", status, want));
-                        error_class = Some(ErrorClass::StatusAssert);
-                        break;
-                    }
-                    _ => {}
-                }
+            let verdict = judge_status(&step.assert, status);
+            if verdict != StatusVerdict::Pass {
+                error = status_error_text(&step.assert, status, verdict);
+                error_class = Some(match verdict {
+                    StatusVerdict::DefaultRule => ErrorClass::HttpStatus,
+                    StatusVerdict::Mismatch | StatusVerdict::Pass => ErrorClass::StatusAssert,
+                });
             }
 
             let mut extracted = BTreeMap::new();
@@ -711,15 +711,8 @@ pub(crate) async fn send_rendered_trace(
 
     let mut error: Option<String> = build_error;
     if error.is_none() {
-        for a in &step.assert {
-            match a {
-                Assertion::Status(want) if *want != status => {
-                    error = Some(format!("status {} != {}", status, want));
-                    break;
-                }
-                _ => {}
-            }
-        }
+        let verdict = judge_status(&step.assert, status);
+        error = status_error_text(&step.assert, status, verdict);
     }
 
     let mut extracted = BTreeMap::new();
@@ -769,7 +762,9 @@ pub(crate) async fn send_rendered_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::{Body, Decode, DisabledRows, Extract, HttpMethod, HttpStep, Request};
+    use crate::scenario::{
+        Assertion, Body, Decode, DisabledRows, Extract, HttpMethod, HttpStep, Request, StatusExpect,
+    };
     use std::collections::BTreeMap;
     use wiremock::matchers::{body_json, body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -857,7 +852,7 @@ mod tests {
         let server = mock_poll(503).await;
         let step = lenient_step(
             format!("{}/poll", server.uri()),
-            vec![Assertion::Status(200)],
+            vec![Assertion::Status(StatusExpect::One(200))],
         );
         let vars = BTreeMap::new();
         let env = empty_env();

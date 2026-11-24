@@ -17,6 +17,7 @@ mod reqgen;
 pub mod runner;
 pub mod scenario;
 mod section;
+pub mod status_rule;
 pub mod template;
 pub mod trace;
 
@@ -50,12 +51,13 @@ pub use runner::{
 };
 pub use scenario::{
     Assertion, Body, Branch, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep,
-    IfStep, LoopStep, ParallelStep, Request, Scenario, SetupSection, Step,
+    IfStep, LoopStep, ParallelStep, Request, Scenario, SetupSection, StatusExpect, Step,
 };
 pub use section::{
     SECTION_FIXED_FAILURE_KINDS, Section, SectionOutcome, SectionRun, SectionStats,
     SectionStepStat, SharedSectionStats, is_section_failure_kind,
 };
+pub use status_rule::{StatusVerdict, judge_status, status_error_text, status_unchecked};
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
 pub use trace::{
     BlockedInfo, HttpTrace, RowTrace, RowsTrace, ScenarioTrace, StepKind, StepTrace, TraceOptions,

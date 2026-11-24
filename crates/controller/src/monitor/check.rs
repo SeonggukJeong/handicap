@@ -11,8 +11,8 @@ use std::time::Duration;
 use handicap_engine::extract::{jsonpath_first, stringify};
 use handicap_engine::json_unwrap::{parse_body_json, unwrap_json_str, unwrap_nested};
 use handicap_engine::{
-    Assertion, HttpStep, Scenario, ScenarioTrace, Step, StepKind, StepTrace, TraceOptions,
-    TracedResponse, trace_scenario,
+    HttpStep, Scenario, ScenarioTrace, StatusVerdict, Step, StepKind, StepTrace, TraceOptions,
+    TracedResponse, judge_status, trace_scenario,
 };
 use serde::{Deserialize, Serialize};
 
@@ -553,10 +553,7 @@ fn latency_step_exists(scenario: &Scenario, panel: &PanelConfig) -> bool {
 fn status_mismatch(http: Option<&HttpStep>, st: &StepTrace) -> Option<u16> {
     let resp = st.response.as_ref()?;
     let h = http?;
-    h.assert
-        .iter()
-        .any(|a| matches!(a, Assertion::Status(c) if *c != resp.status))
-        .then_some(resp.status)
+    (!matches!(judge_status(&h.assert, resp.status), StatusVerdict::Pass)).then_some(resp.status)
 }
 
 /// 실패한 스텝 한 개의 사유(접미 제외). 분류 순서는 task-2 brief 정본:
@@ -1165,6 +1162,20 @@ steps:
     fn fail_http_status_when_assert_mismatch() {
         let t = tr(vec![st(A, Some(resp(503, 10)), Some("status 503 != 200"))]);
         assert_eq!(fail_reason(&one_step(), &t), "HTTP 503");
+    }
+
+    #[test]
+    fn fail_http_status_when_no_assert_and_5xx() {
+        let s = Scenario::from_yaml(&format!(
+            "version: 1\nname: s\nsteps:\n  - id: \"{A}\"\n    name: 인증\n    type: http\n    request: {{ method: GET, url: \"http://x/a\" }}\n"
+        ))
+        .unwrap();
+        let t = tr(vec![st(
+            A,
+            Some(resp(503, 10)),
+            Some("status 503 (>= 400)"),
+        )]);
+        assert_eq!(fail_reason(&s, &t), "HTTP 503");
     }
 
     #[test]

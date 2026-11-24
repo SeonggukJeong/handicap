@@ -132,6 +132,10 @@ fn row<'a>(steps: &'a [StepTrace], id: &str) -> &'a StepTrace {
 async fn trace_blocks_and_marks_row() {
     let server = MockServer::start().await;
     mount_empty_poll(&server).await;
+    Mock::given(path("/after"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
     let sc = Scenario::from_yaml(&y1(&server.uri())).unwrap();
     let t = trace_scenario(&sc, &opts(50, Duration::from_secs(20))).await;
 

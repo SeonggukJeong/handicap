@@ -227,15 +227,17 @@ impl VuSetup {
 
 pub const KIND_READ_BODY: &str = "read_body";
 pub const KIND_STATUS_ASSERT: &str = "status_assert";
+pub const KIND_HTTP_STATUS: &str = "http_status";
 pub const KIND_EXTRACT: &str = "extract";
 pub const KIND_UNKNOWN_VAR: &str = "unknown_var";
 pub const KIND_MALFORMED_TEMPLATE: &str = "malformed_template";
 pub const KIND_CAST_FAILED: &str = "cast_failed";
 
-/// 구간 실패 종류 중 전송 실패(`ErrorKind`)가 아닌 고정 분류 여섯.
-pub const SECTION_FIXED_FAILURE_KINDS: [&str; 6] = [
+/// 구간 실패 종류 중 전송 실패(`ErrorKind`)가 아닌 고정 분류 일곱.
+pub const SECTION_FIXED_FAILURE_KINDS: [&str; 7] = [
     KIND_READ_BODY,
     KIND_STATUS_ASSERT,
+    KIND_HTTP_STATUS,
     KIND_EXTRACT,
     KIND_UNKNOWN_VAR,
     KIND_MALFORMED_TEMPLATE,
@@ -331,6 +333,7 @@ pub(crate) async fn run_section(
                         (Some(k), _) => k.as_str(),
                         (None, Some(ErrorClass::ReadBody)) => KIND_READ_BODY,
                         (None, Some(ErrorClass::StatusAssert)) => KIND_STATUS_ASSERT,
+                        (None, Some(ErrorClass::HttpStatus)) => KIND_HTTP_STATUS,
                         (None, Some(ErrorClass::Extract)) => KIND_EXTRACT,
                         (None, Some(ErrorClass::Send) | None) => ErrorKind::Other.as_str(),
                     };
@@ -401,6 +404,7 @@ mod tests {
             [
                 "read_body",
                 "status_assert",
+                "http_status",
                 "extract",
                 "unknown_var",
                 "malformed_template",
@@ -686,6 +690,31 @@ mod tests {
         assert_eq!(st[0].failure_kinds.get("status_assert"), Some(&1));
         assert_eq!(outcomes[0].failed, 1);
         assert_eq!(outcomes[0].ok, 0);
+    }
+
+    #[tokio::test]
+    async fn no_assert_503_is_http_status_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/h"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let yaml = format!(
+            r#"
+- type: http
+  id: {ID_A}
+  name: h
+  request: {{ method: GET, url: "{}/h" }}
+"#,
+            server.uri()
+        );
+        let ran = run_simple(&steps(&yaml)).await;
+        let (step_id, kind, _) = failed_parts(&ran.run);
+        assert_eq!(step_id, ID_A);
+        assert_eq!(kind, "http_status");
+        let (st, _) = lock(&ran.stats).drain();
+        assert_eq!(st[0].failure_kinds.get("http_status"), Some(&1));
     }
 
     #[tokio::test]

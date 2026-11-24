@@ -386,15 +386,63 @@ impl<'de> Deserialize<'de> for Body {
 /// enums backed by map values (it expects a `!tag` anchor instead).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Assertion {
-    Status(u16),
+    Status(StatusExpect),
+}
+
+/// 상태 코드 검사의 기대값: 숫자 하나 · 숫자 목록 · `any`(무엇이든).
+/// YAML은 `status: 200` · `status: [200, 409]` · `status: any`. 읽을 때 원소 하나짜리
+/// 목록은 `One`으로 정규화하므로 읽어 만든 `AnyOf`는 늘 둘 이상이다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusExpect {
+    One(u16),
+    AnyOf(Vec<u16>),
+    Any,
+}
+
+impl Serialize for StatusExpect {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            StatusExpect::One(c) => s.serialize_u16(*c),
+            StatusExpect::AnyOf(cs) if cs.len() == 1 => s.serialize_u16(cs[0]),
+            StatusExpect::AnyOf(cs) => cs.serialize(s),
+            StatusExpect::Any => s.serialize_str("any"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for StatusExpect {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let v = serde_yaml::Value::deserialize(d)?;
+        let code = |v: serde_yaml::Value| -> std::result::Result<u16, D::Error> {
+            serde_yaml::from_value::<u16>(v).map_err(de::Error::custom)
+        };
+        match v {
+            serde_yaml::Value::Number(_) => Ok(StatusExpect::One(code(v)?)),
+            serde_yaml::Value::Sequence(items) => {
+                let mut codes = items
+                    .into_iter()
+                    .map(code)
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                match codes.len() {
+                    0 => Err(de::Error::custom("status list must not be empty")),
+                    1 => Ok(StatusExpect::One(codes.remove(0))),
+                    _ => Ok(StatusExpect::AnyOf(codes)),
+                }
+            }
+            serde_yaml::Value::String(s) if s == "any" => Ok(StatusExpect::Any),
+            _ => Err(de::Error::custom(
+                "status must be a code, a list of codes, or \"any\"",
+            )),
+        }
+    }
 }
 
 impl Serialize for Assertion {
     fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         match self {
-            Assertion::Status(code) => {
+            Assertion::Status(expect) => {
                 let mut map = s.serialize_map(Some(1))?;
-                map.serialize_entry("status", code)?;
+                map.serialize_entry("status", expect)?;
                 map.end()
             }
         }
@@ -418,12 +466,12 @@ impl<'de> Deserialize<'de> for Assertion {
                     .ok_or_else(|| de::Error::custom("empty assertion map"))?;
                 match key.as_str() {
                     "status" => {
-                        let code: u16 = map.next_value()?;
+                        let expect: StatusExpect = map.next_value()?;
                         // consume any extra keys — treat as unknown field error
                         if map.next_key::<String>()?.is_some() {
                             return Err(de::Error::custom("unknown field in assertion"));
                         }
-                        Ok(Assertion::Status(code))
+                        Ok(Assertion::Status(expect))
                     }
                     other => Err(de::Error::unknown_field(other, &["status"])),
                 }
@@ -1156,7 +1204,7 @@ steps:
         assert_eq!(step.id, "root");
         assert_eq!(step.request.method, HttpMethod::Get);
         assert_eq!(step.request.url, "{{base_url}}/");
-        assert_eq!(step.assert, vec![Assertion::Status(200)]);
+        assert_eq!(step.assert, vec![Assertion::Status(StatusExpect::One(200))]);
         assert_eq!(s.cookie_jar, CookieJarMode::Auto);
     }
 

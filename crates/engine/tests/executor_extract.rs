@@ -1,6 +1,6 @@
 use handicap_engine::scenario::{DisabledRows, Extract};
 use handicap_engine::{
-    Assertion, CookieJarMode, ErrorClass, ExtractMode, HttpMethod, HttpStep, Request,
+    Assertion, CookieJarMode, ErrorClass, ExtractMode, HttpMethod, HttpStep, Request, StatusExpect,
     TemplateContext, VuClient, execute_step, execute_step_with,
 };
 use std::collections::BTreeMap;
@@ -93,7 +93,7 @@ async fn error_class_matches_error() {
 
     let bad_status = step(
         format!("{}/p", srv.uri()),
-        vec![Assertion::Status(201)],
+        vec![Assertion::Status(StatusExpect::One(201))],
         None,
     );
     let o = execute_step(&client, &bad_status, &ctx(&vars, &env))

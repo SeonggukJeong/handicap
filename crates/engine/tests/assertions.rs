@@ -93,3 +93,136 @@ steps:
         "every request should have been counted as an error (got {errors} errors out of {total} requests)"
     );
 }
+
+// ---- 상태 코드 기본 규칙·목록·any (http-error-default ②a) ----
+
+mod status_rule_paths {
+    use handicap_engine::scenario::{DisabledRows, Extract};
+    use handicap_engine::{
+        Assertion, CookieJarMode, ErrorClass, HttpMethod, HttpStep, Request, StatusExpect,
+        TemplateContext, VuClient, execute_step, execute_step_traced,
+    };
+    use std::collections::BTreeMap;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn step(url: String, assert: Vec<Assertion>) -> HttpStep {
+        HttpStep {
+            id: "01HX0000000000000000000050".into(),
+            name: "s".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url,
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert,
+            extract: vec![Extract::Body {
+                decode: None,
+                claim: None,
+                var: "code".into(),
+                path: "$.code".into(),
+                default: None,
+            }],
+            timeout_seconds: None,
+            think_time: None,
+        }
+    }
+
+    async fn server_with(status: u16) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/p"))
+            .respond_with(ResponseTemplate::new(status).set_body_string(r#"{"code":"x"}"#))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    fn ctx<'a>(
+        vars: &'a BTreeMap<String, String>,
+        env: &'a BTreeMap<String, String>,
+    ) -> TemplateContext<'a> {
+        TemplateContext {
+            vars,
+            env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn no_assert_500_counts_as_error() {
+        let srv = server_with(500).await;
+        let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let s = step(format!("{}/p", srv.uri()), vec![]);
+        let o = execute_step(&client, &s, &ctx(&vars, &env)).await.unwrap();
+        assert_eq!(o.error.as_deref(), Some("status 500 (>= 400)"));
+        assert_eq!(o.error_class, Some(ErrorClass::HttpStatus));
+        assert!(o.extracted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_409_passes_and_extracts() {
+        let srv = server_with(409).await;
+        let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let s = step(
+            format!("{}/p", srv.uri()),
+            vec![Assertion::Status(StatusExpect::AnyOf(vec![200, 409]))],
+        );
+        let o = execute_step(&client, &s, &ctx(&vars, &env)).await.unwrap();
+        assert!(o.error.is_none(), "error: {:?}", o.error);
+        assert_eq!(o.extracted.get("code").map(String::as_str), Some("x"));
+
+        let srv = server_with(500).await;
+        let s = step(
+            format!("{}/p", srv.uri()),
+            vec![Assertion::Status(StatusExpect::AnyOf(vec![200, 409]))],
+        );
+        let o = execute_step(&client, &s, &ctx(&vars, &env)).await.unwrap();
+        assert_eq!(o.error.as_deref(), Some("status 500 not in [200, 409]"));
+        assert_eq!(o.error_class, Some(ErrorClass::StatusAssert));
+    }
+
+    #[tokio::test]
+    async fn any_404_passes_and_extracts() {
+        let srv = server_with(404).await;
+        let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let s = step(
+            format!("{}/p", srv.uri()),
+            vec![Assertion::Status(StatusExpect::Any)],
+        );
+        let o = execute_step(&client, &s, &ctx(&vars, &env)).await.unwrap();
+        assert!(o.error.is_none(), "error: {:?}", o.error);
+        assert_eq!(o.extracted.get("code").map(String::as_str), Some("x"));
+    }
+
+    #[tokio::test]
+    async fn traced_no_assert_404_is_error() {
+        let srv = server_with(404).await;
+        let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let s = step(format!("{}/p", srv.uri()), vec![]);
+        let t = execute_step_traced(&client, &s, &ctx(&vars, &env)).await;
+        assert_eq!(t.error.as_deref(), Some("status 404 (>= 400)"));
+        assert!(t.extracted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn traced_any_404_passes() {
+        let srv = server_with(404).await;
+        let (vars, env) = (BTreeMap::new(), BTreeMap::new());
+        let client = VuClient::new(CookieJarMode::Off).unwrap();
+        let s = step(
+            format!("{}/p", srv.uri()),
+            vec![Assertion::Status(StatusExpect::Any)],
+        );
+        let t = execute_step_traced(&client, &s, &ctx(&vars, &env)).await;
+        assert!(t.error.is_none(), "error: {:?}", t.error);
+    }
+}

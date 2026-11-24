@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use handicap_engine::extract::ResponseFacts;
 use handicap_engine::scenario::{
     Assertion, Body, CompareOp, Condition, CookieJarMode, Decode, DisabledRows, ElifBranch,
-    Extract, HttpMethod, HttpStep, IfStep, LoopStep, Request, Step,
+    Extract, HttpMethod, HttpStep, IfStep, LoopStep, Request, StatusExpect, Step,
 };
 use handicap_engine::template::{TemplateContext, render};
 use handicap_engine::{
@@ -35,7 +35,12 @@ fn arb_http_method() -> impl Strategy<Value = HttpMethod> {
 }
 
 fn arb_assertion() -> impl Strategy<Value = Assertion> {
-    (100u16..600u16).prop_map(Assertion::Status)
+    prop_oneof![
+        (100u16..600u16).prop_map(StatusExpect::One),
+        proptest::collection::vec(100u16..600u16, 2..5).prop_map(StatusExpect::AnyOf),
+        Just(StatusExpect::Any),
+    ]
+    .prop_map(Assertion::Status)
 }
 
 fn arb_decode() -> impl Strategy<Value = Decode> {
