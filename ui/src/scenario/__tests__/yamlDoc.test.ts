@@ -235,7 +235,7 @@ steps:
       }
     };
     walk([...(out2.model.setup?.steps ?? []), ...out2.model.steps]);
-    expect(https.length).toBeGreaterThanOrEqual(14);
+    expect(https.length).toBe(14);
     for (const h of https) expect(h.assert).toEqual([]);
   });
 });

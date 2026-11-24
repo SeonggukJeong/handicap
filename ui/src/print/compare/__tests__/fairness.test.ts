@@ -560,12 +560,12 @@ describe("상태 코드 규칙 안내", () => {
 });
 
 describe("검사 방식 차이 (R28)", () => {
-  const yml = (lines: Array<number[] | "any">) => {
+  const yml = (lines: Array<number[] | "any">, emptyKey = false) => {
     const a = lines
       .map((l) => `      - status: ${l === "any" ? "any" : `[${l.join(", ")}]`}\n`)
       .join("");
     return `version: 1\nname: "n"\nsteps:\n  - id: "s1"\n    name: "a"\n    request:\n      method: GET\n      url: "https://x/s1"\n${
-      lines.length > 0 ? `    assert:\n${a}` : ""
+      lines.length > 0 ? `    assert:\n${a}` : emptyKey ? "    assert: []\n" : ""
     }`;
   };
   const line = (
@@ -576,8 +576,7 @@ describe("검사 방식 차이 (R28)", () => {
   ): string | null => {
     const f = fair({ yaml: yml(a), statusRule: ra }, { yaml: yml(b), statusRule: rb });
     const c = card(f, "scenario");
-    // 순서만 다른 YAML은 「그 밖의 설정」으로 잡힌다 — 여기서는 단계 줄이 없다는 뜻으로 읽는다.
-    return c.same || c.line.startsWith("그 밖의") ? null : c.line;
+    return c.same ? null : c.line;
   };
 
   it("두 run 모두 규칙 1이면 옛 세 갈래 글 그대로", () => {
@@ -599,6 +598,52 @@ describe("검사 방식 차이 (R28)", () => {
     expect(line([[200], [201]], [[200, 201]], 2, 2)).toBe(
       "1곳 다름: ①의 기대 코드 바뀜: 200 / 201 → 200·201",
     );
+  });
+  it("두 run 모두 규칙 1이면 코드 순서만 달라도 옛 출력 그대로", () => {
+    expect(line([[409, 200]], [[200, 409]], 1, 1)).toBe(
+      "그 밖의 설정 다름(쉬는 시간·반복·조건·헤더·본문 등)",
+    );
+  });
+  it("판정이 같은 표기 차이는 규칙 2에서 같다 (assert 없음 ↔ [], 코드 순서, any 줄)", () => {
+    const f = fair({ yaml: yml([], false), statusRule: 2 }, { yaml: yml([], true), statusRule: 2 });
+    expect(card(f, "scenario").same).toBe(true);
+    expect(f.anyDiff).toBe(false);
+    const g = fair({ yaml: yml([], true), statusRule: 2 }, { yaml: yml([], false), statusRule: 2 });
+    expect(card(g, "scenario").same).toBe(true);
+    expect(g.anyDiff).toBe(false);
+    for (const [a, b] of [
+      [[[409, 200]], [[200, 409]]],
+      [["any", [200]], [[200]]],
+    ] as Array<[Array<number[] | "any">, Array<number[] | "any">]>) {
+      const h = fair({ yaml: yml(a), statusRule: 2 }, { yaml: yml(b), statusRule: 2 });
+      expect(card(h, "scenario").same).toBe(true);
+    }
+  });
+  it("줄 경계는 유지한다: [200]/[201] 두 줄과 [200, 201] 한 줄은 다르다", () => {
+    expect(
+      card(
+        fair(
+          { yaml: yml([[200], [201]]), statusRule: 2 },
+          { yaml: yml([[200, 201]]), statusRule: 2 },
+        ),
+        "scenario",
+      ).same,
+    ).toBe(false);
+  });
+  it("반복 안의 스텝도 assert 없음 ↔ []는 같다", () => {
+    const loop = (assertLine: string) =>
+      `version: 1\nname: "n"\nsteps:\n  - id: "L1"\n    name: "l"\n    type: loop\n    repeat: 2\n    do:\n      - id: "s1"\n        name: "a"\n        type: http\n        request:\n          method: GET\n          url: "https://x/s1"\n${assertLine}`;
+    const f = fair(
+      { yaml: loop(""), statusRule: 2 },
+      { yaml: loop("        assert: []\n"), statusRule: 2 },
+    );
+    expect(card(f, "scenario").same).toBe(true);
+    expect(f.anyDiff).toBe(false);
+  });
+  it("그 밖의 설정이 실제로 다르면 여전히 「그 밖의」", () => {
+    const other = yml([], true).replace('name: "n"', 'name: "n"\ndescription: "x"');
+    const f = fair({ yaml: yml([]), statusRule: 2 }, { yaml: other, statusRule: 2 });
+    expect(card(f, "scenario").line.startsWith("그 밖의")).toBe(true);
   });
   it("규칙 1(앞) ↔ 규칙 2(뒤)", () => {
     expect(line([], [], 1, 2)).toBeNull();

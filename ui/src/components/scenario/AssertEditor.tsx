@@ -26,10 +26,10 @@ export function AssertEditor({ step }: { step: HttpStep }) {
   const yamlError = useScenarioEditor((s) => s.yamlError);
   const locked = yamlError !== null;
   const [newCode, setNewCode] = useState("");
-  // 이 스텝에서 마지막으로 본 비지 않은 코드 목록 — 방식을 잘못 눌러도 목록을 잃지 않게(에디터엔 되돌리기가 없다).
   useEffect(() => {
     setNewCode("");
   }, [step.id]);
+  // 이 스텝에서 마지막으로 본 비지 않은 코드 목록 — 방식을 잘못 눌러도 목록을 잃지 않게(에디터엔 되돌리기가 없다).
   const lastCodes = useRef(new Map<string, number[]>());
 
   const mode = statusMode(step.assert);

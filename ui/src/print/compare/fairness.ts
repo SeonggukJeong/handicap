@@ -7,7 +7,7 @@ import { profileDurationSeconds, seedBindingsFrom } from "../../api/runPrefill";
 import { deriveLoadMode, fixedTarget } from "../../components/run/loadModel";
 import { conditionsBox, rampSeconds } from "../conditions";
 import { stepNo } from "../format";
-import type { StatusCheck, StepFacts } from "../scenarioFacts";
+import { checkOf, type StatusCheck, type StepFacts } from "../scenarioFacts";
 import { expandCriteria } from "../verdict";
 import type { RunModel } from "./runModel";
 
@@ -364,15 +364,73 @@ function stepDiffs(before: StepFacts[], after: StepFacts[], rules: Rules): StepD
 
 type ScenarioResult = { readable: false } | { readable: true; diffs: StepDiff[]; other: boolean };
 
+/** 규칙 2 쪽 비교용: 판정이 같은 `assert` 표기를 하나로 맞춘다(빈 값 삭제·줄 안 코드 정렬·코드 줄이 있으면 any 줄 삭제·줄 정렬). */
+function normalizeAssert(a: unknown): unknown[] {
+  if (!Array.isArray(a)) return [];
+  const codeLines: string[] = [];
+  const anyLines: string[] = [];
+  const raw: string[] = [];
+  for (const item of a) {
+    let c: StatusCheck | null = null;
+    if (isObj(item)) {
+      if ("status" in item) c = checkOf(item.status);
+      else if (item.kind === "status") c = checkOf(item.codes);
+      else if (item.kind === "status_any") c = "any";
+    }
+    if (c === "any") anyLines.push("any");
+    else if (c !== null) codeLines.push(JSON.stringify([...c].sort((p, q) => p - q)));
+    else raw.push(JSON.stringify(item));
+  }
+  return [...(codeLines.length > 0 ? [] : anyLines), ...codeLines, ...raw].sort();
+}
+
+function normalizeStepAsserts(v: unknown): unknown {
+  if (!Array.isArray(v)) return v;
+  return v.map((s) => {
+    if (!isObj(s)) return s;
+    const out: Obj = { ...s };
+    if ("assert" in out) {
+      const n = normalizeAssert(out.assert);
+      if (n.length > 0) out.assert = n;
+      else delete out.assert;
+    }
+    for (const k of ["do", "then", "else"]) if (k in out) out[k] = normalizeStepAsserts(out[k]);
+    if (Array.isArray(out.elif)) {
+      out.elif = out.elif.map((e) =>
+        isObj(e) && "then" in e ? { ...e, then: normalizeStepAsserts(e.then) } : e,
+      );
+    }
+    if (Array.isArray(out.branches)) {
+      out.branches = out.branches.map((b) =>
+        isObj(b) && "steps" in b ? { ...b, steps: normalizeStepAsserts(b.steps) } : b,
+      );
+    }
+    return out;
+  });
+}
+
+function normalizeScenarioAsserts(yamlObj: unknown): unknown {
+  if (!isObj(yamlObj)) return yamlObj;
+  const out: Obj = { ...yamlObj };
+  if ("steps" in out) out.steps = normalizeStepAsserts(out.steps);
+  if (isObj(out.setup) && "steps" in out.setup) {
+    out.setup = { ...out.setup, steps: normalizeStepAsserts(out.setup.steps) };
+  }
+  return out;
+}
+
 function compareScenario(before: RunModel, after: RunModel, rules: Rules): ScenarioResult {
   if (before.yamlObj === null || after.yamlObj === null) return { readable: false };
   const diffs =
     before.facts.ok && after.facts.ok
       ? stepDiffs(before.facts.steps, after.facts.steps, rules)
       : [];
-  const other =
-    diffs.length === 0 &&
-    !deepEqualLoose(stripScenarioNames(before.yamlObj), stripScenarioNames(after.yamlObj));
+  const bothRule1 = rules.before === 1 && rules.after === 1;
+  const prep = (m: RunModel) =>
+    bothRule1
+      ? stripScenarioNames(m.yamlObj)
+      : normalizeScenarioAsserts(stripScenarioNames(m.yamlObj));
+  const other = diffs.length === 0 && !deepEqualLoose(prep(before), prep(after));
   return { readable: true, diffs, other };
 }
 

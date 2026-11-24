@@ -184,7 +184,7 @@ steps:
 > `elif`가 있으면 라벨이 `elif 1`처럼 뜬다(연산자 토큰은 `eq`/`ne`/`gte`… 원형 — `==` 아님).
 
 ### 6-2. 에러 행 + **FAIL** 요약 — 변형
-- [ ] `ping` 스텝 url을 `${BASE_URL}/nope`로 바꿔 **Test run** → 그 행 status 칩이 **`404` 빨강**(error 없이도 status≥400이면 빨강). 요약은 여전히 OK일 수 있다(assert 없으면 404는 에러 아님).
+- [ ] `ping` 스텝 url을 `${BASE_URL}/nope`로 바꿔 **Test run** → 그 행 status 칩이 **`404` 빨강**(error 없이도 status≥400이면 빨강). 검사를 적지 않은 스텝이라도 404는 오류로 센다 — 행에 **`status 404 (>= 400)`** 빨간 글자가 뜨고, 그 위에 이유 글 「상태 코드 404를 받아 오류로 셌습니다. 검사를 따로 적지 않은 스텝은 400 이상을 오류로 봅니다. …」이 보여야 한다(이 글이 안 보이면 실패). 요약은 FAIL.
 - [ ] 이번엔 `ping` 스텝에 `assert: [{ status: 200 }]`을 추가하고 url을 `/nope`로 둔 채 **Test run** → 그 행에 **빨간 에러 텍스트 `status 404 != 200`** + 요약이 **FAIL 빨강**. 확인 후 원복(`/ping`, assert 제거). (assert는 **맵 형태** `[{ status: 200 }]` — `[200]` 아님.)
 - [ ] **도달 불가**(connection 단계 실패): BASE_URL override를 `http://localhost:9099`(stub 없는 포트)로 바꿔 **Test run** → http 행에 **빨간 에러 텍스트**(`error sending request…` 류) + status 칩 없음 + 요약 FAIL. 확인 후 9090 원복.
 

@@ -29,7 +29,7 @@ function statusCodeOf(v: unknown): number | null {
 }
 
 /** 한 검사 줄의 값(와이어 `status:`·모델 `codes`)을 읽는다. 읽을 수 없으면 null. */
-function checkOf(v: unknown): StatusCheck | null {
+export function checkOf(v: unknown): StatusCheck | null {
   if (v === "any") return "any";
   if (Array.isArray(v)) {
     const codes = v.map(statusCodeOf).filter((n): n is number => n !== null);
