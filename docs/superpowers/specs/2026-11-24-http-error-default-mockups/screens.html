@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>http-error-default — 화면 목업</title>
+<style>
+  :root { --s50:#f8fafc; --s100:#f1f5f9; --s200:#e2e8f0; --s300:#cbd5e1; --s400:#94a3b8; --s500:#64748b; --s600:#475569; --s700:#334155; --s900:#0f172a; --accent:#4f46e5; --accent-bg:#eef2ff; --amber-bg:#fffbeb; --amber-bd:#fcd34d; --amber-tx:#92400e; --red:#dc2626; --red-bg:#fef2f2; --red-bd:#fecaca; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--s50); color:var(--s900); font:14px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:36px 0 8px; color:var(--s600); }
+  .note { color:var(--s500); font-size:12px; margin:0 0 12px; max-width:900px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+  /* Inspector 폭(좁은 옆 칸)을 흉내 낸 흰 판 */
+  .inspector { width:360px; max-width:100%; background:#fff; border:1px solid var(--s200); border-radius:8px; padding:12px; }
+  .cap { font-size:12px; color:var(--s500); margin:0 0 6px; }
+  /* Section variant="card" — fieldset border-slate-200 rounded p-3, flex-col gap-2 */
+  fieldset.sec { margin:0; min-width:0; border:1px solid var(--s200); border-radius:4px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+  fieldset.sec legend { font-size:12px; font-weight:600; color:var(--s700); padding:0 4px; }
+  fieldset.sec legend .tw { color:var(--s400); margin-right:4px; }
+  fieldset.sec legend .cnt { font-weight:400; color:var(--s500); margin-left:6px; }
+  fieldset.sec legend .cnt.warn { color:var(--amber-tx); }
+  .lbl { font-size:12px; color:var(--s600); }
+  /* Segmented 부품 그대로 — 좁은 칸이라 글자 12px·padding 축소(size="sm" 새 변형) */
+  .seg { display:flex; border:1px solid var(--s200); border-radius:8px; background:var(--s100); padding:2px; }
+  .seg button { flex:1 1 0; font:inherit; font-size:12px; font-weight:600; padding:4px 6px; border:0; border-radius:6px; background:transparent; color:var(--s600); cursor:pointer; white-space:nowrap; }
+  .seg button[aria-checked="true"] { background:var(--accent); color:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .hint { font-size:12px; color:var(--s500); margin:0; }
+  .hint.warn { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:6px 8px; }
+  .hint.bad { background:var(--red-bg); border:1px solid var(--red-bd); color:#991b1b; border-radius:6px; padding:6px 8px; }
+  .codes { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .code { display:inline-flex; align-items:center; gap:4px; font:12px ui-monospace,Menlo,monospace; border:1px solid var(--s300); border-radius:9999px; padding:2px 4px 2px 10px; background:#fff; }
+  .code button { border:0; background:transparent; color:var(--s500); cursor:pointer; font-size:14px; line-height:1; padding:2px 4px; border-radius:9999px; }
+  .add { display:flex; gap:8px; }
+  .add input { width:96px; font:12px ui-monospace,Menlo,monospace; border:1px solid var(--s300); border-radius:4px; padding:4px 8px; }
+  .btn { font:inherit; font-size:12px; border:1px solid var(--s300); border-radius:4px; background:#fff; padding:4px 8px; cursor:pointer; }
+  /* FlowOutline 한 줄 */
+  .outline { width:560px; max-width:100%; background:#fff; border:1px solid var(--s200); border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:4px; }
+  .step { display:flex; align-items:center; gap:8px; border:1px solid var(--s200); border-radius:6px; padding:6px 10px; font-size:13px; }
+  .m { font:600 11px ui-monospace,Menlo,monospace; color:#047857; background:#ecfdf5; border-radius:4px; padding:1px 6px; }
+  .chips { margin-left:auto; display:flex; gap:4px; flex-shrink:0; }
+  .chip { border:1px solid var(--s200); background:var(--s50); color:var(--s600); border-radius:9999px; padding:2px 8px; font-size:10px; }
+  .chip.warn { border-color:var(--amber-bd); background:var(--amber-bg); color:var(--amber-tx); }
+  .new { outline:2px dashed #a5b4fc; outline-offset:3px; border-radius:6px; }
+  /* 미리 실행 결과 한 줄 */
+  .trace { width:560px; max-width:100%; background:#fff; border:1px solid var(--s200); border-radius:8px; padding:10px 12px; font-size:13px; }
+  .trace .st { font:600 12px ui-monospace,Menlo,monospace; color:var(--red); }
+  .trace .why { margin:6px 0 0; font-size:12px; color:#991b1b; background:var(--red-bg); border:1px solid var(--red-bd); border-radius:6px; padding:6px 8px; }
+  .trace .raw { margin:4px 0 0; font:11px ui-monospace,Menlo,monospace; color:var(--s500); }
+  .callout { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:8px 12px; font-size:13px; max-width:760px; }
+  .trustrow { width:560px; max-width:100%; background:#fff; border:1px solid var(--s200); border-radius:8px; padding:10px 12px; font-size:13px; }
+  .trustrow b { display:block; } .trustrow span { font-size:12px; color:var(--s500); }
+</style>
+</head>
+<body>
+<h1>http-error-default — 화면 목업</h1>
+<p class="note">에디터 오른쪽 칸(Inspector)의 「응답 검증」 구획과 그 주변. 점선 테두리 = 새로 생기는 것. 단추 묶음은 프로젝트 <code>Segmented</code> 부품(좁은 칸이라 작은 크기), 구획 상자는 <code>Section variant="card"</code>, 숫자 칸은 <code>Input numeric size="sm"</code> 그대로다.</p>
+
+<h2>1. 「응답 검증」 구획 — 세 가지 중 하나를 고른다</h2>
+<div class="row">
+  <div>
+    <p class="cap">가. 기본 — 아무것도 적지 않은 스텝</p>
+    <div class="inspector">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증</legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg new" role="radiogroup" aria-label="상태 코드 검사 방식">
+          <button role="radio" aria-checked="true">400 이상은 오류</button><button role="radio" aria-checked="false">적은 코드만 통과</button><button role="radio" aria-checked="false">보지 않음</button>
+        </div>
+        <p class="hint">따로 적지 않아도 400 이상(4xx·5xx) 응답은 오류로 셉니다. 399까지는 통과입니다.</p>
+      </fieldset>
+    </div>
+  </div>
+  <div>
+    <p class="cap">나. 적은 코드만 통과 — 여러 개를 적을 수 있다</p>
+    <div class="inspector">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt">200, 409만 통과</span></legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg" role="radiogroup" aria-label="상태 코드 검사 방식">
+          <button role="radio" aria-checked="false">400 이상은 오류</button><button role="radio" aria-checked="true">적은 코드만 통과</button><button role="radio" aria-checked="false">보지 않음</button>
+        </div>
+        <div class="codes new">
+          <span class="code">200<button aria-label="200 빼기">×</button></span>
+          <span class="code">409<button aria-label="409 빼기">×</button></span>
+        </div>
+        <div class="add"><input placeholder="예: 201" inputmode="numeric"><button class="btn">추가</button></div>
+        <p class="hint">적은 코드 가운데 하나를 받으면 통과입니다. 그 밖의 코드는 오류로 셉니다.</p>
+      </fieldset>
+    </div>
+  </div>
+  <div>
+    <p class="cap">다. 보지 않음</p>
+    <div class="inspector">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt warn">상태 코드를 보지 않음</span></legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg" role="radiogroup" aria-label="상태 코드 검사 방식">
+          <button role="radio" aria-checked="false">400 이상은 오류</button><button role="radio" aria-checked="false">적은 코드만 통과</button><button role="radio" aria-checked="true">보지 않음</button>
+        </div>
+        <p class="hint warn new">이 스텝은 어떤 상태 코드를 받아도 오류로 세지 않습니다. 4xx·5xx를 받으면 리포트가 따로 알려 줍니다.</p>
+      </fieldset>
+    </div>
+  </div>
+</div>
+<p class="note">「적은 코드만 통과」를 처음 고르면 200이 하나 들어간다. 마지막 코드를 빼면 「400 이상은 오류」로 돌아간다(빈 목록은 저장하지 않는다). 같은 코드를 두 번 넣으면 하나만 남는다. 100–599 밖의 숫자는 「추가」가 눌리지 않는다.</p>
+
+<h2>2. 극단값 — 코드가 많을 때와 접혔을 때</h2>
+<div class="row">
+  <div>
+    <p class="cap">코드 12개 — 줄바꿈해 모두 보인다</p>
+    <div class="inspector">
+      <fieldset class="sec">
+        <legend><span class="tw">▾</span>응답 검증<span class="cnt">200, 201 외 10개만 통과</span></legend>
+        <span class="lbl">상태 코드</span>
+        <div class="seg"><button aria-checked="false">400 이상은 오류</button><button aria-checked="true">적은 코드만 통과</button><button aria-checked="false">보지 않음</button></div>
+        <div class="codes">
+          <span class="code">200<button>×</button></span><span class="code">201<button>×</button></span><span class="code">202<button>×</button></span><span class="code">204<button>×</button></span><span class="code">301<button>×</button></span><span class="code">302<button>×</button></span><span class="code">304<button>×</button></span><span class="code">400<button>×</button></span><span class="code">401<button>×</button></span><span class="code">404<button>×</button></span><span class="code">409<button>×</button></span><span class="code">422<button>×</button></span>
+        </div>
+        <div class="add"><input placeholder="예: 201"><button class="btn">추가</button></div>
+      </fieldset>
+    </div>
+  </div>
+  <div>
+    <p class="cap">접힌 구획 — 머리 줄만으로 지금 설정이 읽힌다</p>
+    <div class="inspector" style="display:flex; flex-direction:column; gap:10px">
+      <fieldset class="sec"><legend><span class="tw">▸</span>응답 검증</legend></fieldset>
+      <fieldset class="sec"><legend><span class="tw">▸</span>응답 검증<span class="cnt">200, 409만 통과</span></legend></fieldset>
+      <fieldset class="sec"><legend><span class="tw">▸</span>응답 검증<span class="cnt warn">상태 코드를 보지 않음</span></legend></fieldset>
+    </div>
+    <p class="note" style="max-width:360px">기본(400 이상은 오류)은 머리 줄에 덧글이 없다 — 따로 정한 것이 없어서. 코드가 셋 이상이면 「200, 201 외 N개만 통과」.</p>
+  </div>
+</div>
+
+<h2>3. 옛 표기 — 상태 코드 검사가 두 줄 이상인 YAML</h2>
+<div class="inspector">
+  <fieldset class="sec">
+    <legend><span class="tw">▾</span>응답 검증<span class="cnt warn">확인 필요</span></legend>
+    <span class="lbl">상태 코드</span>
+    <p class="hint bad new">상태 코드 검사가 두 줄입니다(200 / 201). 두 줄을 모두 만족해야 통과라서 이 스텝은 항상 실패합니다.</p>
+    <div class="add"><button class="btn new">「200, 201 가운데 하나면 통과」로 합치기</button></div>
+  </fieldset>
+</div>
+<p class="note">YAML에 <code>- status: 200</code> / <code>- status: 201</code>을 따로 적은 경우다. 엔진은 지금처럼 줄마다 모두 만족해야 통과로 본다(동작을 조용히 바꾸지 않는다). 화면은 알리고, 누르면 한 줄(<code>status: [200, 201]</code>)로 합친다.</p>
+
+<h2>4. 스텝 목록(FlowOutline, 넓은 화면)의 칩</h2>
+<div class="outline">
+  <div class="step"><span class="m">GET</span>상품 조회<span class="chips"><span class="chip">추출 1</span></span></div>
+  <div class="step"><span class="m">POST</span>주문 생성<span class="chips"><span class="chip new">검증 200·409</span><span class="chip">추출 2</span></span></div>
+  <div class="step"><span class="m">GET</span>상태 확인<span class="chips"><span class="chip warn new">상태 코드 안 봄</span></span></div>
+  <div class="step"><span class="m">PUT</span>코드가 많은 스텝<span class="chips"><span class="chip">검증 200 외 11</span></span></div>
+</div>
+<p class="note">기본 스텝에는 검증 칩이 없다. 지금의 「검증 N」(검사 줄 수)은 적은 코드로 바뀐다. 코드가 셋 이상이면 「검증 200 외 N」.</p>
+
+<h2>5. 미리 실행 — 검사를 적지 않은 스텝이 404를 받았을 때</h2>
+<div class="trace">
+  <div><span class="m">GET</span> 상품 조회 &nbsp; <span class="st">404</span> &nbsp; 12 ms</div>
+  <p class="why new">상태 코드 404를 받아 오류로 셌습니다. 검사를 따로 적지 않은 스텝은 400 이상을 오류로 봅니다. 404가 정상이면 「응답 검증」에서 기대하는 코드에 404를 넣으세요.</p>
+  <p class="raw">status 404 (400 이상)</p>
+</div>
+
+<h2>6. 실행 전 신뢰도 점검 — 점검 A의 새 글</h2>
+<div class="row">
+  <div class="trustrow"><b>⚠ 상태 코드를 보지 않는 스텝이 있습니다</b><span>이 스텝은 4xx·5xx가 와도 실패로 잡히지 않습니다 · 상태 확인</span></div>
+  <div class="trustrow"><b>✓ 모든 스텝이 오류 응답을 실패로 잡습니다</b><span>통과한 점검</span></div>
+</div>
+
+<h2>7. 리포트 — 「보지 않음」 스텝이 4xx·5xx를 받은 run</h2>
+<div class="callout new">상태 코드를 보지 않는 스텝 1개가 4xx·5xx 응답 1,204건을 받았습니다. 이 응답은 오류로 세지 않았습니다 — 상태 확인</div>
+<p class="note">지금의 「HTTP 오류 상태코드가 있으나 엔진 에러 수는 0입니다」 자리(유효성 띠)에 뜬다. 이 변경 전 run은 옛 글 그대로다.</p>
+
+<h2>8. 비교 — 규칙이 다른 두 run</h2>
+<div class="callout new">두 run이 오류를 세는 규칙이 다릅니다. 한쪽은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.</div>
+</body>
+</html>
