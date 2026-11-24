@@ -394,6 +394,7 @@ mod tests {
         let run = runs::get(&state.db, &run_id).await.unwrap().unwrap();
         assert_eq!(run.scenario_id, sid);
         assert_eq!(run.label.as_deref(), Some("s"));
+        assert_eq!(run.latency_rule, crate::store::runs::LATENCY_RULE_CURRENT);
         let evs = schedules::recent_events(&state.db, &id, 10).await.unwrap();
         assert_eq!(evs.len(), 1);
         assert_eq!(evs[0].kind, "fired");

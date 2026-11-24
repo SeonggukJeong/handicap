@@ -1581,6 +1581,7 @@ mod tests {
                 created_at: 0,
                 label: None,
                 status_rule: crate::store::runs::STATUS_RULE_LEGACY,
+                latency_rule: crate::store::runs::LATENCY_RULE_LEGACY,
             },
             scenario_yaml: String::new(),
             summary: ReportSummary {

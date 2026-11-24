@@ -37,6 +37,7 @@
 | [0029](0029-json-body-type-cast-injection.md) | JSON Body 타입 캐스트 주입 (`{{var:num}}`/`{{var:bool}}`) | Accepted |
 | [0030](0030-run-comparison-report-export.md) | Run 비교 + 리포트 Export (CSV/XLSX) | Accepted |
 | [0031](0031-open-loop-arrival-rate-execution-model.md) | Open-loop / Arrival-rate 실행 모델 | Accepted |
+| [0065](0065-latency-boundary-rule.md) | 응답 시간 경계 비교 규칙(µs) + run별 `latency_rule` + 평균·최대·임의 백분위 판정 | Accepted |
 
 ## 새 ADR 추가 절차
 

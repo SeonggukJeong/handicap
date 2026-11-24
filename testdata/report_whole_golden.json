@@ -23,7 +23,8 @@
     "started_at": 100000,
     "ended_at": 120000,
     "created_at": 99000,
-    "status_rule": 1
+    "status_rule": 1,
+    "latency_rule": 1
   },
   "scenario_yaml": "version: 1\nname: x\nsteps: []\n",
   "summary": {

@@ -154,6 +154,27 @@ async fn create_run_without_label_is_null() {
 }
 
 #[tokio::test]
+async fn create_run_stamps_latency_rule_current() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let yaml = "version: 1\nname: lat-rule\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+    let run_id = create_run(&app, &scenario_id).await;
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/runs/{run_id}/report"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["run"]["latency_rule"], 2);
+}
+
+#[tokio::test]
 async fn abort_run_marks_run_aborted() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db.clone());

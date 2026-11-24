@@ -275,6 +275,19 @@ fn narrow_status_rule(v: i64) -> u8 {
         .unwrap_or(STATUS_RULE_LEGACY)
 }
 
+/// 옛 규칙: 응답 시간 판정이 ms로 내려서 비교한다. migration 0030 이전 행의 값.
+pub const LATENCY_RULE_LEGACY: u8 = 1;
+/// 현재 규칙: 응답 시간 판정을 µs로 비교한다. 새 run은 이 값으로 저장된다.
+pub const LATENCY_RULE_CURRENT: u8 = 2;
+
+/// DB 정수를 규칙 값으로 좁힌다. 모르는 값은 옛 규칙으로 읽는다(잘라 내지 않는다).
+fn narrow_latency_rule(v: i64) -> u8 {
+    u8::try_from(v)
+        .ok()
+        .filter(|r| matches!(*r, LATENCY_RULE_LEGACY | LATENCY_RULE_CURRENT))
+        .unwrap_or(LATENCY_RULE_LEGACY)
+}
+
 pub struct RunRow {
     pub id: String,
     pub scenario_id: String,
@@ -299,6 +312,8 @@ pub struct RunRow {
     pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
     /// 오류를 센 상태 코드 규칙 번호(`STATUS_RULE_*`). 옛 행 = 1.
     pub status_rule: u8,
+    /// 응답 시간 판정 비교 규칙 번호(`LATENCY_RULE_*`). 옛 행 = 1.
+    pub latency_rule: u8,
 }
 
 pub async fn insert(
@@ -314,8 +329,8 @@ pub async fn insert(
     let profile_json = serde_json::to_string(profile).expect("serialize profile");
     let env_json = serde_json::to_string(env).expect("serialize env");
     sqlx::query(
-        "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at,label,status_rule) \
-         VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at,label,status_rule,latency_rule) \
+         VALUES(?,?,?,?,?,?,?,?,?,?)",
     )
     .bind(&id)
     .bind(scenario_id)
@@ -326,6 +341,7 @@ pub async fn insert(
     .bind(now)
     .bind(label)
     .bind(STATUS_RULE_CURRENT as i64)
+    .bind(LATENCY_RULE_CURRENT as i64)
     .execute(db)
     .await?;
     Ok(RunRow {
@@ -344,6 +360,7 @@ pub async fn insert(
         label: label.map(str::to_string),
         auto_stop: None,
         status_rule: STATUS_RULE_CURRENT,
+        latency_rule: LATENCY_RULE_CURRENT,
     })
 }
 
@@ -353,7 +370,7 @@ fn parse_auto_stop(raw: Option<String>) -> Option<crate::auto_stop::AutoStopReco
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json,status_rule \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json,status_rule,latency_rule \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -384,12 +401,13 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
         label: r.get("label"),
         auto_stop: parse_auto_stop(r.get("auto_stop_json")),
         status_rule: narrow_status_rule(r.get::<i64, _>("status_rule")),
+        latency_rule: narrow_latency_rule(r.get::<i64, _>("latency_rule")),
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json,status_rule \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json,status_rule,latency_rule \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -421,6 +439,7 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
             label: r.get("label"),
             auto_stop: parse_auto_stop(r.get("auto_stop_json")),
             status_rule: narrow_status_rule(r.get::<i64, _>("status_rule")),
+            latency_rule: narrow_latency_rule(r.get::<i64, _>("latency_rule")),
         });
     }
     Ok(out)
@@ -1568,5 +1587,92 @@ mod tests {
         let got = get(&db, "OLD1").await.unwrap().unwrap();
         assert_eq!(got.status_rule, STATUS_RULE_LEGACY);
         assert_eq!(got.status_rule, 1);
+    }
+
+    #[test]
+    fn narrow_latency_rule_maps_unknown_to_legacy() {
+        assert_eq!(narrow_latency_rule(1), LATENCY_RULE_LEGACY);
+        assert_eq!(narrow_latency_rule(2), LATENCY_RULE_CURRENT);
+        assert_eq!(narrow_latency_rule(0), LATENCY_RULE_LEGACY);
+        assert_eq!(narrow_latency_rule(3), LATENCY_RULE_LEGACY);
+        assert_eq!(narrow_latency_rule(258), LATENCY_RULE_LEGACY);
+        assert_eq!(narrow_latency_rule(-1), LATENCY_RULE_LEGACY);
+    }
+
+    #[tokio::test]
+    async fn insert_stamps_latency_rule_current() {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+        let db = test_db().await;
+        let yaml = "version: 1\nname: lat-rule-sc\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+        let run = insert(
+            &db,
+            &sc.id,
+            yaml,
+            &profile_fixture(|_| {}),
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(run.latency_rule, LATENCY_RULE_CURRENT);
+        assert_eq!(LATENCY_RULE_CURRENT, 2);
+        let got = get(&db, &run.id).await.unwrap().unwrap();
+        assert_eq!(got.latency_rule, LATENCY_RULE_CURRENT);
+        let listed = list_by_scenario(&db, &sc.id).await.unwrap();
+        assert_eq!(listed[0].latency_rule, LATENCY_RULE_CURRENT);
+    }
+
+    #[tokio::test]
+    async fn migration_0030_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", dir.path().join("c.db").display());
+        let db = store::connect(&url).await.unwrap();
+        db.close().await;
+        let db = store::connect(&url).await.expect("second connect");
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'latency_rule'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_row_reads_latency_rule_1() {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+        use sqlx::Connection;
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", dir.path().join("d.db").display());
+        let db = store::connect(&url).await.unwrap();
+        let yaml = "version: 1\nname: legacy-lat\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+        db.close().await;
+        let mut c = sqlx::SqliteConnection::connect(&url).await.unwrap();
+        sqlx::query("ALTER TABLE runs DROP COLUMN latency_rule")
+            .execute(&mut c)
+            .await
+            .unwrap();
+        let pj = serde_json::to_string(&profile_fixture(|_| {})).unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES('OLD2',?,?,?,'{}','completed',1)",
+        )
+        .bind(&sc.id)
+        .bind(yaml)
+        .bind(&pj)
+        .execute(&mut c)
+        .await
+        .unwrap();
+        c.close().await.unwrap();
+        let db = store::connect(&url).await.unwrap();
+        let got = get(&db, "OLD2").await.unwrap().unwrap();
+        assert_eq!(got.latency_rule, LATENCY_RULE_LEGACY);
+        assert_eq!(got.latency_rule, 1);
     }
 }

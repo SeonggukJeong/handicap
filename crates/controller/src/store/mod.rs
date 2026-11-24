@@ -99,6 +99,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0027).execute(&pool).await?; // migration 0027: run_section_metrics
     ensure_run_metrics_failed_hdr(&pool).await?; // migration 0028 (Rust-guarded; see fn)
     ensure_runs_status_rule(&pool).await?; // migration 0029 (Rust-guarded; see fn)
+    ensure_runs_latency_rule(&pool).await?; // migration 0030 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -115,6 +116,26 @@ async fn ensure_runs_status_rule(db: &Db) -> anyhow::Result<()> {
         sqlx::query(&format!(
             "ALTER TABLE runs ADD COLUMN status_rule INTEGER NOT NULL DEFAULT {}",
             runs::STATUS_RULE_LEGACY
+        ))
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// migration 0030: runs.latency_rule (NOT NULL DEFAULT 1). 그 run의 응답 시간 판정이 어떤
+/// 규칙으로 비교됐는지(1 = 내린 ms 비교, 2 = µs 비교). 옛 행은 1.
+/// ADD COLUMN은 SQLite에서 멱등이 아니므로 pragma로 가드.
+async fn ensure_runs_latency_rule(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'latency_rule'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query(&format!(
+            "ALTER TABLE runs ADD COLUMN latency_rule INTEGER NOT NULL DEFAULT {}",
+            runs::LATENCY_RULE_LEGACY
         ))
         .execute(db)
         .await?;

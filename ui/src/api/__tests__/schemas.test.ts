@@ -10,6 +10,7 @@ import {
   ReportSchema,
   ReportSummarySchema,
   reportStatusRule,
+  reportLatencyRule,
   RunSchema,
   ScheduleEventSchema,
   StageSchema,
@@ -233,6 +234,33 @@ describe("ReportRunSchema.status_rule", () => {
     expect(reportStatusRule({ run: ReportRunSchema.parse(base) })).toBe(1);
     expect(reportStatusRule({ run: ReportRunSchema.parse({ ...base, status_rule: 1 }) })).toBe(1);
     expect(reportStatusRule({ run: ReportRunSchema.parse({ ...base, status_rule: 2 }) })).toBe(2);
+  });
+});
+
+describe("ReportRunSchema.latency_rule", () => {
+  const base = {
+    id: "R1",
+    scenario_id: "S1",
+    status: "completed",
+    profile: { vus: 1 },
+    env: {},
+    started_at: 100,
+    ended_at: 102,
+    created_at: 99,
+  };
+  it("accepts latency_rule 2 under .strict()", () => {
+    expect(ReportRunSchema.parse({ ...base, latency_rule: 2 }).latency_rule).toBe(2);
+  });
+  it("rejects an unknown rule number", () => {
+    expect(ReportRunSchema.safeParse({ ...base, latency_rule: 3 }).success).toBe(false);
+  });
+  it("accepts a missing key", () => {
+    expect(ReportRunSchema.safeParse(base).success).toBe(true);
+  });
+  it("reportLatencyRule: absent -> 1, 1 -> 1, 2 -> 2", () => {
+    expect(reportLatencyRule({ run: ReportRunSchema.parse(base) })).toBe(1);
+    expect(reportLatencyRule({ run: ReportRunSchema.parse({ ...base, latency_rule: 1 }) })).toBe(1);
+    expect(reportLatencyRule({ run: ReportRunSchema.parse({ ...base, latency_rule: 2 }) })).toBe(2);
   });
 });
 
