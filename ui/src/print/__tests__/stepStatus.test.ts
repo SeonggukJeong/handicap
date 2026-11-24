@@ -250,6 +250,18 @@ describe("callout_text", () => {
       "'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 오류에 포함됐는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 판정할 수 있습니다.",
     );
   });
+  it("규칙 2 글: 상태 코드를 보지 않는 단계, 검사 추가 권유 없음", () => {
+    const rows = [un(0, "B", 502, 600, "uncounted"), un(1, "E", 503, 7, "unknown")];
+    const c = callouts(rows, summary, 2);
+    expect(c.uncounted).toBe(
+      "확인 필요: 'B'의 502 응답 600건은 상태 코드를 보지 않도록 정한 단계라 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%가 됩니다.",
+    );
+    expect(c.unknown).toBe(
+      "'E'의 503 응답 7건은 오류에 포함됐는지 확정할 수 없습니다(상태 코드를 보지 않고 값을 꺼내는 단계).",
+    );
+    expect(calloutOneLine(2, 2)).toBe("확인 필요: 상태 코드를 보지 않는 단계 2곳 — 표준판 참조");
+    expect(calloutOneLine(2, 1)).toBe("확인 필요: 응답 코드 검사가 없는 단계 2곳 — 표준판 참조");
+  });
   it("affectedSteps counts a step with both classes once", () => {
     const both = rk(
       row(0, {
@@ -376,6 +388,22 @@ describe("notSent glossary and legend", () => {
     const g = glossary(model([], []), [], [{ kind: "blank_var", count: 4 }]);
     expect(g.entries.map((e) => e.term)).not.toContain("보내지 않음");
     expect(g.errorKindLine).toBeNull();
+  });
+  it("규칙 2: uncounted 범례·용어 풀이는 규칙 2 글", () => {
+    const r = rk(
+      row(0, {
+        perCode: [{ code: 404, count: 3, cls: "uncounted" }],
+        cells: { "404": { count: 3, cls: "uncounted", strongest: false } },
+      }),
+    );
+    const m = model([], [r]);
+    expect(legendItems(m, [r], 2)).toContain("오류에서 제외된 응답(상태 코드 안 봄)");
+    expect(legendItems(m, [r], 1)).toContain("오류에서 제외된 응답(검사 없음)");
+    expect(glossary(m, [r], [], 2).entries.at(-1)).toEqual({
+      term: "보지 않음(제외)",
+      text: "상태 코드를 보지 않도록 정한 단계라 오류에서 제외된 응답",
+    });
+    expect(glossary(m, [r], [], 1).entries.at(-1)?.term).toBe("검사 없음(제외)");
   });
   it("notSent cell feeds the legend via row.cells", () => {
     const r = rk(

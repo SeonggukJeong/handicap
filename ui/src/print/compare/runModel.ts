@@ -1,5 +1,11 @@
 import { parse } from "yaml";
-import { ProfileSchema, type Criteria, type Profile, type Report } from "../../api/schemas";
+import {
+  ProfileSchema,
+  reportStatusRule,
+  type Criteria,
+  type Profile,
+  type Report,
+} from "../../api/schemas";
 import { envValueToRecord } from "../../api/runPrefill";
 import { workerCount } from "../conditions";
 import { readScenarioFacts, type ScenarioFacts } from "../scenarioFacts";
@@ -35,7 +41,7 @@ export function buildRunModel(meta: RunMeta, report: Report): RunModel {
   const parsed = ProfileSchema.safeParse(report.run.profile);
   const profile = parsed.success ? parsed.data : null;
   const criteria = profile?.criteria ?? null;
-  const table = buildStepTable(report.steps, facts);
+  const table = buildStepTable(report.steps, facts, reportStatusRule(report));
   const { count } = report.summary;
   return {
     meta,

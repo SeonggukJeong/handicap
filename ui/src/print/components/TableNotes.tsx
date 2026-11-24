@@ -11,6 +11,7 @@ const SWATCH: Record<string, string> = {
   [L.counted]: "p-sw p-cell--counted",
   [L.strongest]: "p-sw p-cell--counted p-cell--strongest",
   [L.uncounted]: "p-sw p-cell--uncounted",
+  [L.uncountedRule2]: "p-sw p-cell--uncounted",
   [L.unknown]: "p-sw p-cell--unknown",
 };
 
@@ -52,7 +53,9 @@ export function Callouts({ doc }: { doc: PrintDoc }) {
 }
 
 export function CalloutLine({ doc }: { doc: PrintDoc }) {
-  return <div className="p-callout">{calloutOneLine(doc.callouts.affectedSteps)}</div>;
+  return (
+    <div className="p-callout">{calloutOneLine(doc.callouts.affectedSteps, doc.statusRule)}</div>
+  );
 }
 
 export function FoldNotes({ notes }: { notes: FoldNote[] }) {

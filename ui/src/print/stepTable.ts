@@ -20,17 +20,23 @@ export function codeFamily(code: number): Family {
   return "other";
 }
 
+/**
+ * 규칙 1(옛 run): 숫자 줄이 있으면 모든 숫자 줄에 코드가 들어 있어야 기대한 응답, 숫자 줄이 없으면(`any`뿐이거나 빔)
+ * 검사 없음. 규칙 2: 검사 없음은 4xx·5xx를 오류로 세고, `any`만 남으면 제외한다. 코드 줄이 있으면 `any` 줄은 건너뛴다.
+ */
 export function classifyCell(
   code: number,
-  facts: Pick<StepFacts, "statusCodes" | "fallibleExtract"> | null,
+  facts: Pick<StepFacts, "statusChecks" | "fallibleExtract"> | null,
+  rule: 1 | 2,
 ): CellClass {
   if (code === 0) return "counted";
   const fam = codeFamily(code);
   const mild = fam === "2xx" || fam === "3xx";
   if (facts === null) return mild ? "plain" : "unknown";
-  const S = facts.statusCodes;
-  if (S.length > 0) return S.some((w) => w !== code) ? "counted" : "expected";
+  const lines = facts.statusChecks.filter((l): l is number[] => l !== "any");
+  if (lines.length > 0) return lines.some((l) => !l.includes(code)) ? "counted" : "expected";
   if (mild) return "plain";
+  if (rule === 2 && facts.statusChecks.length === 0) return "counted";
   return facts.fallibleExtract ? "unknown" : "uncounted";
 }
 
@@ -182,7 +188,11 @@ export type StepTableModel = {
 
 type RStep = Report["steps"][number];
 
-export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): StepTableModel {
+export function buildStepTable(
+  steps: Report["steps"],
+  facts: ScenarioFacts,
+  rule: 1 | 2 = 1,
+): StepTableModel {
   const byId = new Map<string, RStep>();
   for (const s of steps) if (!byId.has(s.step_id)) byId.set(s.step_id, s);
   const factList: StepFacts[] = facts.ok ? facts.steps : [];
@@ -203,7 +213,7 @@ export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): St
       for (const [k, v] of Object.entries(r.status_counts)) {
         if (!/^\d+$/.test(k) || v <= 0) continue;
         const code = Number(k);
-        perCode.push({ code, count: v, cls: classifyCell(code, f) });
+        perCode.push({ code, count: v, cls: classifyCell(code, f, rule) });
       }
       perCode.sort((a, b) => a.code - b.code);
     }

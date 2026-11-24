@@ -118,6 +118,7 @@ function itemsText(items: Item[]): string {
 export function callouts(
   rows: RankedRow[],
   summary: Report["summary"],
+  rule: 1 | 2 = 1,
 ): { uncounted: string | null; unknown: string | null; affectedSteps: number } {
   const un = collect(rows, "uncounted");
   const unk = collect(rows, "unknown");
@@ -127,14 +128,16 @@ export function callouts(
   const a = total > 0 ? summary.errors / total : 0;
   const b = total > 0 ? (summary.errors + extra) / total : 0;
   return {
-    uncounted: un.length ? C.uncounted(itemsText(un), fmtPct(a), fmtPct(b)) : null,
-    unknown: unk.length ? C.unknown(itemsText(unk)) : null,
+    uncounted: un.length
+      ? (rule === 2 ? C.uncountedRule2 : C.uncounted)(itemsText(un), fmtPct(a), fmtPct(b))
+      : null,
+    unknown: unk.length ? (rule === 2 ? C.unknownRule2 : C.unknown)(itemsText(unk)) : null,
     affectedSteps: affected.size,
   };
 }
 
-export function calloutOneLine(affectedSteps: number): string {
-  return C.oneLine(affectedSteps);
+export function calloutOneLine(affectedSteps: number, rule: 1 | 2 = 1): string {
+  return (rule === 2 ? C.oneLineRule2 : C.oneLine)(affectedSteps);
 }
 
 export type GlossaryEntry = { term: string; text: string };
@@ -143,6 +146,7 @@ export function glossary(
   model: StepTableModel,
   rows: RankedRow[],
   errorKinds: Report["error_kinds"],
+  rule: 1 | 2 = 1,
 ): { entries: GlossaryEntry[]; errorKindLine: string | null } {
   const entries: GlossaryEntry[] = [G.throughput, G.mean, G.p95, G.errorRate].map((e) => ({
     ...e,
@@ -168,7 +172,7 @@ export function glossary(
   if (hasNotSent) entries.push({ ...G.notSent });
   if (kinds.has("residual")) entries.push({ ...G.residual });
   const anyCls = (cls: string) => rows.some((r) => r.perCode.some((p) => p.cls === cls));
-  if (anyCls("uncounted")) entries.push({ ...G.uncounted });
+  if (anyCls("uncounted")) entries.push({ ...(rule === 2 ? G.uncountedRule2 : G.uncounted) });
   if (anyCls("unknown")) entries.push({ ...G.unknown });
   const kl = (errorKinds ?? []).filter((k) => k.count > 0);
   const errorKindLine =
@@ -182,7 +186,7 @@ export function glossary(
   return { entries, errorKindLine };
 }
 
-export function legendItems(model: StepTableModel, rows: RankedRow[]): string[] {
+export function legendItems(model: StepTableModel, rows: RankedRow[], rule: 1 | 2 = 1): string[] {
   const out: string[] = [];
   if (rows.some((r) => r.status.grade === 3)) out.push(L.error);
   // ▲는 오류(grade 3) 줄의 보조 태그로만 나타나도 범례에 싣는다(§6.3 "나타난 분류만")
@@ -192,7 +196,8 @@ export function legendItems(model: StepTableModel, rows: RankedRow[]): string[] 
   const cells = rows.flatMap((r) => Object.values(r.cells));
   if (cells.some((c) => c.cls === "counted" && c.count > 0)) out.push(L.counted);
   if (cells.some((c) => c.strongest)) out.push(L.strongest);
-  if (cells.some((c) => c.cls === "uncounted" && c.count > 0)) out.push(L.uncounted);
+  if (cells.some((c) => c.cls === "uncounted" && c.count > 0))
+    out.push(rule === 2 ? L.uncountedRule2 : L.uncounted);
   if (cells.some((c) => c.cls === "unknown" && c.count > 0)) out.push(L.unknown);
   if (model.columns.some((c) => c.kind === "residual")) out.push(L.residual);
   return out;

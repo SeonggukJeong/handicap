@@ -14,7 +14,7 @@ const step = (url: string): StepFacts => ({
   name: "x",
   method: "GET",
   url,
-  statusCodes: [],
+  statusChecks: [],
   fallibleExtract: false,
 });
 

@@ -29,7 +29,7 @@ const facts = (id: string, name: string, method = "POST", url = "/api/x"): StepF
   name,
   method,
   url,
-  statusCodes: [],
+  statusChecks: [],
   fallibleExtract: false,
 });
 

@@ -22,8 +22,10 @@ const t = ko.report.sample;
 function bar(
   over: Partial<Pick<Report, "windows" | "sample">>,
   requested?: ReportSampleName,
+  statusRule?: 2,
 ) {
-  return render(<SampleBar report={{ windows: [win], ...over }} requested={requested} />);
+  const run = (statusRule ? { status_rule: statusRule } : {}) as Report["run"];
+  return render(<SampleBar report={{ windows: [win], run, ...over }} requested={requested} />);
 }
 
 describe("SampleBar", () => {
@@ -37,6 +39,24 @@ describe("SampleBar", () => {
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: t.helpLabel }));
     expect(screen.getByRole("note")).toHaveTextContent(t.passedHelp);
+  });
+
+  it("규칙 2 run은 새 설명, 규칙 1 run은 옛 설명", async () => {
+    const user = userEvent.setup();
+    const sample = { selected: "passed", default: "passed", split: true } as const;
+    const { unmount } = bar({ sample }, undefined, 2);
+    await user.click(screen.getByRole("button", { name: t.helpLabel }));
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent(
+      "오류로 세지 않은 요청입니다. 상태 코드 검사를 적지 않은 스텝은 400 이상 응답을 오류로 셉니다.",
+    );
+    expect(note).not.toHaveTextContent("4xx·5xx 응답도 통과로 셉니다");
+    unmount();
+    bar({ sample });
+    await user.click(screen.getByRole("button", { name: t.helpLabel }));
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.",
+    );
   });
 
   it("실패한 요청을 받았고 요청했다: 설명 = failedHint, 안내 상자", () => {
@@ -69,6 +89,7 @@ describe("SampleBar", () => {
       <SampleBar
         report={{
           windows: [win],
+          run: {} as Report["run"],
           sample: { selected: "passed", default: "passed", split: true },
         }}
         pending
@@ -84,6 +105,7 @@ describe("SampleBar", () => {
       <SampleBar
         report={{
           windows: [win],
+          run: {} as Report["run"],
           sample: { selected: "passed", default: "passed", split: true },
         }}
         onSelect={onSelect}
@@ -157,6 +179,7 @@ describe("SampleBar", () => {
       <SampleBar
         report={{
           windows: [],
+          run: {} as Report["run"],
           sample: { selected: "passed", default: "passed", split: true },
         }}
       />,

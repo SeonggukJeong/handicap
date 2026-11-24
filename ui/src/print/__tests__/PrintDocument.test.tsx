@@ -700,6 +700,13 @@ describe("PrintDocument", () => {
   });
 });
 
+describe("Legend 규칙 2 견본", () => {
+  it("규칙 2 uncounted 범례 글에도 색 견본이 붙는다", () => {
+    const { container } = render(<Legend items={["오류에서 제외된 응답(상태 코드 안 봄)"]} />);
+    expect(container.querySelector("i.p-sw.p-cell--uncounted")).not.toBeNull();
+  });
+});
+
 describe("Legend status symbols", () => {
   it("symbols use the same tone classes as the table status", () => {
     const { container } = render(

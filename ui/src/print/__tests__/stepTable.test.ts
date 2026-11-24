@@ -30,7 +30,7 @@ const sf = (id: string, over: Partial<StepFacts> = {}): StepFacts => ({
   name: `이름${id}`,
   method: "GET",
   url: `/p/${id}`,
-  statusCodes: [],
+  statusChecks: [],
   fallibleExtract: false,
   ...over,
 });
@@ -61,25 +61,59 @@ describe("codeFamily", () => {
 });
 
 describe("classifyCell", () => {
-  const F = (statusCodes: number[], fallibleExtract: boolean) => ({ statusCodes, fallibleExtract });
-  it.each<[number, { statusCodes: number[]; fallibleExtract: boolean } | null, CellClass]>([
-    [0, F([200], false), "counted"],
+  type SC = number[] | "any";
+  type Fx = { statusChecks: SC[]; fallibleExtract: boolean };
+  const F = (statusChecks: SC[], fallibleExtract = false): Fx => ({
+    statusChecks,
+    fallibleExtract,
+  });
+  it.each<[number, Fx | null, CellClass]>([
+    [0, F([[200]]), "counted"],
     [0, null, "counted"],
-    [503, F([200], false), "counted"],
-    [200, F([200, 201], false), "counted"],
-    [201, F([201], false), "expected"],
-    [404, F([404], false), "expected"],
-    [503, F([], false), "uncounted"],
+    [503, F([[200]]), "counted"],
+    [200, F([[200], [201]]), "counted"],
+    [200, F([[200, 201]]), "expected"],
+    [201, F([[201]]), "expected"],
+    [404, F([[404]]), "expected"],
+    [409, F([[200, 409]]), "expected"],
+    [503, F([]), "uncounted"],
     [503, F([], true), "unknown"],
-    [200, F([], false), "plain"],
-    [302, F([], false), "plain"],
-    [99, F([], false), "uncounted"],
+    [200, F([]), "plain"],
+    [302, F([]), "plain"],
+    [99, F([]), "uncounted"],
     [101, F([], true), "unknown"],
-    [600, F([200], false), "counted"],
+    [600, F([[200]]), "counted"],
     [503, null, "unknown"],
     [200, null, "plain"],
-  ])("classify_table_rows %i %j -> %s", (code, facts, expected) => {
-    expect(classifyCell(code, facts)).toBe(expected);
+    [404, F(["any"]), "uncounted"],
+    [404, F(["any"], true), "unknown"],
+  ])("classify_table_rows(rule 1) %i %j -> %s", (code, facts, expected) => {
+    expect(classifyCell(code, facts, 1)).toBe(expected);
+  });
+
+  it.each<[number, Fx | null, CellClass]>([
+    [200, F([]), "plain"],
+    [404, F([]), "counted"],
+    [0, F([]), "counted"],
+    [409, F([[200, 409]]), "expected"],
+    [404, F([[404]]), "expected"],
+    [200, F(["any", [200]]), "expected"],
+    [500, F([[200, 409]]), "counted"],
+    [200, F([[404]]), "counted"],
+    [200, F(["any"]), "plain"],
+    [404, F(["any"]), "uncounted"],
+    [404, F(["any"], true), "unknown"],
+    [200, null, "plain"],
+    [404, null, "unknown"],
+  ])("classify_table_rows(rule 2) %i %j -> %s", (code, facts, expected) => {
+    expect(classifyCell(code, facts, 2)).toBe(expected);
+  });
+
+  it("buildStepTable은 규칙 번호를 분류에 넘긴다", () => {
+    const facts = okFacts([sf("A")]);
+    const s = [rs("A", { "404": 3 })];
+    expect(buildStepTable(s, facts, 1).rows[0].perCode[0].cls).toBe("uncounted");
+    expect(buildStepTable(s, facts, 2).rows[0].perCode[0].cls).toBe("counted");
   });
 });
 
@@ -126,7 +160,7 @@ describe("buildStepTable", () => {
   });
 
   it("residual_is_subset_and_floored", () => {
-    const facts = okFacts([sf("A", { statusCodes: [200] })]);
+    const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
     const t = buildStepTable(
       [rs("A", { "200": 80, "503": 20 }, { count: 100, error_count: 30 })],
       facts,
@@ -174,7 +208,7 @@ describe("buildStepTable", () => {
   });
 
   it("fold_spec_example", () => {
-    const facts = okFacts([sf("A", { statusCodes: [200] })]);
+    const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
     const t = buildStepTable([rs("A", SPEC_COUNTS, { error_count: 99999 })], facts);
     expect(labels(t.columns)).toEqual([
       "2xx",
@@ -248,7 +282,7 @@ describe("buildStepTable", () => {
   it("folded_cell_takes_strongest", () => {
     // A: 검사 없음 → 4xx 전부 uncounted. B: 검사 [200] → 400 은 counted.
     // 한 행에서 접힌 칸 구성이 uncounted + counted 이면 counted.
-    const facts = okFacts([sf("A", { statusCodes: [] }), sf("B", { statusCodes: [404] })]);
+    const facts = okFacts([sf("A", { statusChecks: [] }), sf("B", { statusChecks: [[404]] })]);
     const steps = [
       rs("A", { ...BIG, "400": 3, "401": 2, "403": 1 }),
       rs("B", { "200": 1, "401": 3 }),
@@ -264,7 +298,7 @@ describe("buildStepTable", () => {
 
   it("folded_cell_mixed_in_one_row", () => {
     // 한 행: 접힌 칸에 uncounted(검사 없음)가 아니라 expected + counted 가 섞이는 경우
-    const facts = okFacts([sf("A", { statusCodes: [400] })]);
+    const facts = okFacts([sf("A", { statusChecks: [[400]] })]);
     const steps = [rs("A", { ...BIG, "400": 3, "401": 2, "403": 1 })];
     const t = buildStepTable(steps, facts);
     // 400 은 expected, 401·403 은 counted → 접힌 4xx 칸은 counted
@@ -272,7 +306,7 @@ describe("buildStepTable", () => {
   });
 
   it("class2xx_column_takes_strongest", () => {
-    const facts = okFacts([sf("A", { statusCodes: [201] })]);
+    const facts = okFacts([sf("A", { statusChecks: [[201]] })]);
     const t = buildStepTable([rs("A", { "200": 3, "201": 2 })], facts);
     const c = t.rows[0].cells["2xx"];
     expect(c.count).toBe(5);
@@ -280,7 +314,7 @@ describe("buildStepTable", () => {
   });
 
   it("strongest_marks_max_counted_column", () => {
-    const facts = okFacts([sf("A", { statusCodes: [200] })]);
+    const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
     const t = buildStepTable([rs("A", { "200": 50, "503": 5, "502": 5, "404": 1 })], facts);
     const cells = t.rows[0].cells;
     expect(cells["c502"].strongest).toBe(true);
@@ -290,7 +324,7 @@ describe("buildStepTable", () => {
   });
 
   it("fold_notes", () => {
-    const facts = okFacts([sf("A", { statusCodes: [200] })]);
+    const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
     const t = buildStepTable(
       [rs("A", { ...SPEC_COUNTS, "201": 7 }, { error_count: 99999 })],
       facts,

@@ -39,9 +39,28 @@ steps:
     expect(f.ok).toBe(true);
     if (!f.ok) return;
     expect(f.name).toBe("신청 흐름");
-    expect(f.steps.map((s) => s.statusCodes)).toEqual([[200], [200, 201], []]);
+    expect(f.steps.map((s) => s.statusChecks)).toEqual([[[200]], [[200], [201]], []]);
     expect(f.steps.map((s) => s.fallibleExtract)).toEqual([true, false, false]);
     expect(f.steps[0]).toMatchObject({ method: "POST", name: "로그인" });
+  });
+
+  it("목록·any·숫자 문자열 표기를 읽는다", () => {
+    const y = `version: 1
+name: n
+steps:
+  - id: s1
+    name: x
+    type: http
+    request: { method: GET, url: "/x" }
+    assert:
+      - status: [200, 409]
+      - status: any
+      - status: "200"
+`;
+    const f = readScenarioFacts(y);
+    expect(f.ok).toBe(true);
+    if (!f.ok) return;
+    expect(f.steps[0].statusChecks).toEqual([[200, 409], "any", [200]]);
   });
 
   it("order_matches_flatten", () => {
@@ -106,7 +125,7 @@ steps:
     const f = readScenarioFacts(y);
     expect(f.ok).toBe(true);
     if (!f.ok) return;
-    expect(f.steps[0].statusCodes).toEqual([700]);
+    expect(f.steps[0].statusChecks).toEqual([[700]]);
     expect(f.steps[0].id).toBe("s1");
   });
 
@@ -120,7 +139,8 @@ steps:
     request: { method: GET, url: "/x" }
     assert:
       - kind: status
-        code: "404"
+        codes: [404]
+      - kind: status_any
       - status: abc
       - status: 2.5
       - status: null
@@ -130,7 +150,7 @@ steps:
     const f = readScenarioFacts(y);
     expect(f.ok).toBe(true);
     if (!f.ok) return;
-    expect(f.steps[0].statusCodes).toEqual([404]);
+    expect(f.steps[0].statusChecks).toEqual([[404], "any"]);
   });
 
   it("준비 스텝의 사실은 setupSteps에 따로 담긴다", () => {

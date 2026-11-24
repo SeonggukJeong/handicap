@@ -1,11 +1,14 @@
 import { parse } from "yaml";
 
+export type StatusCheck = number[] | "any";
+
 export type StepFacts = {
   id: string;
   name: string;
   method: string;
   url: string;
-  statusCodes: number[];
+  /** 줄마다 하나: 코드 목록(`status: 200`·`status: [200, 409]`) 또는 "any"(`status: any`). */
+  statusChecks: StatusCheck[];
   fallibleExtract: boolean;
 };
 
@@ -25,17 +28,28 @@ function statusCodeOf(v: unknown): number | null {
   return Number.isInteger(n) ? n : null;
 }
 
+/** 한 검사 줄의 값(와이어 `status:`·모델 `codes`)을 읽는다. 읽을 수 없으면 null. */
+function checkOf(v: unknown): StatusCheck | null {
+  if (v === "any") return "any";
+  if (Array.isArray(v)) {
+    const codes = v.map(statusCodeOf).filter((n): n is number => n !== null);
+    return codes.length > 0 ? codes : null;
+  }
+  const n = statusCodeOf(v);
+  return n === null ? null : [n];
+}
+
 function factsOf(s: Obj, request: Obj): StepFacts {
-  const statusCodes: number[] = [];
+  const statusChecks: StatusCheck[] = [];
   if (Array.isArray(s.assert)) {
     for (const a of s.assert) {
       if (!isObj(a)) continue;
-      let raw: unknown;
-      if ("status" in a) raw = a.status;
-      else if (a.kind === "status") raw = a.code;
+      let c: StatusCheck | null;
+      if ("status" in a) c = checkOf(a.status);
+      else if (a.kind === "status") c = checkOf(a.codes);
+      else if (a.kind === "status_any") c = "any";
       else continue;
-      const n = statusCodeOf(raw);
-      if (n !== null) statusCodes.push(n);
+      if (c !== null) statusChecks.push(c);
     }
   }
   const fallibleExtract =
@@ -48,7 +62,7 @@ function factsOf(s: Obj, request: Obj): StepFacts {
     name: str(s.name),
     method: typeof request.method === "string" ? request.method : "",
     url: typeof request.url === "string" ? request.url : "",
-    statusCodes,
+    statusChecks,
     fallibleExtract,
   };
 }

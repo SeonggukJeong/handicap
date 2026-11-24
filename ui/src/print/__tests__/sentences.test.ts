@@ -339,6 +339,12 @@ describe("hidden_line", () => {
       "'B'에서 502 응답 600건이 있었지만 응답 코드 검사가 없어 오류에서 제외됐습니다.",
     );
   });
+  it("규칙 2 글", () => {
+    const rows = [mkRow(1, "B", { perCode: [{ code: 502, count: 600, cls: "uncounted" }] })];
+    expect(kindLine(summaryLines(base({ rows, ranked: rows, statusRule: 2 })), "hidden")).toBe(
+      "'B'에서 502 응답 600건이 있었지만 상태 코드를 보지 않도록 정한 단계라 오류에서 제외됐습니다.",
+    );
+  });
   it("unknown only", () => {
     const rows = [mkRow(1, "B", { perCode: [{ code: 502, count: 600, cls: "unknown" }] })];
     expect(kindLine(summaryLines(base({ rows, ranked: rows })), "hidden")).toBe(
@@ -419,7 +425,9 @@ describe("special_lines", () => {
       }),
     );
     const texts = l.map((x) => x.text);
-    expect(texts).toContain("요청이 하나도 실행되지 않았습니다. 사유: 부하를 시작하기 전에 중단했습니다");
+    expect(texts).toContain(
+      "요청이 하나도 실행되지 않았습니다. 사유: 부하를 시작하기 전에 중단했습니다",
+    );
     expect(texts).not.toContain("측정이 시작되기 전에 중단되었습니다.");
   });
   it("aborted with requests but no start time: not 'before start'", () => {

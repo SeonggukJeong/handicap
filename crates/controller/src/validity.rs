@@ -1041,6 +1041,24 @@ steps:
     }
 
     #[test]
+    fn rule1_ignores_status_unchecked_errors_even_with_any_step_errors() {
+        let d = dist(&[("200", 90), ("404", 10)]);
+        let steps = [rstep("A", &[("404", 3)])];
+        let v = super::derive_validity(
+            &summary(100, 0),
+            &d,
+            YAML_ALL_ANY,
+            false,
+            &[],
+            false,
+            STATUS_RULE_LEGACY,
+            &steps,
+            None,
+        );
+        assert!(!kinds(&v).contains(&"status_unchecked_errors"));
+    }
+
+    #[test]
     fn rule2_no_silent_http_errors() {
         let d = dist(&[("200", 90), ("404", 10)]);
         let v = rule2(&d, YAML_WITH_ASSERT, true, &[], None, 0);

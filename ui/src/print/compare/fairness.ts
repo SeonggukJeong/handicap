@@ -6,7 +6,7 @@ import { profileDurationSeconds, seedBindingsFrom } from "../../api/runPrefill";
 import { deriveLoadMode, fixedTarget } from "../../components/run/loadModel";
 import { conditionsBox, rampSeconds } from "../conditions";
 import { stepNo } from "../format";
-import type { StepFacts } from "../scenarioFacts";
+import type { StatusCheck, StepFacts } from "../scenarioFacts";
 import { expandCriteria } from "../verdict";
 import type { RunModel } from "./runModel";
 
@@ -269,9 +269,12 @@ function joinNames(names: string[]): { head: string; rest: number } {
 
 type StepDiff = { kind: "steps" | "request" | "assert" | "extract"; text: string };
 
-function sameSet(a: number[], b: number[]): boolean {
-  const x = [...a].sort((p, q) => p - q);
-  const y = [...b].sort((p, q) => p - q);
+/** 검사 줄 묶음이 같은가 — 줄 순서는 무관하고, 줄 안의 코드 순서도 무관하다. */
+function sameChecks(a: StatusCheck[], b: StatusCheck[]): boolean {
+  const key = (l: StatusCheck): string =>
+    l === "any" ? "any" : [...l].sort((p, q) => p - q).join(",");
+  const x = a.map(key).sort();
+  const y = b.map(key).sort();
   return x.length === y.length && x.every((v, i) => v === y[i]);
 }
 
@@ -299,11 +302,11 @@ function stepDiffs(before: StepFacts[], after: StepFacts[]): StepDiff[] {
     if (prev.method !== s.method || prev.url !== s.url) {
       out.push({ kind: "request", text: F.stepRequest(no) });
     }
-    if (prev.statusCodes.length === 0 && s.statusCodes.length > 0) {
+    if (prev.statusChecks.length === 0 && s.statusChecks.length > 0) {
       out.push({ kind: "assert", text: F.assertAdded(no) });
-    } else if (prev.statusCodes.length > 0 && s.statusCodes.length === 0) {
+    } else if (prev.statusChecks.length > 0 && s.statusChecks.length === 0) {
       out.push({ kind: "assert", text: F.assertRemoved(no) });
-    } else if (!sameSet(prev.statusCodes, s.statusCodes)) {
+    } else if (!sameChecks(prev.statusChecks, s.statusChecks)) {
       out.push({ kind: "assert", text: F.assertChanged(no) });
     }
     if (!prev.fallibleExtract && s.fallibleExtract) {

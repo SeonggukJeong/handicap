@@ -200,3 +200,38 @@ describe("ReportView 준비 스텝", () => {
     expect(region).not.toHaveTextContent(SETUP_FAILED_LINE);
   });
 });
+
+describe("ReportView 상태 코드 규칙과 유효성 안내", () => {
+  const withRule = (rule: 1 | 2, reasons: NonNullable<Report["validity"]>["reasons"]): Report => ({
+    ...BASE,
+    run: { ...BASE.run, ...(rule === 2 ? { status_rule: 2 } : {}) } as Report["run"],
+    validity: { level: "limited", reasons },
+  });
+
+  it("규칙 2: 이름표(시나리오 YAML)의 스텝 이름과 새 안내 글이 나온다", () => {
+    renderIt(
+      withRule(2, [
+        { kind: "status_unchecked_errors", severity: "warning", step_id: STEP_ID, count: 1204 },
+        { kind: "no_response_validation", severity: "warning" },
+      ]),
+    );
+    expect(
+      screen.getByText(
+        "상태 코드를 보지 않는 스텝 「조회」이 4xx·5xx 응답 1,204건을 받았습니다. 상태 코드로는 오류로 세지 않았습니다",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("상태 코드 검사와 판정 기준이 없어 성공·실패를 확정할 수 없습니다"),
+    ).toBeInTheDocument();
+  });
+
+  it("규칙 1: 옛 안내 글", () => {
+    renderIt(withRule(1, [{ kind: "no_response_validation", severity: "warning" }]));
+    expect(
+      screen.getByText("응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("상태 코드 검사와 판정 기준이 없어 성공·실패를 확정할 수 없습니다"),
+    ).not.toBeInTheDocument();
+  });
+});

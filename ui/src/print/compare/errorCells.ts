@@ -1,4 +1,5 @@
 import { ko } from "../../i18n/ko";
+import { reportStatusRule } from "../../api/schemas";
 import { fmtCount, fmtPct } from "../format";
 import type { ScenarioFacts, StepFacts } from "../scenarioFacts";
 import { rankRows, type RankedRow } from "../stepStatus";
@@ -45,7 +46,9 @@ const countOf = (row: StepRow | undefined, code: number): number =>
 
 /** 실행되지 않은 쪽(행이 없거나 리포트에 그 단계가 없음)은 분류하지 않는다(spec §9.1). */
 const classOn = (model: RunModel, row: StepRow | undefined, code: number): CellClass | null =>
-  row?.executed ? classifyCell(code, factsOf(model.facts, row.stepId)) : null;
+  row?.executed
+    ? classifyCell(code, factsOf(model.facts, row.stepId), reportStatusRule(model.report))
+    : null;
 
 const toCounts = (cls: CellClass | null): Counts | null => (cls ? countsAsError(cls) : null);
 

@@ -4,6 +4,7 @@ import { ko } from "../i18n/ko";
 import {
   ProfileSchema,
   reportSample,
+  reportStatusRule,
   type Criteria,
   type Report,
   type ReportSampleName,
@@ -86,6 +87,8 @@ export type PrintDoc = {
   ranked: RankedRow[];
   legend: string[];
   callouts: ReturnType<typeof buildCallouts>;
+  /** 상태 코드 규칙 번호 — 범례·콜아웃 글이 이것을 따른다. */
+  statusRule: 1 | 2;
   chart: ChartModel;
   readingLine: string;
   conditions: ReturnType<typeof conditionsBox>;
@@ -126,11 +129,12 @@ export function buildPrintDoc(a: {
 }): PrintDoc {
   const { run, report } = a;
   const facts = readScenarioFacts(report.scenario_yaml);
+  const statusRule = reportStatusRule(report);
   const env = envValueToRecord(report.run.env);
   const parsed = ProfileSchema.safeParse(report.run.profile);
   const criteria: Criteria | null = parsed.success ? (parsed.data.criteria ?? null) : null;
 
-  const table = buildStepTable(report.steps, facts);
+  const table = buildStepTable(report.steps, facts, statusRule);
   const nameById = new Map(table.rows.map((r) => [r.stepId, r.name]));
   const stepName = (id: string): string => nameById.get(id) || id;
   const ranked: RankedRow[] = table.rows.map((r) => ({ ...r, status: stepStatus(r, criteria) }));
@@ -236,6 +240,7 @@ export function buildPrintDoc(a: {
       ...(scopeEndSec !== undefined ? { scopeEndSec } : {}),
       chart,
       stepName,
+      statusRule,
       criteria,
       latency: hasTime,
     }),
@@ -243,8 +248,9 @@ export function buildPrintDoc(a: {
     otherRows: otherCriteriaRows(matched, box, stepName),
     table,
     ranked,
-    legend: legendItems(table, ranked),
-    callouts: buildCallouts(ranked, report.summary),
+    legend: legendItems(table, ranked, statusRule),
+    statusRule,
+    callouts: buildCallouts(ranked, report.summary, statusRule),
     chart,
     readingLine,
     conditions: conditionsBox({
@@ -253,7 +259,7 @@ export function buildPrintDoc(a: {
       envCount: Object.keys(env).length,
     }),
     claims: can.length === 0 && cannot.length === 0 ? null : { can, cannot },
-    glossary: buildGlossary(table, ranked, report.error_kinds),
+    glossary: buildGlossary(table, ranked, report.error_kinds, statusRule),
     stair: report.stair ?? null,
     speed,
     setup,

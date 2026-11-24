@@ -1299,6 +1299,8 @@ export const ko = {
         "이 run은 통과한 요청과 실패한 요청의 응답 시간을 따로 기록하지 않았습니다. 응답 시간에 실패한 요청이 들어 있습니다.",
       passedHelp:
         "오류로 세지 않은 요청입니다. 상태 코드 검사가 없는 스텝에서는 4xx·5xx 응답도 통과로 셉니다.",
+      passedHelpRule2:
+        "오류로 세지 않은 요청입니다. 상태 코드 검사를 적지 않은 스텝은 400 이상 응답을 오류로 셉니다.",
       helpLabel: "응답 시간 표본 설명",
       failed: "실패한 요청",
       allShort: "모든 요청",
@@ -3163,11 +3165,16 @@ export const ko = {
       // b는 fmtPct 결과: "3.0%"(퍼센트'가') 또는 "0.1% 미만"(미만'이')
       uncounted: (items: string, a: string, b: string) =>
         `확인 필요: ${items}은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 ${a} → ${b}${b.endsWith("%") ? "가" : "이"} 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.`,
+      uncountedRule2: (items: string, a: string, b: string) =>
+        `확인 필요: ${items}은 상태 코드를 보지 않도록 정한 단계라 오류율에 포함되지 않았습니다. 포함하면 오류율은 ${a} → ${b}${b.endsWith("%") ? "가" : "이"} 됩니다.`,
+      unknownRule2: (items: string) =>
+        `${items}은 오류에 포함됐는지 확정할 수 없습니다(상태 코드를 보지 않고 값을 꺼내는 단계).`,
       unknown: (items: string) =>
         `${items}은 오류에 포함됐는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 판정할 수 있습니다.`,
       item: (name: string, code: number, n: string) => `'${name}'의 ${code} 응답 ${n}건`,
       more: (n: number) => ` 외 ${n}곳`,
       oneLine: (n: number) => `확인 필요: 응답 코드 검사가 없는 단계 ${n}곳 — 표준판 참조`,
+      oneLineRule2: (n: number) => `확인 필요: 상태 코드를 보지 않는 단계 ${n}곳 — 표준판 참조`,
     },
     legend: {
       error: "✕ 오류: 단계 오류율이 기준을 넘음",
@@ -3176,6 +3183,7 @@ export const ko = {
       counted: "오류에 포함된 응답",
       strongest: "그중 가장 많은 것",
       uncounted: "오류에서 제외된 응답(검사 없음)",
+      uncountedRule2: "오류에서 제외된 응답(상태 코드 안 봄)",
       unknown: "확인 불가(?)",
       residual: "‘그중’ 열은 앞 칸들에 이미 포함된 건수입니다(더하지 마세요)",
       short: "✕ 오류 · ▲ 주의 · ● 정상",
@@ -3320,6 +3328,10 @@ export const ko = {
         text: "응답은 받았지만 값 꺼내기나 본문 읽기에 실패함",
       },
       uncounted: { term: "검사 없음(제외)", text: "응답 코드 검사가 없어 오류에서 제외된 응답" },
+      uncountedRule2: {
+        term: "보지 않음(제외)",
+        text: "상태 코드를 보지 않도록 정한 단계라 오류에서 제외된 응답",
+      },
       unknown: { term: "확인 불가(?)", text: "오류에 포함됐는지 기록상 확정할 수 없는 응답" },
       errorKindLine: (parts: string) => `응답 없음 내역: ${parts}`,
     },
@@ -3542,6 +3554,8 @@ export const ko = {
         `오류가 여러 단계에 흩어져 있습니다(가장 많은 곳: '${step}' ${pct}%).`,
       hiddenUncounted: (step: string, code: number, n: string) =>
         `'${step}'에서 ${code} 응답 ${n}건이 있었지만 응답 코드 검사가 없어 오류에서 제외됐습니다.`,
+      hiddenUncountedRule2: (step: string, code: number, n: string) =>
+        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 상태 코드를 보지 않도록 정한 단계라 오류에서 제외됐습니다.`,
       hiddenUnknown: (step: string, code: number, n: string) =>
         `'${step}'에서 ${code} 응답 ${n}건이 있었지만 오류에 포함됐는지 확정할 수 없습니다.`,
       slow: (step: string, p95: string, thr: string) =>

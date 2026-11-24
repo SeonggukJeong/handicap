@@ -1,4 +1,4 @@
-import type { ReportSampleName, Report } from "../../api/schemas";
+import { reportStatusRule, type ReportSampleName, type Report } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { sampleName, sampleView } from "../../report/sampleView";
 import { HelpTip } from "../HelpTip";
@@ -18,7 +18,7 @@ export function SampleBar({
   pending,
   onSelect,
 }: {
-  report: Pick<Report, "windows" | "sample">;
+  report: Pick<Report, "windows" | "sample" | "run">;
   requested?: ReportSampleName;
   pending?: boolean;
   onSelect?: (s: ReportSampleName) => void;
@@ -79,7 +79,7 @@ export function SampleBar({
           ))}
           <span className="mt-1.5 block">
             {t.passedHelpLead}
-            {t.passedHelp}
+            {reportStatusRule(report) === 2 ? t.passedHelpRule2 : t.passedHelp}
           </span>
         </HelpTip>
         <span className="text-xs text-slate-500">{hint}</span>

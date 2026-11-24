@@ -441,6 +441,26 @@ describe("시나리오 내용", () => {
     });
   });
 
+  it("검사 줄이 any·목록으로 바뀌면 바뀜으로 설명된다", () => {
+    const yml = (assert: string) =>
+      `version: 1\nname: "n"\nsteps:\n  - id: "s1"\n    name: "a"\n    request:\n      method: GET\n      url: "https://x/s1"\n${assert}`;
+    const lineOf = (a: string, b: string) => {
+      const f = fair({ yaml: yml(a) }, { yaml: yml(b) });
+      return card(f, "scenario").line;
+    };
+    const one = "    assert:\n      - status: 200\n";
+    expect(lineOf(one, "    assert:\n      - status: [200, 409]\n")).toBe(
+      "1곳 다름: ①의 응답 코드 검사 바뀜",
+    );
+    expect(lineOf(one, "    assert:\n      - status: any\n")).toBe(
+      "1곳 다름: ①의 응답 코드 검사 바뀜",
+    );
+    expect(lineOf("", "    assert:\n      - status: any\n")).toBe(
+      "1곳 다름: ①에 응답 코드 검사 추가됨",
+    );
+    expect(lineOf(one, "")).toBe("1곳 다름: ①에서 응답 코드 검사 제거됨");
+  });
+
   it("단계 이름만, 시나리오 이름만 바뀌면 같다", () => {
     const f = fair(
       {},

@@ -35,6 +35,8 @@ export type SummaryInput = {
   criteria: Criteria | null | undefined;
   /** 요약의 응답 시간이 값을 가졌는가 — 없으면 응답 시간 문장을 내지 않는다. 기본 참. */
   latency?: boolean;
+  /** 상태 코드 규칙 번호 — 「제외됐습니다」 문장이 따른다. 없으면 규칙 1. */
+  statusRule?: 1 | 2;
 };
 
 const elapsed = (sec: number): string => formatDurationKo(Math.max(0, sec));
@@ -165,7 +167,10 @@ function hiddenLine(i: SummaryInput): string | null {
     return best;
   };
   const un = pick("uncounted");
-  if (un) return S.hiddenUncounted(un.row.name, un.code, fmtCount(un.count));
+  if (un) {
+    const text = i.statusRule === 2 ? S.hiddenUncountedRule2 : S.hiddenUncounted;
+    return text(un.row.name, un.code, fmtCount(un.count));
+  }
   const unk = pick("unknown");
   if (unk) return S.hiddenUnknown(unk.row.name, unk.code, fmtCount(unk.count));
   return null;

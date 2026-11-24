@@ -93,6 +93,33 @@ const mkReport = (n = 2, over: Partial<Report> = {}): Report => ({
 const build = (run: Run, report: Report, fallback: string | null = null): PrintDoc =>
   buildPrintDoc({ run, report, fallbackScenarioName: fallback, now: NOW });
 
+describe("buildPrintDoc 규칙 번호", () => {
+  const anyYaml = `version: 1\nname: n\nsteps:\n  - id: s0\n    name: 조회\n    request:\n      method: GET\n      url: https://api.example.com/a\n    assert:\n      - status: any\n  - id: s1\n    name: 목록\n    request:\n      method: GET\n      url: https://api.example.com/b\n`;
+  const rep = (rule: 1 | 2) => {
+    const r = mkReport(2, { scenario_yaml: anyYaml });
+    r.run = { ...r.run, ...(rule === 2 ? { status_rule: 2 } : {}) } as Report["run"];
+    r.steps = r.steps.map((s) => ({ ...s, status_counts: { "200": 5, "404": 7 } }));
+    return r;
+  };
+  it("규칙 2: any 스텝만 제외, 검사 없는 스텝의 4xx는 오류로 센다", () => {
+    const d = build(mkRun({ scenario_yaml: anyYaml }), rep(2));
+    const cls = (i: number) => d.table.rows[i].perCode.find((p) => p.code === 404)?.cls;
+    expect(cls(0)).toBe("uncounted");
+    expect(cls(1)).toBe("counted");
+    expect(d.callouts.uncounted).toContain("상태 코드를 보지 않도록 정한 단계");
+    expect(d.legend).toContain("오류에서 제외된 응답(상태 코드 안 봄)");
+    expect(d.statusRule).toBe(2);
+  });
+  it("규칙 1: 지금 글과 분류 그대로", () => {
+    const d = build(mkRun({ scenario_yaml: anyYaml }), rep(1));
+    const cls = (i: number) => d.table.rows[i].perCode.find((p) => p.code === 404)?.cls;
+    expect(cls(0)).toBe("uncounted");
+    expect(cls(1)).toBe("uncounted");
+    expect(d.callouts.uncounted).toContain("응답 코드 검사가 없어");
+    expect(d.statusRule).toBe(1);
+  });
+});
+
 describe("buildPrintDoc", () => {
   it("speed_bands 유무에 따라 speed·절 번호가 정해진다", () => {
     const withBands = mkReport(2, {
