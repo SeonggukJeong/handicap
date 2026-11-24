@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 export function Section({
   index,
@@ -11,6 +11,8 @@ export function Section({
   onToggle,
   hint,
   variant,
+  hintAlways,
+  hintTone,
   "aria-label": ariaLabel,
   children,
 }: {
@@ -24,15 +26,30 @@ export function Section({
   onToggle?: () => void;
   hint?: ReactNode;
   variant?: "card";
+  /** card 전용 — 열린 상태에서도 덧글을 보인다. */
+  hintAlways?: boolean;
+  /** card 전용 — 덧글 색. 주지 않으면 text-slate-400. */
+  hintTone?: "muted" | "warn";
   "aria-label"?: string;
   children?: ReactNode;
 }) {
+  const hintId = useId();
   if (variant === "card") {
+    const showHint = hintAlways ? hint != null : !open && hint != null;
+    const hintColor =
+      hintTone === "muted"
+        ? "text-slate-500"
+        : hintTone === "warn"
+          ? "text-amber-800"
+          : "text-slate-400";
+    // 덧글이 legend 안에서 열린 채 보이면 묶음 이름에 섞이므로 이름은 따로 고정하고 덧글은 설명으로 잇는다.
+    const groupLabel = ariaLabel ?? (hintAlways && typeof title === "string" ? title : undefined);
     // 에디터 카드 캐넌 — 구 Inspector InspectorSection과 1:1 (spec §4.2 리터럴 계약).
     // index/badge/help/divider는 카드 경로에서 무시(R2). 본문은 래퍼 없이 직접(fieldset flex gap이 간격 소유).
     return (
       <fieldset
-        aria-label={ariaLabel}
+        aria-label={hintAlways ? groupLabel : ariaLabel}
+        aria-describedby={hintAlways && showHint ? hintId : undefined}
         className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
       >
         <legend
@@ -50,7 +67,11 @@ export function Section({
               >
                 <span aria-hidden="true">{open ? "▾" : "▸"}</span> {title}
               </button>
-              {!open && hint != null && <span className="font-normal text-slate-400">{hint}</span>}
+              {showHint && (
+                <span id={hintAlways ? hintId : undefined} className={`font-normal ${hintColor}`}>
+                  {hint}
+                </span>
+              )}
             </>
           ) : (
             title

@@ -3,7 +3,6 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import type {
-  Assertion,
   CompareOp,
   Condition,
   Extract,
@@ -30,7 +29,8 @@ import {
 } from "../../scenario/model";
 import { classifyThink, formatThink } from "../../scenario/thinkTime";
 import { loopCountLabel } from "../../scenario/loopLabel";
-import { assertionLabel } from "../../scenario/assertLabel";
+import { assertHeadHint } from "../../scenario/statusMode";
+import { AssertEditor } from "./AssertEditor";
 import { useThinkTimePair } from "./useThinkTimePair";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
@@ -195,7 +195,7 @@ function HttpStepInspector({
   onToggleSection: (k: SectionKey) => void;
 }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
-  const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
+  const assertHead = assertHeadHint(step.assert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
   const moveStepToSection = useScenarioEditor((s) => s.moveStepToSection);
   const yamlError = useScenarioEditor((s) => s.yamlError);
@@ -412,11 +412,13 @@ function HttpStepInspector({
         variant="card"
         collapsible
         title={ko.editor.assertionsLegend}
-        hint={step.assert.length > 0 ? ko.editor.sectionCountHint(step.assert.length) : null}
+        hint={assertHead?.text ?? null}
+        hintTone={assertHead?.tone}
+        hintAlways
         open={sectionPrefs.assert}
         onToggle={() => onToggleSection("assert")}
       >
-        <AssertEditor step={step} setStepAssert={setStepAssert} />
+        <AssertEditor step={step} />
       </Section>
       <Section
         variant="card"
@@ -618,70 +620,6 @@ function RawBodyField({ step }: { step: HttpStep }) {
       onChange={(e) => setStepField(step.id, ["request", "body"], { raw: e.target.value })}
       spellCheck={false}
     />
-  );
-}
-
-function AssertEditor({
-  step,
-  setStepAssert,
-}: {
-  step: HttpStep;
-  setStepAssert: (id: string, asserts: ReadonlyArray<Assertion>) => void;
-}) {
-  const [newCode, setNewCode] = useState("");
-  return (
-    <div className="flex flex-col gap-2 min-w-0">
-      <ul className="flex flex-col gap-1">
-        {step.assert.map((a, idx) => (
-          <li key={`${assertionLabel(a)}-${idx}`} className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-slate-600">{assertionLabel(a)}</span>
-            <button
-              type="button"
-              aria-label={ko.editor.removeAssertion(idx)}
-              className="text-slate-500 hover:text-red-600"
-              onClick={() => {
-                setStepAssert(
-                  step.id,
-                  step.assert.filter((_, i) => i !== idx),
-                );
-              }}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-        {step.assert.length === 0 && (
-          <li className="text-xs text-slate-400 italic">{ko.editor.noAssertions}</li>
-        )}
-      </ul>
-      <div className="flex gap-2">
-        <div className="w-24">
-          <Input
-            numeric
-            size="sm"
-            type="number"
-            placeholder="200"
-            min={100}
-            max={599}
-            value={newCode}
-            onChange={(e) => setNewCode(e.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
-          disabled={!newCode}
-          onClick={() => {
-            const code = Number(newCode);
-            if (!Number.isFinite(code) || code < 100 || code > 599) return;
-            setStepAssert(step.id, [...step.assert, { kind: "status", codes: [code] }]);
-            setNewCode("");
-          }}
-        >
-          {ko.common.add}
-        </button>
-      </div>
-    </div>
   );
 }
 

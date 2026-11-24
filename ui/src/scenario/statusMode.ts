@@ -1,3 +1,4 @@
+import { ko } from "../i18n/ko";
 import type { Assertion } from "./model";
 
 /** 에디터가 다루는 시나리오의 판정 규칙 번호(서버 `STATUS_RULE_CURRENT`와 같은 값). */
@@ -24,9 +25,7 @@ export function statusMode(asserts: ReadonlyArray<Assertion>): StatusMode {
   if (asserts.length === 0) return { kind: "default" };
   if (asserts.length === 1) {
     const only = asserts[0];
-    return only.kind === "status"
-      ? { kind: "codes", codes: dedupe(only.codes) }
-      : { kind: "any" };
+    return only.kind === "status" ? { kind: "codes", codes: dedupe(only.codes) } : { kind: "any" };
   }
   return { kind: "multi", lines: [...asserts] };
 }
@@ -49,4 +48,21 @@ export function passingCodes(asserts: ReadonlyArray<Assertion>): number[] | "any
   if (lines.length === 0) return "any";
   const [first, ...rest] = lines;
   return dedupe(first.codes).filter((c) => rest.every((l) => l.codes.includes(c)));
+}
+
+/** 「응답 검증」 구획 머리 덧글. 기본(검사 없음)은 덧글이 없다. */
+export function assertHeadHint(
+  asserts: ReadonlyArray<Assertion>,
+): { text: string; tone: "muted" | "warn" } | null {
+  const m = statusMode(asserts);
+  switch (m.kind) {
+    case "default":
+      return null;
+    case "codes":
+      return { text: ko.editor.assertHeadCodes(m.codes), tone: "muted" };
+    case "any":
+      return { text: ko.editor.assertHeadAny, tone: "warn" };
+    case "multi":
+      return { text: ko.editor.assertHeadMulti, tone: "warn" };
+  }
 }

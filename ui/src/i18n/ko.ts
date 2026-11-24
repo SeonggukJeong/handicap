@@ -644,6 +644,35 @@ export const ko = {
     parallelPanelTitle: "동시 실행(parallel)",
     assertionsLegend: "응답 검증",
     assertStatusAny: "보지 않음",
+    assertStatusLabel: "상태 코드",
+    assertModeAria: "상태 코드 검사 방식",
+    assertModeDefault: "400 이상은 오류",
+    assertModeCodes: "적은 코드만 통과",
+    assertModeAny: "보지 않음",
+    assertHintDefault:
+      "따로 적지 않아도 400 이상(4xx·5xx) 응답은 오류로 셉니다. 399까지는 통과입니다.",
+    assertHintCodes: "적은 코드 가운데 하나를 받으면 통과입니다. 그 밖의 코드는 오류로 셉니다.",
+    assertHintAny:
+      "이 스텝은 어떤 상태 코드를 받아도 오류로 세지 않습니다. 4xx·5xx를 받으면 리포트가 따로 알려 줍니다.",
+    assertCodePlaceholder: "예: 201",
+    assertRemoveCode: (n: number) => `${n} 빼기`,
+    assertHeadCodes: (codes: ReadonlyArray<number>) =>
+      codes.length <= 2
+        ? `${codes.join(", ")}만 통과`
+        : `${codes[0]}, ${codes[1]} 외 ${codes.length - 2}개만 통과`,
+    assertHeadAny: "상태 코드를 보지 않음",
+    assertHeadMulti: "확인 필요",
+    assertMultiFails: (k: number, labels: string) =>
+      `상태 코드 검사가 ${k}줄입니다(${labels}). 줄을 모두 만족해야 통과라서 이 스텝은 항상 실패합니다.`,
+    assertMultiPassing: (k: number, labels: string, codes: ReadonlyArray<number>) =>
+      `상태 코드 검사가 ${k}줄입니다(${labels}). 지금은 ${codes.join(", ")}만 통과합니다.`,
+    assertMultiAny: (k: number, labels: string) =>
+      `상태 코드 검사가 ${k}줄입니다(${labels}). 지금은 상태 코드를 보지 않습니다.`,
+    assertMergeCodes: (codes: ReadonlyArray<number>) =>
+      codes.length === 1
+        ? `「${codes[0]}만 통과」로 합치기`
+        : `「${codes.join(", ")} 가운데 하나면 통과」로 합치기`,
+    assertMergeAny: "「보지 않음」 한 줄로 합치기",
     extractsLegend: "값 추출",
     extractsHint: "응답에서 값을 꺼내 다음 스텝에서 {{이름}}으로 사용합니다.",
     // ── URL 필수 표시 (§5.2) ──
@@ -971,7 +1000,6 @@ export const ko = {
     branchesLabel: "분기",
     conditionLegend: "조건",
     // ── Inspector 빈 상태 ──
-    noAssertions: "검증 없음",
     noExtracts: "추출 없음",
     noSteps: "스텝 없음",
     noExtraField: "추가 필드 없음",
@@ -1056,7 +1084,6 @@ export const ko = {
     addStepToLoopBody: "반복 본문에 스텝 추가",
     addIfToLoopBody: "반복 본문에 조건 추가",
     removeBranch: (n: number) => `분기 ${n} 제거`,
-    removeAssertion: (n: number) => `검증 ${n} 제거`,
     removeExtract: (n: number) => `추출 ${n} 제거`,
     removeElif: (n: number) => `Elif ${n} 제거`,
     testRunTitle: "시나리오 미리 테스트",

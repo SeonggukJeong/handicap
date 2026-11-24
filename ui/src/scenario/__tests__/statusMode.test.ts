@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Assertion } from "../model";
 import {
+  assertHeadHint,
   EDITOR_STATUS_RULE,
   mergeStatusLines,
   passingCodes,
@@ -57,5 +58,26 @@ describe("passingCodes", () => {
     expect(passingCodes([one(409, 200), one(200, 409, 500)])).toEqual([409, 200]);
     expect(passingCodes([any, any])).toBe("any");
     expect(passingCodes([any, one(200)])).toEqual([200]);
+  });
+});
+
+describe("assertHeadHint — 응답 검증 구획 머리 덧글", () => {
+  it("기본은 덧글 없음", () => {
+    expect(assertHeadHint([])).toBeNull();
+  });
+  it("코드는 muted, 둘 이하는 모두 적는다", () => {
+    expect(assertHeadHint([one(200)])).toEqual({ text: "200만 통과", tone: "muted" });
+    expect(assertHeadHint([one(200, 409)])).toEqual({ text: "200, 409만 통과", tone: "muted" });
+  });
+  it("셋 이상은 앞 둘 외 N개", () => {
+    const codes = Array.from({ length: 12 }, (_, i) => 200 + i);
+    expect(assertHeadHint([one(...codes)])).toEqual({
+      text: "200, 201 외 10개만 통과",
+      tone: "muted",
+    });
+  });
+  it("보지 않음·여러 줄은 warn", () => {
+    expect(assertHeadHint([any])).toEqual({ text: "상태 코드를 보지 않음", tone: "warn" });
+    expect(assertHeadHint([one(200), one(201)])).toEqual({ text: "확인 필요", tone: "warn" });
   });
 });

@@ -27,6 +27,7 @@ export function Segmented<T extends string>({
   ariaLabel,
   className = "",
   busy,
+  size = "md",
 }: {
   value: T;
   onChange: (v: T) => void;
@@ -34,6 +35,7 @@ export function Segmented<T extends string>({
   ariaLabel: string;
   className?: string;
   busy?: boolean;
+  size?: "md" | "sm";
 }) {
   const baseId = useId();
   const buttons = useRef(new Map<T, HTMLButtonElement>());
@@ -179,7 +181,11 @@ export function Segmented<T extends string>({
                     }
                   : undefined
               }
-              className={`rounded-md px-3.5 py-1 text-sm font-semibold transition-colors ${
+              className={`rounded-md font-semibold transition-colors ${
+                size === "sm"
+                  ? "min-w-0 flex-1 px-1.5 py-1 text-xs leading-tight [word-break:keep-all]"
+                  : "px-3.5 py-1 text-sm"
+              } ${
                 active
                   ? "bg-accent-600 text-white shadow-sm"
                   : o.disabled

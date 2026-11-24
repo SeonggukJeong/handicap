@@ -1766,47 +1766,53 @@ describe("Inspector — U3 VarCheatSheet in Request fieldset", () => {
   });
 });
 
-describe("Inspector — 검사 줄 임시 모양 (라벨 + ×)", () => {
+describe("Inspector — 응답 검증 구획", () => {
   beforeEach(() => {
     window.localStorage.clear();
     loadAndSelect();
   });
 
-  it("줄은 코드 글자와 × 단추로 보이고, ×가 그 줄을 지운다", async () => {
+  it("200 한 줄 스텝은 「적은 코드만 통과」 + 칩 「200」, 빼면 기본 방식", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
-    const section = screen.getByRole("group", { name: ko.editor.assertionsLegend });
+    await user.click(screen.getByRole("button", { name: "응답 검증" }));
+    const section = screen.getByRole("group", { name: "응답 검증" });
+    expect(within(section).getByRole("radio", { name: "적은 코드만 통과" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     expect(within(section).getByText("200")).toBeInTheDocument();
-    await user.click(within(section).getByRole("button", { name: ko.editor.removeAssertion(0) }));
-    expect(within(section).getByText(ko.editor.noAssertions)).toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: "200 빼기" }));
+    expect(within(section).getByRole("radio", { name: "400 이상은 오류" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 
-  it("추가 칸에 201을 넣고 추가하면 codes:[201] 줄이 하나 더 생긴다", async () => {
+  it("추가 칸에 201을 넣고 추가하면 한 줄의 codes에 들어간다", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
-    const section = screen.getByRole("group", { name: ko.editor.assertionsLegend });
-    await user.type(within(section).getByPlaceholderText("200"), "201");
-    await user.click(within(section).getByRole("button", { name: ko.common.add }));
+    await user.click(screen.getByRole("button", { name: "응답 검증" }));
+    const section = screen.getByRole("group", { name: "응답 검증" });
+    await user.type(within(section).getByPlaceholderText("예: 201"), "201");
+    await user.click(within(section).getByRole("button", { name: "추가" }));
     const step = useScenarioEditor.getState().model!.steps[0];
     if (step.type !== "http") throw new Error("expected http");
-    expect(step.assert).toEqual([
-      { kind: "status", codes: [200] },
-      { kind: "status", codes: [201] },
-    ]);
-    expect(within(section).getByText("201")).toBeInTheDocument();
+    expect(step.assert).toEqual([{ kind: "status", codes: [200, 201] }]);
   });
 
-  it("any 줄은 「보지 않음」으로 보인다", async () => {
+  it("any 줄은 「보지 않음」이 선택돼 보인다", async () => {
     const user = userEvent.setup();
     useScenarioEditor
       .getState()
       .loadFromString(VALID_YAML.replace("- status: 200", "- status: any"));
     useScenarioEditor.getState().select("01HX0000000000000000000001");
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
-    expect(screen.getByText(ko.editor.assertStatusAny)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "응답 검증" }));
+    expect(screen.getByRole("radio", { name: "보지 않음" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 });
 
@@ -1889,14 +1895,14 @@ describe("Inspector — assert 추가 칸 밀도", () => {
     loadAndSelect();
   });
 
-  it("추가 칸은 text-xs 밀도를 쓴다(줄에는 숫자 칸이 없다)", async () => {
+  it("추가 칸은 text-xs 밀도를 쓴다", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
-    const assertSection = screen.getByRole("group", { name: ko.editor.assertionsLegend });
+    await user.click(screen.getByRole("button", { name: "응답 검증" }));
+    const assertSection = screen.getByRole("group", { name: "응답 검증" });
     const inputs = within(assertSection).getAllByRole("spinbutton") as HTMLInputElement[];
     expect(inputs).toHaveLength(1);
-    expect(inputs[0].placeholder).toBe("200");
+    expect(inputs[0].placeholder).toBe("예: 201");
     expect(inputs[0]).toHaveClass("text-xs");
     expect(inputs[0]).not.toHaveClass("text-sm");
   });

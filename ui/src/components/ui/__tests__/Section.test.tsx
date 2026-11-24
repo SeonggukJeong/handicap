@@ -136,3 +136,39 @@ describe("Section — card variant (R2·R3) + 접힘 hint accname 픽스 (R4)", 
     expect(screen.getByRole("group", { name: "환경 구역" })).toHaveClass("min-w-0");
   });
 });
+
+describe("Section — card hintAlways·hintTone", () => {
+  const card = (props: Record<string, unknown>) =>
+    render(
+      <Section variant="card" collapsible open title="응답 검증" hint="200만 통과" {...props}>
+        <span>본문</span>
+      </Section>,
+    );
+  it("hintAlways면 열린 상태에서도 덧글이 보이고, 묶음 이름은 제목뿐이며 describedby가 덧글을 가리킨다", () => {
+    card({ hintAlways: true });
+    const hint = screen.getByText("200만 통과");
+    const group = screen.getByRole("group", { name: "응답 검증" });
+    expect(group.getAttribute("aria-describedby")).toBe(hint.id);
+    expect(hint.id).not.toBe("");
+    expect(screen.getByRole("button", { name: "응답 검증" })).toBeInTheDocument();
+  });
+  it("hintAlways 없으면 열린 상태에선 덧글이 없고 aria-describedby도 없다", () => {
+    card({});
+    expect(screen.queryByText("200만 통과")).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "응답 검증" })).not.toHaveAttribute(
+      "aria-describedby",
+    );
+  });
+  it("hintTone 색", () => {
+    const { unmount } = card({ hintAlways: true, hintTone: "muted" });
+    expect(screen.getByText("200만 통과")).toHaveClass("text-slate-500");
+    unmount();
+    const r = card({ hintAlways: true, hintTone: "warn" });
+    expect(screen.getByText("200만 통과")).toHaveClass("text-amber-800");
+    r.unmount();
+  });
+  it("tone 없으면 지금 색, 닫힌 덧글도 같다", () => {
+    card({ open: false });
+    expect(screen.getByText("200만 통과")).toHaveClass("text-slate-400");
+  });
+});

@@ -308,3 +308,22 @@ describe("Segmented — 초점 이동과 설명 툴팁", () => {
     expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
   });
 });
+
+describe("Segmented — size", () => {
+  const tokens = (el: HTMLElement) => el.className.split(/\s+/);
+  it("sm은 좁은 칸용 줄바꿈 토큰을 쓴다", () => {
+    render(<Segmented value="simple" onChange={() => {}} options={opts} ariaLabel="m" size="sm" />);
+    const t = tokens(screen.getByRole("radio", { name: "간단" }));
+    expect(t).toContain("text-xs");
+    expect(t).toContain("flex-1");
+    expect(t).toContain("[word-break:keep-all]");
+    expect(t).not.toContain("whitespace-nowrap");
+  });
+  it("size 없음은 지금 토큰 그대로", () => {
+    render(<Segmented value="simple" onChange={() => {}} options={opts} ariaLabel="m" />);
+    const t = tokens(screen.getByRole("radio", { name: "간단" }));
+    expect(t).toContain("px-3.5");
+    expect(t).toContain("text-sm");
+    expect(t).not.toContain("flex-1");
+  });
+});

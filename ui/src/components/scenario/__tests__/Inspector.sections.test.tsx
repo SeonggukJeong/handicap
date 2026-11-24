@@ -83,7 +83,7 @@ describe("InspectorSection — 접이식 섹션 (R1/R2/R3)", () => {
     expect(hintOf(ko.editor.headersLabel)).toContain(ko.editor.sectionCountHint(2)); // active 1 + disabled 1
     expect(hintOf(ko.editor.bodyLabel)).toContain(ko.editor.bodyJson);
     expect(hintOf(ko.editor.sectionTiming)).toContain(ko.editor.sectionSetHint);
-    expect(hintOf(ko.editor.assertionsLegend)).toContain(ko.editor.sectionCountHint(1));
+    expect(hintOf(ko.editor.assertionsLegend)).toContain("200만 통과");
     expect(hintOf(ko.editor.extractsLegend)).toContain(ko.editor.sectionCountHint(1));
   });
 
@@ -155,5 +155,20 @@ describe("Inspector 카드 fieldset — Section variant=card 통합 락 (디자�
     const fieldset = btn.closest("fieldset")!;
     expect(fieldset).not.toHaveClass("mb-4");
     expect(fieldset.querySelector(":scope > div.mt-2")).toBeNull();
+  });
+});
+
+describe("응답 검증 구획 — 열린 상태의 머리 덧글", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadRich();
+  });
+  it("열려도 덧글이 보이고 이름은 「응답 검증」뿐이다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: "응답 검증" }));
+    expect(screen.getByText("200만 통과")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "응답 검증" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "응답 검증" })).toBeInTheDocument();
   });
 });
