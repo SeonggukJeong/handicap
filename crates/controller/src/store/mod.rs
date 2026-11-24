@@ -98,7 +98,28 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_scenarios_group_name(&pool).await?; // migration 0026 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0027).execute(&pool).await?; // migration 0027: run_section_metrics
     ensure_run_metrics_failed_hdr(&pool).await?; // migration 0028 (Rust-guarded; see fn)
+    ensure_runs_status_rule(&pool).await?; // migration 0029 (Rust-guarded; see fn)
     Ok(pool)
+}
+
+/// migration 0029: runs.status_rule (NOT NULL DEFAULT 1). 그 run이 어떤 상태 코드 규칙으로
+/// 오류를 셌는지(1 = 옛 규칙, 2 = 검사 없는 스텝의 400 이상도 오류). 옛 행은 1.
+/// ADD COLUMN은 SQLite에서 멱등이 아니므로 pragma로 가드.
+async fn ensure_runs_status_rule(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'status_rule'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query(&format!(
+            "ALTER TABLE runs ADD COLUMN status_rule INTEGER NOT NULL DEFAULT {}",
+            runs::STATUS_RULE_LEGACY
+        ))
+        .execute(db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// migration 0028: run_metrics.failed_hdr_histogram (nullable BLOB). 창마다 실패한 요청만의

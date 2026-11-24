@@ -171,6 +171,13 @@ pub struct ReportRun {
     pub created_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// 이 run이 오류를 센 상태 코드 규칙 번호(1 = 옛 규칙, 2 = 현재). 늘 싣는다.
+    #[serde(default = "status_rule_legacy")]
+    pub status_rule: u8,
+}
+
+fn status_rule_legacy() -> u8 {
+    crate::store::runs::STATUS_RULE_LEGACY
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1523,6 +1530,7 @@ pub fn build_report(
             ended_at: run.ended_at,
             created_at: run.created_at,
             label: run.label.clone(),
+            status_rule: run.status_rule,
         },
         scenario_yaml: scenario_yaml.to_string(),
         summary: shown_summary.unwrap_or(summary),
@@ -1611,6 +1619,7 @@ mod tests {
             verdict: None,
             label: None,
             auto_stop: None,
+            status_rule: crate::store::runs::STATUS_RULE_LEGACY,
         }
     }
 
@@ -5710,6 +5719,44 @@ steps:
     }
 
     #[test]
+    fn report_run_status_rule_default() {
+        let json = r#"{"id":"r","scenario_id":"s","status":"completed","profile":null,"env":null,"started_at":null,"ended_at":null,"created_at":0}"#;
+        let rr: ReportRun = serde_json::from_str(json).unwrap();
+        assert_eq!(rr.status_rule, crate::store::runs::STATUS_RULE_LEGACY);
+    }
+
+    #[test]
+    fn report_json_always_has_status_rule() {
+        let mut run = run_row();
+        run.status_rule = crate::store::runs::STATUS_RULE_CURRENT;
+        let rep = build_report(
+            &run,
+            "",
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &crate::stair::StairInputs::default(),
+            &[],
+            None,
+            None,
+            None,
+        );
+        let v = serde_json::to_value(&rep).unwrap();
+        let obj = v["run"].as_object().unwrap();
+        assert!(
+            obj.contains_key("status_rule"),
+            "키가 빠지면 새 run이 옛 규칙으로 읽힌다"
+        );
+        assert_eq!(obj["status_rule"], 2);
+    }
+
+    #[test]
     fn report_run_label_serialization_two_states() {
         let mut rr = ReportRun {
             id: "r".into(),
@@ -5721,6 +5768,7 @@ steps:
             ended_at: None,
             created_at: 0,
             label: None,
+            status_rule: crate::store::runs::STATUS_RULE_LEGACY,
         };
         let v = serde_json::to_value(&rr).unwrap();
         assert!(

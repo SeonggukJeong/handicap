@@ -262,6 +262,11 @@ impl Profile {
     }
 }
 
+/// 옛 규칙: 검사 없는 스텝은 transport 실패만 오류로 센다. migration 0029 이전 행의 값.
+pub const STATUS_RULE_LEGACY: u8 = 1;
+/// 현재 규칙: 검사 없는 http 스텝의 400 이상도 오류로 센다. 새 run은 이 값으로 저장된다.
+pub const STATUS_RULE_CURRENT: u8 = 2;
+
 pub struct RunRow {
     pub id: String,
     pub scenario_id: String,
@@ -284,6 +289,8 @@ pub struct RunRow {
     /// `completed`와 한 UPDATE로 쓰고, API(`to_response`·`build_report_for_run`)도 completed가 아니면 싣지 않는다(이중 가드).
     /// 손상 JSON도 None.
     pub auto_stop: Option<crate::auto_stop::AutoStopRecord>,
+    /// 오류를 센 상태 코드 규칙 번호(`STATUS_RULE_*`). 옛 행 = 1.
+    pub status_rule: u8,
 }
 
 pub async fn insert(
@@ -299,8 +306,8 @@ pub async fn insert(
     let profile_json = serde_json::to_string(profile).expect("serialize profile");
     let env_json = serde_json::to_string(env).expect("serialize env");
     sqlx::query(
-        "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at,label) \
-         VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at,label,status_rule) \
+         VALUES(?,?,?,?,?,?,?,?,?)",
     )
     .bind(&id)
     .bind(scenario_id)
@@ -310,6 +317,7 @@ pub async fn insert(
     .bind(RunStatus::Pending.as_str())
     .bind(now)
     .bind(label)
+    .bind(STATUS_RULE_CURRENT as i64)
     .execute(db)
     .await?;
     Ok(RunRow {
@@ -327,6 +335,7 @@ pub async fn insert(
         verdict: None,
         label: label.map(str::to_string),
         auto_stop: None,
+        status_rule: STATUS_RULE_CURRENT,
     })
 }
 
@@ -336,7 +345,7 @@ fn parse_auto_stop(raw: Option<String>) -> Option<crate::auto_stop::AutoStopReco
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json,status_rule \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -366,12 +375,13 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
             .and_then(|s| serde_json::from_str(&s).ok()),
         label: r.get("label"),
         auto_stop: parse_auto_stop(r.get("auto_stop_json")),
+        status_rule: r.get::<i64, _>("status_rule") as u8,
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label,auto_stop_json,status_rule \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -402,6 +412,7 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
                 .and_then(|s| serde_json::from_str(&s).ok()),
             label: r.get("label"),
             auto_stop: parse_auto_stop(r.get("auto_stop_json")),
+            status_rule: r.get::<i64, _>("status_rule") as u8,
         });
     }
     Ok(out)
@@ -1459,5 +1470,80 @@ mod tests {
         assert!(get(&db, &id).await.unwrap().unwrap().auto_stop.is_none());
         let listed = list_by_scenario(&db, &got.scenario_id).await.unwrap();
         assert!(listed[0].auto_stop.is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_writes_current_rule() {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+        let db = test_db().await;
+        let yaml = "version: 1\nname: rule-sc\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+        let run = insert(
+            &db,
+            &sc.id,
+            yaml,
+            &profile_fixture(|_| {}),
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(run.status_rule, STATUS_RULE_CURRENT);
+        assert_eq!(STATUS_RULE_CURRENT, 2);
+        let got = get(&db, &run.id).await.unwrap().unwrap();
+        assert_eq!(got.status_rule, 2);
+        let listed = list_by_scenario(&db, &sc.id).await.unwrap();
+        assert_eq!(listed[0].status_rule, 2);
+    }
+
+    #[tokio::test]
+    async fn migration_0029_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", dir.path().join("a.db").display());
+        let db = store::connect(&url).await.unwrap();
+        db.close().await;
+        let db = store::connect(&url).await.expect("second connect");
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'status_rule'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_row_reads_status_rule_1() {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", dir.path().join("b.db").display());
+        let db = store::connect(&url).await.unwrap();
+        let yaml = "version: 1\nname: legacy\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+        // 칸이 생기기 전의 옛 스키마를 흉내낸다: 칸을 지우고 옛 모양으로 행을 넣는다.
+        sqlx::query("ALTER TABLE runs DROP COLUMN status_rule")
+            .execute(&db)
+            .await
+            .unwrap();
+        let pj = serde_json::to_string(&profile_fixture(|_| {})).unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES('OLD1',?,?,?,'{}','completed',1)",
+        )
+        .bind(&sc.id)
+        .bind(yaml)
+        .bind(&pj)
+        .execute(&db)
+        .await
+        .unwrap();
+        db.close().await;
+        let db = store::connect(&url).await.unwrap();
+        let got = get(&db, "OLD1").await.unwrap().unwrap();
+        assert_eq!(got.status_rule, STATUS_RULE_LEGACY);
+        assert_eq!(got.status_rule, 1);
     }
 }

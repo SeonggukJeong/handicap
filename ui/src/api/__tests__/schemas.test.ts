@@ -9,6 +9,7 @@ import {
   ReportRunSchema,
   ReportSchema,
   ReportSummarySchema,
+  reportStatusRule,
   RunSchema,
   ScheduleEventSchema,
   StageSchema,
@@ -208,6 +209,30 @@ describe("ReportRunSchema.label", () => {
   it("accepts a present label field (labeled run)", () => {
     const parsed = ReportRunSchema.parse({ ...base, label: "커넥션 풀 2배 후" });
     expect(parsed.label).toBe("커넥션 풀 2배 후");
+  });
+});
+
+describe("ReportRunSchema.status_rule", () => {
+  const base = {
+    id: "R1",
+    scenario_id: "S1",
+    status: "completed",
+    profile: { vus: 1 },
+    env: {},
+    started_at: 100,
+    ended_at: 102,
+    created_at: 99,
+  };
+  it("accepts the server shape with status_rule 2 under .strict()", () => {
+    expect(ReportRunSchema.parse({ ...base, status_rule: 2 }).status_rule).toBe(2);
+  });
+  it("rejects an unknown rule number", () => {
+    expect(ReportRunSchema.safeParse({ ...base, status_rule: 3 }).success).toBe(false);
+  });
+  it("reportStatusRule: absent -> 1, 1 -> 1, 2 -> 2", () => {
+    expect(reportStatusRule({ run: ReportRunSchema.parse(base) })).toBe(1);
+    expect(reportStatusRule({ run: ReportRunSchema.parse({ ...base, status_rule: 1 }) })).toBe(1);
+    expect(reportStatusRule({ run: ReportRunSchema.parse({ ...base, status_rule: 2 }) })).toBe(2);
   });
 });
 

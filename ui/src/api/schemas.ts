@@ -680,6 +680,9 @@ export const ReportRunSchema = z
     // omitted (not null) when unlabeled, so .optional() (not .nullish() —
     // asymmetric with RunSchema.label above, see shared-constraints Zod 2종 분기).
     label: z.string().optional(),
+    // 오류를 센 상태 코드 규칙 번호(1 = 옛 규칙, 2 = 현재). 서버는 늘 싣지만 옛 내보내기
+    // JSON·픽스처엔 없으므로 .optional() — 없으면 옛 규칙(reportStatusRule). .default() 금지.
+    status_rule: z.union([z.literal(1), z.literal(2)]).optional(),
   })
   .strict();
 
@@ -894,6 +897,10 @@ export function reportSample(report: Pick<Report, "sample">): {
   split: boolean;
 } {
   return report.sample ?? { selected: "all", default: "all", split: false };
+}
+/** `status_rule`이 없는 옛 리포트는 옛 규칙(1)으로 읽는다. */
+export function reportStatusRule(report: Pick<Report, "run">): 1 | 2 {
+  return report.run.status_rule ?? 1;
 }
 export type LatencyDistribution = z.infer<typeof LatencyDistributionSchema>;
 export type HistogramBucket = z.infer<typeof HistogramBucketSchema>;

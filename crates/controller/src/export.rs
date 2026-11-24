@@ -1580,6 +1580,7 @@ mod tests {
                 ended_at: Some(1000),
                 created_at: 0,
                 label: None,
+                status_rule: crate::store::runs::STATUS_RULE_LEGACY,
             },
             scenario_yaml: String::new(),
             summary: ReportSummary {
