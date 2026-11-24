@@ -58,7 +58,10 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
         </tbody>
       </table>
       {verdict.criteria.some((c) => c.capped) && (
-        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+        <p
+          role="note"
+          className="mt-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800"
+        >
           {ko.report.verdictCappedNote}
         </p>
       )}

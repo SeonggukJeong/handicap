@@ -3549,6 +3549,27 @@ steps:
     }
 
     #[test]
+    fn rule2_capped_with_threshold_above_cap_still_fails() {
+        let h = hist_of(&[1_000, 2_000, 60_000_000]);
+        let steps = vec![rstep("A", 3, 0, 0, &[("200", 3)])];
+        let hs: BTreeMap<String, Histogram<u64>> = [("A".to_string(), h.clone())].into();
+        let c = Criteria {
+            max_max_ms: Some(70_000.0),
+            step_criteria: vec![step_crit("p95_ms", "max", 70_000.0, "A")],
+            ..Default::default()
+        };
+        let v = judge2(&c, &summary(3, 0, 3.0, 0, 0), &steps, Some(&h), &hs);
+        let max = row(&v, "max_ms", None);
+        assert!(max.capped && !max.passed);
+        let st = v
+            .criteria
+            .iter()
+            .find(|r| r.target.as_deref() == Some("A"))
+            .unwrap();
+        assert!(st.capped && !st.passed);
+    }
+
+    #[test]
     fn rule2_no_usable_hist() {
         let c = Criteria {
             max_p95_ms: Some(3000),

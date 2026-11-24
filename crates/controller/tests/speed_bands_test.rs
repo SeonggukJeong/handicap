@@ -336,6 +336,16 @@ fn rule2_counts_by_us() {
 }
 
 #[test]
+fn rule2_cap_bucket_counts_as_over_even_above_cap() {
+    // 60초 칸(HDR 버킷 상단 60_030_975µs)에 든 표본은 임계가 60_031ms 이상이어도 초과로 센다.
+    let mut h = hist();
+    h.record(60_000_000).unwrap();
+    h.record(1_000).unwrap();
+    let r = count_bands_us(&h, 70_000_000, "p95", true);
+    assert_eq!((r.fast, r.within, r.over), (Some(1), 0, 1));
+}
+
+#[test]
 fn rule2_step_fraction() {
     let c = crit(|c| c.step_criteria = vec![sc("p95_ms", "max", 43.5, "s1")]);
     assert_eq!(step_boundary_us(Some(&c), "s1"), Some((43_500, "p95")));

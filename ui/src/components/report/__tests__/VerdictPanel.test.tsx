@@ -48,6 +48,7 @@ describe("VerdictPanel", () => {
     expect(screen.getByText("≥ 1,842.613 ms")).toBeInTheDocument();
     expect(screen.getByText("≥ 60,000 ms")).toBeInTheDocument();
     expect(screen.getByText(/60초를 넘긴 응답이 있습니다/)).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(/60초를 넘긴 응답이 있습니다/);
   });
 
   it("renders PASS with the metric label", () => {

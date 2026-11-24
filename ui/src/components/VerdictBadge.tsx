@@ -20,7 +20,7 @@ export function VerdictBadge({ verdict }: { verdict?: Verdict | null }) {
 }
 
 /** FAIL 사유 popover (§7.5) — hover title 대신 클릭 토글(터치·키보드 접근성).
- *  값 포맷은 VerdictPanel과 공유하는 fmt/METRIC_LABEL — 같은 run의 표/배지 단일 소스. */
+ *  값 포맷은 VerdictPanel과 공유하는 fmt/metricLabel — 같은 run의 표/배지 단일 소스. */
 function FailBadge({ verdict }: { verdict: Verdict }) {
   const { open, alignRight, rootRef, toggle } = usePopover(POPOVER_WIDTH_PX);
   const id = useId();

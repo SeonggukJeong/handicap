@@ -11,6 +11,7 @@ import { formatDurationKo, formatLatencyKo, formatSecondsKo } from "../../i18n/d
 import { noLatencyWord } from "../../report/sampleView";
 import { floorPct } from "./format";
 import { fixedTarget } from "../run/loadModel";
+import { criteriaHasAny } from "../../print/verdict";
 
 type Props = {
   summary: ReportSummary;
@@ -79,6 +80,8 @@ export function ReportHeadline({
     <section aria-label={ko.report.headlineAria} className="mb-6">
       {verdict ? (
         <VerdictCallout verdict={verdict} validity={validity} />
+      ) : criteriaHasAny(profile.criteria) ? (
+        <p className="mb-1 text-sm text-slate-500">{ko.report.headlineNotJudged}</p>
       ) : (
         <p className="mb-1 text-sm text-slate-500">{ko.report.sloHint}</p>
       )}

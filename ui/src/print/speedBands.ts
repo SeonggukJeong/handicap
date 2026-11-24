@@ -51,12 +51,12 @@ export const ALLOWED: Record<"p95" | "p99" | "p50", number> = { p95: 0.05, p99: 
 type Basis = SpeedBands["overall"]["basis"];
 type BandRow = SpeedBands["overall"];
 
-/** 판정용 — 컨트롤러 `exceeds_allowance`와 같은 정수식. */
 /** 경계(ms): 규칙 2 run은 `slow_us`(µs)를 ms로, 규칙 1 run은 `slow_ms`. */
 export function boundaryMs(row: { slow_ms: number; slow_us?: number }): number {
   return row.slow_us != null ? row.slow_us / 1000 : row.slow_ms;
 }
 
+/** 판정용 — 컨트롤러 `exceeds_allowance`와 같은 정수식. */
 export function exceedsAllowance(basis: Basis, over: number, total: number): boolean {
   switch (basis) {
     case "p95":

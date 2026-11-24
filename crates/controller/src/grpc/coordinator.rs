@@ -2716,7 +2716,7 @@ mod tests {
         );
     }
 
-    /// criteria가 있는 run을 seed(메트릭 없음 → p95=0 <= 큰 임계 → verdict passed=true).
+    /// criteria가 있는 run을 seed(메트릭 없음 → 오류율 0 <= 1.0 → verdict passed=true).
     /// 요청 0건이어도 결과 행이 생기는 기준(오류율). 새 run은 응답 시간 판정 규칙 2라
     /// 요청이 없으면 시간 기준 행을 만들지 않는다(R10) — 시간 기준만 두면 판정 자체가 없다.
     async fn seed_run_with_criteria(db: &Db) -> String {
@@ -2791,6 +2791,35 @@ mod tests {
         let v = row.verdict.expect("verdict persisted at finalize");
         assert!(v.passed, "no metrics → error_rate 0 <= 1.0 → passed");
         assert_eq!(v.criteria.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn finalize_completed_time_only_criteria_zero_requests_leaves_verdict_null() {
+        // R10: 규칙 2 run(새 run)에서 요청 0건 + 시간 기준만 → 판정·배지 없음.
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run_criteria(
+            &db,
+            runs::Criteria {
+                max_p95_ms: Some(1_000),
+                ..Default::default()
+            },
+        )
+        .await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert!(
+            row.verdict.is_none(),
+            "시간 기준만 + 요청 0건 → verdict NULL"
+        );
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-//! 응답 속도 구간 건수 — 판정(`evaluate_criteria`)과 같은 ms 버림 잣대로 센다.
+//! 응답 속도 구간 건수 — 규칙 1은 판정과 같은 ms 버림 잣대, 규칙 2는 µs 경계로 센다(60초 칸은 초과로).
 
 use crate::store::runs::{Criteria, LATENCY_RULE_CURRENT};
 use hdrhistogram::Histogram;
@@ -134,7 +134,8 @@ pub fn count_bands_us(
     for v in h.iter_recorded() {
         let us = v.value_iterated_to();
         let n = v.count_at_value();
-        if us > slow_us {
+        // 60초 칸(자른 값)은 임계가 60초보다 커도 초과 — 판정이 capped 행을 실패로 보는 것과 맞춘다.
+        if us > slow_us || crate::latency_stats::is_cap_value(h, us) {
             over += n;
         } else if has_fast && us < FAST_MS * 1_000 {
             fast += n;

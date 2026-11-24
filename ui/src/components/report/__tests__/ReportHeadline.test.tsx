@@ -25,6 +25,32 @@ const CLOSED: Profile = {
 };
 
 describe("ReportHeadline", () => {
+  it("기준은 있는데 판정이 없으면(요청 0건) 설정 안내 대신 판정하지 않은 이유를 말한다", () => {
+    render(
+      <ReportHeadline
+        summary={{ ...SUMMARY, count: 0, errors: 0 }}
+        profile={{ ...CLOSED, criteria: { max_p95_ms: 1000 } }}
+        verdict={null}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent("판정하지 않음 — 요청이 없어 판정할 값이 없습니다");
+    expect(region).not.toHaveTextContent("합격 기준(SLO)을 설정하면");
+  });
+
+  it("기준이 없으면 설정 안내 그대로", () => {
+    render(
+      <ReportHeadline
+        summary={{ ...SUMMARY, count: 0, errors: 0 }}
+        profile={CLOSED}
+        verdict={null}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent("합격 기준(SLO)을 설정하면");
+    expect(region).not.toHaveTextContent("판정하지 않음");
+  });
+
   it("closed-loop 문장: 시간·VU·요청수·p95·에러율", () => {
     render(<ReportHeadline summary={SUMMARY} profile={CLOSED} verdict={null} />);
     const region = screen.getByRole("region", { name: "쉬운 요약" });
