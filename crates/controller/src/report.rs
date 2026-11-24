@@ -4536,6 +4536,31 @@ steps:
         assert!(w.max_us >= 400_000);
     }
 
+    /// R14: 판정은 리포트 기준(`?basis=`)의 범위 안 분포로 — 유지 구간 판정이 전체 분포를 읽으면 RED.
+    #[test]
+    fn verdict_follows_basis() {
+        let mut run = steady_run(130);
+        run.latency_rule = crate::store::runs::LATENCY_RULE_CURRENT;
+        let run = with_criteria(
+            run,
+            Criteria {
+                max_mean_ms: Some(60_000.0),
+                ..Default::default()
+            },
+        );
+        let rows = rows_ramp_then_steady();
+        let whole = build_whole(&run, &rows);
+        let sc = closed_scope(&whole, 110, 130, 0);
+        let steady = build_steady(&run, &rows, &[], &[], &[], Some(&sc));
+        let mean_actual =
+            |rep: &ReportJson| row(rep.verdict.as_ref().expect("verdict"), "mean_ms", None).actual;
+        let (wa, sa) = (mean_actual(&whole), mean_actual(&steady));
+        assert_ne!(wa, sa, "두 기준의 평균 실측이 같다");
+        let ms = |rep: &ReportJson| rep.summary.stats.expect("stats").mean_us as f64 / 1000.0;
+        assert_eq!(wa, ms(&whole));
+        assert_eq!(sa, ms(&steady));
+    }
+
     #[test]
     fn stats_absent_without_samples() {
         let rep = report_with(&[], None);
