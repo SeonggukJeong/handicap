@@ -18,7 +18,9 @@ import { ko } from "../../i18n/ko";
 import { parseBodyJson } from "../../scenario/bodyJson";
 
 function statusClass(status: number, error: string | null): string {
-  if (error || status >= 400) return "bg-red-200 text-red-900";
+  if (error) return "bg-red-200 text-red-900";
+  // 오류 없이 400 이상 = 스텝의 검사가 허용한 코드(엔진 판정) — 실패 아님, 눈에 띄게만.
+  if (status >= 400) return "bg-amber-100 text-amber-900";
   if (status >= 200 && status < 300) return "bg-emerald-200 text-emerald-900";
   return "bg-slate-200 text-slate-700";
 }

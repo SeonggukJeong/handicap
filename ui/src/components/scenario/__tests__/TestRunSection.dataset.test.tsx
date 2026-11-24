@@ -93,7 +93,8 @@ function mkStepTrace(stepId: string, status: number) {
     },
     extracted: {},
     unbound_vars: [],
-    error: null,
+    // 엔진 판정: 검사 없는 스텝의 400 이상은 오류 문구가 실린다.
+    error: status >= 400 ? `status ${status} (>= 400)` : null,
   };
 }
 const ROW0_TRACE = {

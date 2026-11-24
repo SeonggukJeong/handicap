@@ -113,7 +113,7 @@ const httpRow = (step_id: string, over?: Partial<StepTrace>): StepTrace => ({
 });
 
 const failRow = (step_id: string, loop_index: number | null): StepTrace => {
-  const r = httpRow(step_id, { loop_index });
+  const r = httpRow(step_id, { loop_index, error: "status 500 (>= 400)" });
   r.response = { ...r.response!, status: 500 };
   return r;
 };

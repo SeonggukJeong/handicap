@@ -46,15 +46,30 @@ describe("deriveChipResults (spec R4 ①–⑧)", () => {
     expect(m.get("s1")).toEqual({ kind: "http", result: "fail" });
   });
 
-  it("③ status 500 = fail", () => {
-    const bad = httpRow({});
+  it("③ status 500 + 엔진 오류 = fail", () => {
+    const bad = httpRow({ error: "status 500 (>= 400)" });
     bad.response = { ...bad.response!, status: 500 };
     const m = deriveChipResults(trace([bad]));
     expect(m.get("s1")).toEqual({ kind: "http", result: "fail" });
   });
 
+  it("③-1 status 409·503 이어도 오류 없음(검사로 통과) = pass", () => {
+    for (const status of [409, 503]) {
+      const ok = httpRow({ error: null });
+      ok.response = { ...ok.response!, status };
+      const m = deriveChipResults(trace([ok]));
+      expect(m.get("s1")).toEqual({ kind: "http", result: "pass" });
+    }
+  });
+
+  it("③-2 status 404 + 오류 문구 = fail", () => {
+    const bad = httpRow({ error: "status 404 (>= 400)" });
+    bad.response = { ...bad.response!, status: 404 };
+    expect(deriveChipResults(trace([bad])).get("s1")).toEqual({ kind: "http", result: "fail" });
+  });
+
   it("④ loop 3행 중 1 fail = fail (순서 무관 집계)", () => {
-    const bad = httpRow({ loop_index: 1 });
+    const bad = httpRow({ loop_index: 1, error: "status 500 (>= 400)" });
     bad.response = { ...bad.response!, status: 500 };
     const m = deriveChipResults(
       trace([httpRow({ loop_index: 0 }), bad, httpRow({ loop_index: 2 })]),

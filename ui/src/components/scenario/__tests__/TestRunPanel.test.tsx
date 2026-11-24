@@ -584,3 +584,47 @@ describe("TestRunPanel 기본 규칙 오류 이유 글", () => {
     expect(screen.queryByText(/오류로 셌습니다/)).not.toBeInTheDocument();
   });
 });
+
+describe("TestRunPanel 상태 코드 칩 색 (엔진 판정을 따른다)", () => {
+  const rowTrace = (status: number, error: string | null): ScenarioTrace => ({
+    ok: error == null,
+    total_ms: 1,
+    truncated: false,
+    error: null,
+    final_vars: {},
+    steps: [
+      {
+        step_id: "01HX0000000000000000000041",
+        kind: "http",
+        loop_index: null,
+        branch: null,
+        request: { method: "GET", url: "http://api/x", headers: {}, body: null },
+        response: {
+          status,
+          latency_ms: 1,
+          download_ms: 1,
+          headers: {},
+          set_cookies: [],
+          body: "",
+          body_truncated: false,
+        },
+        extracted: {},
+        unbound_vars: [],
+        error,
+      },
+    ],
+  });
+  const tokens = (el: HTMLElement) => el.className.split(/\s+/);
+
+  it("검사로 통과한 409(오류 없음)는 붉은색이 아니라 호박색", () => {
+    render(<TestRunPanel trace={rowTrace(409, null)} />);
+    const t = tokens(screen.getByText("409"));
+    expect(t).toContain("bg-amber-100");
+    expect(t).not.toContain("bg-red-200");
+  });
+
+  it("오류가 있는 행은 붉은색", () => {
+    render(<TestRunPanel trace={rowTrace(404, "status 404 (>= 400)")} />);
+    expect(tokens(screen.getByText("404"))).toContain("bg-red-200");
+  });
+});
