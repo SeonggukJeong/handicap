@@ -3499,6 +3499,16 @@ export const ko = {
         `긴 점선 사이(${from}–${to})가 유지 구간입니다.` +
         (selected === "steady" ? " 표와 판정은 이 구간의 값입니다." : ""),
     },
+    latencyChart: {
+      title: "응답 시간",
+      mean: "평균",
+      p95: "p95",
+      p95Bin: "p95 (구간 안에서 가장 느린 초)",
+      caption: (bin: string) =>
+        `모든 단계의 요청을 합친 값입니다. 한 칸 = ${bin}. 평균은 그 칸 안 요청 전체의 평균, p95는 칸이 1초보다 길면 칸 안에서 가장 느린 1초의 p95입니다.`,
+      capped: "60초를 넘긴 응답이 있어 그 구간의 값은 실제보다 작게 그려졌습니다.",
+      aria: "응답 시간 그래프",
+    },
     doc: {
       title: (name: string) => `${name} 부하 측정`,
       titleFallbackName: "시나리오",

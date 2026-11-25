@@ -23,6 +23,7 @@ import { KpiGrid } from "./components/KpiGrid";
 import { AppendixTable, AppendixTitle, OtherCriteria } from "./components/OtherCriteriaTable";
 import { StepTable, StepTableTitle, type TableItem } from "./components/StepCodeTable";
 import { CalloutLine, Callouts, FoldNotes, Legend, UnreadableNote } from "./components/TableNotes";
+import { LatencyChart } from "./components/LatencyChart";
 import { ErrorChart } from "./components/ErrorChart";
 import { ConditionsSection } from "./components/ConditionsSection";
 import { GlossarySection } from "./components/GlossarySection";
@@ -106,6 +107,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return doc.speed ? <SpeedNotes model={doc.speed} /> : null;
     case "chart":
       return <ErrorChart doc={doc} />;
+    case "chart:latency":
+      return <LatencyChart doc={doc} />;
     case "conditions":
       return <ConditionsSection doc={doc} />;
     case "glossary":

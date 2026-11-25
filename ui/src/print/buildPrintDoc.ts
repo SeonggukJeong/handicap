@@ -53,6 +53,7 @@ import { basisLine, basisOtherLine } from "../components/report/basisText";
 import { summaryLines, type SummaryLine } from "./sentences";
 import { buildSpeedModel, type SpeedModel } from "./speedBands";
 import { buildSetupModel, type SetupPrintModel } from "./setupTable";
+import { buildLatencyChart, type LatencyChartModel } from "./latencyChart";
 import { deriveLoadMode } from "../components/run/loadModel";
 import type { Block, LadderLevel } from "./paginate";
 
@@ -90,6 +91,7 @@ export type PrintDoc = {
   /** 상태 코드 규칙 번호 — 범례·콜아웃 글이 이것을 따른다. */
   statusRule: 1 | 2;
   chart: ChartModel;
+  latencyChart: LatencyChartModel | null;
   readingLine: string;
   conditions: ReturnType<typeof conditionsBox>;
   claims: { can: string[]; cannot: string[] } | null;
@@ -252,6 +254,7 @@ export function buildPrintDoc(a: {
     statusRule,
     callouts: buildCallouts(ranked, report.summary, statusRule),
     chart,
+    latencyChart: buildLatencyChart(report.latency_by_second ?? [], t0, chart),
     readingLine,
     conditions: conditionsBox({
       profileRaw: report.run.profile,
@@ -377,7 +380,9 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
       atom(h, "speed:notes"),
     );
   }
-  out.push(atom(h, "chart"), atom(h, "conditions"), atom(h, "glossary"));
+  out.push(atom(h, "chart"));
+  if (doc.latencyChart !== null) out.push(atom(h, "chart:latency"));
+  out.push(atom(h, "conditions"), atom(h, "glossary"));
   if (limitOtherRows(doc.otherRows, "standard").truncated) {
     out.push({
       kind: "table",

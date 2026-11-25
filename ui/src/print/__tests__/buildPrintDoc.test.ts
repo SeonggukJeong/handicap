@@ -412,6 +412,26 @@ describe("summary ladder", () => {
 });
 
 describe("standard blocks", () => {
+  it("chart:latency는 chart 바로 뒤, 없으면 없고, 요약판엔 없다", () => {
+    const base = ladderDoc();
+    const lc = {
+      bins: [{ startSec: 0, seconds: 1, meanMs: 1, p95Ms: 1, capped: false }],
+      yTicks: [0, 1],
+      capped: false,
+      p95Label: "p95",
+      binText: "1초",
+    };
+    const doc: PrintDoc = { ...base, latencyChart: lc };
+    const ids = idsOf(standardBlocks(doc, heights(doc)));
+    expect(ids[ids.indexOf("chart") + 1]).toBe("chart:latency");
+    expect(idsOf(standardBlocks({ ...base, latencyChart: null }, heights(base)))).not.toContain(
+      "chart:latency",
+    );
+    for (const lvl of [0, 3, 5, 6, 7, 8] as LadderLevel[]) {
+      expect(idsOf(summaryBlocks(doc, heights(doc), lvl))).not.toContain("chart:latency");
+    }
+  });
+
   it("standard_appendix_only_when_truncated", () => {
     const base = ladderDoc();
     const mk = (n: number): PrintDoc => ({
