@@ -44,6 +44,7 @@ function reportFor(basis: "steady" | "whole", sample: Sample) {
     windows: [
       {
         ts_second: 100,
+        n: 0,
         step_id: "01HX0000000000000000000001",
         count: 10,
         error_count: 0,

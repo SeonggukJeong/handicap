@@ -118,6 +118,7 @@ function render(ui: ReactElement) {
 
 const WIN = (ts: number) => ({
   ts_second: ts,
+  n: 0,
   step_id: STEP_ID,
   count: 5,
   error_count: 0,

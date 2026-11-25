@@ -514,6 +514,7 @@ describe("buildPrintDoc — 집계 기준", () => {
       const err = errSecs.includes(i) ? 1 : 0;
       return {
         ts_second: T0S + i,
+        n: 0,
         step_id: "s1",
         count: 10,
         error_count: err,

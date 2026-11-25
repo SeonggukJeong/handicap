@@ -10,6 +10,7 @@ const T0_SEC = 1_700_000_000;
 type W = Report["windows"][number];
 const win = (sec: number, count: number, err: number): W => ({
   ts_second: T0_SEC + sec,
+  n: 0,
   step_id: "s1",
   count,
   error_count: err,

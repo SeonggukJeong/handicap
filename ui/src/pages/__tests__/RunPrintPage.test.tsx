@@ -70,6 +70,7 @@ function reportBody(yaml = GOOD_YAML) {
     },
     windows: [0, 1, 2, 3, 4].map((i) => ({
       ts_second: sec + i,
+      n: 0,
       step_id: STEP_ID,
       count: 10,
       error_count: i === 3 ? 2 : 0,

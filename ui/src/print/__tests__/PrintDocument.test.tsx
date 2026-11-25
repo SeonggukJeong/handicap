@@ -144,6 +144,7 @@ const win = (
   codes: Record<string, number>,
 ) => ({
   ts_second: t0s + sec,
+  n: 0,
   step_id: stepId,
   count,
   error_count: errors,

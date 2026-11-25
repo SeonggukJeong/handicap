@@ -91,6 +91,7 @@ const reportOf = (basis: ReportBasis) => ({
   },
   windows: [0, 1, 2].map((i) => ({
     ts_second: T0 / 1000 + 30 + i,
+    n: 0,
     step_id: STEP_ID,
     count: 10,
     error_count: 0,

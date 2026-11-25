@@ -22,6 +22,9 @@ pub struct ReportJson {
     pub scenario_yaml: String,
     pub summary: ReportSummary,
     pub windows: Vec<ReportWindow>,
+    /// 초마다 모든 스텝 창을 합친 응답 시간(④a). 비면 키를 내지 않는다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub latency_by_second: Vec<SecondLatency>,
     pub steps: Vec<ReportStep>,
     pub status_distribution: BTreeMap<String, u64>,
     pub if_breakdown: Vec<IfBreakdown>,
@@ -202,6 +205,19 @@ pub struct ReportSummary {
     pub stats: Option<crate::latency_stats::LatencyStats>,
 }
 
+/// 초별 모든 스텝 합계 응답 시간(④a). 창과 같은 표본·같은 직렬화 규칙.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SecondLatency {
+    pub ts_second: i64,
+    pub n: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p95_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capped: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReportWindow {
     pub ts_second: i64,
@@ -212,6 +228,14 @@ pub struct ReportWindow {
     pub p50_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
+    /// 보여 주는 표본의 표본 수(분포가 비거나 깨지면 0).
+    #[serde(default)]
+    pub n: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_us: Option<u64>,
+    /// 분포에 60초 칸 값이 있음 — 그때 `mean_us`는 실제 평균의 하한.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1067,24 +1091,23 @@ pub fn build_report(
     let window_of = |ts_second: i64,
                      step_id: String,
                      status_counts: BTreeMap<String, u64>,
-                     acc: &WindowAcc,
-                     sample: Sample|
+                     count: u64,
+                     error_count: u64,
+                     h: Option<&Histogram<u64>>|
      -> ReportWindow {
-        let wp = acc
-            .hist
-            .resolve(sample)
-            .hist()
-            .map(percentiles_of)
-            .unwrap_or_else(Percentiles::empty);
+        let wp = h.map(percentiles_of).unwrap_or_else(Percentiles::empty);
         ReportWindow {
             ts_second,
             step_id,
-            count: acc.count,
-            error_count: acc.error_count,
+            count,
+            error_count,
             status_counts,
             p50_ms: wp.p50_ms,
             p95_ms: wp.p95_ms,
             p99_ms: wp.p99_ms,
+            n: h.map_or(0, |h| h.len()),
+            mean_us: h.and_then(crate::latency_stats::mean_us),
+            capped: h.is_some_and(crate::latency_stats::is_capped),
         }
     };
     // 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이다. 아닐 때만 빌려서 따로 만든다.
@@ -1092,18 +1115,50 @@ pub fn build_report(
         window_acc
             .iter()
             .map(|((ts, step), acc)| {
-                window_of(*ts, step.clone(), acc.status.clone(), acc, Sample::All)
+                window_of(
+                    *ts,
+                    step.clone(),
+                    acc.status.clone(),
+                    acc.count,
+                    acc.error_count,
+                    acc.hist.resolve(Sample::All).hist(),
+                )
             })
             .collect()
     });
-    // 보여 주는 창은 누적을 옮겨 가며(복사 없이) 만든다.
-    let windows: Vec<ReportWindow> = window_acc
-        .into_iter()
-        .map(|((ts, step), mut acc)| {
-            let status = std::mem::take(&mut acc.status);
-            window_of(ts, step, status, &acc, selected)
-        })
-        .collect();
+    // 보여 주는 창은 누적을 옮겨 가며(복사 없이) 한 번의 훑기로 만든다. 창마다 분포를 한 번만 풀어
+    // 창 칸을 채우고, 같은 분포를 그 초의 임시 분포에 합쳐 초별 모든 스텝 합계를 낸다(BTreeMap이
+    // (ts, step) 순이라 같은 초의 창이 이어 나온다). 빈·깨진 창은 합치지 않는다.
+    let second_of = |ts_second: i64, h: &Histogram<u64>| SecondLatency {
+        ts_second,
+        n: h.len(),
+        mean_us: crate::latency_stats::mean_us(h),
+        p95_us: crate::latency_stats::value_at_milli(h, 95_000),
+        capped: crate::latency_stats::is_capped(h),
+    };
+    let mut windows: Vec<ReportWindow> = Vec::with_capacity(window_acc.len());
+    let mut latency_by_second: Vec<SecondLatency> = Vec::new();
+    let mut sec_hist = fresh_hist();
+    let mut cur_sec: Option<i64> = None;
+    for ((ts, step), mut acc) in window_acc {
+        if cur_sec != Some(ts) {
+            if let Some(prev) = cur_sec {
+                latency_by_second.push(second_of(prev, &sec_hist));
+                sec_hist.reset();
+            }
+            cur_sec = Some(ts);
+        }
+        let status = std::mem::take(&mut acc.status);
+        let resolved = acc.hist.resolve(selected);
+        let h = resolved.hist();
+        if let Some(h) = h {
+            merge_into(&mut sec_hist, h);
+        }
+        windows.push(window_of(ts, step, status, acc.count, acc.error_count, h));
+    }
+    if let Some(prev) = cur_sec {
+        latency_by_second.push(second_of(prev, &sec_hist));
+    }
     let occupancy: &[ReportWindow] = occupancy_windows.as_deref().unwrap_or(&windows);
 
     let overall_judging = overall.resolve(default_sample);
@@ -1717,6 +1772,7 @@ pub fn build_report(
         scenario_yaml: scenario_yaml.to_string(),
         summary: shown_summary.unwrap_or(summary),
         windows,
+        latency_by_second,
         steps: shown_steps.unwrap_or(steps),
         status_distribution: status_dist,
         if_breakdown,
@@ -4146,6 +4202,7 @@ steps:
                 "if_breakdown",
                 "insights",
                 "latency",
+                "latency_by_second",
                 "narrative",
                 "run",
                 "sample",
@@ -4157,6 +4214,125 @@ steps:
                 "windows"
             ]
         );
+    }
+
+    fn ws_win<'a>(rep: &'a ReportJson, ts: i64, step: &str) -> &'a ReportWindow {
+        rep.windows
+            .iter()
+            .find(|w| w.ts_second == ts && w.step_id == step)
+            .unwrap()
+    }
+
+    fn capped_samples() -> Vec<u64> {
+        vec![60_000_000, 60_000_000, 1_000, 1_000]
+    }
+
+    #[test]
+    fn window_n_mean_capped() {
+        let rows = vec![
+            step_win(100, "A", 0, &[1000, 2000, 3000], &[]),
+            step_win(100, "B", 2, &[1000, 2000], &[1000, 2000]),
+            step_win(101, "A", 0, &capped_samples(), &[]),
+        ];
+        let rep = report_with(&rows, None);
+        let a = ws_win(&rep, 100, "A");
+        assert_eq!(a.n, 3);
+        assert_eq!(a.mean_us, Some(2000));
+        assert!(!a.capped);
+        let b = ws_win(&rep, 100, "B");
+        assert_eq!(b.n, 0);
+        assert_eq!(b.mean_us, None);
+        let bj = serde_json::to_value(b).unwrap();
+        assert!(!bj.as_object().unwrap().contains_key("mean_us"));
+        assert!(!bj.as_object().unwrap().contains_key("capped"));
+        assert_eq!(bj["n"], 0);
+        let c = ws_win(&rep, 101, "A");
+        assert_eq!(c.n, 4);
+        assert_eq!(c.mean_us, Some(30_007_796));
+        assert!(c.capped);
+        assert_eq!(serde_json::to_value(c).unwrap()["capped"], true);
+        let all = report_with(&rows, Some(crate::sample::Sample::All));
+        assert_eq!(ws_win(&all, 100, "B").n, 2);
+    }
+
+    #[test]
+    fn latency_by_second_merges_steps() {
+        let a = vec![1_000u64; 99];
+        let rows = vec![
+            step_win(100, "A", 0, &a, &[]),
+            step_win(100, "B", 0, &[100_000], &[]),
+            step_win(101, "A", 2, &[1000, 1000], &[1000, 1000]),
+            step_win(103, "A", 0, &[1000], &[]),
+            step_win(104, "A", 0, &capped_samples(), &[]),
+        ];
+        let rep = report_with(&rows, None);
+        let sl = |ts_second, n, mean_us, p95_us, capped| SecondLatency {
+            ts_second,
+            n,
+            mean_us,
+            p95_us,
+            capped,
+        };
+        assert_eq!(
+            rep.latency_by_second,
+            vec![
+                sl(100, 100, Some(1990), Some(1000), false),
+                sl(101, 0, None, None, false),
+                sl(103, 1, Some(1000), Some(1000), false),
+                sl(104, 4, Some(30_007_796), Some(60_000_000), true),
+            ]
+        );
+        let j = serde_json::to_value(&rep.latency_by_second).unwrap();
+        assert!(!j[1].as_object().unwrap().contains_key("mean_us"));
+        assert!(!j[0].as_object().unwrap().contains_key("capped"));
+        assert_eq!(j[3]["capped"], true);
+    }
+
+    #[test]
+    fn latency_by_second_skips_broken_window() {
+        let mut broken = step_win(100, "B", 0, &[5000], &[]);
+        broken.hdr_histogram = vec![0xff; 4];
+        let rows = vec![step_win(100, "A", 0, &[1000, 1000, 1000], &[]), broken];
+        let rep = report_with(&rows, None);
+        assert_eq!(rep.latency_by_second.len(), 1);
+        assert_eq!(rep.latency_by_second[0].n, 3);
+        assert_eq!(rep.latency_by_second[0].mean_us, Some(1000));
+        assert_eq!(ws_win(&rep, 100, "B").n, 0);
+    }
+
+    #[test]
+    fn latency_by_second_single_step_matches_window() {
+        let sets: Vec<(i64, Vec<u64>)> = vec![
+            (100, vec![1000, 2000, 3000, 40_000]),
+            (101, (1..=50).map(|i| i * 777).collect()),
+            (102, capped_samples()),
+        ];
+        let rows: Vec<WindowWithHdr> = sets
+            .iter()
+            .map(|(ts, v)| step_win(*ts, "A", 0, v, &[]))
+            .collect();
+        let rep = report_with(&rows, None);
+        assert_eq!(rep.latency_by_second.len(), 3);
+        for ((ts, v), s) in sets.iter().zip(&rep.latency_by_second) {
+            let mut h = fresh_hist();
+            for &x in v {
+                h.record(x).unwrap();
+            }
+            let w = ws_win(&rep, *ts, "A");
+            assert_eq!(s.ts_second, *ts);
+            assert_eq!(s.p95_us, crate::latency_stats::value_at_milli(&h, 95_000));
+            assert_eq!(s.mean_us, w.mean_us);
+            assert_eq!(s.capped, w.capped);
+            assert_eq!(s.n, w.n);
+        }
+    }
+
+    #[test]
+    fn latency_by_second_absent_when_no_windows() {
+        let rep = report_with(&[], None);
+        assert!(rep.latency_by_second.is_empty());
+        let v = serde_json::to_value(&rep).unwrap();
+        assert!(!v.as_object().unwrap().contains_key("latency_by_second"));
     }
 
     fn split_win(ts: i64, all: &[u64], failed: Option<&[u64]>) -> WindowWithHdr {
@@ -4841,6 +5017,9 @@ steps:
     // 6-인자 `WindowWithHdr` 빌더라 같은 이름이면 E0428(중복 정의). 절대 `win`으로 쓰지 말 것.
     fn rwin(ts: i64, count: u64) -> ReportWindow {
         ReportWindow {
+            n: 0,
+            mean_us: None,
+            capped: false,
             ts_second: ts,
             step_id: "s".to_string(),
             count,

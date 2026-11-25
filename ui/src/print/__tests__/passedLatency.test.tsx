@@ -70,6 +70,7 @@ const failedReport = (sample: Report["sample"], windows = true): Report => ({
     ? [
         {
           ts_second: 1_700_000_000,
+          n: 0,
           step_id: "s0",
           count: 200,
           error_count: 200,

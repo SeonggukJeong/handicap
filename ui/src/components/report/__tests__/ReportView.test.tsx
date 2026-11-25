@@ -65,6 +65,7 @@ const FIXTURE: Report = {
   windows: [
     {
       ts_second: 100,
+      n: 0,
       step_id: STEP_ID,
       count: 10,
       error_count: 1,
@@ -75,6 +76,7 @@ const FIXTURE: Report = {
     },
     {
       ts_second: 101,
+      n: 0,
       step_id: STEP_ID,
       count: 5,
       error_count: 0,
@@ -511,6 +513,7 @@ describe("ReportView", () => {
       windows: [
         {
           ts_second: 100,
+          n: 0,
           step_id: INNER_ID,
           count: 4,
           error_count: 0,

@@ -10,6 +10,7 @@ function rep(id: string): Report {
     windows: [
       {
         ts_second: 1000,
+        n: 0,
         step_id: "s",
         count: 10,
         error_count: 1,
@@ -20,6 +21,7 @@ function rep(id: string): Report {
       },
       {
         ts_second: 1001,
+        n: 0,
         step_id: "s",
         count: 12,
         error_count: 0,

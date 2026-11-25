@@ -15,6 +15,7 @@ const win = (
   codes: Record<string, number> = {},
 ): W => ({
   ts_second: ts,
+  n: 0,
   step_id: step,
   count,
   error_count: err,

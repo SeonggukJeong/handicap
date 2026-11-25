@@ -1142,6 +1142,9 @@ mod tests {
 
     fn win(ts: i64, status: &[(&str, u64)]) -> ReportWindow {
         ReportWindow {
+            n: 0,
+            mean_us: None,
+            capped: false,
             ts_second: ts,
             step_id: "a".to_string(),
             count: 1,
@@ -1165,6 +1168,9 @@ mod tests {
             sc.insert(bad_key.to_string(), bad);
         }
         ReportWindow {
+            n: 0,
+            mean_us: None,
+            capped: false,
             ts_second: ts,
             step_id: "a".to_string(),
             count: total,
@@ -1908,6 +1914,9 @@ steps:
 
     fn win_count(ts: i64, step_id: &str, count: u64) -> ReportWindow {
         ReportWindow {
+            n: 0,
+            mean_us: None,
+            capped: false,
             ts_second: ts,
             step_id: step_id.to_string(),
             count,
@@ -2046,6 +2055,9 @@ steps:
 
     fn win_p95(ts: i64, p95: u64) -> ReportWindow {
         ReportWindow {
+            n: 0,
+            mean_us: None,
+            capped: false,
             ts_second: ts,
             step_id: "a".to_string(),
             count: 1,

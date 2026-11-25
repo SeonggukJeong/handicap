@@ -1571,6 +1571,7 @@ mod tests {
 
     pub fn report_with_steps(steps: Vec<ReportStep>) -> ReportJson {
         ReportJson {
+            latency_by_second: Vec::new(),
             run: ReportRun {
                 id: "r1".into(),
                 scenario_id: "s1".into(),
@@ -3960,6 +3961,9 @@ steps:
         r.steps = vec![st];
         r.windows = vec![
             ReportWindow {
+                n: 0,
+                mean_us: None,
+                capped: false,
                 ts_second: 1,
                 step_id: "s".into(),
                 count: 3,
@@ -3970,6 +3974,9 @@ steps:
                 p99_ms: if all_failed { 0 } else { 9 },
             },
             ReportWindow {
+                n: 0,
+                mean_us: None,
+                capped: false,
                 ts_second: 2,
                 step_id: "s".into(),
                 count: 3,

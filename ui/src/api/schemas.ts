@@ -509,8 +509,25 @@ export const ReportWindowSchema = z
     p50_ms: z.number().int().nonnegative(),
     p95_ms: z.number().int().nonnegative(),
     p99_ms: z.number().int().nonnegative(),
+    // 보여 주는 표본의 표본 수(필수 — `.default()` 금지, ui/CLAUDE.md Zod default 누출).
+    n: z.number().int().nonnegative(),
+    // 서버: 없으면 키를 내지 않음(`skip_serializing_if`), `capped`는 참일 때만 옴.
+    mean_us: z.number().int().nonnegative().optional(),
+    capped: z.boolean().optional(),
   })
   .strict();
+
+// 초마다 모든 스텝 창을 합친 응답 시간(④a). 값 규칙은 창과 같다.
+export const SecondLatencySchema = z
+  .object({
+    ts_second: z.number().int(),
+    n: z.number().int().nonnegative(),
+    mean_us: z.number().int().nonnegative().optional(),
+    p95_us: z.number().int().nonnegative().optional(),
+    capped: z.boolean().optional(),
+  })
+  .strict();
+export type SecondLatency = z.infer<typeof SecondLatencySchema>;
 
 export const PhaseStatsSchema = z
   .object({
@@ -888,6 +905,8 @@ export const ReportSchema = z
     scenario_yaml: z.string(),
     summary: ReportSummarySchema,
     windows: z.array(ReportWindowSchema),
+    // 서버 skip_serializing_if = Vec::is_empty → 창이 없으면 키 없음 → .optional(), 소비처 `?? []`.
+    latency_by_second: z.array(SecondLatencySchema).optional(),
     steps: z.array(ReportStepSchema),
     status_distribution: StatusDistributionSchema,
     if_breakdown: z.array(IfBreakdownSchema).optional(),

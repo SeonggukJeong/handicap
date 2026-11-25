@@ -60,12 +60,18 @@ pub fn is_capped(h: &Histogram<u64>) -> bool {
     is_cap_value(h, h.max())
 }
 
+/// 평균(µs, 반올림, 60초로 자름). 빈 분포는 None — `latency_stats`·리포트 창·초별 합계의 단일 소스.
+pub fn mean_us(h: &Histogram<u64>) -> Option<u64> {
+    let max = max_us(h)?;
+    Some((h.mean().round() as u64).min(max))
+}
+
 /// 통계 블록의 단일 소스 — 리포트 표시와 규칙 2 판정이 같은 값을 쓴다(R15).
 pub fn latency_stats(h: &Histogram<u64>) -> Option<LatencyStats> {
     let max = max_us(h)?;
     Some(LatencyStats {
         min_us: h.min(),
-        mean_us: (h.mean().round() as u64).min(max),
+        mean_us: mean_us(h)?,
         max_us: max,
         stdev_us: h.stdev().round() as u64,
         p50_us: value_at_milli(h, 50_000)?,
@@ -86,6 +92,13 @@ mod tests {
             h.record(v).unwrap();
         }
         h
+    }
+
+    #[test]
+    fn mean_us_matches_block() {
+        assert_eq!(mean_us(&hist(&[1000, 2000, 3000])), Some(2000));
+        assert_eq!(mean_us(&hist(&[])), None);
+        assert_eq!(mean_us(&hist(&[60_000_000])), Some(60_000_000));
     }
 
     #[test]

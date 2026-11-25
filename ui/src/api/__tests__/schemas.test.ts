@@ -12,6 +12,8 @@ import {
   ReportRunSchema,
   ReportSchema,
   ReportSummarySchema,
+  ReportWindowSchema,
+  SecondLatencySchema,
   reportStatusRule,
   reportLatencyRule,
   RunSchema,
@@ -56,6 +58,7 @@ describe("ReportSchema", () => {
           p50_ms: 10,
           p95_ms: 20,
           p99_ms: 30,
+          n: 5,
         },
       ],
       steps: [
@@ -876,5 +879,79 @@ describe("LatencyStatsSchema (stats 블록)", () => {
     expect(ReportSummarySchema.safeParse({ ...summary, stats: { ...stats, x: 1 } }).success).toBe(
       false,
     );
+  });
+});
+
+describe("ReportWindowSchema n·mean_us·capped / latency_by_second (verdict-stats 4a)", () => {
+  const win = {
+    ts_second: 100,
+    step_id: "stepA",
+    count: 5,
+    error_count: 0,
+    status_counts: { "200": 5 },
+    p50_ms: 10,
+    p95_ms: 20,
+    p99_ms: 30,
+    n: 5,
+  };
+  const report = (over: Record<string, unknown>) => ({
+    run: {
+      id: "R1",
+      scenario_id: "S1",
+      status: "completed",
+      profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+      env: {},
+      started_at: 100,
+      ended_at: 102,
+      created_at: 99,
+    },
+    scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+    summary: {
+      count: 10,
+      errors: 1,
+      rps: 5.0,
+      duration_seconds: 2,
+      mean_ms: 30,
+      p50_ms: 10,
+      p95_ms: 50,
+      p99_ms: 90,
+    },
+    windows: [win],
+    steps: [],
+    status_distribution: { "200": 9 },
+    dropped: 0,
+    ...over,
+  });
+
+  it("n is required (no default)", () => {
+    const noN: Record<string, unknown> = { ...win };
+    delete noN.n;
+    expect(ReportWindowSchema.safeParse(noN).success).toBe(false);
+    expect(ReportWindowSchema.safeParse(win).success).toBe(true);
+  });
+
+  it("accepts mean_us and capped", () => {
+    expect(
+      ReportWindowSchema.safeParse({ ...win, n: 3, mean_us: 2000, capped: true }).success,
+    ).toBe(true);
+  });
+
+  it("SecondLatencySchema is strict and tolerates absent optionals", () => {
+    expect(SecondLatencySchema.safeParse({ ts_second: 1, n: 0, foo: 1 }).success).toBe(false);
+    expect(SecondLatencySchema.safeParse({ ts_second: 1, n: 0 }).success).toBe(true);
+  });
+
+  it("ReportSchema passes without latency_by_second", () => {
+    expect(ReportSchema.safeParse(report({})).success).toBe(true);
+  });
+
+  it("ReportSchema passes with capped window and capped second", () => {
+    const r = report({
+      windows: [{ ...win, n: 4, mean_us: 30007796, capped: true }],
+      latency_by_second: [
+        { ts_second: 2, n: 4, mean_us: 30007796, p95_us: 60000000, capped: true },
+      ],
+    });
+    expect(ReportSchema.safeParse(r).success).toBe(true);
   });
 });
