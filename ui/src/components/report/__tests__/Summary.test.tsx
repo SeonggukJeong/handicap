@@ -63,7 +63,7 @@ describe("Summary", () => {
     expect(region).toHaveTextContent("0%");
   });
 
-  it("uses md:grid-cols-11 class for open-loop and md:grid-cols-8 for closed-loop", () => {
+  it("splits the grid by width: lg:grid-cols-6 for open-loop, xl:grid-cols-8 for closed-loop", () => {
     const { container: openContainer } = render(
       <Summary
         summary={baseSummary}
@@ -72,10 +72,14 @@ describe("Summary", () => {
       />,
     );
     const { container: closedContainer } = render(<Summary summary={baseSummary} />);
-    const openGrid = openContainer.querySelector(".md\\:grid-cols-11");
-    const closedGrid = closedContainer.querySelector(".md\\:grid-cols-8");
+    const openGrid = openContainer.querySelector(".lg\\:grid-cols-6");
+    const closedGrid = closedContainer.querySelector(".xl\\:grid-cols-8");
     expect(openGrid).not.toBeNull();
     expect(closedGrid).not.toBeNull();
+    for (const g of [openGrid, closedGrid]) {
+      expect(g).toHaveClass("grid-cols-2", "md:grid-cols-4");
+      expect(g).not.toHaveClass("grid-cols-3");
+    }
   });
 
   it("달성 도착률 카드가 achieved 값을 toFixed(1)로 표시한다", () => {

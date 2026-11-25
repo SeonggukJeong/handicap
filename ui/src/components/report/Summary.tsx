@@ -80,11 +80,16 @@ export function Summary({
     );
   }
 
-  const gridColsClass = openLoop != null ? "md:grid-cols-11" : "md:grid-cols-8";
+  // 카드 하나가 8자리 쉼표 숫자(「12,345,678」 95px + 여백 26.5px)를 담으려면 ≥ 122px.
+  // 1440px에서 11칸은 89px라 넘쳐서 폭별로 칸 수를 나눈다.
+  const gridColsClass =
+    openLoop != null
+      ? "grid-cols-2 md:grid-cols-4 lg:grid-cols-6"
+      : "grid-cols-2 md:grid-cols-4 xl:grid-cols-8";
 
   return (
     <PageSection ariaLabel={ko.report.summaryLabel} title={ko.report.summaryTitle}>
-      <div className={`grid grid-cols-3 ${gridColsClass} gap-3 text-sm`}>
+      <div className={`grid ${gridColsClass} gap-3 text-sm`}>
         {cards.map((c) => (
           <div key={c.label} className="border border-slate-200 rounded-md p-3 bg-white">
             <div className="text-slate-500 text-xs">
