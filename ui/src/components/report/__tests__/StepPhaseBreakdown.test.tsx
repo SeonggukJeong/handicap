@@ -56,6 +56,17 @@ describe("StepPhaseBreakdown", () => {
     expect(screen.getByText(/대기/)).toBeInTheDocument();
   });
 
+  it("칩 보기에도 「스텝」 제목과 같은 이름 구역이 하나뿐", async () => {
+    const user = userEvent.setup();
+    render(<StepPhaseBreakdown steps={steps as never} meta={meta} sampleTag="통과" />);
+    await user.click(screen.getByRole("button", { name: "칩" }));
+    expect(screen.getAllByRole("heading", { name: ko.report.stepsHeading })).toHaveLength(1);
+    expect(screen.getAllByRole("region", { name: ko.report.perStepStatsLabel })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: ko.report.stats.toggleMore })).toBeInTheDocument();
+    expect(screen.getByText("통과")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
   it("칩 보기에서만 통계 더 보기 단추가 있고 펼치면 「모든 스텝」 행(summary 전달)", async () => {
     const user = userEvent.setup();
     const summary = {

@@ -119,6 +119,7 @@ export function StepPhaseBreakdown({
       </div>
       {view === "chips" ? (
         <StepStatsTable
+          embedded
           steps={steps}
           meta={meta}
           retriedStepIds={retriedStepIds}

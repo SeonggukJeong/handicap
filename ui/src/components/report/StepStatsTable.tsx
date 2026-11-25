@@ -26,6 +26,8 @@ type Props = {
   sampleTag?: string | null;
   /** 보여 주는 표본의 summary — 있으면 통계를 펼쳤을 때 「모든 스텝」 행을 단다. */
   summary?: ReportSummary;
+  /** 바깥 구역이 제목을 이미 달았을 때 — 제목·구역 없이 표만 그린다. */
+  embedded?: boolean;
 };
 
 const STAT_BG = "bg-slate-50";
@@ -65,6 +67,7 @@ export function StepStatsTable({
   mixedSample,
   sampleTag,
   summary,
+  embedded = false,
 }: Props) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [statsOpen, setStatsOpen] = useState(false);
@@ -166,17 +169,14 @@ export function StepStatsTable({
     </button>
   );
 
-  return (
-    <PageSection
-      ariaLabel={ko.report.perStepStatsLabel}
-      title={ko.report.stepsHeading}
-      titleAside={
-        <>
-          {sampleTag ? <SampleTag name={sampleTag} /> : undefined}
-          {toggleButton}
-        </>
-      }
-    >
+  const aside = (
+    <>
+      {sampleTag ? <SampleTag name={sampleTag} /> : undefined}
+      {toggleButton}
+    </>
+  );
+  const body = (
+    <>
       {anyDownload && <p className="mb-2 text-xs text-slate-500">{ko.report.phaseCaveat}</p>}
       <div className="overflow-x-auto">
         <table className={`min-w-full text-sm${statsOpen ? " whitespace-nowrap" : ""}`}>
@@ -443,6 +443,23 @@ export function StepStatsTable({
           {statsOpen ? ko.report.stats.cappedNoteExpanded : ko.report.stats.cappedNoteCollapsed}
         </p>
       )}
+    </>
+  );
+  if (embedded) {
+    return (
+      <div>
+        <div className="mb-2 flex flex-wrap items-center gap-x-2">{aside}</div>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <PageSection
+      ariaLabel={ko.report.perStepStatsLabel}
+      title={ko.report.stepsHeading}
+      titleAside={aside}
+    >
+      {body}
     </PageSection>
   );
 }

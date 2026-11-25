@@ -943,4 +943,28 @@ describe("StepStatsTable", () => {
       expect(screen.getByText(ko.report.stats.allSteps)).toBeInTheDocument();
     });
   });
+
+  it("embedded면 제목·구역 없이 표와 통계 단추만", () => {
+    const { container } = render(
+      <StepStatsTable
+        embedded
+        steps={[
+          {
+            step_id: "s1",
+            count: 1,
+            error_count: 0,
+            status_counts: { "200": 1 },
+            p50_ms: 1,
+            p95_ms: 1,
+            p99_ms: 1,
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    expect(container.querySelector("h3")).toBeNull();
+    expect(container.querySelector("section")).toBeNull();
+    expect(screen.getByRole("button", { name: ko.report.stats.toggleMore })).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
 });
