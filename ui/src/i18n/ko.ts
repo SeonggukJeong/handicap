@@ -1666,6 +1666,15 @@ export const ko = {
     timeSeriesRequests: "초당 요청 수 (RPS)",
     timeSeriesP95: "p95 응답 시간 (ms)",
     timeSeriesErrors: "초당 에러",
+    // ── 응답 시간 그래프 (평균·p95 두 선, ④a) ──
+    latencyChart: {
+      title: "응답 시간 (ms)",
+      mean: "평균",
+      p95: "p95",
+      hint: "모든 스텝의 요청을 초마다 합쳐 낸 값입니다.",
+      hintCapped: "60초를 넘긴 응답이 있는 초의 평균은 실제보다 작게 나온 값입니다(툴팁에 「≥」).",
+      cappedValue: "≥ 60,000 ms",
+    },
     // ── 시계열 aria-label (보간) ──
     timeSeriesAria: (title: string) => `시계열 — ${title}`,
     // ── 표 헤더 (run 목록 열) ──

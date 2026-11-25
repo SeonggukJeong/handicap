@@ -233,7 +233,13 @@ describe("ReportView", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.getByRole("region", { name: /리포트 요약/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /시계열 — 초당 요청 수/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /시계열 — p95/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", {
+        name: ko.report.timeSeriesAria(ko.report.latencyChart.title),
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /시계열 — p95/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.report.timeSeriesP95)).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: /시계열 — 초당 에러/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /상태 코드 분포/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /스텝별 통계/ })).toBeInTheDocument();
@@ -724,14 +730,14 @@ describe("ReportView", () => {
     const names = [ko.report.sample.passed, ko.report.sample.failed, ko.report.sample.allShort];
     const threeRegions = () => [
       screen.getByRole("region", { name: /리포트 요약/ }),
-      screen.getByRole("region", { name: /시계열 — p95/ }),
+      screen.getByRole("region", { name: ko.report.timeSeriesAria(ko.report.latencyChart.title) }),
       screen.getByRole("region", { name: /스텝별 통계/ }),
     ];
     const noNames = (el: HTMLElement) => {
       for (const n of names) expect(within(el).queryByText(n)).not.toBeInTheDocument();
     };
 
-    it("바꿔 본 리포트: 요약·p95 그래프·분포·스텝 표·워커 표에 하나씩, 요청 수 그래프엔 없다", () => {
+    it("바꿔 본 리포트: 요약·응답 시간 그래프·분포·스텝 표·워커 표에 하나씩, 요청 수 그래프엔 없다", () => {
       const report: Report = {
         ...FIXTURE,
         sample: { selected: "failed", default: "passed", split: true },

@@ -17,6 +17,7 @@ import { SetupSection } from "./SetupSection";
 import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
+import { LatencyTimeSeriesChart } from "./LatencyTimeSeriesChart";
 import { ActiveVuChart } from "./ActiveVuChart";
 import { StatusDistribution } from "./StatusDistribution";
 import { ErrorKindTable } from "./ErrorKindTable";
@@ -343,10 +344,13 @@ export function ReportView({
           data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
           marks={marks}
         />
-        <TimeSeriesChart
-          title={ko.report.timeSeriesP95}
-          yLabel="ms"
-          data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
+        <LatencyTimeSeriesChart
+          data={seconds.map((s) => ({
+            ts_second: s.ts_second,
+            mean: s.mean_ms,
+            p95: s.p95_ms,
+            capped: s.capped,
+          }))}
           marks={marks}
           sampleTag={view.tag}
         />

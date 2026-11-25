@@ -419,7 +419,7 @@ describe("InsightPanel", () => {
     ).not.toBeChecked();
     expect(row.textContent).toContain("14개");
     expect(row.textContent).toContain("2,500개");
-    expect(row.textContent).toContain("p95 응답 시간 (ms)");
+    expect(row.textContent).toContain(ko.report.latencyChart.title);
     expect(document.body.textContent).not.toContain("올려 다시 실행");
   });
 

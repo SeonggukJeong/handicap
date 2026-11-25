@@ -107,7 +107,7 @@ function actionFor(i: Insight): Action | undefined {
           text: ko.saturation.stall(
             n(i.typical_in_flight),
             n(i.max_in_flight),
-            ko.report.timeSeriesP95,
+            ko.report.latencyChart.title,
           ),
           computed: true,
         };
