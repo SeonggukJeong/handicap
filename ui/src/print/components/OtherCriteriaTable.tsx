@@ -57,12 +57,20 @@ function CriteriaTable(props: {
 export type OtherMode = "standard" | "summary3" | "summary1" | "line";
 
 /** 1절 안의 "그 밖의 기준" — 표준판은 최대 6행, 요약판은 미달만(3·1행) 또는 한 줄. */
-export function OtherCriteria({ rows, mode }: { rows: OtherRow[]; mode: OtherMode }) {
+export function OtherCriteria({
+  rows,
+  mode,
+  appendixRef,
+}: {
+  rows: OtherRow[];
+  mode: OtherMode;
+  appendixRef?: string;
+}) {
   if (mode === "line") {
     const line = otherCriteriaOneLine(rows);
     return line === null ? null : <div className="p-note p-bad">{line}</div>;
   }
-  const { shown, restLine } = limitOtherRows(rows, mode);
+  const { shown, restLine } = limitOtherRows(rows, mode, appendixRef);
   return (
     <section>
       <h3 className="p-h3">{K.title}</h3>
@@ -72,14 +80,23 @@ export function OtherCriteria({ rows, mode }: { rows: OtherRow[]; mode: OtherMod
   );
 }
 
-export function AppendixTitle({ continued, measure }: { continued: boolean; measure?: boolean }) {
+export function AppendixTitle({
+  continued,
+  measure,
+  no,
+}: {
+  continued: boolean;
+  measure?: boolean;
+  no: string | null;
+}) {
   const s = ko.print.section;
+  const title = s.appendixOther(no);
   return (
     <div
       className="p-block p-block--title"
       data-measure={measure ? MEASURE_IDS.appendixTitle : undefined}
     >
-      <h2 className="p-h2">{continued ? `${s.appendix}${s.continued}` : s.appendix}</h2>
+      <h2 className="p-h2">{continued ? `${title}${s.continued}` : title}</h2>
     </div>
   );
 }

@@ -270,6 +270,7 @@ const STANDARD_MAX = 6;
 export function limitOtherRows(
   rows: OtherRow[],
   mode: "standard" | "summary3" | "summary1",
+  appendixRef: string = ko.print.section.appendixRef(null),
 ): { shown: OtherRow[]; restLine: string | null; truncated: boolean } {
   if (mode !== "standard") {
     const n = mode === "summary3" ? 3 : 1;
@@ -298,7 +299,7 @@ export function limitOtherRows(
     if (cnt("fail") > 0) parts.push(k.criteria.restFail(cnt("fail")));
     if (cnt("notEvaluable") > 0) parts.push(k.criteria.restNotEvaluable(cnt("notEvaluable")));
     if (cnt("notJudged") > 0) parts.push(k.criteria.restNotJudged(cnt("notJudged")));
-    restLine = k.criteria.restMixed(rest.length, parts.join(" · "));
+    restLine = k.criteria.restMixed(rest.length, parts.join(" · "), appendixRef);
   }
   return { shown, restLine, truncated: true };
 }

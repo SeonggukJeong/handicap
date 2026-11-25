@@ -3396,7 +3396,8 @@ export const ko = {
       targetMax: (t: string) => `${t} 이하`,
       targetMin: (t: string) => `${t} 이상`,
       allMet: (n: number) => `외 ${n}개 기준 모두 달성`,
-      restMixed: (n: number, parts: string) => `외 ${n}개 기준(${parts}) — 부록 참조`,
+      restMixed: (n: number, parts: string, ref: string) =>
+        `외 ${n}개 기준(${parts}) — ${ref} 참조`,
       restPass: (a: number) => `달성 ${a}`,
       restFail: (b: number) => `미달 ${b}`,
       restNotEvaluable: (c: number) => `평가 불가 ${c}`,
@@ -3499,6 +3500,11 @@ export const ko = {
         `긴 점선 사이(${from}–${to})가 유지 구간입니다.` +
         (selected === "steady" ? " 표와 판정은 이 구간의 값입니다." : ""),
     },
+    stepLat: {
+      caption: (yMax: string) =>
+        `단계마다 시간에 따른 평균 응답 시간입니다. 모든 그림이 같은 세로 눈금(0–${yMax} ms)·같은 가로 시간축입니다. 순서는 「단계별 결과」 표와 같습니다.`,
+      noData: "응답 시간 없음",
+    },
     latencyChart: {
       title: "응답 시간",
       mean: "평균",
@@ -3540,7 +3546,11 @@ export const ko = {
       chart: (n: number) => `${n}. 시간에 따른 변화`,
       conditions: (n: number) => `${n}. 측정 조건과 해석 범위`,
       glossary: (n: number) => `${n}. 용어 풀이`,
-      appendix: "부록. 그 밖의 기준 전체",
+      appendixOther: (no: string | null) =>
+        no === null ? "부록. 그 밖의 기준 전체" : `부록 ${no}. 그 밖의 기준 전체`,
+      appendixStepLat: (no: string | null) =>
+        no === null ? "부록. 단계별 평균 응답 시간" : `부록 ${no}. 단계별 평균 응답 시간`,
+      appendixRef: (no: string | null) => (no === null ? "부록" : `부록 ${no}`),
       continued: " (이어짐)",
     },
     // 준비 스텝 결과 절(b2 spec §3.2–§3.3). 요약 줄은 조각으로 조립한다 — 단위 뒤 조사는 변형마다 고정.

@@ -905,3 +905,74 @@ describe("준비 스텝 결과 절", () => {
     }
   });
 });
+
+describe("단계별 평균 응답 시간 부록 — 쪽 렌더", () => {
+  const mkCard = (i: number) => ({
+    title: `${i + 1} 부록단계${i}`,
+    hasData: true,
+    bins: [10, 20, 30] as (number | null)[],
+  });
+  const cards = [0, 1, 2, 3, 4].map(mkCard);
+  const stepLat = {
+    cards,
+    pairs: [
+      [cards[0], cards[1]],
+      [cards[2], cards[3]],
+      [cards[4], null],
+    ] as [(typeof cards)[number], (typeof cards)[number] | null][],
+    yTicks: [0, 20, 40],
+    capped: false,
+    points: [1, 2, 3],
+  };
+  const otherRows = [
+    ...Array.from({ length: 6 }, (_, i) => ({
+      name: `미달${i}`,
+      target: "t",
+      actual: "a",
+      judgement: "fail" as const,
+    })),
+    { name: "판정안함", target: "t", actual: "a", judgement: "notJudged" as const },
+    { name: "달성", target: "t", actual: "a", judgement: "pass" as const },
+  ];
+
+  it("부록만 있으면 번호 없이 그려지고 카드 svg 수 = 단계 수", async () => {
+    const doc: PrintDoc = {
+      ...makeDoc(coreFixture),
+      stepLat,
+      appendixNo: { other: null, stepLat: null },
+    };
+    const { container, root } = renderDoc(doc);
+    await ready(root);
+    expect(screen.getByText("부록. 단계별 평균 응답 시간")).toBeTruthy();
+    expect(container.querySelectorAll("[data-steplat-card] svg").length).toBe(5);
+    const pages = [...container.querySelectorAll(".p-page")];
+    expect(pages[pages.length - 1].textContent).toContain("부록. 단계별 평균 응답 시간");
+  });
+
+  it("두 부록이면 1·2 번호와 판정 글 「— 부록 1 참조」", async () => {
+    const doc: PrintDoc = {
+      ...makeDoc(coreFixture),
+      otherRows,
+      stepLat,
+      appendixNo: { other: "1", stepLat: "2" },
+    };
+    const { container, root } = renderDoc(doc);
+    await ready(root);
+    expect(screen.getByText("부록 1. 그 밖의 기준 전체")).toBeTruthy();
+    expect(screen.getByText("부록 2. 단계별 평균 응답 시간")).toBeTruthy();
+    expect(container.textContent).toContain("— 부록 1 참조");
+  });
+
+  it("기존 부록만 있으면 글자가 그대로", async () => {
+    const doc: PrintDoc = {
+      ...makeDoc(coreFixture),
+      otherRows,
+      stepLat: null,
+      appendixNo: { other: null, stepLat: null },
+    };
+    const { container, root } = renderDoc(doc);
+    await ready(root);
+    expect(screen.getByText("부록. 그 밖의 기준 전체")).toBeTruthy();
+    expect(container.textContent).toContain("— 부록 참조");
+  });
+});

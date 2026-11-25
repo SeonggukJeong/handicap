@@ -54,6 +54,7 @@ import { summaryLines, type SummaryLine } from "./sentences";
 import { buildSpeedModel, type SpeedModel } from "./speedBands";
 import { buildSetupModel, type SetupPrintModel } from "./setupTable";
 import { buildLatencyChart, type LatencyChartModel } from "./latencyChart";
+import { buildStepLatAppendix, type StepLatModel } from "./stepLatencyAppendix";
 import { deriveLoadMode } from "../components/run/loadModel";
 import type { Block, LadderLevel } from "./paginate";
 
@@ -100,7 +101,16 @@ export type PrintDoc = {
   speed: SpeedModel | null;
   setup: SetupPrintModel | null;
   sectionNo: SectionNo;
+  stepLat: StepLatModel | null;
+  appendixNo: AppendixNo;
 };
+
+export type AppendixNo = { other: string | null; stepLat: string | null };
+
+/** 부록이 둘일 때만 1·2 번호를 붙인다. */
+export function appendixNumbers(a: { other: boolean; stepLat: boolean }): AppendixNo {
+  return a.other && a.stepLat ? { other: "1", stepLat: "2" } : { other: null, stepLat: null };
+}
 
 function boxText(box: BoxState): { big: string; sub: string } {
   switch (box.kind) {
@@ -210,6 +220,8 @@ export function buildPrintDoc(a: {
   const can = (nar?.can_claim ?? []).map((c) => claimText(ko.narrative.can, c));
   const cannot = (nar?.cannot_claim ?? []).map((c) => claimText(ko.narrative.cannot, c));
 
+  const otherRows = otherCriteriaRows(matched, box, stepName);
+  const stepLat = buildStepLatAppendix(report.windows, table.rows, t0, chart);
   return {
     title: D.title(name),
     shortId,
@@ -247,7 +259,7 @@ export function buildPrintDoc(a: {
       latency: hasTime,
     }),
     kpis: kpiCards(report.summary, matched, box, { latency: hasTime }),
-    otherRows: otherCriteriaRows(matched, box, stepName),
+    otherRows,
     table,
     ranked,
     legend: legendItems(table, ranked, statusRule),
@@ -267,6 +279,11 @@ export function buildPrintDoc(a: {
     speed,
     setup,
     sectionNo: sectionNumbers({ setup: setup !== null, speed: speed !== null }),
+    stepLat,
+    appendixNo: appendixNumbers({
+      other: limitOtherRows(otherRows, "standard").truncated,
+      stepLat: stepLat !== null,
+    }),
   };
 }
 
@@ -314,6 +331,8 @@ export const MEASURE_IDS = {
   setupTitle: "setup:title",
   setupHeader: "setup:header",
   setupRowId: (stepId: string): string => `setup:row:${stepId}`,
+  stepLatTitle: "steplat:title",
+  stepLatRowId: (i: number): string => `steplat:row:${i}`,
 } as const;
 
 const atom = (h: Heights, id: string): Block => ({
@@ -390,6 +409,15 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
       titleMm: h.get(MEASURE_IDS.appendixTitle) ?? 0,
       headerMm: h.get(MEASURE_IDS.appendixHeader) ?? 0,
       rowsMm: doc.otherRows.map((_, i) => h.get(MEASURE_IDS.appendixRowId(i)) ?? 0),
+    });
+  }
+  if (doc.stepLat !== null) {
+    out.push({
+      kind: "table",
+      id: "steplat",
+      titleMm: h.get(MEASURE_IDS.stepLatTitle) ?? 0,
+      headerMm: 0,
+      rowsMm: doc.stepLat.pairs.map((_, i) => h.get(MEASURE_IDS.stepLatRowId(i)) ?? 0),
     });
   }
   out.push(atom(h, "signature"));

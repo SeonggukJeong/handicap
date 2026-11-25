@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { build as buildSpeed, case1Input } from "./speedFixtures";
 import {
   MEASURE_IDS,
+  appendixNumbers,
   buildPrintDoc,
   sectionNumbers,
   standardBlocks,
@@ -15,6 +16,8 @@ import { shortSummary } from "../sentences";
 import { PLOT_X1_MM, chartReadingLine, markerX } from "../chartModel";
 import { basisLine } from "../../components/report/basisText";
 import type { Report, ReportBasis, Run } from "../../api/schemas";
+import type { StepLatModel } from "../stepLatencyAppendix";
+import { ko } from "../../i18n/ko";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
 
@@ -645,5 +648,61 @@ describe("buildPrintDoc — 집계 기준", () => {
     const whole = build(mkRun(), withErrors(mkBasis("whole"), 60, [3, 40]));
     const wholeText = whole.lines.find((l) => l.kind === "errorIdentity")?.text ?? "";
     expect(wholeText).toContain("시작 3초 뒤");
+  });
+});
+
+describe("단계별 평균 응답 시간 부록 블록·번호", () => {
+  const card = { title: "① a", hasData: true, bins: [1] as (number | null)[] };
+  const stepLat: StepLatModel = {
+    cards: [card, card, card],
+    pairs: [
+      [card, card],
+      [card, null],
+    ],
+    yTicks: [0, 1],
+    capped: false,
+    points: [0.5],
+  };
+  const manyOther = (base: PrintDoc): PrintDoc => ({
+    ...base,
+    otherRows: Array.from({ length: 7 }, (_, i) => ({
+      name: `기준${i}`,
+      target: "t",
+      actual: "a",
+      judgement: "pass" as const,
+    })),
+  });
+
+  it("steplat 표 블록은 appendix 뒤·signature 앞, 쌍 행 수, null이면 없음, 요약판엔 없다", () => {
+    const base = manyOther(ladderDoc());
+    const doc: PrintDoc = { ...base, stepLat };
+    const blocks = standardBlocks(doc, heights(doc));
+    const ids = idsOf(blocks);
+    expect(ids.slice(-3)).toEqual(["appendix", "steplat", "signature"]);
+    const t = blocks.find((b) => b.id === "steplat") as Extract<Block, { kind: "table" }>;
+    expect(t.rowsMm.length).toBe(stepLat.pairs.length);
+    expect(t.headerMm).toBe(0);
+    expect(idsOf(standardBlocks({ ...doc, stepLat: null }, heights(doc)))).not.toContain("steplat");
+    for (const lvl of [0, 4, 8] as LadderLevel[]) {
+      expect(idsOf(summaryBlocks(doc, heights(doc), lvl))).not.toContain("steplat");
+    }
+  });
+  it("부록 번호: 둘이면 1·2, 하나면 번호 없음", () => {
+    const s = ko.print.section;
+    expect(appendixNumbers({ other: true, stepLat: true })).toEqual({ other: "1", stepLat: "2" });
+    expect(appendixNumbers({ other: false, stepLat: true })).toEqual({
+      other: null,
+      stepLat: null,
+    });
+    expect(appendixNumbers({ other: true, stepLat: false })).toEqual({
+      other: null,
+      stepLat: null,
+    });
+    expect(s.appendixOther("1")).toBe("부록 1. 그 밖의 기준 전체");
+    expect(s.appendixStepLat("2")).toBe("부록 2. 단계별 평균 응답 시간");
+    expect(s.appendixOther(null)).toBe("부록. 그 밖의 기준 전체");
+    expect(s.appendixStepLat(null)).toBe("부록. 단계별 평균 응답 시간");
+    expect(s.appendixRef("1")).toBe("부록 1");
+    expect(s.appendixRef(null)).toBe("부록");
   });
 });

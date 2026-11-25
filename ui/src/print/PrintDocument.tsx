@@ -37,6 +37,8 @@ import {
 } from "./components/StairPrintTable";
 import { SpeedBandTable, SpeedNotes, SpeedTableTitle } from "./components/SpeedBandTable";
 import { SetupPrintTable, SetupTableTitle } from "./components/SetupPrintTable";
+import { StepLatencyRows, StepLatencyTitle } from "./components/StepLatencyAppendix";
+import { ko } from "../i18n/ko";
 import { SignatureBlock } from "./components/SignatureBlock";
 import { PageFooter } from "./components/PageFooter";
 import { PagedDocument } from "./PagedDocument";
@@ -82,7 +84,13 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
     case "stair:units":
       return doc.stair ? <StairUnitsNote /> : null;
     case "other:standard":
-      return <OtherCriteria rows={doc.otherRows} mode="standard" />;
+      return (
+        <OtherCriteria
+          rows={doc.otherRows}
+          mode="standard"
+          appendixRef={ko.print.section.appendixRef(doc.appendixNo.other)}
+        />
+      );
     case "other:summary3":
       return <OtherCriteria rows={doc.otherRows} mode="summary3" />;
     case "other:summary1":
@@ -162,8 +170,28 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
         if (b.id === "appendix") {
           return (
             <div key={b.id}>
-              <AppendixTitle continued={false} measure />
+              <AppendixTitle continued={false} measure no={doc.appendixNo.other} />
               <AppendixTable rows={doc.otherRows} from={0} to={doc.otherRows.length} measure />
+            </div>
+          );
+        }
+        if (b.id === "steplat") {
+          if (!doc.stepLat) return null;
+          return (
+            <div key={b.id}>
+              <StepLatencyTitle
+                model={doc.stepLat}
+                title={ko.print.section.appendixStepLat(doc.appendixNo.stepLat)}
+                continued={false}
+                measure
+              />
+              <StepLatencyRows
+                model={doc.stepLat}
+                chart={doc.chart}
+                from={0}
+                to={doc.stepLat.pairs.length}
+                measure
+              />
             </div>
           );
         }
@@ -262,8 +290,21 @@ function PageBody(props: {
         if (it.id === "appendix") {
           return (
             <div key={`${it.id}:${it.from}`}>
-              <AppendixTitle continued={it.continued} />
+              <AppendixTitle continued={it.continued} no={doc.appendixNo.other} />
               <AppendixTable rows={doc.otherRows} from={it.from} to={it.to} />
+            </div>
+          );
+        }
+        if (it.id === "steplat") {
+          if (!doc.stepLat) return null;
+          return (
+            <div key={`${it.id}:${it.from}`}>
+              <StepLatencyTitle
+                model={doc.stepLat}
+                title={ko.print.section.appendixStepLat(doc.appendixNo.stepLat)}
+                continued={it.continued}
+              />
+              <StepLatencyRows model={doc.stepLat} chart={doc.chart} from={it.from} to={it.to} />
             </div>
           );
         }

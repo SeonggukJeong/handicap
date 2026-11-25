@@ -1107,3 +1107,21 @@
 .p-root .p-cmp-spd-warn {
   margin-top: 1mm;
 }
+
+/* 부록 — 단계별 평균 응답 시간: 카드 88mm 둘 + 간격 4mm = 본문 180mm */
+.p-root .p-steplat-row {
+  display: grid;
+  grid-template-columns: 88mm 88mm;
+  gap: 4mm;
+  padding-top: 3mm;
+}
+.p-root .p-steplat-card svg {
+  display: block;
+}
+.p-root .p-steplat-name {
+  font-size: 8.5pt;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

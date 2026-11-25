@@ -332,6 +332,9 @@ describe("limitOtherRows / oneLine", () => {
     ];
     const r = limitOtherRows(rows, "standard");
     expect(r.restLine).toBe("외 3개 기준(달성 1 · 미달 1 · 판정 안 함 1) — 부록 참조");
+    expect(limitOtherRows(rows, "standard", "부록 1").restLine).toBe(
+      "외 3개 기준(달성 1 · 미달 1 · 판정 안 함 1) — 부록 1 참조",
+    );
   });
   it("standard small untouched", () => {
     const r = limitOtherRows(eight.slice(0, 6), "standard");
