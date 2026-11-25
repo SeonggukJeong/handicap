@@ -659,6 +659,22 @@ describe("StepStatsTable", () => {
       expect(outer(container).outerHTML).toBe(before);
     });
 
+    it("새 머리의 도움말 단추 이름은 「… 설명」 — 접힘엔 없다", async () => {
+      const user = userEvent.setup();
+      render(<StepStatsTable steps={[one]} meta={meta} summary={mkSummary({})} />);
+      const section = screen
+        .getByRole("heading", { name: ko.report.stepsHeading })
+        .closest("section") as HTMLElement;
+      const names = ["평균 설명", "최대 설명", "표준편차 설명", "p90 설명"];
+      for (const n of names) {
+        expect(within(section).queryByRole("button", { name: n })).toBeNull();
+      }
+      await user.click(toggle());
+      for (const n of names) {
+        expect(within(section).getByRole("button", { name: n })).toBeInTheDocument();
+      }
+    });
+
     it("스텝 행 값 — 평균·표준편차는 반올림, 최소·최대·p90은 내림", async () => {
       const user = userEvent.setup();
       const { container } = render(<StepStatsTable steps={[one]} meta={meta} />);

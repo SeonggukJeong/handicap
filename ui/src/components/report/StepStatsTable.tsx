@@ -163,15 +163,15 @@ export function StepStatsTable({
                   <th className={`${STAT_BG} py-2 pr-4 font-medium`}>{ko.report.stats.colMin}</th>
                   <th className={`${STAT_BG} py-2 pr-4 font-medium`}>
                     {ko.report.stats.colMean}
-                    <HelpTip label={ko.report.stats.colMean}>{ko.glossary.mean}</HelpTip>
+                    <HelpTip label={ko.report.stats.helpMean}>{ko.glossary.mean}</HelpTip>
                   </th>
                   <th className={`${STAT_BG} py-2 pr-4 font-medium`}>
                     {ko.report.stats.colMax}
-                    <HelpTip label={ko.report.stats.colMax}>{ko.glossary.max}</HelpTip>
+                    <HelpTip label={ko.report.stats.helpMax}>{ko.glossary.max}</HelpTip>
                   </th>
                   <th className={`${STAT_BG} py-2 pr-4 font-medium`}>
                     {ko.report.stats.colStdev}
-                    <HelpTip label={ko.report.stats.colStdev}>{ko.glossary.stdev}</HelpTip>
+                    <HelpTip label={ko.report.stats.helpStdev}>{ko.glossary.stdev}</HelpTip>
                   </th>
                 </>
               )}
