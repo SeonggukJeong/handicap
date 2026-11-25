@@ -4819,6 +4819,45 @@ steps:
         eprintln!("BENCH build_report avg {:?}", t.elapsed() / 10);
     }
 
+    /// 리포트 생성 시간 측정(단언 없음, ④a): N초(기본 600, `REPORT_TIMING_SECONDS`로 바꿈) × 스텝 10개
+    /// 행, 행마다 표본 100개(그중 실패 5개)의 `build_report` 5회 중앙값. 초별 합치기(`latency_by_second`)를
+    /// 더한 비용을 기준선과 비교할 때 쓴다. 기본값이 600초인 까닭: 창마다 풀어 둔 분포가 메모리에 남아
+    /// (600초 실측 최대 1.8 GB, 창 하나 약 300 KB) 3,600초는 10 GB를 넘는다.
+    #[test]
+    #[ignore]
+    fn report_build_timing() {
+        let secs: i64 = std::env::var("REPORT_TIMING_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(600);
+        let mut rows = Vec::with_capacity(secs as usize * 10);
+        for ts in 0..secs {
+            for s in 0..10_u64 {
+                let samples: Vec<u64> = (0..100_u64)
+                    .map(|i| 1_000 + (i * 997 + s * 31 + ts as u64 * 7) % 90_000)
+                    .collect();
+                rows.push(WindowWithHdr {
+                    failed_hdr_histogram: Some(make_hdr_bytes(&samples[..5])),
+                    ..win(ts, &format!("s{s:02}"), 100, 5, r#"{"200":100}"#, &samples)
+                });
+            }
+        }
+        let run = run_row();
+        report_with_run(&run, &rows, None);
+        let mut times: Vec<std::time::Duration> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                report_with_run(&run, &rows, None);
+                t.elapsed()
+            })
+            .collect();
+        times.sort();
+        eprintln!(
+            "TIMING build_report {secs}s x 10 steps median {:?} (runs {:?})",
+            times[2], times
+        );
+    }
+
     #[test]
     fn inconsistent_row_keeps_clean_rows_passed_value() {
         // 둘째 행은 실패한 요청(2ms 3개)이 전체 분포에 없다 — 합쳐서도 빼기가 안 된다.
