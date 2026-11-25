@@ -1,6 +1,11 @@
-import type { StepCriterionDraft } from "./profileForm";
+import { useId } from "react";
+import { ko } from "../../i18n/ko";
+import type { CriteriaErrors, StepCriterionDraft } from "./profileForm";
 
 const METRICS: { value: string; label: string; unit: "ms" | "%" | "" }[] = [
+  { value: "mean_ms", label: ko.criteria.stepMean, unit: "ms" },
+  { value: "max_ms", label: ko.criteria.stepMax, unit: "ms" },
+  { value: "percentile", label: ko.criteria.stepPercentile, unit: "ms" },
   { value: "p50_ms", label: "p50(ms)", unit: "ms" },
   { value: "p95_ms", label: "p95(ms)", unit: "ms" },
   { value: "p99_ms", label: "p99(ms)", unit: "ms" },
@@ -16,11 +21,13 @@ export type StepOption = { id: string; label: string };
 type Props = {
   value: StepCriterionDraft[];
   options: StepOption[];
+  errors: CriteriaErrors["steps"];
   onChange: (rows: StepCriterionDraft[]) => void;
 };
 
 /** 스텝별 SLO 기준 행 편집기(프레젠테이셔널). collapsible wrapper는 부모 소유. */
-export function StepCriteriaFields({ value, options, onChange }: Props) {
+export function StepCriteriaFields({ value, options, errors, onChange }: Props) {
+  const uid = useId();
   const update = (i: number, patch: Partial<StepCriterionDraft>) =>
     onChange(value.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const remove = (i: number) => onChange(value.filter((_, j) => j !== i));
@@ -40,66 +47,104 @@ export function StepCriteriaFields({ value, options, onChange }: Props) {
       ) : (
         <>
           {value.map((row, i) => {
+            const err = errors[i] ?? {};
             const unit = METRICS.find((m) => m.value === row.metric)?.unit ?? "";
             return (
-              <div
-                key={i}
-                role="group"
-                aria-label={`스텝 기준 ${i + 1}`}
-                className="mb-2 flex items-center gap-2"
-              >
-                <select
-                  aria-label={`스텝 ${i + 1}`}
-                  className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
-                  value={row.target}
-                  onChange={(e) => update(i, { target: e.target.value })}
+              <div key={i} className="mb-2">
+                <div
+                  role="group"
+                  aria-label={`스텝 기준 ${i + 1}`}
+                  className="flex items-center gap-2"
                 >
-                  {options.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label={`지표 ${i + 1}`}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
-                  value={row.metric}
-                  onChange={(e) => update(i, { metric: e.target.value })}
-                >
-                  {METRICS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label={`연산자 ${i + 1}`}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
-                  value={row.op}
-                  onChange={(e) => update(i, { op: e.target.value as "max" | "min" })}
-                >
-                  <option value="max">≤</option>
-                  <option value="min">≥</option>
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  {...(unit === "%" ? { max: "100" } : {})}
-                  step="any"
-                  aria-label={`임계값 ${i + 1}`}
-                  className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
-                  value={row.threshold}
-                  onChange={(e) => update(i, { threshold: e.target.value })}
-                />
-                {unit && <span className="text-xs text-slate-500">{unit}</span>}
-                <button
-                  type="button"
-                  aria-label={`스텝 기준 ${i + 1} 삭제`}
-                  className="shrink-0 text-slate-400 hover:text-red-600"
-                  onClick={() => remove(i)}
-                >
-                  ×
-                </button>
+                  <select
+                    aria-label={`스텝 ${i + 1}`}
+                    className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={row.target}
+                    onChange={(e) => update(i, { target: e.target.value })}
+                  >
+                    {options.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={`지표 ${i + 1}`}
+                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={row.metric}
+                    onChange={(e) =>
+                      update(i, {
+                        metric: e.target.value,
+                        ...(e.target.value === "percentile" && row.p.trim() === ""
+                          ? { p: "90" }
+                          : {}),
+                      })
+                    }
+                  >
+                    {METRICS.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  {row.metric === "percentile" && (
+                    <span className="flex items-center gap-1 text-sm">
+                      p
+                      <input
+                        type="number"
+                        step="any"
+                        aria-label={ko.criteria.stepPercentileAria(i + 1)}
+                        {...(err.p
+                          ? { "aria-invalid": true, "aria-describedby": `${uid}-sp${i}` }
+                          : {})}
+                        className="w-16 rounded border border-slate-300 px-2 py-1 text-sm"
+                        value={row.p}
+                        onChange={(e) => update(i, { p: e.target.value })}
+                      />
+                    </span>
+                  )}
+                  <select
+                    aria-label={`연산자 ${i + 1}`}
+                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={row.op}
+                    onChange={(e) => update(i, { op: e.target.value as "max" | "min" })}
+                  >
+                    <option value="max">≤</option>
+                    <option value="min">≥</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    {...(unit === "%" ? { max: "100" } : {})}
+                    step="any"
+                    aria-label={`임계값 ${i + 1}`}
+                    {...(err.threshold
+                      ? { "aria-invalid": true, "aria-describedby": `${uid}-st${i}` }
+                      : {})}
+                    className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+                    value={row.threshold}
+                    onChange={(e) => update(i, { threshold: e.target.value })}
+                  />
+                  {unit && <span className="text-xs text-slate-500">{unit}</span>}
+                  <button
+                    type="button"
+                    aria-label={`스텝 기준 ${i + 1} 삭제`}
+                    className="shrink-0 text-slate-400 hover:text-red-600"
+                    onClick={() => remove(i)}
+                  >
+                    ×
+                  </button>
+                </div>
+                {err.p && (
+                  <p id={`${uid}-sp${i}`} className="text-xs text-red-600">
+                    {err.p}
+                  </p>
+                )}
+                {err.threshold && (
+                  <p id={`${uid}-st${i}`} className="text-xs text-red-600">
+                    {err.threshold}
+                  </p>
+                )}
               </div>
             );
           })}

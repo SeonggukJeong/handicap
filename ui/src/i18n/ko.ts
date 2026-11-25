@@ -2740,6 +2740,20 @@ export const ko = {
       `p${n}${josa(`p${n}`, "은/는")} 위의 「최대 p${n}(ms)」 칸을 쓰세요.`,
     errPercentileDuplicate: (n: string) => `p${n} 기준이 이미 있습니다.`,
     errPercentilesMax: "백분위 기준은 10개까지입니다.",
+    meanLabel: "평균 응답 시간(ms)",
+    maxLabel: "최대 응답 시간(ms)",
+    meanHelp:
+      "평균은 느린 응답 몇 건이 있어도 낮게 나올 수 있습니다. 대부분의 사용자가 겪는 속도를 보려면 p95를 함께 거세요.",
+    percentilesTitle: "다른 백분위 기준 (선택)",
+    addPercentile: "+ 백분위 기준 추가",
+    percentileAria: (i: number) => `백분위 ${i}`,
+    percentileMsAria: (i: number) => `기준 ${i}`,
+    removePercentile: (i: number) => `백분위 기준 ${i} 삭제`,
+    stepMean: "평균(ms)",
+    stepMax: "최대(ms)",
+    stepPercentile: "백분위(ms)",
+    stepPercentileAria: (i: number) => `스텝 기준 ${i} 백분위`,
+    maxRowsHint: "백분위 기준은 10개까지 걸 수 있습니다",
   },
   print: {
     stair: {

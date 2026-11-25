@@ -647,8 +647,41 @@ describe("ScheduleForm — 새 판정 항목 다시 열기", () => {
       "aria-expanded",
       "true",
     );
+    expect(screen.getByLabelText("평균 응답 시간(ms)")).toHaveValue(3000);
+    expect(screen.getByLabelText("최대 응답 시간(ms)")).toHaveValue(10000.5);
+    expect(screen.getByLabelText("백분위 1")).toHaveValue(90);
+    expect(screen.getByLabelText("기준 1")).toHaveValue(2500);
+    expect(screen.getByLabelText("백분위 2")).toHaveValue(99.9);
+    expect(screen.getByLabelText("기준 2")).toHaveValue(8000);
     await user.click(screen.getByRole("button", { name: /저장/ }));
     expect(onSubmit.mock.calls[0][0].profile.criteria).toEqual(criteria);
+  });
+
+  it("새 스케줄: SLO 기준에 최대·백분위를 적어 저장한다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+      />,
+    );
+    await user.type(screen.getByLabelText(/이름/), "nightly");
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s1");
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ }));
+    await user.type(screen.getByLabelText("최대 응답 시간(ms)"), "10000");
+    await user.click(screen.getByRole("button", { name: "+ 백분위 기준 추가" }));
+    const p = screen.getByLabelText("백분위 1");
+    await user.clear(p);
+    await user.type(p, "99.9");
+    await user.type(screen.getByLabelText("기준 1"), "8000");
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].profile.criteria).toEqual({
+      max_max_ms: 10000,
+      max_percentiles_ms: [{ percentile: 99.9, max_ms: 8000 }],
+    });
   });
 
   it("시나리오를 바꾸면 step_criteria만 빠진다", async () => {

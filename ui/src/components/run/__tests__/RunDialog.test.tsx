@@ -4184,22 +4184,49 @@ describe("RunDialog — 새 판정 항목 다시 열기", () => {
   it("다시 실행 프리필 → 그대로 실행하면 같은 criteria, 판정·고급이 펼쳐져 있다", async () => {
     fetchMock.mockImplementation(() => jsonResponse(created));
     const user = userEvent.setup();
-    renderWithInitial({
-      profile: {
-        vus: 2,
-        duration_seconds: 5,
-        ramp_up_seconds: 0,
-        loop_breakdown_cap: 256,
-        http_timeout_seconds: 30,
-        measure_phases: false,
-        criteria,
+    renderWithInitial(
+      {
+        profile: {
+          vus: 2,
+          duration_seconds: 5,
+          ramp_up_seconds: 0,
+          loop_breakdown_cap: 256,
+          http_timeout_seconds: 30,
+          measure_phases: false,
+          criteria,
+        },
+        env: {},
+      } as RunPrefill,
+      {
+        scenario: {
+          ...newEmptyScenario("s"),
+          steps: [
+            {
+              id: "A",
+              name: "a",
+              type: "http",
+              request: { method: "GET", url: "http://x/a", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
       },
-      env: {},
-    } as RunPrefill);
+    );
     expect(screen.getByRole("button", { name: /판정·고급/ })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
+    // 칸에 값이 채워져 있다(조용히 버리지 않는다)
+    expect(screen.getByLabelText("평균 응답 시간(ms)")).toHaveValue(3000);
+    expect(screen.getByLabelText("최대 응답 시간(ms)")).toHaveValue(10000.5);
+    expect(screen.getByLabelText("백분위 1")).toHaveValue(90);
+    expect(screen.getByLabelText("기준 1")).toHaveValue(2500);
+    expect(screen.getByLabelText("백분위 2")).toHaveValue(99.9);
+    expect(screen.getByLabelText("지표 1")).toHaveValue("mean_ms");
+    expect(screen.getByLabelText("지표 2")).toHaveValue("percentile");
+    expect(screen.getByLabelText("스텝 기준 2 백분위")).toHaveValue(99.9);
+    expect(screen.getByLabelText("지표 3")).toHaveValue("p95_ms");
     await user.click(screen.getByRole("button", { name: "실행하기" }));
     await waitFor(() => expect(posted()).toBe(true));
     expect(postedCriteria()).toEqual(criteria);
@@ -4265,5 +4292,69 @@ describe("RunDialog — 새 판정 항목 다시 열기", () => {
     await user.click(screen.getByRole("button", { name: "실행하기" }));
     await waitFor(() => expect(posted()).toBe(true));
     expect(postedCriteria()).toEqual(criteria);
+  });
+});
+
+describe("RunDialog — 새 판정 항목 입력", () => {
+  const STEP = {
+    id: "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+    name: "결제",
+    type: "http" as const,
+    request: { method: "GET" as const, url: "http://x/a", headers: {} },
+    assert: [],
+    extract: [],
+  };
+  const scn: Scenario = { ...newEmptyScenario("s"), steps: [STEP] };
+  const created = {
+    id: "RX",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "pending",
+    profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+    env: {},
+    started_at: null,
+    ended_at: null,
+    created_at: 1,
+  };
+  const postCall = () =>
+    fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/api/runs") && (init as RequestInit | undefined)?.method === "POST",
+    );
+  const postedProfile = () => JSON.parse((postCall()![1] as RequestInit).body as string).profile;
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(() => jsonResponse(created));
+  });
+
+  it("평균·백분위·스텝 새 항목을 입력해 실행하면 와이어에 실린다", async () => {
+    const user = userEvent.setup();
+    renderDialog(false, scn);
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText("평균 응답 시간(ms)"), "3000");
+    await user.click(screen.getByRole("button", { name: "+ 백분위 기준 추가" }));
+    await user.type(screen.getByLabelText("기준 1"), "2500");
+    await user.click(screen.getByRole("button", { name: "+ 스텝 기준 추가" }));
+    await user.selectOptions(screen.getByLabelText("지표 1"), "백분위(ms)");
+    await user.type(screen.getByLabelText("임계값 1"), "1200");
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(postCall()).toBeDefined());
+    expect(postedProfile().criteria).toEqual({
+      max_mean_ms: 3000,
+      max_percentiles_ms: [{ percentile: 90, max_ms: 2500 }],
+      step_criteria: [{ target: STEP.id, metric: "p90_ms", op: "max", threshold: 1200 }],
+    });
+  });
+
+  it("추가만 한 백분위 행(기준 빈칸)은 보내지 않는다", async () => {
+    const user = userEvent.setup();
+    renderDialog(false, scn);
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.click(screen.getByRole("button", { name: "+ 백분위 기준 추가" }));
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(postCall()).toBeDefined());
+    expect(postedProfile()).not.toHaveProperty("criteria");
   });
 });

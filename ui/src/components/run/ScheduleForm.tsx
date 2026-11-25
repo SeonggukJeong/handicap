@@ -24,6 +24,7 @@ import { CriteriaFields } from "./CriteriaFields";
 import {
   buildProfile as buildProfileShared,
   criteriaStateFrom,
+  criteriaErrors,
   criteriaHasValue,
   criteriaActiveCount,
   isConnectTimeoutDraftInvalid,
@@ -133,6 +134,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const [criteria, setCriteriaState] = useState<CriteriaState>(initCriteria);
   const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initCriteria));
 
+  const criteriaErrs = useMemo(() => criteriaErrors(criteria), [criteria]);
   const stepOptions = useMemo<StepOption[]>(() => {
     if (!parsedScenario) return [];
     return flattenHttpSteps(parsedScenario.steps).map((s) => ({
@@ -407,10 +409,16 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         divider
         hint={!sloOpen && sloActiveCount > 0 ? `${sloActiveCount}개 설정됨` : undefined}
       >
-        <CriteriaFields value={criteria} onChange={setCriteria} />
+        <CriteriaFields
+          value={criteria}
+          errors={criteriaErrs}
+          onChange={setCriteria}
+          onPercentilesChange={(rows) => setCriteriaState((c) => ({ ...c, percentiles: rows }))}
+        />
         <StepCriteriaFields
           value={criteria.stepCriteria}
           options={stepOptions}
+          errors={criteriaErrs.steps}
           onChange={(rows) => setCriteriaState((c) => ({ ...c, stepCriteria: rows }))}
         />
       </Section>

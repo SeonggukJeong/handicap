@@ -49,6 +49,7 @@ import {
   type CriteriaState,
   type StringCriteriaKey,
   criteriaStateFrom,
+  criteriaErrors,
   criteriaHasValue,
   criteriaActiveCount,
   isConnectTimeoutDraftInvalid,
@@ -370,6 +371,7 @@ export function RunDialog({
     }
   }, [mutation.error]);
 
+  const criteriaErrs = useMemo(() => criteriaErrors(criteria), [criteria]);
   const stepOptions = useMemo<StepOption[]>(() => {
     if (!scenario) return [];
     return flattenHttpSteps(scenario.steps).map((s) => ({
@@ -911,10 +913,16 @@ export function RunDialog({
               {ko.runDialog.sectionSlo}
               <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
             </h4>
-            <CriteriaFields value={criteria} onChange={setCriteria} />
+            <CriteriaFields
+              value={criteria}
+              errors={criteriaErrs}
+              onChange={setCriteria}
+              onPercentilesChange={(rows) => setCriteriaState((c) => ({ ...c, percentiles: rows }))}
+            />
             <StepCriteriaFields
               value={criteria.stepCriteria}
               options={stepOptions}
+              errors={criteriaErrs.steps}
               onChange={(rows) => setCriteriaState((c) => ({ ...c, stepCriteria: rows }))}
             />
 
