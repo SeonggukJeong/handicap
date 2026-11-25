@@ -119,4 +119,10 @@ describe("CriteriaFields — 새 판정 항목", () => {
       "aria-describedby",
     );
   });
+
+  it("백분위 N·기준 칸이 극단값(99.999·59999.999)이 잘리지 않을 폭이다", () => {
+    setup({ percentiles: [{ p: "99.999", ms: "59999.999" }] });
+    expect(screen.getByLabelText("백분위 1").className).toContain("w-[88px]");
+    expect(screen.getByLabelText("기준 1").className).toContain("w-32");
+  });
 });

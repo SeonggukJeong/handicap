@@ -54,11 +54,11 @@ export function StepCriteriaFields({ value, options, errors, onChange }: Props) 
                 <div
                   role="group"
                   aria-label={`스텝 기준 ${i + 1}`}
-                  className="flex items-center gap-2"
+                  className="flex flex-wrap items-center gap-2"
                 >
                   <select
                     aria-label={`스텝 ${i + 1}`}
-                    className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="min-w-[12rem] flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
                     value={row.target}
                     onChange={(e) => update(i, { target: e.target.value })}
                   >
@@ -97,7 +97,7 @@ export function StepCriteriaFields({ value, options, errors, onChange }: Props) 
                         {...(err.p
                           ? { "aria-invalid": true, "aria-describedby": `${uid}-sp${i}` }
                           : {})}
-                        className="w-16 rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="w-[88px] rounded border border-slate-300 px-2 py-1 text-sm"
                         value={row.p}
                         onChange={(e) => update(i, { p: e.target.value })}
                       />
@@ -121,7 +121,7 @@ export function StepCriteriaFields({ value, options, errors, onChange }: Props) 
                     {...(err.threshold
                       ? { "aria-invalid": true, "aria-describedby": `${uid}-st${i}` }
                       : {})}
-                    className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="w-32 rounded border border-slate-300 px-2 py-1 text-sm"
                     value={row.threshold}
                     onChange={(e) => update(i, { threshold: e.target.value })}
                   />

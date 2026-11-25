@@ -152,4 +152,23 @@ describe("StepCriteriaFields — 새 항목", () => {
     expect(screen.getByLabelText("스텝 기준 1 백분위")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("임계값 1")).toHaveAttribute("aria-invalid", "true");
   });
+
+  it("스텝 기준 행은 줄바꿈하고 스텝 선택은 12rem 밑으로 줄지 않으며 숫자 칸은 넓다", () => {
+    render(
+      <StepCriteriaFields
+        value={[
+          { target: "A", metric: "percentile", op: "max", threshold: "59999.999", p: "99.999" },
+        ]}
+        options={opts}
+        errors={[]}
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole("group", { name: "스텝 기준 1" }).className).toContain("flex-wrap");
+    const sel = screen.getByLabelText("스텝 1").className;
+    expect(sel).toContain("min-w-[12rem]");
+    expect(sel).not.toContain("min-w-0");
+    expect(screen.getByLabelText("스텝 기준 1 백분위").className).toContain("w-[88px]");
+    expect(screen.getByLabelText("임계값 1").className).toContain("w-32");
+  });
 });
