@@ -4,7 +4,7 @@ import { StepLatencyRows, StepLatencyTitle } from "../components/StepLatencyAppe
 import { sparkPath } from "../../report/sparkPath";
 import { ko } from "../../i18n/ko";
 import type { StepLatModel } from "../stepLatencyAppendix";
-import type { ChartModel } from "../chartModel";
+import { fmtElapsed, type ChartModel } from "../chartModel";
 
 const model = (capped: boolean): StepLatModel => {
   const cards = [
@@ -32,7 +32,7 @@ describe("StepLatencyAppendix", () => {
     );
     expect(screen.getByText("① 로그인")).toBeTruthy();
     expect(screen.getByText(ko.print.stepLat.noData)).toBeTruthy();
-    const box = { xMax: 6, yMax: 40, x0: 6, x1: 84, yTop: 2, yBottom: 22 };
+    const box = { xMax: 6, yMax: 40, x0: 10, x1: 84, yTop: 2, yBottom: 22 };
     const want = [
       sparkPath(
         [
@@ -65,5 +65,31 @@ describe("StepLatencyAppendix", () => {
     a.unmount();
     const b = render(<StepLatencyTitle model={model(false)} title="부록. X" continued={false} />);
     expect(b.container.textContent).not.toContain(ko.print.latencyChart.capped);
+  });
+  it("세로 눈금 글자는 x=9에 끝을 맞추고 기준선은 x0(10)부터", () => {
+    const { container } = render(
+      <StepLatencyRows model={model(false)} chart={chart} from={0} to={1} />,
+    );
+    const ys = [...container.querySelectorAll("svg text")].filter((t) =>
+      ["3", "22.5"].includes(t.getAttribute("y") ?? ""),
+    );
+    expect(ys.length).toBe(4);
+    for (const t of ys) {
+      expect(t.getAttribute("x")).toBe("9");
+      expect(t.getAttribute("text-anchor")).toBe("end");
+    }
+    expect(container.querySelector("svg line")?.getAttribute("x1")).toBe("10");
+  });
+  it("오른쪽 끝(8mm 안) 시간 눈금은 끝 맞춤", () => {
+    const c90 = { durationSec: 90, timeTicks: [0, 30, 60, 90] } as unknown as ChartModel;
+    const { container } = render(
+      <StepLatencyRows model={model(false)} chart={c90} from={0} to={1} />,
+    );
+    const first = container.querySelector("svg")!;
+    const last = [...first.querySelectorAll("text")].find((t) => t.textContent === fmtElapsed(90))!;
+    expect(last.getAttribute("text-anchor")).toBe("end");
+    expect(last.getAttribute("x")).toBe("84");
+    const mid = [...first.querySelectorAll("text")].find((t) => t.textContent === fmtElapsed(30))!;
+    expect(mid.getAttribute("text-anchor")).toBe("middle");
   });
 });

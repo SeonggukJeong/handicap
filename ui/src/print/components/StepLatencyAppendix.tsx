@@ -5,7 +5,7 @@ import { MEASURE_IDS } from "../buildPrintDoc";
 import type { StepLatCard, StepLatModel } from "../stepLatencyAppendix";
 
 const K = ko.print.stepLat;
-const X0 = 6;
+const X0 = 10;
 const X1 = 84;
 const Y_TOP = 2;
 const Y_BOTTOM = 22;
@@ -64,22 +64,21 @@ function Card({
       <svg viewBox="0 0 88 26" width="88mm" height="26mm" role="img" aria-label={card.title}>
         <line x1={X0} x2={X1} y1={Y_BOTTOM} y2={Y_BOTTOM} stroke="#999" strokeWidth={0.3} />
         <g fontSize={2.2} fill="#5b6170">
-          <text x={5} y={3} textAnchor="end">
+          <text x={X0 - 1} y={3} textAnchor="end">
             {tickText(yMax)}
           </text>
-          <text x={5} y={22.5} textAnchor="end">
+          <text x={X0 - 1} y={22.5} textAnchor="end">
             0
           </text>
-          {chart.timeTicks.map((t) => (
-            <text
-              key={t}
-              x={r2(X0 + (t / Math.max(chart.durationSec, 1)) * (X1 - X0))}
-              y={25}
-              textAnchor="middle"
-            >
-              {fmtElapsed(t)}
-            </text>
-          ))}
+          {chart.timeTicks.map((t) => {
+            const x = r2(X0 + (t / Math.max(chart.durationSec, 1)) * (X1 - X0));
+            const atEnd = x > X1 - 8;
+            return (
+              <text key={t} x={atEnd ? X1 : x} y={25} textAnchor={atEnd ? "end" : "middle"}>
+                {fmtElapsed(t)}
+              </text>
+            );
+          })}
         </g>
         {card.hasData ? (
           <path

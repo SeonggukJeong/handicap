@@ -706,3 +706,52 @@ describe("단계별 평균 응답 시간 부록 블록·번호", () => {
     expect(s.appendixRef(null)).toBe("부록");
   });
 });
+
+describe("buildPrintDoc 단계별 평균 응답 시간 부록(끝까지)", () => {
+  const t0s = 1_700_000_000;
+  const criteria = {
+    max_p50_ms: 100,
+    max_p99_ms: 5000,
+    max_4xx_rate: 0.5,
+    max_5xx_rate: 0.5,
+    max_4xx_count: 100000,
+    max_5xx_count: 100000,
+    min_window_rps: 1,
+  };
+  const win = (sec: number, step: string, mean_us: number) => ({
+    ts_second: t0s + sec,
+    step_id: step,
+    count: 10,
+    error_count: 0,
+    status_counts: { "200": 10 },
+    p50_ms: 5,
+    p95_ms: 9,
+    p99_ms: 9,
+    n: 10,
+    mean_us,
+  });
+  const verdict = {
+    passed: false,
+    criteria: [{ metric: "p50_ms", direction: "max", threshold: 100, actual: 500, passed: false }],
+  } as Report["verdict"];
+
+  it("창이 있고 기준 행이 넘치면 stepLat 있음 + 부록 1·2", () => {
+    const rep = mkReport(2, {
+      windows: [win(0, "s0", 12000), win(1, "s1", 30000)],
+      verdict,
+    });
+    rep.run = { ...rep.run, profile: { ...profile, criteria } as Report["run"]["profile"] };
+    const doc = build(mkRun({ profile: { ...profile, criteria } as Run["profile"] }), rep);
+    expect(doc.otherRows.length).toBeGreaterThan(6);
+    expect(doc.stepLat).not.toBeNull();
+    expect(doc.stepLat!.cards.length).toBe(2);
+    expect(doc.appendixNo).toEqual({ other: "1", stepLat: "2" });
+  });
+  it("창이 없으면 stepLat null, 기준 행이 넘쳐도 번호 없음", () => {
+    const rep = mkReport(2, { windows: [], verdict });
+    rep.run = { ...rep.run, profile: { ...profile, criteria } as Report["run"]["profile"] };
+    const doc = build(mkRun({ profile: { ...profile, criteria } as Run["profile"] }), rep);
+    expect(doc.stepLat).toBeNull();
+    expect(doc.appendixNo).toEqual({ other: null, stepLat: null });
+  });
+});
