@@ -370,7 +370,6 @@ export function RunDialog({
     }
   }, [mutation.error]);
 
-  // Assemble criteria early so criteriaActiveCount can be computed below.
   const stepOptions = useMemo<StepOption[]>(() => {
     if (!scenario) return [];
     return flattenHttpSteps(scenario.steps).map((s) => ({

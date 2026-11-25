@@ -218,7 +218,8 @@ export function criteriaErrors(s: CriteriaState): CriteriaErrors {
   });
   const steps = s.stepCriteria.map((r) => {
     const out: { p?: string; threshold?: string } = {};
-    if (r.threshold.trim() === "") return out; // 보내지 않는 행
+    // 보내지 않는 행(buildCriteria와 같은 조건) — 검사도 하지 않는다
+    if (r.target.trim() === "" || r.threshold.trim() === "") return out;
     if (r.metric === PERCENTILE_MARK) {
       const res = percentileNameError(r.p);
       if ("error" in res) out.p = res.error;

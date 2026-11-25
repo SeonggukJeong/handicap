@@ -444,6 +444,14 @@ describe("새 판정 항목", () => {
       expect(e(st("mean_ms", "", "0.0005")).threshold).toBe(ko.criteria.errTime);
       expect(e(st("p95_ms", "", "70000")).threshold).toBeUndefined();
       expect(e(st("max_ms", "", "")).threshold).toBeUndefined();
+      // 대상이 빈 행은 보내지 않으므로 검사도 하지 않는다
+      const noTarget = (r: ReturnType<typeof st>) => ({ ...r, target: "" });
+      expect(hasCriteriaErrors(err({ stepCriteria: [noTarget(st("mean_ms", "", "70000"))] }))).toBe(
+        false,
+      );
+      expect(hasCriteriaErrors(err({ stepCriteria: [noTarget(st("percentile", "", "5"))] }))).toBe(
+        false,
+      );
     });
     it("hasCriteriaErrors", () => {
       expect(hasCriteriaErrors(criteriaErrors(EMPTY_CRITERIA))).toBe(false);
