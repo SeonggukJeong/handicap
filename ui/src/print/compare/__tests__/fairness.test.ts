@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ko } from "../../../i18n/ko";
 import { ReportSchema, type Report } from "../../../api/schemas";
 import { buildRunModel, type RunModel } from "../runModel";
 import { buildFairness, deepEqualLoose, stripScenarioNames, type Fairness } from "../fairness";
@@ -19,6 +20,7 @@ type Opts = {
   basis?: Report["basis"];
   sample?: Report["sample"];
   statusRule?: 1 | 2;
+  latencyRule?: 1 | 2;
 };
 
 function model(id: string, o: Opts = {}): RunModel {
@@ -35,6 +37,7 @@ function model(id: string, o: Opts = {}): RunModel {
     basis: o.basis,
     sample: o.sample,
     statusRule: o.statusRule,
+    latencyRule: o.latencyRule,
   });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(id, { status: o.status ?? "completed", ...o.meta }), report);
@@ -558,12 +561,12 @@ describe("상태 코드 규칙 안내", () => {
   const text =
     "선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.";
   it("규칙이 다르면 안내 한 줄이 생긴다", () => {
-    expect(fair({ statusRule: 2 }, {}).statusRuleLine).toBe(text);
-    expect(fair({ statusRule: 1 }, { statusRule: 2 }).statusRuleLine).toBe(text);
+    expect(fair({ statusRule: 2 }, {}).ruleLine).toBe(text);
+    expect(fair({ statusRule: 1 }, { statusRule: 2 }).ruleLine).toBe(text);
   });
   it("같으면 null", () => {
-    expect(fair({ statusRule: 2 }, { statusRule: 2 }).statusRuleLine).toBeNull();
-    expect(fair({}, {}).statusRuleLine).toBeNull();
+    expect(fair({ statusRule: 2 }, { statusRule: 2 }).ruleLine).toBeNull();
+    expect(fair({}, {}).ruleLine).toBeNull();
   });
 });
 
@@ -674,7 +677,7 @@ describe("규칙 차이를 다른 조건으로 (R26 보강)", () => {
     expect(f.diffNames).toContain("오류 집계 규칙");
     expect(f.anyDiff).toBe(true);
     expect(f.cards.every((c) => c.same)).toBe(true);
-    expect(f.statusRuleLine).not.toBeNull();
+    expect(f.ruleLine).not.toBeNull();
     expect(f.condRows[f.condRows.length - 1]).toEqual({
       label: "오류 집계 규칙",
       before: "검사 없는 스텝은 모두 통과",
@@ -704,6 +707,41 @@ describe("규칙 차이를 다른 조건으로 (R26 보강)", () => {
     );
     expect(f.diffNames[0]).toBe("오류 집계 규칙");
     expect(f.diffNames.length).toBeGreaterThan(2);
+  });
+});
+
+describe("응답 시간 규칙 차이", () => {
+  const C = ko.print.cmp.cond;
+  const F = ko.print.cmp.fair;
+  it("응답 시간 규칙만 다르면 행·이름·안내가 생긴다", () => {
+    const f = fair({ latencyRule: 2 }, {});
+    expect(f.condRows).toContainEqual({
+      label: "응답 시간 판정 규칙",
+      before: C.latencyRuleText[2],
+      after: C.latencyRuleText[1],
+      differs: true,
+    });
+    expect(f.diffNames[0]).toBe(F.latencyRuleName);
+    expect(f.ruleLine).toBe(ko.compare.latencyRuleNotice);
+  });
+  it("둘 다 2면 행·이름이 없다", () => {
+    const f = fair({ latencyRule: 2 }, { latencyRule: 2 });
+    expect(f.condRows.some((x) => x.label === "응답 시간 판정 규칙")).toBe(false);
+    expect(f.diffNames).not.toContain(F.latencyRuleName);
+    expect(f.ruleLine).toBeNull();
+  });
+  it("상태 코드 규칙만 다르면 지금처럼", () => {
+    const f = fair({ statusRule: 2 }, {});
+    expect(f.diffNames[0]).toBe(F.statusRuleName);
+  });
+  it("둘 다 다르면 이름은 「판정 규칙」 하나, 행은 둘, 안내는 한 문장", () => {
+    const f = fair({ statusRule: 2, latencyRule: 2 }, {});
+    expect(f.diffNames[0]).toBe(F.rulesName);
+    expect(f.diffNames).not.toContain(F.statusRuleName);
+    expect(f.diffNames).not.toContain(F.latencyRuleName);
+    expect(f.ruleLine).toBe(ko.compare.bothRulesNotice);
+    expect(f.condRows.some((x) => x.label === "오류 집계 규칙")).toBe(true);
+    expect(f.condRows.some((x) => x.label === "응답 시간 판정 규칙")).toBe(true);
   });
 });
 

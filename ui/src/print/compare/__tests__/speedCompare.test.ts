@@ -42,6 +42,24 @@ function expectClean(v: unknown, path = "$"): void {
   }
 }
 
+describe("buildSpeedCompare 응답 시간 규칙", () => {
+  const withRule = (id: string, rule?: 1 | 2): RunModel => {
+    const m = sceneModel({ id, latencyRule: rule, summary: { count: 1000, errors: 0 } });
+    const overall = { ...b3(43), ...(rule === 2 ? { slow_us: 43_000 } : {}) };
+    return { ...m, report: { ...m.report, speed_bands: { overall, steps: [] } } };
+  };
+  it("경계가 같아도 규칙이 다르면 같지 않고 규칙 경고가 뜬다", () => {
+    const m = buildSpeedCompare(withRule("b"), withRule("a", 2))!;
+    expect(m.same).toBe(false);
+    expect(m.warn).toBe(ko.print.cmp.speed.warnRule);
+  });
+  it("둘 다 규칙 2·같은 경계면 같다", () => {
+    const m = buildSpeedCompare(withRule("b", 2), withRule("a", 2))!;
+    expect(m.same).toBe(true);
+    expect(m.warn).toBeNull();
+  });
+});
+
 describe("buildSpeedCompare slow_us", () => {
   it("slow_us 43,500 vs 43,000은 경계가 다르다고 본다(slow_ms는 같다)", () => {
     const m = buildSpeedCompare(

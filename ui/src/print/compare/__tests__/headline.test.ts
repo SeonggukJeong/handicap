@@ -685,6 +685,16 @@ describe("cmpSummaryLines 4번 줄·비교 불가", () => {
     expect(s.byId(4) ?? "").toContain("오류 집계 규칙");
   });
 
+  it("두 규칙이 다 다르고 부하 크기도 다르면 4번 줄에 판정 규칙과 부하 이름이 함께 보인다", () => {
+    const s = scene(
+      { summary: BEFORE, statusRule: 1, latencyRule: 1 },
+      { summary: AFTER_GOOD, statusRule: 2, latencyRule: 2, profile: critProfile({ vus: 20 }) },
+    );
+    const t = s.byId(4) ?? "";
+    expect(t).toContain("판정 규칙");
+    expect(t).toContain("부하");
+  });
+
   it("4번 줄 조사는 마지막 항목 이름의 받침을 따른다", () => {
     const crit = scene(
       { summary: BEFORE },

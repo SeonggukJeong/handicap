@@ -1,7 +1,14 @@
 // 응답 속도 구간 비교 모델(순수): 두 측정의 전체 요청 구간을 한 표로. spec §9.4.
+import { reportLatencyRule } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { fmtBoundary, fmtPct } from "../format";
-import { boundaryMs, buildOverallBand, rowTotal, type BandName, type OverallBand } from "../speedBands";
+import {
+  boundaryMs,
+  buildOverallBand,
+  rowTotal,
+  type BandName,
+  type OverallBand,
+} from "../speedBands";
 import type { RunModel } from "./runModel";
 
 const K = ko.print.speed;
@@ -40,7 +47,9 @@ function row(
     boundary,
     band,
     merged,
-    mergedText: merged ? K.withinMerged(fmtBoundary(boundaryMs(o)), fmtPct(o.within / total)) : null,
+    mergedText: merged
+      ? K.withinMerged(fmtBoundary(boundaryMs(o)), fmtPct(o.within / total))
+      : null,
   };
 }
 
@@ -48,8 +57,12 @@ export function buildSpeedCompare(before: RunModel, after: RunModel): SpeedCompa
   const b = before.report.speed_bands?.overall;
   const a = after.report.speed_bands?.overall;
   if (!b || !a) return null;
-  const same =
-    boundaryMs(b) === boundaryMs(a) && b.basis === a.basis && (b.fast === null) === (a.fast === null);
+  const ruleSame = reportLatencyRule(before.report) === reportLatencyRule(after.report);
+  const sameBounds =
+    boundaryMs(b) === boundaryMs(a) &&
+    b.basis === a.basis &&
+    (b.fast === null) === (a.fast === null);
+  const same = sameBounds && ruleSame;
   const threeCols = b.fast !== null || a.fast !== null;
   const B = fmtBoundary(boundaryMs(b));
   const head: SpeedCompare["head"] = same
@@ -79,6 +92,6 @@ export function buildSpeedCompare(before: RunModel, after: RunModel): SpeedCompa
       row(ko.print.cmp.doc.roleAfter, after, a, show),
     ],
     legend,
-    warn: same ? null : C.warn,
+    warn: same ? null : sameBounds ? C.warnRule : C.warn,
   };
 }

@@ -1,8 +1,8 @@
 import { sampleNotice } from "../../compare/sampleNotice";
-import { statusRuleNotice } from "../../compare/statusRuleNotice";
+import { ruleNotice } from "../../compare/statusRuleNotice";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo } from "../../i18n/duration";
-import { reportStatusRule, type Profile } from "../../api/schemas";
+import { reportLatencyRule, reportStatusRule, type Profile } from "../../api/schemas";
 import { profileDurationSeconds, seedBindingsFrom } from "../../api/runPrefill";
 import { deriveLoadMode, fixedTarget } from "../../components/run/loadModel";
 import { conditionsBox, rampSeconds } from "../conditions";
@@ -24,7 +24,7 @@ export type Fairness = {
   condRows: CondRow[];
   /** 두 측정의 응답 시간 표본이 달라 숫자를 그대로 비교하기 어렵다는 안내. */
   sampleLine: string | null;
-  statusRuleLine: string | null;
+  ruleLine: string | null;
 };
 
 const F = ko.print.cmp.fair;
@@ -564,7 +564,21 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
   const diffNames = cards.filter((c) => !c.same).map((c) => c.title);
   if (statusLines.length > 0) diffNames.push(F.statusName);
   const ruleDiffers = rules.before !== rules.after;
-  if (ruleDiffers) diffNames.unshift(F.statusRuleName);
+  const latencyRules = {
+    before: reportLatencyRule(before.report),
+    after: reportLatencyRule(after.report),
+  };
+  const latencyDiffers = latencyRules.before !== latencyRules.after;
+  // 둘 다 다르면 이름 하나로 — 머리말은 앞 두 이름만 쓴다(옛↔새 run은 늘 둘 다 다르다).
+  const ruleName =
+    ruleDiffers && latencyDiffers
+      ? F.rulesName
+      : ruleDiffers
+        ? F.statusRuleName
+        : latencyDiffers
+          ? F.latencyRuleName
+          : null;
+  if (ruleName) diffNames.unshift(ruleName);
 
   const condRows: CondRow[] = [];
   const addRow = (
@@ -643,6 +657,15 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
       false,
     );
   }
+  if (latencyDiffers) {
+    addRow(
+      C.latencyRule,
+      C.latencyRuleText[latencyRules.before],
+      C.latencyRuleText[latencyRules.after],
+      true,
+      false,
+    );
+  }
 
   const same = cards.filter((c) => c.same).map((c) => c.title);
   const diff = cards.filter((c) => !c.same).map((c) => c.title);
@@ -655,6 +678,6 @@ export function buildFairness(before: RunModel, after: RunModel): Fairness {
     oneLine: F.oneLine(same, diff),
     condRows,
     sampleLine: sampleNotice([before.report, after.report]),
-    statusRuleLine: statusRuleNotice([before.report, after.report]),
+    ruleLine: ruleNotice([before.report, after.report]),
   };
 }

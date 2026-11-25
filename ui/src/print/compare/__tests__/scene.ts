@@ -16,6 +16,7 @@ export type SceneRun = {
   meta?: Partial<RunMeta>;
   sample?: Report["sample"];
   statusRule?: 1 | 2;
+  latencyRule?: 1 | 2;
 };
 
 const DEFAULT_STEPS: StepSpec[] = [{ id: "s1", name: "접수", assert: [200] }];
@@ -32,6 +33,7 @@ export function sceneModel(o: SceneRun): RunModel {
     env: o.env,
     sample: o.sample,
     statusRule: o.statusRule,
+    latencyRule: o.latencyRule,
   });
   expect(ReportSchema.safeParse(report).success).toBe(true);
   return buildRunModel(mkMeta(o.id, o.meta), report);

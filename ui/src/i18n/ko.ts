@@ -2238,6 +2238,10 @@ export const ko = {
       "고른 run 중 일부는 실패한 요청을 포함해 응답 시간을 계산했습니다. 응답 시간을 그대로 비교하기 어렵습니다.",
     statusRuleNotice:
       "선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았습니다 — 오류율을 그대로 견주지 마세요.",
+    latencyRuleNotice:
+      "선택한 run 가운데 응답 시간 판정 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 응답 시간 기준을 ms 정수로 내려 비교했습니다(예: 43.9 ms가 「≤ 43 ms」를 통과) — 기준 ±1 ms 안쪽의 판정과 응답 속도 구간 건수를 그대로 견주지 마세요.",
+    bothRulesNotice:
+      "선택한 run 가운데 판정 규칙이 다른 run이 있습니다. 이 변경 전에 실행한 run은 상태 코드 검사가 없는 스텝의 4xx·5xx를 오류로 세지 않았고, 응답 시간 기준을 ms 정수로 내려 비교했습니다 — 오류율과 기준 ±1 ms 안쪽의 판정을 그대로 견주지 마세요.",
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,
@@ -2821,6 +2825,8 @@ export const ko = {
         },
         statusName: "측정 상태",
         statusRuleName: "오류 집계 규칙",
+        latencyRuleName: "응답 시간 판정 규칙",
+        rulesName: "판정 규칙",
         checkModeNames: {
           legacyNone: "검사 없음",
           default: "400 이상은 오류",
@@ -2882,6 +2888,11 @@ export const ko = {
         differsTag: " · 다름",
         unreadable: "읽을 수 없음",
         statusRule: "오류 집계 규칙",
+        latencyRule: "응답 시간 판정 규칙",
+        latencyRuleText: {
+          1: "ms 정수로 내려 비교",
+          2: "µs까지 정확히 비교",
+        } as Record<1 | 2, string>,
         statusRuleText: {
           1: "검사 없는 스텝은 모두 통과",
           2: "검사 없는 스텝은 400 이상이 오류",
@@ -2966,6 +2977,8 @@ export const ko = {
         colRun: "측정",
         boundary: (b: string) => `${b} 기준`,
         warn: "▲ 두 측정의 응답 시간 기준이 달라 구간을 그대로 비교할 수 없습니다.",
+        warnRule:
+          "▲ 두 측정은 응답 시간 경계를 세는 규칙이 달라(이전 run은 ms 정수로 내려 셈) 구간을 그대로 비교할 수 없습니다.",
       },
       star: {
         before: "이전",

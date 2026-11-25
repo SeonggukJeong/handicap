@@ -41,7 +41,7 @@ export function FairCards({
         </div>
         <StatusLines lines={fairness.statusLines} />
         <SampleLine text={fairness.sampleLine} />
-        <RuleLine text={fairness.statusRuleLine} />
+        <RuleLine text={fairness.ruleLine} />
       </section>
     );
   }
@@ -60,7 +60,7 @@ export function FairCards({
       </div>
       <StatusLines lines={fairness.statusLines} />
       <SampleLine text={fairness.sampleLine} />
-      <RuleLine text={fairness.statusRuleLine} />
+      <RuleLine text={fairness.ruleLine} />
     </section>
   );
 }
