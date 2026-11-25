@@ -4289,6 +4289,25 @@ steps:
     }
 
     #[test]
+    fn latency_by_second_follows_sample() {
+        let rows = vec![
+            step_win(100, "A", 0, &[1000, 1000], &[]),
+            step_win(101, "A", 2, &[1000, 3000], &[1000, 3000]),
+        ];
+        let passed = report_with(&rows, None);
+        assert_eq!(passed.latency_by_second[1].n, 0);
+        assert_eq!(passed.latency_by_second[1].mean_us, None);
+        let all = report_with(&rows, Some(crate::sample::Sample::All));
+        let s = &all.latency_by_second[1];
+        assert_eq!(s.ts_second, 101);
+        assert_eq!(s.n, 2);
+        // 3000µs는 칸 중간값 3001로 센다: (1000 + 3001) / 2 = 2000.5 → 2001.
+        assert_eq!(s.mean_us, Some(2001));
+        assert_eq!(s.p95_us, Some(3001));
+        assert_eq!(all.latency_by_second[0].n, 2);
+    }
+
+    #[test]
     fn latency_by_second_skips_broken_window() {
         let mut broken = step_win(100, "B", 0, &[5000], &[]);
         broken.hdr_histogram = vec![0xff; 4];
