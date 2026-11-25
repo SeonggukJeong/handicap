@@ -92,7 +92,7 @@ export function CriteriaFields({ value, errors, onChange, onPercentilesChange }:
                   step="any"
                   aria-label={ko.criteria.percentileAria(i + 1)}
                   {...(e.p ? { "aria-invalid": true, "aria-describedby": `${uid}-pp${i}` } : {})}
-                  className={`w-[88px] ${NUM}`}
+                  className={`w-24 ${NUM}`}
                   value={row.p}
                   onChange={(ev) => updateRow(i, { p: ev.target.value })}
                 />
@@ -104,7 +104,7 @@ export function CriteriaFields({ value, errors, onChange, onPercentilesChange }:
                   step="any"
                   aria-label={ko.criteria.percentileMsAria(i + 1)}
                   {...(e.ms ? { "aria-invalid": true, "aria-describedby": `${uid}-pm${i}` } : {})}
-                  className={`w-32 ${NUM}`}
+                  className={`w-36 ${NUM}`}
                   value={row.ms}
                   onChange={(ev) => updateRow(i, { ms: ev.target.value })}
                 />

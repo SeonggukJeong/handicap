@@ -168,7 +168,7 @@ describe("StepCriteriaFields — 새 항목", () => {
     const sel = screen.getByLabelText("스텝 1").className;
     expect(sel).toContain("min-w-[12rem]");
     expect(sel).not.toContain("min-w-0");
-    expect(screen.getByLabelText("스텝 기준 1 백분위").className).toContain("w-[88px]");
-    expect(screen.getByLabelText("임계값 1").className).toContain("w-32");
+    expect(screen.getByLabelText("스텝 기준 1 백분위").className).toContain("w-24");
+    expect(screen.getByLabelText("임계값 1").className).toContain("w-36");
   });
 });

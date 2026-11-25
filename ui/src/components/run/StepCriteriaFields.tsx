@@ -97,7 +97,7 @@ export function StepCriteriaFields({ value, options, errors, onChange }: Props) 
                         {...(err.p
                           ? { "aria-invalid": true, "aria-describedby": `${uid}-sp${i}` }
                           : {})}
-                        className="w-[88px] rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
                         value={row.p}
                         onChange={(e) => update(i, { p: e.target.value })}
                       />
@@ -121,7 +121,7 @@ export function StepCriteriaFields({ value, options, errors, onChange }: Props) 
                     {...(err.threshold
                       ? { "aria-invalid": true, "aria-describedby": `${uid}-st${i}` }
                       : {})}
-                    className="w-32 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="w-36 rounded border border-slate-300 px-2 py-1 text-sm"
                     value={row.threshold}
                     onChange={(e) => update(i, { threshold: e.target.value })}
                   />
