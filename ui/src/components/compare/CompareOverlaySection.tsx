@@ -9,6 +9,7 @@ import { CompareTimeSeriesChart } from "./CompareTimeSeriesChart";
 const OVERLAY_METRICS: { key: MetricKey; title: string; yLabel: string }[] = [
   { key: "rps", title: ko.report.timeSeriesRequests, yLabel: "req/s" },
   { key: "p95", title: ko.report.timeSeriesP95, yLabel: "ms" },
+  { key: "mean", title: ko.compare.overlayMean, yLabel: "ms" },
   { key: "errors", title: ko.report.timeSeriesErrors, yLabel: "errors" },
 ];
 

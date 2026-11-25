@@ -2,7 +2,7 @@ import type { Report } from "../api/schemas";
 import { bySecond, type Sec } from "../report/bySecond";
 import { runColor, runDisplayLabel } from "./runLabel";
 
-export type MetricKey = "rps" | "p95" | "errors";
+export type MetricKey = "rps" | "p95" | "mean" | "errors";
 export type OverlayRun = { key: string; label: string; color: string; baseline: boolean };
 export type OverlayRow = { elapsed: number } & Record<string, number | null>;
 export type OverlaySeries = { rows: OverlayRow[]; runs: OverlayRun[] };
@@ -10,6 +10,7 @@ export type OverlaySeries = { rows: OverlayRow[]; runs: OverlayRun[] };
 function metricValue(s: Sec, metric: MetricKey): number | null {
   if (metric === "rps") return s.count;
   if (metric === "errors") return s.errors;
+  if (metric === "mean") return s.mean_ms;
   return s.p95_ms;
 }
 

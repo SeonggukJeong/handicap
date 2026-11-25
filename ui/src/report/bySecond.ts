@@ -1,29 +1,34 @@
-import { reportSample, type Report } from "../api/schemas";
-import { hasLatency, windowNotSent } from "./hasLatency";
+import type { Report } from "../api/schemas";
 
-export type Sec = { ts_second: number; count: number; errors: number; p95_ms: number | null };
+// 응답 시간 값은 서버 latency_by_second의 µs ÷ 1000(반올림 없음). 값이 없는 초는 null.
+export type Sec = {
+  ts_second: number;
+  count: number;
+  errors: number;
+  p95_ms: number | null;
+  mean_ms: number | null;
+  capped: boolean;
+};
 
 export function bySecond(report: Report): Sec[] {
-  const sample = reportSample(report).selected;
+  const latency = new Map((report.latency_by_second ?? []).map((l) => [l.ts_second, l]));
   const buckets = new Map<number, Sec>();
   for (const w of report.windows) {
-    const cur = buckets.get(w.ts_second) ?? {
+    const cur = buckets.get(w.ts_second);
+    if (cur) {
+      cur.count += w.count;
+      cur.errors += w.error_count;
+      continue;
+    }
+    const l = latency.get(w.ts_second);
+    buckets.set(w.ts_second, {
       ts_second: w.ts_second,
-      count: 0,
-      errors: 0,
-      p95_ms: null,
-    };
-    cur.count += w.count;
-    cur.errors += w.error_count;
-    // For p95 time series, use the max across steps in the same second as a coarse signal.
-    // Per-second per-step p95 charts are deferred (ADR-0017 OUT: percentile histogram view).
-    // 값이 있는 창이 하나도 없는 초는 null로 남아 그래프 선이 끊긴다.
-    const measured = hasLatency(
-      { count: w.count, errors: w.error_count, notSent: windowNotSent(w) },
-      sample,
-    );
-    if (measured && (cur.p95_ms === null || w.p95_ms > cur.p95_ms)) cur.p95_ms = w.p95_ms;
-    buckets.set(w.ts_second, cur);
+      count: w.count,
+      errors: w.error_count,
+      p95_ms: l?.p95_us === undefined ? null : l.p95_us / 1000,
+      mean_ms: l?.mean_us === undefined ? null : l.mean_us / 1000,
+      capped: l?.capped ?? false,
+    });
   }
   return Array.from(buckets.values()).sort((a, b) => a.ts_second - b.ts_second);
 }

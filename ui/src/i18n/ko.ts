@@ -2283,6 +2283,7 @@ export const ko = {
     overlayTitle: "초당 시계열 비교",
     overlayMetricsAria: "오버레이 메트릭 선택",
     overlayNoData: "시계열 데이터가 없습니다.",
+    overlayMean: "평균 응답 시간 (ms)",
   },
   triggerBuilder: {
     cronExpressionAria: "cron 표현식",
