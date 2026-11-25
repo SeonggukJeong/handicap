@@ -4,6 +4,9 @@ import { describe, it, expect } from "vitest";
 import { StepStatsTable } from "../StepStatsTable";
 import { ko } from "../../../i18n/ko";
 
+// 작업 전 코드가 그린 바깥 표(접힌 상태) — 바이트 그대로 고정. 다시 찍지 말 것.
+const OLD_TABLE_HTML = `<table class="min-w-full text-sm"><thead class="border-b border-slate-200 text-left text-slate-600"><tr><th class="py-2 pr-4 font-medium">스텝</th><th class="py-2 pr-4 font-medium">메서드</th><th class="py-2 pr-4 font-medium">URL</th><th class="py-2 pr-4 font-medium">요청 수</th><th class="py-2 pr-4 font-medium">에러</th><th class="py-2 pr-4 font-medium">p50 ms<span class="inline-block"><button type="button" aria-label="p50 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th><th class="py-2 pr-4 font-medium">p95 ms<span class="inline-block"><button type="button" aria-label="p95 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th><th class="py-2 pr-4 font-medium">p99 ms<span class="inline-block"><button type="button" aria-label="p99 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th></tr></thead><tbody><tr class="border-b border-slate-100"><td class="py-2 pr-4 font-medium"><button type="button" aria-expanded="false" aria-label="주문 루프 분해 표시 전환" class="mr-1 text-slate-500">▸</button>주문<span class="ml-2 inline-block shrink-0 whitespace-nowrap rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 align-middle text-xs font-medium text-amber-800">재시도 포함</span></td><td class="py-2 pr-4 font-mono text-xs">GET</td><td class="py-2 pr-4 font-mono text-xs break-all">/a</td><td class="py-2 pr-4">10</td><td class="py-2 pr-4">0</td><td class="py-2 pr-4">1</td><td class="py-2 pr-4">2</td><td class="py-2 pr-4">3</td></tr><tr class="border-b border-slate-100"><td class="py-2 pr-4 font-medium">결제</td><td class="py-2 pr-4 font-mono text-xs">POST</td><td class="py-2 pr-4 font-mono text-xs break-all">/b</td><td class="py-2 pr-4">5</td><td class="py-2 pr-4">0</td><td class="py-2 pr-4">1</td><td class="py-2 pr-4">2</td><td class="py-2 pr-4">3</td></tr></tbody></table>`;
+
 describe("StepStatsTable", () => {
   it("renders rows for each step with metadata when available", () => {
     const meta = new Map([
@@ -273,9 +276,7 @@ describe("StepStatsTable", () => {
           retriedStepIds={new Set(["a"])}
         />,
       );
-      expect(container.innerHTML).toMatchInlineSnapshot(
-        `"<section aria-label="스텝별 통계" class="mb-6"><h3 class="text-lg font-semibold mb-2">스텝</h3><table class="min-w-full text-sm"><thead class="border-b border-slate-200 text-left text-slate-600"><tr><th class="py-2 pr-4 font-medium">스텝</th><th class="py-2 pr-4 font-medium">메서드</th><th class="py-2 pr-4 font-medium">URL</th><th class="py-2 pr-4 font-medium">요청 수</th><th class="py-2 pr-4 font-medium">에러</th><th class="py-2 pr-4 font-medium">p50 ms<span class="inline-block"><button type="button" aria-label="p50 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th><th class="py-2 pr-4 font-medium">p95 ms<span class="inline-block"><button type="button" aria-label="p95 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th><th class="py-2 pr-4 font-medium">p99 ms<span class="inline-block"><button type="button" aria-label="p99 설명" aria-expanded="false" class="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100">?</button></span></th></tr></thead><tbody><tr class="border-b border-slate-100"><td class="py-2 pr-4 font-medium"><button type="button" aria-expanded="false" aria-label="주문 루프 분해 표시 전환" class="mr-1 text-slate-500">▸</button>주문<span class="ml-2 inline-block shrink-0 whitespace-nowrap rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 align-middle text-xs font-medium text-amber-800">재시도 포함</span></td><td class="py-2 pr-4 font-mono text-xs">GET</td><td class="py-2 pr-4 font-mono text-xs break-all">/a</td><td class="py-2 pr-4">10</td><td class="py-2 pr-4">0</td><td class="py-2 pr-4">1</td><td class="py-2 pr-4">2</td><td class="py-2 pr-4">3</td></tr><tr class="border-b border-slate-100"><td class="py-2 pr-4 font-medium">결제</td><td class="py-2 pr-4 font-mono text-xs">POST</td><td class="py-2 pr-4 font-mono text-xs break-all">/b</td><td class="py-2 pr-4">5</td><td class="py-2 pr-4">0</td><td class="py-2 pr-4">1</td><td class="py-2 pr-4">2</td><td class="py-2 pr-4">3</td></tr></tbody></table></section>"`,
-      );
+      expect(container.querySelector("section > div > table")!.outerHTML).toBe(OLD_TABLE_HTML);
     });
 
     const stats = (count: number, e: number, a: number, b: number, c: number) => ({
@@ -296,7 +297,7 @@ describe("StepStatsTable", () => {
     const cells = (tr: Element) =>
       Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? "");
     const rowsOf = (container: HTMLElement) =>
-      Array.from(container.querySelectorAll(":scope > section > table > tbody > tr"));
+      Array.from(container.querySelectorAll(":scope > section > div > table > tbody > tr"));
 
     it("두 줄이 스텝 행 바로 아래에 순서대로", () => {
       const { container } = render(
@@ -443,6 +444,136 @@ describe("StepStatsTable", () => {
       expect(screen.queryByText("재시도 포함")).not.toBeInTheDocument();
       expect(screen.getByText("반복을 끝낸 응답")).toBeInTheDocument();
       expect(screen.getByText("재시도로 이어진 응답")).toBeInTheDocument();
+    });
+  });
+
+  describe("µs·60초 칸 (R23)", () => {
+    const b = { status_counts: { "200": 10 }, error_count: 0, count: 10, loop_breakdown: [] };
+    const st = (p50: number, p95: number, p99: number, capped = false) => ({
+      min_us: 1,
+      mean_us: 2,
+      max_us: 3,
+      stdev_us: 4,
+      p50_us: p50,
+      p90_us: p95,
+      p95_us: p95,
+      p99_us: p99,
+      capped,
+    });
+    const m = new Map([["a", { id: "a", name: "주문", method: "GET", url: "/a" }]]);
+    const tds = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll("tbody > tr > td")).map((td) => td.textContent);
+
+    it("1ms 미만 p50은 µs로", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            { ...b, step_id: "a", p50_ms: 0, p95_ms: 2, p99_ms: 3, stats: st(350, 2_400, 3_100) },
+          ]}
+          meta={m}
+        />,
+      );
+      expect(tds(container).slice(5, 8)).toEqual(["350 µs", "2", "3"]);
+      expect(screen.queryByRole("note")).toBeNull();
+    });
+
+    it("60초 칸은 「≥ 60,000」과 표 아래 안내", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...b,
+              step_id: "a",
+              p50_ms: 10,
+              p95_ms: 20,
+              p99_ms: 60030,
+              stats: st(10_000, 20_000, 60_000_000, true),
+            },
+          ]}
+          meta={m}
+        />,
+      );
+      expect(tds(container).slice(5, 8)).toEqual(["10", "20", "≥ 60,000"]);
+      const note = screen.getByRole("note");
+      expect(note.textContent).toBe(
+        "「≥ 60,000」: 60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 「≥ 60,000」인 값은 실제로 더 클 수 있습니다.",
+      );
+      expect(note).toBe(container.querySelector("section > p[role='note']"));
+    });
+
+    it("stats가 없으면 지금 글자 그대로", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[{ ...b, step_id: "a", p50_ms: 0, p95_ms: 2, p99_ms: 60030 }]}
+          meta={m}
+        />,
+      );
+      expect(tds(container).slice(5, 8)).toEqual(["0", "2", "60030"]);
+      expect(screen.queryByRole("note")).toBeNull();
+    });
+
+    it("통과 0건 표본 스텝은 「—」 그대로", () => {
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...b,
+              step_id: "a",
+              count: 4,
+              error_count: 4,
+              p50_ms: 0,
+              p95_ms: 0,
+              p99_ms: 0,
+              stats: st(350, 350, 350),
+            },
+          ]}
+          meta={m}
+          sample="passed"
+        />,
+      );
+      expect(tds(container).slice(5, 8)).toEqual(["—", "—", "—"]);
+    });
+
+    it("1ms 이상·60초 칸 없는 stats여도 바깥 표 DOM은 작업 전과 같고, 부모는 가로 스크롤 상자", () => {
+      const base2 = {
+        status_counts: { "200": 10 },
+        error_count: 0,
+        p50_ms: 1,
+        p95_ms: 2,
+        p99_ms: 3,
+      };
+      const meta = new Map([
+        ["a", { id: "a", name: "주문", method: "GET", url: "/a" }],
+        ["b", { id: "b", name: "결제", method: "POST", url: "/b" }],
+      ]);
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...base2,
+              step_id: "a",
+              count: 10,
+              loop_breakdown: [
+                { loop_index: 0, count: 6, error_count: 0 },
+                { loop_index: 1, count: 4, error_count: 0 },
+              ],
+              stats: st(1_500, 2_500, 3_500),
+            },
+            {
+              ...base2,
+              step_id: "b",
+              count: 5,
+              loop_breakdown: [],
+              stats: st(1_500, 2_500, 3_500),
+            },
+          ]}
+          meta={meta}
+          retriedStepIds={new Set(["a"])}
+        />,
+      );
+      const table = container.querySelector("section > div > table")!;
+      expect(table.outerHTML).toBe(OLD_TABLE_HTML);
+      expect(table.parentElement).toHaveClass("overflow-x-auto");
     });
   });
 });
