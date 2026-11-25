@@ -30,7 +30,8 @@ type Props = {
 
 const STAT_BG = "bg-slate-50";
 // 펼친 표는 표 전체가 줄바꿈 금지라, 긴 주소·스텝 이름 칸만 다시 줄바꿈을 허용한다.
-const WRAP = " whitespace-normal";
+const NAME_WRAP = " whitespace-normal min-w-[10rem]";
+const URL_WRAP = " whitespace-normal min-w-[16rem]";
 const TOTAL_TOP = "border-t border-slate-300";
 const floorMs = (us: number) => Math.floor(us / 1000);
 const roundMs = (us: number) => Math.round(us / 1000);
@@ -87,7 +88,8 @@ export function StepStatsTable({
   // With download: +3 (다운로드 p50, p95, p99)
   // With wait: +1 (대기 p50)
   // 통계 더 보기: +5 (최소·평균·최대·표준편차·p90)
-  const wrap = statsOpen ? WRAP : "";
+  const nameWrap = statsOpen ? NAME_WRAP : "";
+  const urlWrap = statsOpen ? URL_WRAP : "";
   const colSpan = 8 + (statsOpen ? 5 : 0) + (anyDownload ? 3 : 0) + (anyWait ? 1 : 0);
 
   // 렌더하는 p50·p95·p99 칸 중 하나라도 「≥ 60,000」이면 표 아래에 안내를 단다.
@@ -180,9 +182,9 @@ export function StepStatsTable({
         <table className={`min-w-full text-sm${statsOpen ? " whitespace-nowrap" : ""}`}>
           <thead className="border-b border-slate-200 text-left text-slate-600">
             <tr>
-              <th className={`py-2 pr-4 font-medium${wrap}`}>{ko.report.colStep}</th>
+              <th className={`py-2 pr-4 font-medium${nameWrap}`}>{ko.report.colStep}</th>
               <th className="py-2 pr-4 font-medium">{ko.report.colMethod}</th>
-              <th className={`py-2 pr-4 font-medium${wrap}`}>URL</th>
+              <th className={`py-2 pr-4 font-medium${urlWrap}`}>URL</th>
               <th className="py-2 pr-4 font-medium">{ko.report.colRequests}</th>
               <th className="py-2 pr-4 font-medium">{ko.report.colErrors}</th>
               {statsOpen && (
@@ -251,7 +253,7 @@ export function StepStatsTable({
               return (
                 <Fragment key={s.step_id}>
                   <tr className="border-b border-slate-100">
-                    <td className={`py-2 pr-4 font-medium${wrap}`}>
+                    <td className={`py-2 pr-4 font-medium${nameWrap}`}>
                       {hasBreakdown && (
                         <button
                           type="button"
@@ -267,7 +269,7 @@ export function StepStatsTable({
                       {retriedStepIds?.has(s.step_id) && <RetryBadge />}
                     </td>
                     <td className="py-2 pr-4 font-mono text-xs">{m?.method ?? ""}</td>
-                    <td className={`py-2 pr-4 font-mono text-xs break-all${wrap}`}>
+                    <td className={`py-2 pr-4 font-mono text-xs break-all${urlWrap}`}>
                       {m?.url ?? ""}
                     </td>
                     <td className="py-2 pr-4">{s.count}</td>
@@ -315,7 +317,7 @@ export function StepStatsTable({
                       const pct = (v: number) => (part.count === 0 ? "—" : splitLatencyText(v));
                       return (
                         <tr key={k} className="border-b border-slate-100 text-slate-600">
-                          <td className={`py-2 pr-4 pl-6${wrap}`}>
+                          <td className={`py-2 pr-4 pl-6${nameWrap}`}>
                             <span aria-hidden="true">└ </span>
                             {label}
                             {k === "final" && (
@@ -388,7 +390,7 @@ export function StepStatsTable({
             })}
             {statsOpen && summary && (
               <tr className="font-semibold">
-                <td className={`${TOTAL_TOP} py-2 pr-4${wrap}`}>{ko.report.stats.allSteps}</td>
+                <td className={`${TOTAL_TOP} py-2 pr-4${nameWrap}`}>{ko.report.stats.allSteps}</td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`} />
                 <td className={`${TOTAL_TOP} py-2 pr-4`} />
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>{summary.count}</td>

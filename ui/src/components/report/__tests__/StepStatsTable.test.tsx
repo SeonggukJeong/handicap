@@ -861,17 +861,25 @@ describe("StepStatsTable", () => {
       expect(nameTd()).not.toHaveClass("whitespace-normal");
       expect(urlTd()).not.toHaveClass("whitespace-normal");
       await user.click(toggle());
-      expect(nameTd()).toHaveClass("whitespace-normal");
-      expect(urlTd()).toHaveClass("whitespace-normal");
+      expect(nameTd()).toHaveClass("whitespace-normal", "min-w-[10rem]");
+      expect(urlTd()).toHaveClass("whitespace-normal", "min-w-[16rem]");
       const rs = rows(container);
-      expect(rs[1].querySelectorAll(":scope > td")[0]).toHaveClass("whitespace-normal");
-      expect(rs[rs.length - 1].querySelectorAll(":scope > td")[0]).toHaveClass("whitespace-normal");
+      expect(rs[1].querySelectorAll(":scope > td")[0]).toHaveClass(
+        "whitespace-normal",
+        "min-w-[10rem]",
+      );
+      expect(rs[rs.length - 1].querySelectorAll(":scope > td")[0]).toHaveClass(
+        "whitespace-normal",
+        "min-w-[10rem]",
+      );
       const ths = outer(container).querySelectorAll(":scope > thead th");
-      expect(ths[0]).toHaveClass("whitespace-normal");
-      expect(ths[2]).toHaveClass("whitespace-normal");
+      expect(ths[0]).toHaveClass("whitespace-normal", "min-w-[10rem]");
+      expect(ths[2]).toHaveClass("whitespace-normal", "min-w-[16rem]");
       await user.click(screen.getByRole("button", { name: ko.report.stats.toggleLess }));
       expect(nameTd()).not.toHaveClass("whitespace-normal");
       expect(urlTd()).not.toHaveClass("whitespace-normal");
+      expect(nameTd()).not.toHaveClass("min-w-[10rem]");
+      expect(urlTd()).not.toHaveClass("min-w-[16rem]");
     });
 
     it("반복 나눔 아래 줄 — 60초 칸(60030)은 「≥ 60,000」이고 안내가 접힘에도 뜬다", () => {
