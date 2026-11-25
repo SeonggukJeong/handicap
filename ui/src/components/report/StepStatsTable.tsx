@@ -2,7 +2,7 @@ import { Fragment, useState } from "react";
 import type { ReportSampleName, ReportStep, ReportSummary } from "../../api/schemas";
 import { hasLatency, stepCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
-import { CAP_US, latencyCellText, latencyShown, meanShown } from "./format";
+import { CAP_US, latencyCellText, latencyShown, meanShown, splitLatencyText } from "./format";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { RetryBadge } from "./LoopExitSummary";
@@ -29,6 +29,8 @@ type Props = {
 };
 
 const STAT_BG = "bg-slate-50";
+// 펼친 표는 표 전체가 줄바꿈 금지라, 긴 주소·스텝 이름 칸만 다시 줄바꿈을 허용한다.
+const WRAP = " whitespace-normal";
 const TOTAL_TOP = "border-t border-slate-300";
 const floorMs = (us: number) => Math.floor(us / 1000);
 const roundMs = (us: number) => Math.round(us / 1000);
@@ -85,20 +87,32 @@ export function StepStatsTable({
   // With download: +3 (다운로드 p50, p95, p99)
   // With wait: +1 (대기 p50)
   // 통계 더 보기: +5 (최소·평균·최대·표준편차·p90)
+  const wrap = statsOpen ? WRAP : "";
   const colSpan = 8 + (statsOpen ? 5 : 0) + (anyDownload ? 3 : 0) + (anyWait ? 1 : 0);
 
   // 렌더하는 p50·p95·p99 칸 중 하나라도 「≥ 60,000」이면 표 아래에 안내를 단다.
-  const cappedShown = steps.some(
-    (s) =>
-      hasLatency(stepCounts(s), sample) &&
-      (
-        [
-          [s.p50_ms, s.stats?.p50_us],
-          [s.p95_ms, s.stats?.p95_us],
-          [s.p99_ms, s.stats?.p99_us],
-        ] as const
-      ).some(([ms, us]) => latencyShown(ms, us).kind === "capped"),
-  );
+  const cappedShown =
+    steps.some(
+      (s) =>
+        hasLatency(stepCounts(s), sample) &&
+        (
+          [
+            [s.p50_ms, s.stats?.p50_us],
+            [s.p95_ms, s.stats?.p95_us],
+            [s.p99_ms, s.stats?.p99_us],
+          ] as const
+        ).some(([ms, us]) => latencyShown(ms, us).kind === "capped"),
+    ) ||
+    steps.some((s) =>
+      (["final", "retry"] as const).some((k) => {
+        const part = s.loop_split?.[k];
+        return (
+          part !== undefined &&
+          part.count > 0 &&
+          [part.p50_ms, part.p95_ms, part.p99_ms].some((v) => v > 60000)
+        );
+      }),
+    );
 
   // 펼친 상태의 새 칸(스텝 행은 p 칸과 같은 「값을 그린 칸」 조건, 「모든 스텝」 행 포함).
   const sst = summary?.stats;
@@ -124,6 +138,19 @@ export function StepStatsTable({
             sst.p95_us,
             sst.p99_us,
           ].some((us) => us >= CAP_US))));
+
+  const summaryHasLatency =
+    summary !== undefined &&
+    hasLatency(
+      {
+        count: summary.count,
+        errors: summary.errors,
+        notSent: steps.reduce((a, s) => a + (s.not_sent ?? 0), 0),
+      },
+      sample,
+    );
+  const summaryP = (ms: number, us: number | undefined) =>
+    summaryHasLatency ? latencyCellText(latencyShown(ms, us)) : "—";
 
   const toggleButton = (
     <button
@@ -153,9 +180,9 @@ export function StepStatsTable({
         <table className={`min-w-full text-sm${statsOpen ? " whitespace-nowrap" : ""}`}>
           <thead className="border-b border-slate-200 text-left text-slate-600">
             <tr>
-              <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>
+              <th className={`py-2 pr-4 font-medium${wrap}`}>{ko.report.colStep}</th>
               <th className="py-2 pr-4 font-medium">{ko.report.colMethod}</th>
-              <th className="py-2 pr-4 font-medium">URL</th>
+              <th className={`py-2 pr-4 font-medium${wrap}`}>URL</th>
               <th className="py-2 pr-4 font-medium">{ko.report.colRequests}</th>
               <th className="py-2 pr-4 font-medium">{ko.report.colErrors}</th>
               {statsOpen && (
@@ -224,7 +251,7 @@ export function StepStatsTable({
               return (
                 <Fragment key={s.step_id}>
                   <tr className="border-b border-slate-100">
-                    <td className="py-2 pr-4 font-medium">
+                    <td className={`py-2 pr-4 font-medium${wrap}`}>
                       {hasBreakdown && (
                         <button
                           type="button"
@@ -240,7 +267,9 @@ export function StepStatsTable({
                       {retriedStepIds?.has(s.step_id) && <RetryBadge />}
                     </td>
                     <td className="py-2 pr-4 font-mono text-xs">{m?.method ?? ""}</td>
-                    <td className="py-2 pr-4 font-mono text-xs break-all">{m?.url ?? ""}</td>
+                    <td className={`py-2 pr-4 font-mono text-xs break-all${wrap}`}>
+                      {m?.url ?? ""}
+                    </td>
                     <td className="py-2 pr-4">{s.count}</td>
                     <td className="py-2 pr-4">{s.error_count}</td>
                     {statsOpen && (
@@ -283,10 +312,10 @@ export function StepStatsTable({
                         k === "final"
                           ? ko.report.loopExit.splitFinal
                           : ko.report.loopExit.splitRetry;
-                      const pct = (v: number) => (part.count === 0 ? "—" : v);
+                      const pct = (v: number) => (part.count === 0 ? "—" : splitLatencyText(v));
                       return (
                         <tr key={k} className="border-b border-slate-100 text-slate-600">
-                          <td className="py-2 pr-4 pl-6">
+                          <td className={`py-2 pr-4 pl-6${wrap}`}>
                             <span aria-hidden="true">└ </span>
                             {label}
                             {k === "final" && (
@@ -359,7 +388,7 @@ export function StepStatsTable({
             })}
             {statsOpen && summary && (
               <tr className="font-semibold">
-                <td className={`${TOTAL_TOP} py-2 pr-4`}>{ko.report.stats.allSteps}</td>
+                <td className={`${TOTAL_TOP} py-2 pr-4${wrap}`}>{ko.report.stats.allSteps}</td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`} />
                 <td className={`${TOTAL_TOP} py-2 pr-4`} />
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>{summary.count}</td>
@@ -380,16 +409,16 @@ export function StepStatsTable({
                   {statText(sst?.stdev_us, roundMs)}
                 </td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>
-                  {sst ? statText(sst.p50_us, () => summary.p50_ms) : "—"}
+                  {summaryP(summary.p50_ms, sst?.p50_us)}
                 </td>
                 <td className={`${TOTAL_TOP} ${STAT_BG} py-2 pr-4`}>
                   {statText(sst?.p90_us, floorMs)}
                 </td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>
-                  {sst ? statText(sst.p95_us, () => summary.p95_ms) : "—"}
+                  {summaryP(summary.p95_ms, sst?.p95_us)}
                 </td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>
-                  {sst ? statText(sst.p99_us, () => summary.p99_ms) : "—"}
+                  {summaryP(summary.p99_ms, sst?.p99_us)}
                 </td>
                 {anyWait && <td className={`${TOTAL_TOP} py-2 pr-4`} />}
                 {anyDownload && (

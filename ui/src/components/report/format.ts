@@ -57,6 +57,11 @@ export function latencyCellText(x: LatencyShown): string {
   return ko.report.stats.capped;
 }
 
+/** 반복 나눔 아래 줄(stats 없음) — 60,000ms 초과는 60초 칸에서만 나오므로 「≥ 60,000」. */
+export function splitLatencyText(ms: number): string {
+  return ms > 60000 ? ko.report.stats.capped : `${ms}`;
+}
+
 /** 카드·문장 글자(단위 포함). */
 export function latencyUnitText(x: LatencyShown): string {
   if (x.kind === "ms") return `${x.ms} ms`;

@@ -798,18 +798,102 @@ describe("StepStatsTable", () => {
       expect(screen.getByRole("note").textContent).toBe(ko.report.stats.cappedNoteExpanded);
     });
 
-    it("summary.stats 없으면 「모든 스텝」 시간 칸이 모두 「—」, summary가 없으면 행이 없다", async () => {
+    it("summary.stats 없으면 「모든 스텝」 p50·p95·p99만 정수 ms, 나머지 다섯은 「—」, summary가 없으면 행이 없다", async () => {
       const user = userEvent.setup();
       const { container, rerender } = render(
         <StepStatsTable steps={[one]} meta={meta} summary={mkSummary({ stats: undefined })} />,
       );
       await user.click(toggle());
       let rs = rows(container);
-      expect(cells(rs[rs.length - 1]).slice(3)).toEqual(["15", "1", ...Array(8).fill("—")]);
+      expect(cells(rs[rs.length - 1]).slice(3)).toEqual([
+        "15",
+        "1",
+        "—",
+        "—",
+        "—",
+        "—",
+        "210",
+        "—",
+        "890",
+        "1420",
+      ]);
       rerender(<StepStatsTable steps={[one]} meta={meta} />);
       rs = rows(container);
       expect(rs).toHaveLength(1);
       expect(screen.queryByText(ko.report.stats.allSteps)).toBeNull();
+    });
+
+    it("「모든 스텝」 p 칸 — 통과 표본에서 요청이 모두 오류면 「—」(stats 없어도)", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable
+          steps={[{ ...one, count: 4, error_count: 4 }]}
+          meta={meta}
+          sample="passed"
+          summary={mkSummary({ count: 4, errors: 4, stats: undefined })}
+        />,
+      );
+      await user.click(toggle());
+      const rs = rows(container);
+      expect(cells(rs[rs.length - 1]).slice(3)).toEqual(["4", "4", ...Array(8).fill("—")]);
+    });
+
+    it("펼치면 주소·스텝 이름 칸만 줄바꿈 허용(whitespace-normal) — 접힘엔 클래스 변화 없음", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...one,
+              loop_split: {
+                final: { count: 1, error_count: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
+                retry: { count: 1, error_count: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 },
+              },
+            },
+          ]}
+          meta={meta}
+          summary={mkSummary({})}
+        />,
+      );
+      const stepRow = () => rows(container)[0];
+      const nameTd = () => stepRow().querySelectorAll(":scope > td")[0];
+      const urlTd = () => stepRow().querySelectorAll(":scope > td")[2];
+      expect(nameTd()).not.toHaveClass("whitespace-normal");
+      expect(urlTd()).not.toHaveClass("whitespace-normal");
+      await user.click(toggle());
+      expect(nameTd()).toHaveClass("whitespace-normal");
+      expect(urlTd()).toHaveClass("whitespace-normal");
+      const rs = rows(container);
+      expect(rs[1].querySelectorAll(":scope > td")[0]).toHaveClass("whitespace-normal");
+      expect(rs[rs.length - 1].querySelectorAll(":scope > td")[0]).toHaveClass("whitespace-normal");
+      const ths = outer(container).querySelectorAll(":scope > thead th");
+      expect(ths[0]).toHaveClass("whitespace-normal");
+      expect(ths[2]).toHaveClass("whitespace-normal");
+      await user.click(screen.getByRole("button", { name: ko.report.stats.toggleLess }));
+      expect(nameTd()).not.toHaveClass("whitespace-normal");
+      expect(urlTd()).not.toHaveClass("whitespace-normal");
+    });
+
+    it("반복 나눔 아래 줄 — 60초 칸(60030)은 「≥ 60,000」이고 안내가 접힘에도 뜬다", () => {
+      const part = (p99: number) => ({
+        count: 3,
+        error_count: 0,
+        p50_ms: 10,
+        p95_ms: 20,
+        p99_ms: p99,
+      });
+      render(
+        <StepStatsTable
+          steps={[
+            { ...one, stats: undefined, loop_split: { final: part(60030), retry: part(44) } },
+          ]}
+          meta={meta}
+        />,
+      );
+      const tds = Array.from(document.querySelectorAll("td")).map((td) => td.textContent);
+      expect(tds).toContain("≥\u00a060,000");
+      expect(tds).not.toContain("60030");
+      expect(screen.getByRole("note").textContent).toBe(ko.report.stats.cappedNoteCollapsed);
     });
 
     it("열 수 일치 — 대기·다운로드·반복 나눔·회차 펼침이 함께 있어도 접힘·펼침 모두", async () => {

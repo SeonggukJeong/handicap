@@ -9,6 +9,7 @@ import {
   latencyCellText,
   latencyUnitText,
   meanShown,
+  splitLatencyText,
 } from "../format";
 
 describe("msNumberText", () => {
@@ -107,13 +108,21 @@ describe("meanShown", () => {
       kind: "ms",
       ms: 1843,
     });
-    expect(
-      meanShown({ mean_ms: 60015, stats: st({ mean_us: 60_000_000, capped: true }) }),
-    ).toEqual({ kind: "capped" });
+    expect(meanShown({ mean_ms: 60015, stats: st({ mean_us: 60_000_000, capped: true }) })).toEqual(
+      { kind: "capped" },
+    );
     expect(meanShown({ mean_ms: 0, stats: st({ mean_us: 350 }) })).toEqual({
       kind: "us",
       text: "350 µs",
     });
     expect(meanShown({ mean_ms: 5, stats: undefined })).toBeNull();
+  });
+});
+
+describe("splitLatencyText — 나눈 줄은 정수 ms, 60,000 초과는 60초 칸", () => {
+  it("60030 → 「≥ 60,000」, 60000·44는 그대로", () => {
+    expect(splitLatencyText(60030)).toBe(ko.report.stats.capped);
+    expect(splitLatencyText(60000)).toBe("60000");
+    expect(splitLatencyText(44)).toBe("44");
   });
 });
