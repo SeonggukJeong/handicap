@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>verdict-stats B — 화면·인쇄 목업</title>
+<style>
+  :root { --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0; --slate-300:#cbd5e1; --slate-400:#94a3b8; --slate-500:#64748b; --slate-600:#475569; --slate-700:#334155; --slate-900:#0f172a; --accent:#4f46e5; --red:#b91c1c; --green:#047857; --mean:#2563eb; --p95:#9333ea; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--slate-50); color:var(--slate-900); font:14px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:40px 0 8px; color:var(--slate-600); }
+  .note { color:var(--slate-500); font-size:12px; margin:0 0 12px; max-width:980px; }
+  .card { background:#fff; border:1px solid var(--slate-200); border-radius:8px; padding:16px; max-width:1100px; overflow-x:auto; }
+  .new { outline:2px dashed #a5b4fc; outline-offset:3px; border-radius:4px; }
+  .head3 { display:flex; flex-wrap:wrap; align-items:center; column-gap:8px; margin-bottom:8px; }
+  .head3 h3 { margin:0; font-size:16px; }
+  .head3 .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .toggle { border:1px solid var(--slate-300); background:#fff; border-radius:4px; padding:3px 10px; font:inherit; font-size:13px; color:var(--slate-600); cursor:pointer; }
+  .toggle[aria-pressed="true"] { background:#eef2ff; border-color:#a5b4fc; color:#3730a3; }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--slate-600); align-items:center; }
+  .sw { display:inline-block; width:18px; height:0; border-top:2px solid; vertical-align:middle; margin-right:4px; }
+  .sw.dash { border-top-style:dashed; }
+  .mgrid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-top:12px; }
+  .mini { border:1px solid var(--slate-200); border-radius:6px; padding:6px 8px 4px; }
+  .mini .t { font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mini .s { font-size:11px; color:var(--slate-500); }
+  .seg { display:inline-flex; border:1px solid var(--slate-300); border-radius:4px; overflow:hidden; font-size:12px; }
+  .seg span { padding:2px 8px; color:var(--slate-500); }
+  .seg span.on { background:#eef2ff; color:#3730a3; }
+  .seg span.off { color:var(--slate-300); }
+  .help { font-size:12px; color:var(--slate-500); margin:6px 0 0; }
+  table { border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--slate-600); font-weight:500; padding:6px 14px 6px 0; border-bottom:1px solid var(--slate-200); white-space:nowrap; }
+  td { padding:6px 14px 6px 0; border-bottom:1px solid var(--slate-100); white-space:nowrap; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.sec td { background:var(--slate-100); font-weight:600; color:var(--slate-600); font-size:12px; }
+  tr.total td { font-weight:600; border-top:1px solid var(--slate-300); }
+  .chip { display:inline-block; font-size:11px; border-radius:3px; padding:0 4px; margin-left:4px; }
+  .chip.bad { background:#fee2e2; color:#991b1b; } .chip.good { background:#dcfce7; color:#166534; } .chip.neu { background:var(--slate-100); color:var(--slate-500); }
+  .checks { display:flex; gap:14px; font-size:13px; margin-bottom:8px; }
+  /* A4 인쇄 흉내: 180mm 본문 */
+  .paper { background:#fff; width:180mm; max-width:100%; padding:10mm 0; border:1px solid var(--slate-300); box-shadow:0 1px 4px rgba(0,0,0,.08); color:#000; font-size:9.5pt; }
+  .paper .in { padding:0 8mm; }
+  .paper h4 { font-size:11pt; margin:0 0 2mm; }
+  .paper .cap { font-size:8pt; color:#333; margin:1mm 0 3mm; }
+  .paper table { font-size:8.5pt; width:100%; }
+  .paper th, .paper td { padding:1mm 2mm 1mm 0; border-bottom:0.3pt solid #999; }
+  .paper th { color:#000; font-weight:600; }
+  .pgrid { display:grid; grid-template-columns:1fr 1fr; gap:3mm 4mm; }
+  .pmini .t { font-size:8.5pt; font-weight:600; }
+  .muted { color:var(--slate-400); }
+  .grey { opacity:.45; }
+  pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:6px; font-size:12px; overflow-x:auto; max-width:1100px; }
+  @media (max-width:760px){ .mgrid{ grid-template-columns:1fr 1fr; } }
+  @media (max-width:480px){ .mgrid{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<h1>verdict-stats B (④) — 화면·인쇄 목업</h1>
+<p class="note">점선 테두리 = 이번에 새로 생기는 것(흐리게 = 지금 있는 것, 위치 참고용). 숫자·선은 예시. 스텝 6개 예시. ④a = 1·2(그래프 부분)·3·5(덤벨 제외), ④b = 2(표)·4·5(덤벨)·6, ④c = 비교 인쇄 시간 흐름(이 목업 밖).</p>
+
+<!-- ───────────────────────── 1. 리포트 화면 ───────────────────────── -->
+<h2>1. 리포트 화면 — 「응답 시간」 그래프 (지금 「p95 응답 시간」 그래프 자리) · ④a</h2>
+<div class="card">
+  <div class="head3">
+    <h3>응답 시간 (ms)</h3>
+    <div class="right legend"><span><i class="sw" style="color:var(--mean)"></i>평균</span><span><i class="sw dash" style="color:var(--p95)"></i>p95</span></div>
+  </div>
+  <svg id="main" class="new" width="100%" height="220" viewBox="0 0 1000 220" preserveAspectRatio="none" role="img" aria-label="응답 시간 그래프"></svg>
+  <p class="help new">모든 스텝의 요청을 초마다 합쳐 낸 값입니다. 회색 띠 = 상승 시간, 노란 띠 = 측정 구간(지금과 같음).</p>
+
+  <div class="new" style="margin-top:12px">
+    <div class="head3">
+      <button class="toggle" aria-expanded="true" aria-pressed="true">▾ 스텝별로 보기</button>
+      <!-- 확장 자리: 보기 방식. 지금은 「작은 그래프」 하나만. 나중에 「한 그래프」(선 겹치기)를 더한다. 하나뿐일 땐 단추를 그리지 않는다(아래는 미래 모습 참고). -->
+      <span class="right"><span class="seg" title="나중에 생길 자리 — 이번에는 그리지 않음"><span class="on">작은 그래프</span><span class="off">한 그래프 (나중)</span></span></span>
+    </div>
+    <p class="help">스텝마다 평균 응답 시간입니다. 모든 그래프가 같은 세로 눈금(0–<span id="ymax"></span> ms)이라 높이로 서로 비교할 수 있습니다. 순서는 스텝 표와 같습니다.</p>
+    <div class="mgrid" id="minis"></div>
+  </div>
+  <p class="help">접힌 채로 열린다. 「보기 방식」 자리는 이번에는 그리지 않는다(선택지가 하나라서) — 위 회색 단추는 나중에 「한 그래프」가 붙을 자리 표시.</p>
+</div>
+
+<!-- ───────────────────────── 2. 비교 화면 ───────────────────────── -->
+<h2>2. 비교 화면 — 겹쳐 보기 지표(④a) · 비교 표 통계 행(④b)</h2>
+<div class="card">
+  <div class="checks">
+    <label><input type="checkbox" checked> 초당 요청 수 (RPS)</label>
+    <label><input type="checkbox" checked> p95 응답 시간 (ms)</label>
+    <label class="new"><input type="checkbox"> 평균 응답 시간 (ms)</label>
+    <label><input type="checkbox"> 초당 에러</label>
+  </div>
+  <svg id="cmp" class="new" width="100%" height="160" viewBox="0 0 1000 160" preserveAspectRatio="none" role="img" aria-label="평균 응답 시간 겹쳐 보기"></svg>
+  <p class="help">「평균 응답 시간」을 켜면 run마다 선 하나(지금 p95 겹쳐 보기와 같은 모양). p95 겹쳐 보기도 이제 정확한 초별 p95(모든 스텝 합침)를 쓴다.</p>
+
+  <table style="margin-top:16px">
+    <thead><tr><th>지표</th><th class="num">#a1b2c3 (기준)</th><th class="num">#d4e5f6</th></tr></thead>
+    <tbody>
+      <tr class="sec"><td colspan="3">요약</td></tr>
+      <tr><td>p50_ms</td><td class="num">41</td><td class="num">44 <span class="chip bad">+7.3%</span></td></tr>
+      <tr><td>p95_ms</td><td class="num">120</td><td class="num">131 <span class="chip bad">+9.2%</span></td></tr>
+      <tr><td>p99_ms</td><td class="num">310</td><td class="num">298 <span class="chip good">−3.9%</span></td></tr>
+      <tr class="new"><td>평균</td><td class="num">52</td><td class="num">55 <span class="chip bad">+5.8%</span></td></tr>
+      <tr class="new"><td>최소</td><td class="num">350 µs</td><td class="num">410 µs <span class="chip bad">+17.1%</span></td></tr>
+      <tr class="new"><td>최대</td><td class="num">1840</td><td class="num">≥&nbsp;60,000 <span class="chip neu">—</span></td></tr>
+      <tr class="new"><td>표준편차</td><td class="num">38</td><td class="num">61 <span class="chip bad">+60.5%</span></td></tr>
+      <tr class="new"><td>p90</td><td class="num">98</td><td class="num">104 <span class="chip bad">+6.1%</span></td></tr>
+      <tr><td>rps</td><td class="num">812.4</td><td class="num">790.1 <span class="chip bad">−2.7%</span></td></tr>
+      <tr><td>error_rate</td><td class="num">0.002</td><td class="num">0.001 <span class="chip good">−50%</span></td></tr>
+      <tr class="sec"><td colspan="3">스텝별 p95 &nbsp; <button class="toggle new" aria-expanded="false" style="font-weight:400">응답 시간 통계 더 보기</button></td></tr>
+      <tr><td>로그인</td><td class="num">88</td><td class="num">90 <span class="chip neu">+2.3%</span></td></tr>
+      <tr><td>목록 조회</td><td class="num">140</td><td class="num">171 <span class="chip bad">+22.1%</span></td></tr>
+      <tr><td class="muted" colspan="3">…</td></tr>
+    </tbody>
+  </table>
+  <p class="help">「응답 시간 통계 더 보기」를 누르면 스텝마다 아래처럼 평균·최소·최대·표준편차·p90 행이 p95 행 밑에 붙는다(기본 접힘):</p>
+  <table class="new">
+    <tbody>
+      <tr><td>목록 조회 · p95</td><td class="num">140</td><td class="num">171 <span class="chip bad">+22.1%</span></td></tr>
+      <tr><td>&nbsp;&nbsp;└ 평균</td><td class="num">61</td><td class="num">83 <span class="chip bad">+36.1%</span></td></tr>
+      <tr><td>&nbsp;&nbsp;└ 최소</td><td class="num">12</td><td class="num">13 <span class="chip bad">+8.3%</span></td></tr>
+      <tr><td>&nbsp;&nbsp;└ 최대</td><td class="num">902</td><td class="num">1210 <span class="chip bad">+34.1%</span></td></tr>
+      <tr><td>&nbsp;&nbsp;└ 표준편차</td><td class="num">40</td><td class="num">72 <span class="chip bad">+80%</span></td></tr>
+      <tr><td>&nbsp;&nbsp;└ p90</td><td class="num">118</td><td class="num">150 <span class="chip bad">+27.1%</span></td></tr>
+    </tbody>
+  </table>
+  <p class="help">「≥ 60,000」 칸은 변화율을 내지 않는다(실제 값을 모르므로 「—」). 1ms 미만은 µs(리포트 화면과 같은 규칙).</p>
+</div>
+
+<!-- ───────────────────────── 3. 인쇄 본문 그래프 ───────────────────────── -->
+<h2>3. 인쇄 보고서 — 「시간에 따른 변화」 절에 응답 시간 그래프 · ④a</h2>
+<div class="paper"><div class="in">
+  <h4>6. 시간에 따른 변화</h4>
+  <div class="grey">
+    <svg id="pErr" width="100%" viewBox="0 0 180 40" role="img" aria-label="지금 있는 처리량·오류 그래프"></svg>
+    <div class="cap">(지금 있는 처리량·오류 막대 그래프)</div>
+  </div>
+  <div class="new">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:9.5pt">응답 시간</b><span class="cap">━ 평균 &nbsp; ┅ p95 (구간 안에서 가장 느린 초)</span></div>
+    <svg id="pLat" width="100%" viewBox="0 0 180 50" role="img" aria-label="인쇄 응답 시간 그래프"></svg>
+    <div class="cap">모든 단계의 요청을 합친 값. 한 칸 = 30초. 평균은 그 30초 안 요청 전체의 평균, p95는 30초 안에서 가장 느린 1초의 p95입니다. 흑백 인쇄에서도 구분되게 평균은 실선, p95는 점선.</div>
+  </div>
+</div></div>
+
+<!-- ───────────────────────── 4. 인쇄 통계 표 ───────────────────────── -->
+<h2>4. 인쇄 보고서 — 새 절 「단계별 응답 시간 통계」(단계별 결과 바로 뒤) · ④b</h2>
+<div class="paper"><div class="in new">
+  <h4>3. 단계별 응답 시간 통계</h4>
+  <div class="cap">통과한 요청 기준 · 단위 ms (1ms 미만은 µs)</div>
+  <table>
+    <thead><tr><th>단계</th><th class="num">최소</th><th class="num">평균</th><th class="num">p50</th><th class="num">p90</th><th class="num">p95</th><th class="num">p99</th><th class="num">최대</th><th class="num">표준편차</th></tr></thead>
+    <tbody>
+      <tr><td>1. 로그인</td><td class="num">31</td><td class="num">52</td><td class="num">47</td><td class="num">71</td><td class="num">88</td><td class="num">140</td><td class="num">402</td><td class="num">19</td></tr>
+      <tr><td>2. 목록 조회</td><td class="num">12</td><td class="num">61</td><td class="num">52</td><td class="num">118</td><td class="num">140</td><td class="num">390</td><td class="num">902</td><td class="num">40</td></tr>
+      <tr><td>3. 상세 조회</td><td class="num">350µs</td><td class="num">4</td><td class="num">3</td><td class="num">7</td><td class="num">9</td><td class="num">21</td><td class="num">88</td><td class="num">3</td></tr>
+      <tr><td>4. 장바구니 담기</td><td class="num">40</td><td class="num">77</td><td class="num">70</td><td class="num">120</td><td class="num">151</td><td class="num">300</td><td class="num">1,840</td><td class="num">52</td></tr>
+      <tr><td>5. 주문</td><td class="num">90</td><td class="num">180</td><td class="num">160</td><td class="num">270</td><td class="num">320</td><td class="num">780</td><td class="num">≥ 60,000</td><td class="num">2,410</td></tr>
+      <tr><td>6. 결제</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+      <tr class="total"><td>모든 단계</td><td class="num">350µs</td><td class="num">52</td><td class="num">41</td><td class="num">98</td><td class="num">120</td><td class="num">310</td><td class="num">≥ 60,000</td><td class="num">980</td></tr>
+    </tbody>
+  </table>
+  <div class="cap">「≥ 60,000」 = 60초를 넘긴 응답이 있어 실제 값은 더 큽니다(그 단계의 평균·표준편차도 실제보다 작게 나온 값). 「–」 = 통과한 요청이 없음.</div>
+</div></div>
+
+<!-- ───────────────────────── 5. 인쇄 별첨 ───────────────────────── -->
+<h2>5. 인쇄 보고서 — 맨 뒤 「부록 2. 단계별 평균 응답 시간」 · ④a</h2>
+<div class="paper"><div class="in new">
+  <h4>부록 2. 단계별 평균 응답 시간</h4>
+  <div class="cap">단계마다 시간에 따른 평균 응답 시간. 모든 그림이 같은 세로 눈금(0–<span class="pymax"></span> ms)·같은 가로 시간축. 순서는 「2. 단계별 결과」 표와 같음. 그림 한 쌍(한 줄)은 쪽 사이에서 나뉘지 않는다.</div>
+  <div class="pgrid" id="pminis"></div>
+</div></div>
+<p class="note">부록 번호: 지금 있는 「부록. 그 밖의 기준 전체」(판정 행이 넘칠 때만)와 함께 나오면 「부록 1」·「부록 2」, 하나만 나오면 「부록」. 이번 부록은 서명란 뒤가 아니라 문서 끝(서명란 바로 앞, 지금 부록과 같은 자리 뒤)에 둔다 — 아래 spec 판단 참고.</p>
+
+<!-- ───────────────────────── 6. 비교 인쇄 ───────────────────────── -->
+<h2>6. 비교 인쇄 보고서 — 요약 표 p90·최대 · 「단계별 평균 응답시간 변화」 절 · ④b</h2>
+<div class="paper"><div class="in">
+  <h4>2. 핵심 지표 비교</h4>
+  <table>
+    <thead><tr><th>지표</th><th class="num">이전</th><th class="num">이후</th><th>변화</th></tr></thead>
+    <tbody>
+      <tr><td>오류율</td><td class="num">0.20%</td><td class="num">0.10%</td><td>좋아짐</td></tr>
+      <tr><td>99% 응답 시간</td><td class="num">0.31초</td><td class="num">0.30초</td><td>비슷</td></tr>
+      <tr><td>95% 응답 시간</td><td class="num">0.12초</td><td class="num">0.13초</td><td>나빠짐</td></tr>
+      <tr class="new"><td>90% 응답 시간</td><td class="num">98ms</td><td class="num">0.10초</td><td>나빠짐</td></tr>
+      <tr><td>평균 응답 시간</td><td class="num">52ms</td><td class="num">55ms</td><td>나빠짐</td></tr>
+      <tr class="new"><td>최대 응답 시간</td><td class="num">1.8초</td><td class="num">60초 이상</td><td>나빠짐</td></tr>
+      <tr><td>처리량</td><td class="num">812건/초</td><td class="num">790건/초</td><td>비슷</td></tr>
+    </tbody>
+  </table>
+  <div style="height:5mm"></div>
+  <div class="grey"><h4>3. 단계별 95% 응답 시간 변화</h4><div class="cap">(지금 있는 덤벨 그림)</div></div>
+  <div class="new">
+    <h4>4. 단계별 평균 응답 시간 변화</h4>
+    <svg id="pDb" width="100%" viewBox="0 0 180 52" role="img" aria-label="평균 덤벨"></svg>
+    <div class="cap">○ 이전 &nbsp; ● 이후 &nbsp; 화살표 = 변화 방향(지금 95% 덤벨과 같은 모양·같은 「비슷」 기준 5%).</div>
+  </div>
+</div></div>
+<p class="note">인쇄의 「응답시간」은 이번에 모두 「응답 시간」으로 띄어 쓴다(③ spec §6.7에서 ④로 미룬 것). 비교 인쇄의 최소·표준편차는 넣지 않는다(비교 화면·CSV/XLSX에는 있음).</p>
+
+<!-- ───────────────────────── 7. CSV ───────────────────────── -->
+<h2>7. CSV / XLSX — 시간 칸 ms 소수 3자리 · ④b</h2>
+<pre>step_id,count,error_count,min_ms,mean_ms,p50_ms,p90_ms,p95_ms,p99_ms,max_ms,stdev_ms,capped
+01J…LOGIN,12000,3,31.007,52.118,47.039,71.039,88.063,140.031,402.175,19.204,false
+01J…DETAIL,12000,0,0.350,4.021,3.001,7.003,9.007,21.007,88.063,3.110,false
+01J…ORDER,12000,8,90.047,180.351,160.031,270.079,320.255,780.287,60000.000,2410.880,true
+01J…PAY,12000,12000,,,,,,,,,
+*,48000,12011,0.350,52.006,41.023,98.047,120.063,310.015,60000.000,980.400,true</pre>
+<p class="note">맨 끝 줄 <code>*</code> = 모든 스텝. XLSX 「Steps」 시트도 같은 열. 「Summary」 시트에 min/mean/p90/max/stdev/capped 행, 「Windows」 시트에 mean_ms 열. 비교 CSV/XLSX에도 같은 지표 행. 통과한 요청이 없으면 빈 칸(지금 규칙).</p>
+
+<script>
+// ── 예시 데이터 ──
+const N = 300; // 초
+function series(base, amp, phase, noise, seed){ let s=seed, out=[]; for(let i=0;i<N;i++){ s=(s*9301+49297)%233280; const r=s/233280; const ramp=Math.min(1,i/60); out.push(Math.max(1,(base*(0.6+0.4*ramp))+amp*Math.max(0,Math.sin((i+phase)/40))+ (r-0.5)*noise)); } return out; }
+const steps = [
+  ["로그인", series(50,15,0,10,1)],
+  ["목록 조회", series(55,60,80,14,2)],
+  ["상세 조회", series(4,2,10,2,3)],
+  ["장바구니 담기", series(70,25,40,15,4)],
+  ["주문", series(170,90,120,30,5)],
+  ["결제", series(120,40,200,20,6)],
+];
+const mean = steps[0][1].map((_,i)=> steps.reduce((a,s)=>a+s[1][i],0)/steps.length);
+const p95 = mean.map((v,i)=> v*2.1 + 12*Math.abs(Math.sin(i/7)));
+function path(vals, w, h, ymax, x0=0){ return vals.map((v,i)=> (i?"L":"M")+(x0+i*(w-x0)/(vals.length-1)).toFixed(2)+" "+(h-Math.min(v,ymax)/ymax*h).toFixed(2)).join(" "); }
+function line(svg, d, color, dash, sw){ const p=document.createElementNS("http://www.w3.org/2000/svg","path"); p.setAttribute("d",d); p.setAttribute("fill","none"); p.setAttribute("stroke",color); p.setAttribute("stroke-width",sw||2); if(dash) p.setAttribute("stroke-dasharray",dash); p.setAttribute("vector-effect","non-scaling-stroke"); svg.appendChild(p); }
+function rect(svg,x,y,w,h,fill,op){ const r=document.createElementNS("http://www.w3.org/2000/svg","rect"); r.setAttribute("x",x);r.setAttribute("y",y);r.setAttribute("width",w);r.setAttribute("height",h);r.setAttribute("fill",fill);r.setAttribute("fill-opacity",op);svg.appendChild(r); }
+function txt(svg,x,y,s,size,anchor){ const t=document.createElementNS("http://www.w3.org/2000/svg","text"); t.setAttribute("x",x);t.setAttribute("y",y);t.setAttribute("font-size",size);t.setAttribute("fill","#64748b"); if(anchor) t.setAttribute("text-anchor",anchor); t.textContent=s; svg.appendChild(t); }
+// 1. 메인
+const main=document.getElementById("main"); rect(main,0,0,200,220,"#94a3b8",0.22); rect(main,200,0,800,220,"#f59e0b",0.10);
+const ymaxMain = Math.ceil(Math.max(...p95)/50)*50; line(main, path(p95,1000,210,ymaxMain), "#9333ea","6 4",1.6); line(main, path(mean,1000,210,ymaxMain), "#2563eb",null,2);
+// 1. 작은 그래프 (공통 눈금)
+const ymaxStep = 300; document.getElementById("ymax").textContent = ymaxStep;
+const minis=document.getElementById("minis");
+for (const [name, vals] of steps){ const d=document.createElement("div"); d.className="mini"; const last=Math.round(vals.reduce((a,b)=>a+b,0)/vals.length); d.innerHTML=`<div class="t" title="${name}">${name}</div><div class="s">평균 ${last} ms</div>`; const s=document.createElementNS("http://www.w3.org/2000/svg","svg"); s.setAttribute("viewBox","0 0 300 80"); s.setAttribute("width","100%"); s.setAttribute("height","80"); s.setAttribute("preserveAspectRatio","none"); rect(s,0,0,40,80,"#94a3b8",0.18); line(s, path(vals,300,78,ymaxStep), "#2563eb", null, 1.6); d.appendChild(s); minis.appendChild(d); }
+// 2. 비교 겹쳐 보기 (평균)
+const cmp=document.getElementById("cmp"); const other = mean.map((v,i)=>v*1.08+3*Math.sin(i/9)); line(cmp,path(mean,1000,150,140),"#2563eb",null,2); line(cmp,path(other,1000,150,140),"#ea580c",null,2);
+// 3. 인쇄 오류 그래프(흐리게)
+const pErr=document.getElementById("pErr"); for(let i=0;i<10;i++) rect(pErr,12+i*15.6,30-(i%3)*3,12,4+(i%3)*3,"#333",0.6); line(pErr,"M12 12 L40 8 L168 8","#000",null,0.6);
+// 3. 인쇄 응답 시간(30초 칸)
+const pLat=document.getElementById("pLat"); const bins=10; const bm=[],bp=[]; for(let b=0;b<bins;b++){ const sl=mean.slice(b*30,(b+1)*30), sp=p95.slice(b*30,(b+1)*30); bm.push(sl.reduce((a,c)=>a+c,0)/sl.length); bp.push(Math.max(...sp)); }
+const pmax=Math.ceil(Math.max(...bp)/100)*100; const pl=(vals)=>vals.map((v,i)=>(i?"L":"M")+(12+i*(156/(vals.length-1))).toFixed(2)+" "+(44-v/pmax*40).toFixed(2)).join(" ");
+line(pLat,pl(bp),"#000","1.6 1",0.5); line(pLat,pl(bm),"#000",null,0.7); line(pLat,"M12 44 L168 44","#999",null,0.3);
+[0,pmax/4,pmax/2,pmax*3/4,pmax].forEach(v=>txt(pLat,10,44-v/pmax*40+1,String(v),2.4,"end")); ["0:00","1:00","2:00","3:00","4:00","5:00"].forEach((s,i)=>txt(pLat,12+i*31.2,48.5,s,2.4,"middle"));
+// 5. 인쇄 부록 작은 그래프
+document.querySelectorAll(".pymax").forEach(e=>e.textContent=ymaxStep);
+const pminis=document.getElementById("pminis");
+steps.forEach(([name,vals],i)=>{ const d=document.createElement("div"); d.className="pmini"; d.innerHTML=`<div class="t">${i+1}. ${name}</div>`; const s=document.createElementNS("http://www.w3.org/2000/svg","svg"); s.setAttribute("viewBox","0 0 84 26"); s.setAttribute("width","100%"); const bm2=[]; for(let b=0;b<10;b++){ const sl=vals.slice(b*30,(b+1)*30); bm2.push(sl.reduce((a,c)=>a+c,0)/sl.length); } line(s,"M6 22 L84 22","#999",null,0.3); line(s,bm2.map((v,k)=>(k?"L":"M")+(6+k*(78/9)).toFixed(2)+" "+(22-v/ymaxStep*20).toFixed(2)).join(" "),"#000",null,0.6); txt(s,5,3,String(ymaxStep),2.2,"end"); txt(s,5,22.5,"0",2.2,"end"); d.appendChild(s); pminis.appendChild(d); });
+// 6. 평균 덤벨
+const pDb=document.getElementById("pDb"); const rows=[["1. 로그인",52,53],["2. 목록 조회",61,83],["3. 상세 조회",4,4],["4. 장바구니 담기",77,70],["5. 주문",180,240],["6. 결제",120,118]];
+const dbx=(v)=>60+v/260*110;
+rows.forEach(([n,a,b],i)=>{ const y=5+i*7.5; txt(pDb,2,y+1,n,2.6); pDb.querySelector("text:last-child").setAttribute("fill","#000"); line(pDb,`M${dbx(a)} ${y} L${dbx(b)} ${y}`,"#000",null,0.5); const c1=document.createElementNS("http://www.w3.org/2000/svg","circle"); c1.setAttribute("cx",dbx(a));c1.setAttribute("cy",y);c1.setAttribute("r",1.3);c1.setAttribute("fill","#fff");c1.setAttribute("stroke","#000");c1.setAttribute("stroke-width",0.4); pDb.appendChild(c1); const c2=document.createElementNS("http://www.w3.org/2000/svg","circle"); c2.setAttribute("cx",dbx(b));c2.setAttribute("cy",y);c2.setAttribute("r",1.3);c2.setAttribute("fill","#000"); pDb.appendChild(c2); });
+</script>
+</body>
+</html>
