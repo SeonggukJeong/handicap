@@ -1310,8 +1310,8 @@ export const ko = {
       noCommonWindow:
         "워커 시작 시각 차이가 커서 공통 유지 구간이 없습니다 — 전체 구간만 볼 수 있습니다",
       otherNameWithSample: (name: string, sample: string) => `${name} (${sample})`,
-      otherLine: (label: string, rps: string, p95: number | null, errPct: string) =>
-        `${label}: 초당 요청 ${rps} · ${p95 === null ? "p95 —" : `p95 ${p95} ms`} · 오류 ${errPct}`,
+      otherLine: (label: string, rps: string, p95: string | null, errPct: string) =>
+        `${label}: 초당 요청 ${rps} · ${p95 === null ? "p95 —" : `p95 ${p95}`} · 오류 ${errPct}`,
       chartLegend: (hasRamp: boolean, hasDiscard: boolean) => {
         const bands =
           hasRamp && hasDiscard
@@ -1726,6 +1726,9 @@ export const ko = {
       p95 === null ? "통과한 요청 없음" : `95%가 ${p95} 안에 응답`,
     headlineLatencyFailed: (p95: string) => `실패한 요청의 95%가 ${p95} 안에 실패`,
     headlineLatencyAll: (p95: string) => `모든 요청의 95%가 ${p95} 안에 끝남`,
+    headlineLatencyCapped: "5% 이상이 60초를 넘겨 응답",
+    headlineLatencyFailedCapped: "실패한 요청의 5% 이상이 60초를 넘겨 실패",
+    headlineLatencyAllCapped: "모든 요청의 5% 이상이 60초를 넘김",
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
     headlineSetupFailed:
       "준비 스텝이 실패해서 본 스텝을 실행하지 못했습니다 — 아래 「준비 스텝」에서 원인을 확인하세요.",

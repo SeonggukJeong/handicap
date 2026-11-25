@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { BasisBar } from "../BasisBar";
+import { basisOtherLine } from "../basisText";
 import type { ReportBasis } from "../../../api/schemas";
 
 const START = new Date(2026, 0, 1, 10, 0, 30).getTime();
@@ -164,5 +165,46 @@ describe("BasisBar", () => {
     const line = screen.getByText(/상승 30초·버림 5초 제외/);
     expect(line.className).not.toContain("truncate");
     expect(screen.getByText(/초당 요청 71.2/).className).not.toContain("truncate");
+  });
+});
+
+describe("다른 기준 줄 — 1ms 미만·60초 칸", () => {
+  const st = (p95: number) => ({
+    min_us: 0,
+    mean_us: 0,
+    max_us: 0,
+    stdev_us: 0,
+    p50_us: 0,
+    p90_us: 0,
+    p95_us: p95,
+    p99_us: 0,
+    capped: false,
+  });
+  const mk = (p95_ms: number, p95_us?: number): ReportBasis => ({
+    ...B,
+    other: {
+      ...B.other!,
+      p95_ms,
+      error_rate: 0.01,
+      ...(p95_us === undefined ? {} : { stats: st(p95_us) }),
+    },
+  });
+  it("인쇄 호출 모양은 stats가 있어도 ms 그대로", () => {
+    expect(basisOtherLine(mk(0, 350), "passed")).toContain("p95 0 ms");
+  });
+  it("화면은 µs", () => {
+    expect(basisOtherLine(mk(0, 350), "passed", false, true)).toContain("p95 350 µs");
+  });
+  it("화면 60초 칸", () => {
+    expect(basisOtherLine(mk(60030, 60_000_000), "passed", false, true)).toContain(
+      "p95 ≥ 60,000 ms",
+    );
+  });
+  it("화면 stats 없음은 지금 글자", () => {
+    expect(basisOtherLine(mk(43), "passed", false, true)).toContain("p95 43 ms");
+  });
+  it("BasisBar 렌더", () => {
+    render(<BasisBar basis={mk(0, 350)} onSelect={() => {}} />);
+    expect(screen.getByText(/p95 350 µs/)).toBeInTheDocument();
   });
 });

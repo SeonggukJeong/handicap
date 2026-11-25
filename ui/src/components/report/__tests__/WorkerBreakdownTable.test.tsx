@@ -44,4 +44,59 @@ describe("WorkerBreakdownTable", () => {
     const table = screen.getByRole("table");
     expect(within(table).getByText("<0.1%")).toBeInTheDocument();
   });
+
+  describe("1ms 미만·60초 칸 (stats)", () => {
+    const st = (p50: number, p95: number, p99: number) => ({
+      min_us: 0,
+      mean_us: 0,
+      max_us: 0,
+      stdev_us: 0,
+      p50_us: p50,
+      p90_us: p95,
+      p95_us: p95,
+      p99_us: p99,
+      capped: false,
+    });
+    it("1ms 미만은 µs, 60초 칸은 「≥ 60,000」", () => {
+      const w: WorkerBreakdown[] = [
+        {
+          worker_id: "a",
+          count: 10,
+          errors: 0,
+          p50_ms: 0,
+          p95_ms: 43,
+          p99_ms: 60030,
+          stats: st(350, 43000, 60_000_000),
+        },
+        { worker_id: "b", count: 10, errors: 0, p50_ms: 0, p95_ms: 43, p99_ms: 7 },
+      ];
+      render(<WorkerBreakdownTable breakdown={w} />);
+      const r1 = screen.getByText("워커 1").closest("tr")!;
+      const c1 = within(r1).getAllByRole("cell");
+      expect(c1[4]).toHaveTextContent("350 µs");
+      expect(c1[5]).toHaveTextContent("43");
+      expect(c1[5]).not.toHaveTextContent("µs");
+      expect(c1[6]).toHaveTextContent("≥ 60,000");
+      const c2 = within(screen.getByText("워커 2").closest("tr")!).getAllByRole("cell");
+      expect(c2[4].textContent).toBe("0");
+      expect(c2[5].textContent).toBe("43");
+    });
+    it("통과 표본에 통과 0건이면 stats가 있어도 「—」", () => {
+      const w: WorkerBreakdown[] = [
+        {
+          worker_id: "a",
+          count: 5,
+          errors: 5,
+          p50_ms: 0,
+          p95_ms: 0,
+          p99_ms: 0,
+          stats: st(350, 350, 350),
+        },
+        { worker_id: "b", count: 5, errors: 0, p50_ms: 1, p95_ms: 1, p99_ms: 1 },
+      ];
+      render(<WorkerBreakdownTable breakdown={w} sample="passed" />);
+      const c = within(screen.getByText("워커 1").closest("tr")!).getAllByRole("cell");
+      expect(c[4].textContent).toBe("—");
+    });
+  });
 });

@@ -21,7 +21,7 @@ export function BasisBar({
 }) {
   const t = ko.report.basis;
   const steadyOff = basis.state === "not_reached" || basis.state === "no_common_window";
-  const otherText = basisOtherLine(basis, sample, switched);
+  const otherText = basisOtherLine(basis, sample, switched, true);
   return (
     <div className="mb-4">
       <Segmented<Basis>

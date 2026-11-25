@@ -1,7 +1,7 @@
 import type { ReportBasis, ReportSampleName } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { sampleName } from "../../report/sampleView";
-import { floorPct } from "./format";
+import { floorPct, latencyShown, latencyUnitText } from "./format";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const clock = (ms: number) => {
@@ -38,6 +38,8 @@ export function basisOtherLine(
   basis: ReportBasis,
   sample: ReportSampleName,
   switched = false,
+  /** 화면만 1ms 미만·60초 칸 글자를 쓴다 — 인쇄는 인자 없이 불러 ms 그대로. */
+  screen = false,
 ): string | null {
   const t = ko.report.basis;
   const other = basis.other;
@@ -53,7 +55,11 @@ export function basisOtherLine(
   return t.otherLine(
     switched ? t.otherNameWithSample(name, sampleName(sample)) : name,
     other.rps.toFixed(1),
-    noValue ? null : other.p95_ms,
+    noValue
+      ? null
+      : screen
+        ? latencyUnitText(latencyShown(other.p95_ms, other.stats?.p95_us))
+        : `${other.p95_ms} ms`,
     floorPct(other.error_rate * 100),
   );
 }

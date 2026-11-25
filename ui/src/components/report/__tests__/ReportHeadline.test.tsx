@@ -350,4 +350,69 @@ describe("ReportHeadline", () => {
       expect(head()).toHaveTextContent("0.00초 안에 응답");
     });
   });
+
+  describe("1ms 미만·60초 칸 문장", () => {
+    const st = (p95: number) => ({
+      min_us: 0,
+      mean_us: 0,
+      max_us: 0,
+      stdev_us: 0,
+      p50_us: 0,
+      p90_us: 0,
+      p95_us: p95,
+      p99_us: 0,
+      capped: false,
+    });
+    const counts = { count: 12, errors: 2, notSent: 0 };
+    const run = (
+      summary: ReportSummary,
+      latency?: { sample: "passed" | "failed" | "all"; switched?: boolean },
+    ) => {
+      render(
+        <ReportHeadline
+          summary={summary}
+          profile={CLOSED}
+          verdict={null}
+          latency={latency ? { ...latency, counts } : undefined}
+        />,
+      );
+      return screen.getByRole("region", { name: "쉬운 요약" });
+    };
+    it("1ms 미만은 µs", () => {
+      const r = run({ ...SUMMARY, p95_ms: 0, stats: st(350) });
+      expect(r).toHaveTextContent("95%가 350 µs 안에 응답");
+    });
+    it("전환 all은 µs", () => {
+      const r = run({ ...SUMMARY, p95_ms: 0, stats: st(350) }, { sample: "all", switched: true });
+      expect(r).toHaveTextContent("모든 요청의 95%가 350 µs 안에 끝남");
+    });
+    it("60초 칸", () => {
+      const r = run({ ...SUMMARY, p95_ms: 60030, stats: st(60_000_000) });
+      expect(r).toHaveTextContent("5% 이상이 60초를 넘겨 응답");
+      expect(r).not.toHaveTextContent("60030");
+      expect(r).not.toHaveTextContent("60초 이상 안에");
+    });
+    it("전환 failed 60초 칸", () => {
+      const r = run(
+        { ...SUMMARY, p95_ms: 60030, stats: st(60_000_000) },
+        { sample: "failed", switched: true },
+      );
+      expect(r).toHaveTextContent("실패한 요청의 5% 이상이 60초를 넘겨 실패");
+    });
+    it("전환 all 60초 칸", () => {
+      const r = run(
+        { ...SUMMARY, p95_ms: 60030, stats: st(60_000_000) },
+        { sample: "all", switched: true },
+      );
+      expect(r).toHaveTextContent("모든 요청의 5% 이상이 60초를 넘김");
+    });
+    it("1ms 이상은 지금 글자", () => {
+      const r = run({ ...SUMMARY, p95_ms: 1234, stats: st(1_234_567) });
+      expect(r).toHaveTextContent("95%가 1.2초 안에 응답");
+    });
+    it("stats 없음·p95 0은 지금 글자", () => {
+      const r = run({ ...SUMMARY, p95_ms: 0 });
+      expect(r).toHaveTextContent("95%가 0.00초 안에 응답");
+    });
+  });
 });

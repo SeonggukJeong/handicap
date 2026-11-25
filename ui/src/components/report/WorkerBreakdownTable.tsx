@@ -2,7 +2,7 @@ import type { ReportSampleName, WorkerBreakdown } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
-import { formatErrPct } from "./format";
+import { formatErrPct, latencyCellText, latencyShown } from "./format";
 import { SampleTag } from "./SampleTag";
 
 type Props = {
@@ -13,10 +13,16 @@ type Props = {
 };
 
 // 워커별 「보내지 않음」 수는 와이어에 없어 all 표본은 지금처럼 늘 값.
-function workerLatency(w: WorkerBreakdown, ms: number, sample: ReportSampleName): number | string {
-  if (sample === "passed") return w.count - w.errors > 0 ? ms : "—";
-  if (sample === "failed") return w.errors > 0 ? ms : "—";
-  return ms;
+function workerLatency(
+  w: WorkerBreakdown,
+  ms: number,
+  us: number | undefined,
+  sample: ReportSampleName,
+): string {
+  const text = latencyCellText(latencyShown(ms, us));
+  if (sample === "passed") return w.count - w.errors > 0 ? text : "—";
+  if (sample === "failed") return w.errors > 0 ? text : "—";
+  return text;
 }
 
 export function WorkerBreakdownTable({ breakdown, sample = "all", sampleTag }: Props) {
@@ -55,9 +61,9 @@ export function WorkerBreakdownTable({ breakdown, sample = "all", sampleTag }: P
               <td className="py-2 pr-4">{w.count}</td>
               <td className="py-2 pr-4">{w.errors}</td>
               <td className="py-2 pr-4">{formatErrPct(w.errors, w.count)}</td>
-              <td className="py-2 pr-4">{workerLatency(w, w.p50_ms, sample)}</td>
-              <td className="py-2 pr-4">{workerLatency(w, w.p95_ms, sample)}</td>
-              <td className="py-2 pr-4">{workerLatency(w, w.p99_ms, sample)}</td>
+              <td className="py-2 pr-4">{workerLatency(w, w.p50_ms, w.stats?.p50_us, sample)}</td>
+              <td className="py-2 pr-4">{workerLatency(w, w.p95_ms, w.stats?.p95_us, sample)}</td>
+              <td className="py-2 pr-4">{workerLatency(w, w.p99_ms, w.stats?.p99_us, sample)}</td>
             </tr>
           ))}
         </tbody>

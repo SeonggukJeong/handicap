@@ -9,7 +9,7 @@ import { hasLatency, type LatencyCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo, formatLatencyKo, formatSecondsKo } from "../../i18n/duration";
 import { noLatencyWord } from "../../report/sampleView";
-import { floorPct } from "./format";
+import { floorPct, latencyShown } from "./format";
 import { fixedTarget } from "../run/loadModel";
 import { criteriaHasAny, verdictBox } from "../../print/verdict";
 
@@ -23,9 +23,9 @@ type Props = {
   setupOnly?: boolean;
   /** 리포트의 준비 결과(실패·끝나기 전 종료 수) — 요청 0건의 원인이 준비 쪽인지 가린다. */
   setup?: { failed: number; interrupted: number };
-  /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 문장이 값을 말하지 않는다. */
   /** 실행 상태(`report.run.status`) — 판정이 없는 이유를 가른다. 모르면 완료로 본다. */
   status?: string;
+  /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 문장이 값을 말하지 않는다. */
   latency?: { sample: ReportSampleName; counts: LatencyCounts; switched?: boolean };
 };
 
@@ -51,14 +51,26 @@ export function ReportHeadline({
     latency != null &&
     (latency.switched || latency.sample !== "all") &&
     !hasLatency(latency.counts, latency.sample);
-  const p95 = formatSecondsKo(summary.p95_ms);
+  const p95x = latencyShown(summary.p95_ms, summary.stats?.p95_us);
+  const p95 = p95x.kind === "ms" ? formatSecondsKo(p95x.ms) : p95x.kind === "us" ? p95x.text : null;
+  const p95Ms =
+    p95x.kind === "ms" ? formatLatencyKo(p95x.ms) : p95x.kind === "us" ? p95x.text : null;
+  const t = ko.report;
   const latencyText = !latency?.switched
-    ? ko.report.headlineLatency(noLatency ? null : p95)
+    ? noLatency
+      ? t.headlineLatency(null)
+      : p95 === null
+        ? t.headlineLatencyCapped
+        : t.headlineLatency(p95)
     : noLatency
       ? noLatencyWord(latency.sample, summary.errors)
       : latency.sample === "failed"
-        ? ko.report.headlineLatencyFailed(formatLatencyKo(summary.p95_ms))
-        : ko.report.headlineLatencyAll(formatLatencyKo(summary.p95_ms));
+        ? p95Ms === null
+          ? t.headlineLatencyFailedCapped
+          : t.headlineLatencyFailed(p95Ms)
+        : p95Ms === null
+          ? t.headlineLatencyAllCapped
+          : t.headlineLatencyAll(p95Ms);
   const common = {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),
