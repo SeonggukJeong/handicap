@@ -44,6 +44,15 @@
   .callout { background:var(--amber-bg); border:1px solid var(--amber-bd); color:var(--amber-tx); border-radius:6px; padding:8px 12px; font-size:13px; margin-top:10px; }
   tr.total td { font-weight:600; border-top:1px solid var(--slate-300); }
   .statcol { background:#f8fafc; }
+  .tag { display:inline-block; border-radius:4px; padding:1px 6px; font-size:12px; font-weight:500; background:#eef2ff; color:#4338ca; white-space:nowrap; }
+  .head3 { display:flex; flex-wrap:wrap; align-items:center; column-gap:8px; margin-bottom:8px; }
+  .head3 h3 { margin:0; font-size:16px; }
+  .head3 .toggle { margin-left:auto; }
+  .sentence { font-size:15px; color:var(--slate-900); margin:4px 0; }
+  .sentence b.new { font-weight:400; }
+  .basis { font-size:14px; color:var(--slate-700, #334155); }
+  .basis .other { color:var(--slate-500); margin-left:16px; }
+  .ex { font-size:12px; color:var(--slate-500); margin:8px 0 2px; }
   @media (max-width:640px){ .cards{ grid-template-columns:repeat(2,1fr);} .grid2{ grid-template-columns:1fr; } }
 </style>
 </head>
@@ -118,59 +127,129 @@
   <div class="callout new">60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 「≥」가 붙은 실측은 실제보다 작게 나온 값이고, 상한 기준은 실패로 판정합니다.</div>
 </div>
 
-<h2>3. 리포트 — 요약 카드 (「평균」 카드 추가 — 이 예시 run은 60초 칸에 걸린 응답이 있어 「≥」. 없으면 「1843 ms」)</h2>
+<h2>3. 리포트 — 요약 카드 (「평균」 카드 추가, 「측정 시간」 뒤·p50 앞 — 이 예시 run은 60초 칸에 걸린 응답이 있어 「≥」. 없으면 「1843 ms」)</h2>
 <div class="card">
   <div class="cards">
-    <div class="kpi"><div class="l">총 요청</div><div class="v">182,400</div></div>
-    <div class="kpi"><div class="l">오류</div><div class="v">766</div></div>
+    <div class="kpi"><div class="l">총 요청</div><div class="v">182,440</div></div>
+    <div class="kpi"><div class="l">에러</div><div class="v">806</div></div>
     <div class="kpi"><div class="l">평균 RPS</div><div class="v">304.0</div></div>
-    <div class="kpi"><div class="l">실행 시간</div><div class="v">600s</div></div>
-    <div class="kpi new"><div class="l">평균</div><div class="v">≥ 1843 ms</div></div>
-    <div class="kpi"><div class="l">p50</div><div class="v">1204 ms</div></div>
-    <div class="kpi"><div class="l">p95</div><div class="v">4210 ms</div></div>
-    <div class="kpi"><div class="l">p99</div><div class="v">7930 ms</div></div>
+    <div class="kpi"><div class="l">측정 시간</div><div class="v">600s</div></div>
+    <div class="kpi new"><div class="l">평균 ⓘ</div><div class="v">≥ 1843 ms</div></div>
+    <div class="kpi"><div class="l">p50 ⓘ</div><div class="v">1204 ms</div></div>
+    <div class="kpi"><div class="l">p95 ⓘ</div><div class="v">4210 ms</div></div>
+    <div class="kpi"><div class="l">p99 ⓘ</div><div class="v">7930 ms</div></div>
+  </div>
+  <p class="ex">p99가 60초 칸이면 그 카드는 「≥ 60,000 ms」(지금은 「60030 ms」). 모든 응답이 60초 칸이면 평균도 「≥ 60,000 ms」(「≥ ≥」·「60015」로 찍지 않는다).</p>
+  <div class="cards" style="margin-top:4px">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">640</div></div>
+    <div class="kpi"><div class="l">에러</div><div class="v">0</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">2.1</div></div>
+    <div class="kpi"><div class="l">측정 시간</div><div class="v">300s</div></div>
+    <div class="kpi new"><div class="l">평균 ⓘ</div><div class="v">≥ 30520 ms</div></div>
+    <div class="kpi"><div class="l">p50 ⓘ</div><div class="v">41 ms</div></div>
+    <div class="kpi new"><div class="l">p95 ⓘ</div><div class="v">≥ 60,000 ms</div></div>
+    <div class="kpi new"><div class="l">p99 ⓘ</div><div class="v">≥ 60,000 ms</div></div>
   </div>
 </div>
 
-<h2>4-가. 리포트 — 스텝별 표 (기본: 접힘, 지금과 같은 열)</h2>
+<h2>4-가. 리포트 — 스텝 표 (기본: 접힘. 표는 지금과 같은 열·같은 글자 — 바뀌는 것은 제목 줄 오른쪽 단추뿐. 숫자 칸 정렬도 지금처럼 왼쪽)</h2>
 <div class="card">
-  <div class="head"><h3>스텝별 결과</h3><button class="toggle new" aria-expanded="false">응답 시간 통계 더 보기 ▸</button></div>
+  <div class="head3"><h3>스텝</h3><button class="toggle new" aria-expanded="false">응답 시간 통계 더 보기 ▸</button></div>
   <table>
-    <thead><tr><th>스텝</th><th>Method</th><th>URL</th><th class="num">요청</th><th class="num">오류</th><th class="num">p50 ms</th><th class="num">p95 ms</th><th class="num">p99 ms</th></tr></thead>
+    <thead><tr><th>스텝</th><th>메서드</th><th>URL</th><th>요청 수</th><th>에러</th><th>p50 ms ⓘ</th><th>p95 ms ⓘ</th><th>p99 ms ⓘ</th></tr></thead>
     <tbody>
-      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td class="num">60800</td><td class="num">12</td><td class="num">88</td><td class="num">240</td><td class="num">610</td></tr>
-      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td class="num">60800</td><td class="num">31</td><td class="num">210</td><td class="num">890</td><td class="num">1420</td></tr>
-      <tr><td>③ 결제</td><td>POST</td><td>/api/pay</td><td class="num">60800</td><td class="num">723</td><td class="num">3310</td><td class="num">9800</td><td class="num">31200</td></tr>
+      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td>60800</td><td>12</td><td>88</td><td>240</td><td>610</td></tr>
+      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td>60800</td><td>31</td><td>210</td><td>890</td><td>1420</td></tr>
+      <tr><td>③ 결제</td><td>POST</td><td>/api/pay</td><td>60800</td><td>723</td><td>3310</td><td>9800</td><td>31200</td></tr>
     </tbody>
   </table>
 </div>
 
-<h2>4-나. 리포트 — 스텝별 표 (펼침: 최소·평균·최대·표준편차·p90 열 + 「모든 스텝」 행 — 1ms 이상은 정수 ms, 1ms 미만은 µs)</h2>
+<h2>4-나. 리포트 — 스텝 표 (펼침: 최소·평균·최대·표준편차·p90 열 + 맨 아래 「모든 스텝」 행 — 1ms 이상은 정수 ms, 1ms 미만은 µs. 열이 많아 표만 가로로 스크롤)</h2>
 <div class="card">
-  <div class="head"><h3>스텝별 결과</h3><button class="toggle new" aria-expanded="true">응답 시간 통계 접기 ▾</button></div>
+  <div class="head3"><h3>스텝</h3><button class="toggle new" aria-expanded="true">응답 시간 통계 접기 ▾</button></div>
   <table>
-    <thead><tr><th>스텝</th><th>Method</th><th>URL</th><th class="num">요청</th><th class="num">오류</th>
-      <th class="num statcol new">최소 ms</th><th class="num statcol new">평균 ms</th><th class="num statcol new">최대 ms</th><th class="num statcol new">표준편차 ms</th>
-      <th class="num">p50 ms</th><th class="num statcol new">p90 ms</th><th class="num">p95 ms</th><th class="num">p99 ms</th></tr></thead>
+    <thead><tr><th>스텝</th><th>메서드</th><th>URL</th><th>요청 수</th><th>에러</th>
+      <th class="statcol new">최소 ms</th><th class="statcol new">평균 ms ⓘ</th><th class="statcol new">최대 ms ⓘ</th><th class="statcol new">표준편차 ms ⓘ</th>
+      <th>p50 ms ⓘ</th><th class="statcol new">p90 ms ⓘ</th><th>p95 ms ⓘ</th><th>p99 ms ⓘ</th></tr></thead>
     <tbody>
-      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td class="num">60800</td><td class="num">12</td>
-        <td class="num statcol">41</td><td class="num statcol">104</td><td class="num statcol">2310</td><td class="num statcol">96</td>
-        <td class="num">88</td><td class="num statcol">196</td><td class="num">240</td><td class="num">610</td></tr>
-      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td class="num">60800</td><td class="num">31</td>
-        <td class="num statcol">840 µs</td><td class="num statcol">312</td><td class="num statcol">4105</td><td class="num statcol">288</td>
-        <td class="num">210</td><td class="num statcol">655</td><td class="num">890</td><td class="num">1420</td></tr>
-      <tr><td>③ 결제</td><td>POST</td><td>/api/pay</td><td class="num">60800</td><td class="num">723</td>
-        <td class="num statcol">512</td><td class="num statcol">5111</td><td class="num statcol">≥ 60,000</td><td class="num statcol">6870</td>
-        <td class="num">3310</td><td class="num statcol">7204</td><td class="num">9800</td><td class="num">31200</td></tr>
-      <tr><td>④ 알림 (보낸 요청 없음)</td><td>GET</td><td>/api/notice</td><td class="num">40</td><td class="num">40</td>
-        <td class="num statcol">—</td><td class="num statcol">—</td><td class="num statcol">—</td><td class="num statcol">—</td>
-        <td class="num">—</td><td class="num statcol">—</td><td class="num">—</td><td class="num">—</td></tr>
-      <tr class="total new"><td>모든 스텝</td><td></td><td></td><td class="num">182440</td><td class="num">806</td>
-        <td class="num statcol">840 µs</td><td class="num statcol">1843</td><td class="num statcol">≥ 60,000</td><td class="num statcol">4120</td>
-        <td class="num">1204</td><td class="num statcol">3480</td><td class="num">4210</td><td class="num">7930</td></tr>
+      <tr><td>① 로그인</td><td>POST</td><td>/api/login</td><td>60800</td><td>12</td>
+        <td class="statcol">41</td><td class="statcol">104</td><td class="statcol">2310</td><td class="statcol">96</td>
+        <td>88</td><td class="statcol">196</td><td>240</td><td>610</td></tr>
+      <tr><td>② 주문 조회</td><td>GET</td><td>/api/orders</td><td>60800</td><td>31</td>
+        <td class="statcol">840 µs</td><td class="statcol">312</td><td class="statcol">4105</td><td class="statcol">288</td>
+        <td>210</td><td class="statcol">655</td><td>890</td><td>1420</td></tr>
+      <tr><td>③ 결제</td><td>POST</td><td>/api/pay</td><td>60800</td><td>723</td>
+        <td class="statcol">512</td><td class="statcol">5111</td><td class="statcol">≥ 60,000</td><td class="statcol">6870</td>
+        <td>3310</td><td class="statcol">7204</td><td>9800</td><td>31200</td></tr>
+      <tr><td>④ 알림 (보낸 요청 없음)</td><td>GET</td><td>/api/notice</td><td>40</td><td>40</td>
+        <td class="statcol">—</td><td class="statcol">—</td><td class="statcol">—</td><td class="statcol">—</td>
+        <td>—</td><td class="statcol">—</td><td>—</td><td>—</td></tr>
+      <tr class="total new"><td>모든 스텝</td><td></td><td></td><td>182440</td><td>806</td>
+        <td class="statcol">840 µs</td><td class="statcol">1843</td><td class="statcol">≥ 60,000</td><td class="statcol">4120</td>
+        <td>1204</td><td class="statcol">3480</td><td>4210</td><td>7930</td></tr>
     </tbody>
   </table>
   <div class="callout new">「≥ 60,000」: 60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 이 스텝의 평균·최대·표준편차는 실제보다 작게 나온 값입니다.</div>
+</div>
+
+<h2>4-다. 리포트 — 스텝 표 접힘 상태에서 p 칸이 60초 칸일 때 (③c 새로 — 접힌 표엔 평균·표준편차 칸이 없어 안내 글자가 4-나와 다르다)</h2>
+<div class="card">
+  <div class="head3"><h3>스텝</h3><button class="toggle new" aria-expanded="false">응답 시간 통계 더 보기 ▸</button></div>
+  <table>
+    <thead><tr><th>스텝</th><th>메서드</th><th>URL</th><th>요청 수</th><th>에러</th><th>p50 ms ⓘ</th><th>p95 ms ⓘ</th><th>p99 ms ⓘ</th></tr></thead>
+    <tbody>
+      <tr><td>① 목록</td><td>GET</td><td>/api/items</td><td>320</td><td>0</td><td>41</td><td>44</td><td>47</td></tr>
+      <tr><td>② 보고서 생성</td><td>POST</td><td>/api/report</td><td>320</td><td>0</td><td class="new">≥ 60,000</td><td class="new">≥ 60,000</td><td class="new">≥ 60,000</td></tr>
+    </tbody>
+  </table>
+  <div class="callout new">「≥ 60,000」: 60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 「≥ 60,000」인 값은 실제로 더 클 수 있습니다.</div>
+  <p class="ex">60초 칸 값이 없는 run은 안내도 없고 표가 지금과 글자 하나 다르지 않다. 지금은 이 칸이 「60030」으로 찍힌다.</p>
+</div>
+
+<h2>5. 1ms 미만 — 다섯 표면 (③c 새로, US10 — 1ms 이상은 지금 글자 그대로)</h2>
+<div class="card">
+  <p class="ex">요약 카드</p>
+  <div class="cards">
+    <div class="kpi"><div class="l">총 요청</div><div class="v">8,420</div></div>
+    <div class="kpi"><div class="l">에러</div><div class="v">0</div></div>
+    <div class="kpi"><div class="l">평균 RPS</div><div class="v">35.1</div></div>
+    <div class="kpi"><div class="l">측정 시간</div><div class="v">240s</div></div>
+    <div class="kpi new"><div class="l">평균 ⓘ</div><div class="v">412 µs</div></div>
+    <div class="kpi new"><div class="l">p50 ⓘ</div><div class="v">350 µs</div></div>
+    <div class="kpi new"><div class="l">p95 ⓘ</div><div class="v">781 µs</div></div>
+    <div class="kpi"><div class="l">p99 ⓘ</div><div class="v">1 ms</div></div>
+  </div>
+  <p class="ex">스텝 표 (접힘)</p>
+  <table>
+    <thead><tr><th>스텝</th><th>메서드</th><th>URL</th><th>요청 수</th><th>에러</th><th>p50 ms ⓘ</th><th>p95 ms ⓘ</th><th>p99 ms ⓘ</th></tr></thead>
+    <tbody><tr><td>① 상태 확인</td><td>GET</td><td>/health</td><td>8420</td><td>0</td><td class="new">350 µs</td><td class="new">781 µs</td><td>1</td></tr></tbody>
+  </table>
+  <p class="ex">워커 표 (워커 2개 이상일 때)</p>
+  <table>
+    <thead><tr><th>워커</th><th>요청 수</th><th>에러</th><th>오류율</th><th>p50 ms ⓘ</th><th>p95 ms ⓘ</th><th>p99 ms ⓘ</th></tr></thead>
+    <tbody>
+      <tr><td>워커 1</td><td>4210</td><td>0</td><td>0.0%</td><td class="new">344 µs</td><td class="new">770 µs</td><td>1</td></tr>
+      <tr><td>워커 2</td><td>4210</td><td>0</td><td>0.0%</td><td class="new">357 µs</td><td class="new">795 µs</td><td>1</td></tr>
+    </tbody>
+  </table>
+  <p class="ex">유지 구간 기준 줄 (「다른 기준」은 p95만 찍는다 — 인쇄의 같은 줄은 지금처럼 「p95 0 ms」)</p>
+  <div class="basis">유지 구간 · 12:00:05–12:04:05 (240초) · 상승 5초 제외 ⓘ<span class="other">전체 구간: 초당 요청 34.8 · <span class="new">p95 790 µs</span> · 오류 0.0%</span></div>
+  <p class="ex">머리말 문장</p>
+  <p class="sentence">4분 동안 동시 사용자 2명이 8,420회 요청 — <b class="new">95%가 781 µs 안에 응답</b>, 에러 0.0%</p>
+  <p class="ex">표본을 「모든 요청」으로 바꿔 볼 때: 「모든 요청의 95%가 781 µs 안에 끝남」</p>
+</div>
+
+<h2>6. 머리말 — p95가 60초 칸일 때 (③c 새로, spec R23 정정 — 「95%가 60초 이상 안에 응답」은 말이 안 되어 문장을 바꾼다)</h2>
+<div class="card">
+  <p class="sentence">5분 동안 동시 사용자 64명이 640회 요청 — <b class="new">5% 이상이 60초를 넘겨 응답</b>, 에러 0.0%</p>
+  <p class="ex">표본 「실패한 요청」: 「실패한 요청의 5% 이상이 60초를 넘겨 실패」 · 표본 「모든 요청」: 「모든 요청의 5% 이상이 60초를 넘김」</p>
+</div>
+
+<h2>7. 스텝 표 — 표본을 바꿔 보는 중일 때 제목 줄 (표본 표지는 제목 바로 옆, 단추는 오른쪽 끝)</h2>
+<div class="card">
+  <div class="head3"><h3>스텝</h3><span class="tag">모든 요청</span><button class="toggle new" aria-expanded="false">응답 시간 통계 더 보기 ▸</button></div>
+  <p class="ex">측정(대기·다운로드) run은 「막대」 보기가 기본이고 단추가 없다. 「칩」 보기로 바꾸면 이 표와 단추가 나온다.</p>
 </div>
 </body>
 </html>
