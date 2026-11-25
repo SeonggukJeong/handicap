@@ -1666,6 +1666,16 @@ export const ko = {
     timeSeriesRequests: "초당 요청 수 (RPS)",
     timeSeriesP95: "p95 응답 시간 (ms)",
     timeSeriesErrors: "초당 에러",
+    // ── 「스텝별로 보기」 작은 평균 그래프 격자 (④a) ──
+    stepLatency: {
+      toggle: "스텝별로 보기",
+      hint: (yMax: string) =>
+        `스텝마다 평균 응답 시간입니다. 모든 그래프가 같은 세로 눈금(0–${yMax} ms)이라 높이로 서로 비교할 수 있습니다. 순서는 스텝 표와 같습니다.`,
+      hintCapped: "60초를 넘긴 응답이 있는 초의 평균은 실제보다 작게 나온 값입니다.",
+      mean: (v: string) => `평균 ${v}`,
+      noData: "응답 시간 없음",
+      viewGrid: "작은 그래프",
+    },
     // ── 응답 시간 그래프 (평균·p95 두 선, ④a) ──
     latencyChart: {
       title: "응답 시간 (ms)",

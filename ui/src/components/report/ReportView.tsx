@@ -18,6 +18,7 @@ import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
 import { LatencyTimeSeriesChart } from "./LatencyTimeSeriesChart";
+import { StepLatencySection } from "./StepLatencySection";
 import { ActiveVuChart } from "./ActiveVuChart";
 import { StatusDistribution } from "./StatusDistribution";
 import { ErrorKindTable } from "./ErrorKindTable";
@@ -353,6 +354,12 @@ export function ReportView({
           }))}
           marks={marks}
           sampleTag={view.tag}
+        />
+        <StepLatencySection
+          report={report}
+          stepNames={stepNames}
+          marks={marks}
+          firstTs={seconds[0]?.ts_second ?? null}
         />
         <TimeSeriesChart
           title={ko.report.timeSeriesErrors}
