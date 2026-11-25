@@ -1268,6 +1268,13 @@ export const ko = {
     // 응답 시간 통계 표시(시간 칸 공용 글자)
     stats: {
       capped: "≥ 60,000",
+      toggleMore: "응답 시간 통계 더 보기",
+      toggleLess: "응답 시간 통계 접기",
+      allSteps: "모든 스텝",
+      colMin: "최소 ms",
+      colMean: "평균 ms",
+      colMax: "최대 ms",
+      colStdev: "표준편차 ms",
       // 스텝 표 아래 안내 — 접힌 표(p 칸만) / 펼친 표(평균·최대·표준편차 칸 포함)
       cappedNoteCollapsed:
         "「≥ 60,000」: 60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 「≥ 60,000」인 값은 실제로 더 클 수 있습니다.",

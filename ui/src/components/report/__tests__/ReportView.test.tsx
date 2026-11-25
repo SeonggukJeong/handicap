@@ -238,6 +238,14 @@ describe("ReportView", () => {
     expect(screen.getByRole("button", { name: ko.report.downloadMenu })).toBeInTheDocument();
   });
 
+  it("통계 더 보기를 펴면 「모든 스텝」 행의 요청 수가 summary.count (R24 배선)", async () => {
+    const user = userEvent.setup();
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+    await user.click(screen.getByRole("button", { name: ko.report.stats.toggleMore }));
+    const row = screen.getByText(ko.report.stats.allSteps).closest("tr") as HTMLElement;
+    expect(within(row).getAllByRole("cell")[3]).toHaveTextContent(String(FIXTURE.summary.count));
+  });
+
   it("스텝 timeout_seconds가 있으면 적용 타임아웃 줄에 오버라이드 꼬리가 붙는다 (도출 배선 그물)", () => {
     // 프리랩 주입이 아니라 scenario_yaml → parseScenarioDoc → flattenHttpSteps 도출 경로를 관통한다.
     const yamlWithOverride = FIXTURE.scenario_yaml.replace(

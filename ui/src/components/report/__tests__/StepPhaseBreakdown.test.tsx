@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { ko } from "../../../i18n/ko";
 import { StepPhaseBreakdown } from "../StepPhaseBreakdown";
 
 const steps = [
@@ -53,6 +54,25 @@ describe("StepPhaseBreakdown", () => {
     // toggle to chips view
     await user.click(screen.getByRole("button", { name: "칩" }));
     expect(screen.getByText(/대기/)).toBeInTheDocument();
+  });
+
+  it("칩 보기에서만 통계 더 보기 단추가 있고 펼치면 「모든 스텝」 행(summary 전달)", async () => {
+    const user = userEvent.setup();
+    const summary = {
+      count: 100,
+      errors: 0,
+      rps: 1,
+      duration_seconds: 1,
+      mean_ms: 50,
+      p50_ms: 48,
+      p95_ms: 60,
+      p99_ms: 70,
+    };
+    render(<StepPhaseBreakdown steps={steps as never} meta={meta} summary={summary as never} />);
+    expect(screen.queryByRole("button", { name: ko.report.stats.toggleMore })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "칩" }));
+    await user.click(screen.getByRole("button", { name: ko.report.stats.toggleMore }));
+    expect(screen.getByText(ko.report.stats.allSteps)).toBeInTheDocument();
   });
 
   it("waterfall label div has truncate class and title for long step names", () => {
@@ -192,7 +212,8 @@ describe("StepPhaseBreakdown", () => {
   });
 
   describe("표본 표지·막대 안내", () => {
-    const note = "이 보기의 값은 표본을 따르지 않습니다. 표본별 응답 시간은 「칩」 보기에서 봅니다.";
+    const note =
+      "이 보기의 값은 표본을 따르지 않습니다. 표본별 응답 시간은 「칩」 보기에서 봅니다.";
 
     it("막대 보기: 안내 줄이 있고 표지는 없다 → 칩 보기: 표지가 있고 안내 줄은 없다", async () => {
       const user = userEvent.setup();

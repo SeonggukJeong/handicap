@@ -576,4 +576,251 @@ describe("StepStatsTable", () => {
       expect(table.parentElement).toHaveClass("overflow-x-auto");
     });
   });
+
+  describe("응답 시간 통계 더 보기 (R24)", () => {
+    const b = { status_counts: { "200": 10 }, error_count: 0, count: 10, loop_breakdown: [] };
+    const full = {
+      min_us: 840,
+      mean_us: 312_600,
+      max_us: 4_105_900,
+      stdev_us: 288_600,
+      p50_us: 210_000,
+      p90_us: 655_700,
+      p95_us: 890_000,
+      p99_us: 1_420_000,
+      capped: false,
+    };
+    const meta = new Map([
+      ["a", { id: "a", name: "주문", method: "GET", url: "/a" }],
+      ["b", { id: "b", name: "결제", method: "POST", url: "/b" }],
+    ]);
+    const mkSummary = (over: Record<string, unknown>) =>
+      ({
+        count: 15,
+        errors: 1,
+        rps: 7.5,
+        duration_seconds: 2,
+        mean_ms: 1843,
+        p50_ms: 210,
+        p95_ms: 890,
+        p99_ms: 1420,
+        stats: { ...full, mean_us: 1_842_400 },
+        ...over,
+      }) as never;
+    const outer = (container: HTMLElement) =>
+      container.querySelector(":scope > section > div > table") as HTMLElement;
+    const heads = (container: HTMLElement) =>
+      Array.from(outer(container).querySelectorAll(":scope > thead th")).map((th) =>
+        (th.firstChild?.textContent ?? "").trim(),
+      );
+    const rows = (container: HTMLElement) =>
+      Array.from(outer(container).querySelectorAll(":scope > tbody > tr"));
+    const cells = (tr: Element) =>
+      Array.from(tr.querySelectorAll(":scope > td")).map((td) => td.textContent ?? "");
+    const toggle = () => screen.getByRole("button", { name: ko.report.stats.toggleMore });
+    const one = { ...b, step_id: "a", p50_ms: 210, p95_ms: 890, p99_ms: 1420, stats: full };
+
+    it("기본은 접힘 — 단추 aria-expanded=false, 새 열·「모든 스텝」 행 없음, 단추는 제목 줄", () => {
+      const { container } = render(
+        <StepStatsTable steps={[one]} meta={meta} summary={mkSummary({})} />,
+      );
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(heads(container)).not.toContain(ko.report.stats.colMin);
+      expect(screen.queryByText(ko.report.stats.allSteps)).toBeNull();
+      const headRow = screen.getByRole("heading", { name: ko.report.stepsHeading }).parentElement!;
+      expect(headRow).toContainElement(toggle());
+    });
+
+    it("펼치면 머리 순서·접근명이 바뀌고, 접으면 표 DOM이 처음과 같다", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable steps={[one]} meta={meta} summary={mkSummary({})} />,
+      );
+      const before = outer(container).outerHTML;
+      await user.click(toggle());
+      const open = screen.getByRole("button", { name: ko.report.stats.toggleLess });
+      expect(open).toHaveAttribute("aria-expanded", "true");
+      expect(heads(container)).toEqual([
+        ko.report.colStep,
+        ko.report.colMethod,
+        "URL",
+        ko.report.colRequests,
+        ko.report.colErrors,
+        ko.report.stats.colMin,
+        ko.report.stats.colMean,
+        ko.report.stats.colMax,
+        ko.report.stats.colStdev,
+        "p50 ms",
+        "p90 ms",
+        "p95 ms",
+        "p99 ms",
+      ]);
+      await user.click(open);
+      expect(outer(container).outerHTML).toBe(before);
+    });
+
+    it("스텝 행 값 — 평균·표준편차는 반올림, 최소·최대·p90은 내림", async () => {
+      const user = userEvent.setup();
+      const { container } = render(<StepStatsTable steps={[one]} meta={meta} />);
+      await user.click(toggle());
+      expect(cells(rows(container)[0]).slice(5)).toEqual([
+        "840 µs",
+        "313",
+        "4105",
+        "289",
+        "210",
+        "655",
+        "890",
+        "1420",
+      ]);
+    });
+
+    it("60초 칸 — 최대 「≥ 60,000」과 펼친 안내, 접힘엔 안내 없음(p 칸이 정상이므로)", async () => {
+      const user = userEvent.setup();
+      render(
+        <StepStatsTable
+          steps={[{ ...one, stats: { ...full, max_us: 60_000_000, capped: true } }]}
+          meta={meta}
+        />,
+      );
+      expect(screen.queryByRole("note")).toBeNull();
+      await user.click(toggle());
+      expect(screen.getByRole("note").textContent).toBe(ko.report.stats.cappedNoteExpanded);
+    });
+
+    it("stats 없는 스텝은 새 다섯 칸이 「—」", async () => {
+      const user = userEvent.setup();
+      const { stats: _unused, ...noStats } = one;
+      void _unused;
+      const { container } = render(<StepStatsTable steps={[noStats]} meta={meta} />);
+      await user.click(toggle());
+      expect(cells(rows(container)[0]).slice(5)).toEqual([
+        "—",
+        "—",
+        "—",
+        "—",
+        "210",
+        "—",
+        "890",
+        "1420",
+      ]);
+    });
+
+    it("통과 표본에서 요청이 모두 오류인 스텝은 칸이 「—」이고 안내도 없다(접힘·펼침 모두)", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...one,
+              count: 4,
+              error_count: 4,
+              p50_ms: 0,
+              p95_ms: 0,
+              p99_ms: 0,
+              stats: { ...full, p99_us: 60_000_000, max_us: 60_000_000, capped: true },
+            },
+          ]}
+          meta={meta}
+          sample="passed"
+        />,
+      );
+      expect(screen.queryByRole("note")).toBeNull();
+      await user.click(toggle());
+      expect(cells(rows(container)[0]).slice(5)).toEqual(Array(8).fill("—"));
+      expect(screen.queryByRole("note")).toBeNull();
+    });
+
+    it("「모든 스텝」 행 — summary 값, 평균은 카드와 같은 식(반올림 1842가 아니라 1843)", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable steps={[one]} meta={meta} summary={mkSummary({})} />,
+      );
+      await user.click(toggle());
+      const rs = rows(container);
+      expect(cells(rs[rs.length - 1])).toEqual([
+        ko.report.stats.allSteps,
+        "",
+        "",
+        "15",
+        "1",
+        "840 µs",
+        "1843",
+        "4105",
+        "289",
+        "210",
+        "655",
+        "890",
+        "1420",
+      ]);
+    });
+
+    it("「모든 스텝」 평균이 60초 칸이면 「≥ 60,000」 — 60015가 아니다", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable
+          steps={[one]}
+          meta={meta}
+          summary={mkSummary({ mean_ms: 60015, stats: { ...full, mean_us: 60_000_000 } })}
+        />,
+      );
+      await user.click(toggle());
+      const rs = rows(container);
+      expect(cells(rs[rs.length - 1])[6]).toBe("≥ 60,000");
+      expect(screen.getByRole("note").textContent).toBe(ko.report.stats.cappedNoteExpanded);
+    });
+
+    it("summary.stats 없으면 「모든 스텝」 시간 칸이 모두 「—」, summary가 없으면 행이 없다", async () => {
+      const user = userEvent.setup();
+      const { container, rerender } = render(
+        <StepStatsTable steps={[one]} meta={meta} summary={mkSummary({ stats: undefined })} />,
+      );
+      await user.click(toggle());
+      let rs = rows(container);
+      expect(cells(rs[rs.length - 1]).slice(3)).toEqual(["15", "1", ...Array(8).fill("—")]);
+      rerender(<StepStatsTable steps={[one]} meta={meta} />);
+      rs = rows(container);
+      expect(rs).toHaveLength(1);
+      expect(screen.queryByText(ko.report.stats.allSteps)).toBeNull();
+    });
+
+    it("열 수 일치 — 대기·다운로드·반복 나눔·회차 펼침이 함께 있어도 접힘·펼침 모두", async () => {
+      const user = userEvent.setup();
+      const ph = { count: 10, p50_ms: 1, p95_ms: 2, p99_ms: 3, max_ms: 4 };
+      const part = (count: number) => ({ count, error_count: 0, p50_ms: 1, p95_ms: 2, p99_ms: 3 });
+      const { container } = render(
+        <StepStatsTable
+          steps={[
+            {
+              ...one,
+              wait: ph,
+              download: ph,
+              loop_split: { final: part(6), retry: part(4) },
+              loop_breakdown: [{ loop_index: 0, count: 3, error_count: 0 }],
+            },
+            { ...b, step_id: "b", p50_ms: 1, p95_ms: 2, p99_ms: 3, wait: ph, download: ph },
+          ]}
+          meta={meta}
+          summary={mkSummary({})}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: ko.report.toggleLoopBreakdown("주문") }));
+      const check = () => {
+        const n = outer(container).querySelectorAll(":scope > thead th").length;
+        for (const tr of rows(container)) {
+          const span = tr.querySelector(":scope > td[colspan]");
+          if (span) {
+            expect(Number(span.getAttribute("colspan"))).toBe(n);
+          } else {
+            expect(tr.querySelectorAll(":scope > td")).toHaveLength(n);
+          }
+        }
+        return n;
+      };
+      const collapsed = check();
+      await user.click(toggle());
+      expect(check()).toBe(collapsed + 5);
+      expect(screen.getByText(ko.report.stats.allSteps)).toBeInTheDocument();
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import type { LoopSplit, ReportSampleName, ReportStep } from "../../api/schemas";
+import type { LoopSplit, ReportSampleName, ReportStep, ReportSummary } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { RetryBadge } from "./LoopExitSummary";
@@ -20,6 +20,8 @@ type Props = {
   mixedSample?: boolean;
   /** 표본을 바꿔 보는 동안의 표본 이름 — 표 제목 곁에 달고, 막대 보기에선 안내 줄로 바꾼다. */
   sampleTag?: string | null;
+  /** 보여 주는 summary — 표(StepStatsTable)의 「모든 스텝」 행에 그대로 넘긴다. */
+  summary?: ReportSummary;
 };
 type View = "waterfall" | "chips";
 
@@ -65,6 +67,7 @@ export function StepPhaseBreakdown({
   sample,
   mixedSample,
   sampleTag,
+  summary,
 }: Props) {
   const [view, setView] = useState<View>("waterfall");
   const anyPhase = steps.some((s) => s.wait != null || s.download != null);
@@ -79,6 +82,7 @@ export function StepPhaseBreakdown({
         sample={sample}
         mixedSample={mixedSample}
         sampleTag={sampleTag}
+        summary={summary}
       />
     );
   }
@@ -122,6 +126,7 @@ export function StepPhaseBreakdown({
           sample={sample}
           mixedSample={mixedSample}
           sampleTag={sampleTag}
+          summary={summary}
         />
       ) : (
         <div>

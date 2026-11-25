@@ -399,6 +399,7 @@ export function ReportView({
           sample={sample}
           mixedSample={mixedSample}
           sampleTag={view.tag}
+          summary={report.summary}
         />
         {report.setup && (
           <SetupSection
