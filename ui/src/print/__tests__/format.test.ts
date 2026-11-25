@@ -154,3 +154,17 @@ describe("pair formatting", () => {
     }
   });
 });
+
+describe("fmtCriterionPair capped", () => {
+  it("capped 시간 쌍은 ≥ 가 붙고 tiny가 아니다", () => {
+    const p = fmtCriterionPair("max_ms", 60000, 10000, true);
+    expect(p.actual).toBe("≥ 60,000ms");
+    expect(p.tiny).toBe(false);
+  });
+  it("capped 생략 시 그대로", () => {
+    expect(fmtCriterionPair("max_ms", 60000, 10000).actual).toBe("60,000ms");
+  });
+  it("시간이 아니면 ≥ 없음", () => {
+    expect(fmtCriterionPair("error_rate", 0.1, 0.05, true).actual).not.toContain("≥");
+  });
+});

@@ -102,8 +102,17 @@ export function fmtMsPair(actual: number, threshold: number): PairText {
 }
 
 /** metric으로 갈래를 골라 주는 진입점. 모르는 metric → String(v) 둘. */
-export function fmtCriterionPair(metric: string, actual: number, threshold: number): PairText {
-  if (metric.endsWith("_ms")) return fmtMsPair(actual, threshold);
+export function fmtCriterionPair(
+  metric: string,
+  actual: number,
+  threshold: number,
+  capped = false,
+): PairText {
+  if (metric.endsWith("_ms")) {
+    const p = fmtMsPair(actual, threshold);
+    // 상한에 걸려 잘린 실측 — 실제 값은 이보다 크다
+    return capped ? { ...p, actual: `≥ ${p.actual}`, tiny: false } : p;
+  }
   if (metric.endsWith("_rate")) return fmtPctPair(actual, threshold, 2);
   if (metric === "rps" || metric === "min_window_rps") return fmtRpsPair(actual, threshold);
   if (metric.endsWith("_count")) {

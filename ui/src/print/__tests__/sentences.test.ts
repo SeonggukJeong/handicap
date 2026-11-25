@@ -531,3 +531,14 @@ describe("zero_request_run_sentences", () => {
     }
   });
 });
+
+describe("verdict_line capped", () => {
+  it("capped 평균은 측정 ≥ 로 말한다", () => {
+    const m = mk("mean_ms", "max", 1000, 1842.613);
+    (m.row as { capped?: boolean }).capped = true;
+    const l = summaryLines(base({ box: { kind: "fail", evaluated: 1, failed: 1 }, matched: [m] }));
+    expect(kindLine(l, "verdict")).toBe(
+      "평균 응답시간이 기준을 넘었습니다 (측정 ≥ 1,842.613ms, 기준 1,000ms 이하)",
+    );
+  });
+});

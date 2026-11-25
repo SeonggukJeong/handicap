@@ -79,7 +79,7 @@ function verdictLine(i: SummaryInput): string | null {
   const { name, subj } = criterionName(spec.metric);
   const subject =
     spec.target === null ? name : ko.print.criteria.stepName(i.stepName(spec.target), name);
-  const pair = fmtCriterionPair(spec.metric, row.actual, spec.threshold);
+  const pair = fmtCriterionPair(spec.metric, row.actual, spec.threshold, row.capped ?? false);
   const thr = pair.threshold;
   const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
   const head = row.no_sample

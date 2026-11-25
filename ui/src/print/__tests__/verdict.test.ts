@@ -382,3 +382,83 @@ describe("자동 정지 run 판정", () => {
     ).toEqual({ kind: "pass", evaluated: 1 });
   });
 });
+
+describe("새 시간 기준 (평균·최대·백분위 목록)", () => {
+  // 서버 report.rs rule2_order 거울
+  const serverCrit: Criteria = {
+    max_mean_ms: 100,
+    max_p99_ms: 100,
+    max_p50_ms: 100,
+    max_percentiles_ms: [
+      { percentile: 99.9, max_ms: 100 },
+      { percentile: 90, max_ms: 100 },
+    ],
+    max_max_ms: 100,
+    max_error_rate: 1,
+    step_criteria: [{ metric: "mean_ms", op: "max", threshold: 100, target: "A" }],
+  };
+  it("criteriaHasAny가 새 칸을 안다", () => {
+    expect(criteriaHasAny({ max_mean_ms: 1 })).toBe(true);
+    expect(criteriaHasAny({ max_max_ms: 1 })).toBe(true);
+    expect(criteriaHasAny({ max_percentiles_ms: [{ percentile: 90, max_ms: 1 }] })).toBe(true);
+    expect(criteriaHasAny({ max_percentiles_ms: [] })).toBe(false);
+  });
+  it("expandCriteria 순서가 서버와 같다", () => {
+    const out = expandCriteria(serverCrit);
+    expect(out.map((s) => s.metric)).toEqual([
+      "mean_ms",
+      "p50_ms",
+      "p90_ms",
+      "p99_ms",
+      "p99.9_ms",
+      "max_ms",
+      "error_rate",
+      "mean_ms",
+    ]);
+    expect(out[7].target).toBe("A");
+    expect(out[2].threshold).toBe(100);
+  });
+  it("고정 p95와 목록 p90·p99.9 순서", () => {
+    const out = expandCriteria({
+      max_p95_ms: 5,
+      max_percentiles_ms: [
+        { percentile: 99.9, max_ms: 1 },
+        { percentile: 90, max_ms: 2 },
+      ],
+    });
+    expect(out.map((s) => s.metric)).toEqual(["p90_ms", "p95_ms", "p99.9_ms"]);
+    expect(out[0].threshold).toBe(2);
+  });
+  it("criterionName", () => {
+    expect(criterionName("mean_ms")).toEqual({ name: "평균 응답시간", subj: "이" });
+    expect(criterionName("max_ms")).toEqual({ name: "최대 응답시간", subj: "이" });
+    expect(criterionName("p99.9_ms")).toEqual({ name: "99.9% 응답시간", subj: "이" });
+    expect(criterionName("p95_ms")).toEqual({ name: "95% 응답시간", subj: "이" });
+  });
+  it("평균 카드 목표가 mean_ms 기준을 읽고 기준 행은 other에 없다", () => {
+    const c: Criteria = { max_mean_ms: 3000 };
+    const r = [
+      vrow({ metric: "mean_ms", threshold: 3000, actual: 3120.5, passed: false, target: null }),
+    ];
+    const m = matched(c, r);
+    const box: BoxState = { kind: "fail", evaluated: 1, failed: 1 };
+    const card = kpiCards(summary(), m, box).find((x) => x.key === "mean")!;
+    expect(card.target).toContain("3,000ms 이하");
+    expect(card.target).toContain("3,120.5ms");
+    expect(card.bad).toBe(true);
+    expect(card.value).toBe(kpiCards(summary(), [], { kind: "noCriteria" })[1].value);
+    expect(otherCriteriaRows(m, box, (x) => x)).toEqual([]);
+  });
+  it("capped 행은 ≥ 로 찍힌다", () => {
+    const c: Criteria = { max_max_ms: 10000 };
+    const r = [
+      vrow({ metric: "max_ms", threshold: 10000, actual: 60000, passed: false, capped: true }),
+    ];
+    const out = otherCriteriaRows(
+      matched(c, r),
+      { kind: "fail", evaluated: 1, failed: 1 },
+      (x) => x,
+    );
+    expect(out[0].actual).toBe("≥ 60,000ms");
+  });
+});

@@ -3341,7 +3341,10 @@ export const ko = {
       restNotJudged: (d: number) => `판정 안 함 ${d}`,
       restFailOnly: (n: number) => `외 미달 ${n}개 — 표준판 참조`,
       oneLine: (n: number, m: number) => `그 밖의 기준 ${n}개 중 ${m}개 미달 — 표준판 참조`,
+      percentileName: (n: number) => `${n}% 응답시간`,
       names: {
+        mean_ms: { name: "평균 응답시간", subj: "이" },
+        max_ms: { name: "최대 응답시간", subj: "이" },
         p50_ms: { name: "50% 응답시간", subj: "이" },
         p95_ms: { name: "95% 응답시간", subj: "이" },
         p99_ms: { name: "99% 응답시간", subj: "이" },

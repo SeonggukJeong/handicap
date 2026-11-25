@@ -38,6 +38,19 @@ describe("ReportHeadline", () => {
     expect(region).not.toHaveTextContent("합격 기준(SLO)을 설정하면");
   });
 
+  it("평균 기준뿐이고 판정이 없으면 설정 안내가 아니라 평가 불가를 말한다", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={{ ...CLOSED, criteria: { max_mean_ms: 3000 } }}
+        verdict={null}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(ko.report.headlineNotEvaluable);
+    expect(region).not.toHaveTextContent(ko.report.sloHint);
+  });
+
   it("중단된 run은 요청이 있어도 '요청이 없어'라 말하지 않고 중단 때문이라 말한다", () => {
     render(
       <ReportHeadline

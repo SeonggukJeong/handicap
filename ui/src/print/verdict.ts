@@ -1,4 +1,5 @@
 import { ko } from "../i18n/ko";
+import { parsePercentileMetric, percentileMetricName } from "../api/percentileName";
 import type { Criteria, Report, Verdict } from "../api/schemas";
 import { fmtCount, fmtCriterionPair, fmtCriterionThreshold, fmtMs, fmtPct, fmtRps } from "./format";
 
@@ -8,6 +9,8 @@ const k = ko.print;
 export function criteriaHasAny(c: Criteria | null | undefined): boolean {
   if (!c) return false;
   const keys = [
+    c.max_mean_ms,
+    c.max_max_ms,
     c.max_p50_ms,
     c.max_p95_ms,
     c.max_p99_ms,
@@ -20,6 +23,7 @@ export function criteriaHasAny(c: Criteria | null | undefined): boolean {
     c.min_window_rps,
   ];
   if (keys.some((v) => v !== undefined && v !== null)) return true;
+  if ((c.max_percentiles_ms?.length ?? 0) > 0) return true;
   return (c.step_criteria?.length ?? 0) > 0;
 }
 
@@ -33,10 +37,23 @@ export type CriterionSpec = {
 /** run 필드 순서 = 서버 evaluate_criteria 순 뒤에 step_criteria 입력 순. */
 export function expandCriteria(c: Criteria | null | undefined): CriterionSpec[] {
   if (!c) return [];
+  // 서버 time_rows 정렬: 평균(0) → 백분위(N×1000, 같은 키면 고정 먼저) → 최대
+  const time: Array<{ key: number; spec: CriterionSpec }> = [];
+  const addTime = (key: number, metric: string, v: number | undefined | null) => {
+    if (v !== undefined && v !== null)
+      time.push({ key, spec: { metric, op: "max", threshold: v, target: null } });
+  };
+  addTime(0, "mean_ms", c.max_mean_ms);
+  addTime(50000, "p50_ms", c.max_p50_ms);
+  addTime(95000, "p95_ms", c.max_p95_ms);
+  addTime(99000, "p99_ms", c.max_p99_ms);
+  for (const p of c.max_percentiles_ms ?? []) {
+    const metric = percentileMetricName(String(p.percentile));
+    if (metric !== null) addTime(Math.round(p.percentile * 1000), metric, p.max_ms);
+  }
+  addTime(Number.MAX_SAFE_INTEGER, "max_ms", c.max_max_ms);
+  time.sort((a, b) => a.key - b.key); // 안정 정렬 — 같은 키는 넣은 순서(고정 먼저)
   const run: Array<[string, "max" | "min", number | undefined]> = [
-    ["p50_ms", "max", c.max_p50_ms],
-    ["p95_ms", "max", c.max_p95_ms],
-    ["p99_ms", "max", c.max_p99_ms],
     ["error_rate", "max", c.max_error_rate],
     ["4xx_rate", "max", c.max_4xx_rate],
     ["5xx_rate", "max", c.max_5xx_rate],
@@ -45,7 +62,7 @@ export function expandCriteria(c: Criteria | null | undefined): CriterionSpec[] 
     ["rps", "min", c.min_rps],
     ["min_window_rps", "min", c.min_window_rps],
   ];
-  const out: CriterionSpec[] = [];
+  const out: CriterionSpec[] = time.map((t) => t.spec);
   for (const [metric, op, v] of run) {
     if (v !== undefined && v !== null) out.push({ metric, op, threshold: v, target: null });
   }
@@ -104,7 +121,11 @@ export function verdictBox(a: {
 }
 
 export function criterionName(metric: string): { name: string; subj: string } {
-  return k.criteria.names[metric] ?? { name: metric, subj: k.criteria.unknownSubj };
+  const known = k.criteria.names[metric];
+  if (known) return known;
+  const n = parsePercentileMetric(metric);
+  if (n !== null) return { name: k.criteria.percentileName(n), subj: "이" };
+  return { name: metric, subj: k.criteria.unknownSubj };
 }
 
 export type KpiCard = {
@@ -117,7 +138,12 @@ export type KpiCard = {
   bad: boolean;
 };
 
-const CARD_METRIC: Record<string, string> = { rps: "rps", p95: "p95_ms", errorRate: "error_rate" };
+const CARD_METRIC: Record<string, string> = {
+  rps: "rps",
+  mean: "mean_ms",
+  p95: "p95_ms",
+  errorRate: "error_rate",
+};
 
 function cardMatchIndex(matched: Matched[], metric: string): number {
   return matched.findIndex((m) => m.spec.metric === metric && m.spec.target === null);
@@ -136,7 +162,9 @@ export function kpiCards(
     if (i < 0) return { target: k.kpi.noTarget, bad: false };
     const { spec, row } = matched[i];
     const withRow = box.kind !== "notJudged" && box.kind !== "notEvaluable" && row ? row : null;
-    const pair = withRow ? fmtCriterionPair(spec.metric, withRow.actual, spec.threshold) : null;
+    const pair = withRow
+      ? fmtCriterionPair(spec.metric, withRow.actual, spec.threshold, withRow.capped ?? false)
+      : null;
     const t = pair ? pair.threshold : fmtCriterionThreshold(spec.metric, spec.threshold);
     const head = spec.op === "max" ? k.kpi.targetMax(t) : k.kpi.targetMin(t);
     if (box.kind === "notJudged") return { target: `${head} ${k.kpi.notJudged}`, bad: false };
@@ -203,7 +231,9 @@ export function otherCriteriaRows(
     const row = box.kind === "notJudged" ? null : serverRow;
     const base = criterionName(spec.metric).name;
     const name = spec.target === null ? base : k.criteria.stepName(stepName(spec.target), base);
-    const pair = row ? fmtCriterionPair(spec.metric, row.actual, spec.threshold) : null;
+    const pair = row
+      ? fmtCriterionPair(spec.metric, row.actual, spec.threshold, row.capped ?? false)
+      : null;
     const t = pair ? pair.threshold : fmtCriterionThreshold(spec.metric, spec.threshold);
     const target = spec.op === "max" ? k.criteria.targetMax(t) : k.criteria.targetMin(t);
     if (row && pair) {

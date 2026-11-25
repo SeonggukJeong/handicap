@@ -518,6 +518,14 @@ describe("시나리오 내용", () => {
 });
 
 describe("판정 기준", () => {
+  it("평균 기준값이 다르면 기준 카드가 다름이다", () => {
+    const f = fair(
+      { profile: prof({ criteria: { max_mean_ms: 3000 } }) },
+      { profile: prof({ criteria: { max_mean_ms: 2000 } }) },
+    );
+    expect(card(f, "criteria")).toMatchObject({ same: false, line: "기준 1개 다름" });
+  });
+
   it("기준값이 다르면 기준 1개 다름이다", () => {
     const f = fair(
       { profile: prof({ criteria: { max_p95_ms: 3000 } }) },
