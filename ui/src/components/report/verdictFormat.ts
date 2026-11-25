@@ -38,7 +38,7 @@ export function actualText(c: {
   capped?: boolean;
 }): string {
   if (c.no_sample) return ko.report.sample.noSample;
-  if (c.capped) return `≥ ${fmt(c.metric, c.actual)}`;
+  if (c.capped) return `≥\u00a0${fmt(c.metric, c.actual)}`;
   return fmt(c.metric, c.actual);
 }
 

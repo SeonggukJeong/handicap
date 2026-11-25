@@ -248,14 +248,14 @@ describe("평균 카드·µs (R22·R23)", () => {
     const r2 = render(
       <Summary summary={{ ...m, stats: stats({ mean_us: 1_842_613, capped: true }) }} />,
     );
-    expect(cardValue(ko.report.cardMean)).toBe("≥ 1843 ms");
+    expect(cardValue(ko.report.cardMean)).toBe("≥\u00a01843 ms");
     r2.unmount();
     const r3 = render(
       <Summary
         summary={{ ...m, mean_ms: 60015, stats: stats({ mean_us: 60_000_000, capped: true }) }}
       />,
     );
-    expect(cardValue(ko.report.cardMean)).toBe("≥ 60,000 ms");
+    expect(cardValue(ko.report.cardMean)).toBe("≥\u00a060,000 ms");
     r3.unmount();
     const r4 = render(<Summary summary={{ ...m, mean_ms: 0, stats: stats({ mean_us: 350 }) }} />);
     expect(cardValue(ko.report.cardMean)).toBe("350 µs");
@@ -284,7 +284,7 @@ describe("평균 카드·µs (R22·R23)", () => {
     const r2 = render(
       <Summary summary={{ ...baseSummary, p99_ms: 60030, stats: stats({ p99_us: 60_000_000 }) }} />,
     );
-    expect(cardValue("p99")).toBe("≥ 60,000 ms");
+    expect(cardValue("p99")).toBe("≥\u00a060,000 ms");
     r2.unmount();
     render(<Summary summary={{ ...baseSummary, p95_ms: 43 }} />);
     expect(cardValue("p95")).toBe("43 ms");

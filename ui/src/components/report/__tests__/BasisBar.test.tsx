@@ -197,7 +197,7 @@ describe("다른 기준 줄 — 1ms 미만·60초 칸", () => {
   });
   it("화면 60초 칸", () => {
     expect(basisOtherLine(mk(60030, 60_000_000), "passed", false, true)).toContain(
-      "p95 ≥ 60,000 ms",
+      "p95 ≥\u00a060,000 ms",
     );
   });
   it("화면 stats 없음은 지금 글자", () => {

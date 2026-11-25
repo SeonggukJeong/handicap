@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ko } from "../../../i18n/ko";
 import {
   formatLatency,
   floorPct,
@@ -81,15 +82,22 @@ describe("latencyShown·셀·단위 글자", () => {
     expect(latencyShown(59999, 59_999_999)).toEqual({ kind: "ms", ms: 59999 });
     expect(latencyShown(60030, 60_000_000)).toEqual({ kind: "capped" });
   });
+  it("60초 칸 글자는 ≥ 뒤가 줄바꿈 없는 공백(U+00A0)", () => {
+    expect(ko.report.stats.capped).toBe("≥\u00a060,000");
+    const t = latencyCellText({ kind: "capped" } as never);
+    expect(t).toContain("\u00a0");
+    expect(t).not.toContain(" ");
+  });
+
   it("latencyCellText", () => {
     expect(latencyCellText(latencyShown(43, undefined))).toBe("43");
     expect(latencyCellText(latencyShown(0, 350))).toBe("350 µs");
-    expect(latencyCellText(latencyShown(60030, 60_000_000))).toBe("≥ 60,000");
+    expect(latencyCellText(latencyShown(60030, 60_000_000))).toBe("≥\u00a060,000");
   });
   it("latencyUnitText", () => {
     expect(latencyUnitText(latencyShown(43, undefined))).toBe("43 ms");
     expect(latencyUnitText(latencyShown(0, 350))).toBe("350 µs");
-    expect(latencyUnitText(latencyShown(60030, 60_000_000))).toBe("≥ 60,000 ms");
+    expect(latencyUnitText(latencyShown(60030, 60_000_000))).toBe("≥\u00a060,000 ms");
   });
 });
 

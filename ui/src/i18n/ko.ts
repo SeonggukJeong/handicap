@@ -1267,7 +1267,7 @@ export const ko = {
   report: {
     // 응답 시간 통계 표시(시간 칸 공용 글자)
     stats: {
-      capped: "≥ 60,000",
+      capped: "≥\u00a060,000",
       toggleMore: "응답 시간 통계 더 보기",
       toggleLess: "응답 시간 통계 접기",
       allSteps: "모든 스텝",

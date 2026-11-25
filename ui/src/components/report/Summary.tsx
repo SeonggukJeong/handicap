@@ -41,7 +41,7 @@ export function Summary({
   const meanValue =
     mean === null
       ? "—"
-      : (mean.kind !== "capped" && summary.stats?.capped ? "≥ " : "") + latencyUnitText(mean);
+      : (mean.kind !== "capped" && summary.stats?.capped ? "≥\u00a0" : "") + latencyUnitText(mean);
   const cards: Array<{ label: string; value: string; help?: string; whole?: boolean }> = [
     { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },
     { label: ko.report.cardErrors, value: summary.errors.toLocaleString() },

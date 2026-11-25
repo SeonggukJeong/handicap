@@ -493,7 +493,7 @@ describe("StepStatsTable", () => {
           meta={m}
         />,
       );
-      expect(tds(container).slice(5, 8)).toEqual(["10", "20", "≥ 60,000"]);
+      expect(tds(container).slice(5, 8)).toEqual(["10", "20", "≥\u00a060,000"]);
       const note = screen.getByRole("note");
       expect(note.textContent).toBe(
         "「≥ 60,000」: 60초를 넘긴 응답이 있습니다. 그런 응답은 60초로 기록되므로 「≥ 60,000」인 값은 실제로 더 클 수 있습니다.",
@@ -619,6 +619,18 @@ describe("StepStatsTable", () => {
       Array.from(tr.querySelectorAll(":scope > td")).map((td) => td.textContent ?? "");
     const toggle = () => screen.getByRole("button", { name: ko.report.stats.toggleMore });
     const one = { ...b, step_id: "a", p50_ms: 210, p95_ms: 890, p99_ms: 1420, stats: full };
+
+    it("펼친 바깥 표만 whitespace-nowrap — 접으면 다시 없다", async () => {
+      const user = userEvent.setup();
+      const { container } = render(
+        <StepStatsTable steps={[one]} meta={meta} summary={mkSummary({})} />,
+      );
+      expect(outer(container)).not.toHaveClass("whitespace-nowrap");
+      await user.click(toggle());
+      expect(outer(container)).toHaveClass("whitespace-nowrap");
+      await user.click(screen.getByRole("button", { name: ko.report.stats.toggleLess }));
+      expect(outer(container)).not.toHaveClass("whitespace-nowrap");
+    });
 
     it("기본은 접힘 — 단추 aria-expanded=false, 새 열·「모든 스텝」 행 없음, 단추는 제목 줄", () => {
       const { container } = render(
@@ -782,7 +794,7 @@ describe("StepStatsTable", () => {
       );
       await user.click(toggle());
       const rs = rows(container);
-      expect(cells(rs[rs.length - 1])[6]).toBe("≥ 60,000");
+      expect(cells(rs[rs.length - 1])[6]).toBe("≥\u00a060,000");
       expect(screen.getByRole("note").textContent).toBe(ko.report.stats.cappedNoteExpanded);
     });
 

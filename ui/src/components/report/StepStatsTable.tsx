@@ -150,7 +150,7 @@ export function StepStatsTable({
     >
       {anyDownload && <p className="mb-2 text-xs text-slate-500">{ko.report.phaseCaveat}</p>}
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+        <table className={`min-w-full text-sm${statsOpen ? " whitespace-nowrap" : ""}`}>
           <thead className="border-b border-slate-200 text-left text-slate-600">
             <tr>
               <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>
