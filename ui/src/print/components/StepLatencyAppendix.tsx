@@ -12,6 +12,10 @@ const Y_BOTTOM = 22;
 const tickText = (v: number): string => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
+/** 카드 그림은 74mm뿐이라 본문 눈금이 5개를 넘으면 짝수 번째만 그린다(긴 글자끼리 겹침 방지). */
+const cardTicks = (ticks: number[]): number[] =>
+  ticks.length > 5 ? ticks.filter((_, i) => i % 2 === 0) : ticks;
+
 const yMaxOf = (m: StepLatModel): number => Math.max(m.yTicks[m.yTicks.length - 1] ?? 1, 1e-9);
 
 /** 부록 제목 + 캡션. 이어지는 쪽엔 제목만. */
@@ -70,7 +74,7 @@ function Card({
           <text x={X0 - 1} y={22.5} textAnchor="end">
             0
           </text>
-          {chart.timeTicks.map((t) => {
+          {cardTicks(chart.timeTicks).map((t) => {
             const x = r2(X0 + (t / Math.max(chart.durationSec, 1)) * (X1 - X0));
             const atEnd = t === chart.durationSec;
             return (

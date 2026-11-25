@@ -4,7 +4,7 @@ import { StepLatencyRows, StepLatencyTitle } from "../components/StepLatencyAppe
 import { sparkPath } from "../../report/sparkPath";
 import { ko } from "../../i18n/ko";
 import type { StepLatModel } from "../stepLatencyAppendix";
-import { fmtElapsed, type ChartModel } from "../chartModel";
+import { fmtElapsed, timeTicks, type ChartModel } from "../chartModel";
 
 const model = (capped: boolean): StepLatModel => {
   const cards = [
@@ -95,7 +95,7 @@ describe("StepLatencyAppendix", () => {
   it("끝 시각이 아닌 눈금은 8mm 안이어도 제 자리에서 가운데 맞춤 (330초, 눈금 300)", () => {
     const c330 = {
       durationSec: 330,
-      timeTicks: [0, 60, 120, 180, 240, 300],
+      timeTicks: [0, 100, 200, 300],
     } as unknown as ChartModel;
     const { container } = render(
       <StepLatencyRows model={model(false)} chart={c330} from={0} to={1} />,
@@ -105,5 +105,28 @@ describe("StepLatencyAppendix", () => {
     )!;
     expect(t300.getAttribute("text-anchor")).toBe("middle");
     expect(t300.getAttribute("x")).toBe(String(Math.round((10 + (300 / 330) * 74) * 100) / 100));
+  });
+  it("눈금이 5개를 넘으면 짝수 번째만 그린다 (4200초, 8개 -> 4개)", () => {
+    const all = timeTicks(4200);
+    expect(all.length).toBe(8);
+    const c = { durationSec: 4200, timeTicks: all } as unknown as ChartModel;
+    const { container } = render(
+      <StepLatencyRows model={model(false)} chart={c} from={0} to={1} />,
+    );
+    const labels = [...container.querySelector("svg")!.querySelectorAll("text")]
+      .filter((t) => t.getAttribute("y") === "25")
+      .map((t) => t.textContent);
+    expect(labels).toEqual(all.filter((_, i) => i % 2 === 0).map((t) => fmtElapsed(t)));
+    expect(labels.length).toBe(4);
+  });
+  it("눈금이 5개 이하면 그대로 (90초, 4개)", () => {
+    const c = { durationSec: 90, timeTicks: [0, 30, 60, 90] } as unknown as ChartModel;
+    const { container } = render(
+      <StepLatencyRows model={model(false)} chart={c} from={0} to={1} />,
+    );
+    const labels = [...container.querySelector("svg")!.querySelectorAll("text")].filter(
+      (t) => t.getAttribute("y") === "25",
+    );
+    expect(labels.length).toBe(4);
   });
 });
