@@ -72,9 +72,9 @@ function Card({
           </text>
           {chart.timeTicks.map((t) => {
             const x = r2(X0 + (t / Math.max(chart.durationSec, 1)) * (X1 - X0));
-            const atEnd = x > X1 - 8;
+            const atEnd = t === chart.durationSec;
             return (
-              <text key={t} x={atEnd ? X1 : x} y={25} textAnchor={atEnd ? "end" : "middle"}>
+              <text key={t} x={x} y={25} textAnchor={atEnd ? "end" : "middle"}>
                 {fmtElapsed(t)}
               </text>
             );

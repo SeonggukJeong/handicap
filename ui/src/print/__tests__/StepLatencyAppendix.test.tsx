@@ -92,4 +92,18 @@ describe("StepLatencyAppendix", () => {
     const mid = [...first.querySelectorAll("text")].find((t) => t.textContent === fmtElapsed(30))!;
     expect(mid.getAttribute("text-anchor")).toBe("middle");
   });
+  it("끝 시각이 아닌 눈금은 8mm 안이어도 제 자리에서 가운데 맞춤 (330초, 눈금 300)", () => {
+    const c330 = {
+      durationSec: 330,
+      timeTicks: [0, 60, 120, 180, 240, 300],
+    } as unknown as ChartModel;
+    const { container } = render(
+      <StepLatencyRows model={model(false)} chart={c330} from={0} to={1} />,
+    );
+    const t300 = [...container.querySelector("svg")!.querySelectorAll("text")].find(
+      (t) => t.textContent === fmtElapsed(300),
+    )!;
+    expect(t300.getAttribute("text-anchor")).toBe("middle");
+    expect(t300.getAttribute("x")).toBe(String(Math.round((10 + (300 / 330) * 74) * 100) / 100));
+  });
 });
