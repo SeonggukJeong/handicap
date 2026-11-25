@@ -414,6 +414,15 @@ describe("새 판정 항목", () => {
       expect(err({ percentiles: [row("", "1")] }).percentiles[0].p).toBe(
         ko.criteria.errPercentileMissing,
       );
+      // 수로는 범위 안이지만 글자 모양만 정본이 아님 → 이유를 정확히 (§B (1) 사용자 결정 (나))
+      for (const p of ["090", "1e1"]) {
+        expect(err({ percentiles: [row(p, "1")] }).percentiles[0].p).toBe(
+          ko.criteria.errPercentileFormat,
+        );
+      }
+      expect(err({ percentiles: [row("1e3", "1")] }).percentiles[0].p).toBe(
+        ko.criteria.errPercentileRange,
+      );
       const dup = err({ percentiles: [row("90", "1"), row("90.0", "2")] }).percentiles;
       expect(dup[0].p).toBeUndefined();
       expect(dup[1].p).toBe(ko.criteria.errPercentileDuplicate("90"));
@@ -438,6 +447,7 @@ describe("새 판정 항목", () => {
       const e = (r: ReturnType<typeof st>) => err({ stepCriteria: [r] }).steps[0];
       expect(e(st("percentile", "", "5")).p).toBe(ko.criteria.errPercentileMissing);
       expect(e(st("percentile", "100", "5")).p).toBe(ko.criteria.errPercentileRange);
+      expect(e(st("percentile", "090", "5")).p).toBe(ko.criteria.errPercentileFormat);
       expect(e(st("percentile", "95", "70000")).threshold).toBeUndefined();
       expect(e(st("percentile", "95.0", "70000")).threshold).toBeUndefined();
       expect(e(st("percentile", "90", "70000")).threshold).toBe(ko.criteria.errTime);

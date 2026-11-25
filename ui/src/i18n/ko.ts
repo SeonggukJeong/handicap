@@ -2741,6 +2741,7 @@ export const ko = {
     presetBlocked: "판정 기준에 고칠 값이 있어 프리셋으로 저장할 수 없습니다.",
     errTime: "0 이상 60,000 이하, 소수 셋째 자리까지 적어 주세요.",
     errPercentileRange: "백분위는 0보다 크고 100보다 작은 수(소수 셋째 자리까지)로 적어 주세요.",
+    errPercentileFormat: "90처럼 앞의 0·지수 표기 없이 적어 주세요.",
     errPercentileMissing: "백분위를 적어 주세요.",
     errPercentileFixed: (n: string) =>
       `p${n}${josa(`p${n}`, "은/는")} 위의 「최대 p${n}(ms)」 칸을 쓰세요.`,

@@ -193,7 +193,14 @@ export type CriteriaErrors = {
 function percentileNameError(text: string): { error: string } | { name: string } {
   if (text.trim() === "") return { error: ko.criteria.errPercentileMissing };
   const name = percentileMetricName(text);
-  if (name === null) return { error: ko.criteria.errPercentileRange };
+  if (name === null) {
+    // 수로는 범위 안인데 글자 모양만 정본이 아닌 경우(`090`·`1e1`) — 범위 문구는 이유가 틀리다
+    const n = Number(text);
+    const sameNumberOk = Number.isFinite(n) && percentileMetricName(String(n)) !== null;
+    return {
+      error: sameNumberOk ? ko.criteria.errPercentileFormat : ko.criteria.errPercentileRange,
+    };
+  }
   return { name };
 }
 
