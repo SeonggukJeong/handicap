@@ -138,7 +138,7 @@ export function LatencyChart({ doc }: { doc: PrintDoc }) {
           <b className="p-bold">{K.title}</b>
           <div className="p-legend">
             <span>
-              <i className="p-sw p-sw--line" aria-hidden="true" />
+              <i className="p-sw p-sw--solid" aria-hidden="true" />
               {K.mean}
             </span>
             <span>

@@ -48,6 +48,9 @@ describe("LatencyChart", () => {
       ],
       box,
     );
+    const swatch = screen.getByText(K.mean).querySelector("i");
+    expect(swatch?.classList.contains("p-sw--solid")).toBe(true);
+    expect(swatch?.classList.contains("p-sw--line")).toBe(false);
     const paths = [...container.querySelectorAll("path[data-latency-line]")];
     expect(paths.map((p) => p.getAttribute("d"))).toEqual([mean, p95]);
   });

@@ -408,6 +408,11 @@
   border: 0;
   border-top: 2px solid var(--accent);
 }
+.p-root .p-sw--solid {
+  height: 0;
+  border: 0;
+  border-top: 2px solid #000;
+}
 .p-root .p-sw--dash {
   height: 0;
   border: 0;
