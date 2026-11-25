@@ -4358,3 +4358,83 @@ describe("RunDialog — 새 판정 항목 입력", () => {
     expect(postedProfile()).not.toHaveProperty("criteria");
   });
 });
+
+describe("RunDialog — 새 판정 항목 막기", () => {
+  const reasonsBox = () => screen.queryByText(ko.runDialog.blockedReasonsIntro)?.closest("div");
+
+  function mockOnePreset() {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              { id: "P1", name: "p", vus: 5, duration_seconds: 6, created_at: 1, updated_at: 1 },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/P1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "P1",
+            scenario_id: "S1",
+            name: "p",
+            profile: { vus: 5, duration_seconds: 6, ramp_up_seconds: 0, loop_breakdown_cap: 256 },
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("평균 70000이면 실행·프리셋 저장·이름 변경이 막히고 이유가 보이며, 고치면 풀린다", async () => {
+    mockOnePreset();
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
+    await screen.findByRole("button", { name: "이름 변경" });
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    const mean = screen.getByLabelText("평균 응답 시간(ms)");
+    await user.type(mean, "70000");
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "프리셋으로 저장" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "이름 변경" })).toBeDisabled();
+    expect(screen.getByText(ko.criteria.errTime)).toBeInTheDocument();
+    expect(screen.getByText(ko.criteria.presetBlocked)).toBeInTheDocument();
+    await user.clear(mean);
+    await user.type(mean, "3000");
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "프리셋으로 저장" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "이름 변경" })).toBeEnabled();
+    expect(screen.queryByText(ko.criteria.presetBlocked)).not.toBeInTheDocument();
+  });
+
+  it("추가만 한 백분위 행(N 90·ms 빈칸)은 실행을 막지 않는다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.click(screen.getByRole("button", { name: "+ 백분위 기준 추가" }));
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeEnabled();
+  });
+
+  it("숨은 오류: 접으면 이유 상자에 한 줄, 펼치면 없다, 간단 모드에서도 한 줄", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText("평균 응답 시간(ms)"), "70000");
+    expect(screen.queryByText(ko.validation.criteria)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접기
+    expect(reasonsBox()).toHaveTextContent(ko.validation.criteria);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 펼치기
+    expect(screen.queryByText(ko.validation.criteria)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(reasonsBox()).toHaveTextContent(ko.validation.criteria);
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+  });
+});

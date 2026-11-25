@@ -132,11 +132,14 @@ export function CriteriaFields({ value, errors, onChange, onPercentilesChange }:
           );
         })}
         {errors.percentilesList && (
-          <p className="mb-1 text-xs text-red-600">{errors.percentilesList}</p>
+          <p className="mb-1 text-xs text-red-600" id={`${uid}-pl`}>
+            {errors.percentilesList}
+          </p>
         )}
         <button
           type="button"
           disabled={full}
+          aria-describedby={errors.percentilesList ? `${uid}-pl` : undefined}
           className="text-sm text-accent-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
           onClick={() => onPercentilesChange([...rows, NEW_PERCENTILE_ROW])}
         >

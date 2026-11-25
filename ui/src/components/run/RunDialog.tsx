@@ -50,6 +50,7 @@ import {
   type StringCriteriaKey,
   criteriaStateFrom,
   criteriaErrors,
+  hasCriteriaErrors,
   criteriaHasValue,
   criteriaActiveCount,
   isConnectTimeoutDraftInvalid,
@@ -475,8 +476,10 @@ export function RunDialog({
       (s) =>
         Number.isFinite(s.target) && Number.isFinite(s.duration_seconds) && s.duration_seconds > 0,
     );
+  const criteriaInvalid = hasCriteriaErrors(criteriaErrs);
   const canSubmit =
     !poolConflict &&
+    !criteriaInvalid &&
     (loadModel === "open"
       ? rateMode === "stair"
         ? !loadErrs.stairInvalid &&
@@ -1081,7 +1084,12 @@ export function RunDialog({
             <button
               type="button"
               onClick={savePreset}
-              disabled={createPreset.isPending || updatePreset.isPending || deletePreset.isPending}
+              disabled={
+                createPreset.isPending ||
+                updatePreset.isPending ||
+                deletePreset.isPending ||
+                criteriaInvalid
+              }
               className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
             >
               프리셋으로 저장
@@ -1091,7 +1099,7 @@ export function RunDialog({
                 <button
                   type="button"
                   onClick={renamePreset}
-                  disabled={updatePreset.isPending}
+                  disabled={updatePreset.isPending || criteriaInvalid}
                   className="text-slate-700 hover:underline text-sm disabled:opacity-50"
                 >
                   이름 변경
@@ -1107,6 +1115,7 @@ export function RunDialog({
               </>
             )}
           </div>
+          {criteriaInvalid && <p className="text-xs text-red-600">{ko.criteria.presetBlocked}</p>}
         </Section>
       )}
 
@@ -1135,6 +1144,9 @@ export function RunDialog({
         const blockedReasons: string[] = [
           ...(!bindingBlock.ok
             ? bindingBlock.reasons.map((r) => ko.runDialog.bindingReasonPrefix + r)
+            : []),
+          ...((mode === "simple" || !advancedOpen) && criteriaInvalid
+            ? [ko.validation.criteria]
             : []),
           ...((mode === "simple" || !advancedOpen) && httpTimeoutInvalid
             ? [ko.validation.httpTimeout]

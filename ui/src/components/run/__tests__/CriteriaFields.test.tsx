@@ -106,4 +106,17 @@ describe("CriteriaFields — 새 판정 항목", () => {
     expect(screen.getByLabelText("기준 2")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("기준 1")).not.toHaveAttribute("aria-invalid");
   });
+
+  it("목록 오류는 + 백분위 기준 추가 단추의 aria-describedby로 이어진다", () => {
+    const { unmount } = setup({}, { ...noErrors, percentilesList: ko.criteria.errPercentilesMax });
+    const msg = screen.getByText(ko.criteria.errPercentilesMax);
+    const add = screen.getByRole("button", { name: "+ 백분위 기준 추가" });
+    expect(msg.id).not.toBe("");
+    expect(add.getAttribute("aria-describedby")).toBe(msg.id);
+    unmount();
+    setup();
+    expect(screen.getByRole("button", { name: "+ 백분위 기준 추가" })).not.toHaveAttribute(
+      "aria-describedby",
+    );
+  });
 });

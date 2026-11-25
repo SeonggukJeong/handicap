@@ -706,3 +706,46 @@ describe("ScheduleForm — 새 판정 항목 다시 열기", () => {
     expect("step_criteria" in c).toBe(false);
   });
 });
+
+describe("ScheduleForm — 새 판정 항목 막기", () => {
+  async function fill(user: ReturnType<typeof userEvent.setup>) {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    await user.type(screen.getByLabelText(/이름/), "nightly");
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s1");
+    expect(screen.getByRole("button", { name: /저장/ })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ }));
+    await user.click(screen.getByRole("button", { name: "+ 백분위 기준 추가" }));
+    const p = screen.getByLabelText("백분위 1");
+    await user.clear(p);
+    await user.type(p, "95");
+    await user.type(screen.getByLabelText("기준 1"), "1");
+    return p;
+  }
+  const reasonsBox = () => screen.queryByText(ko.runDialog.blockedReasonsIntro)?.closest("div");
+
+  it("p=95·ms 1이면 저장이 막히고 이유가 보이며, p를 90으로 고치면 풀린다", async () => {
+    const user = userEvent.setup();
+    const p = await fill(user);
+    expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
+    expect(screen.getByText(ko.criteria.errPercentileFixed("95"))).toBeInTheDocument();
+    await user.clear(p);
+    await user.type(p, "90");
+    expect(screen.getByRole("button", { name: /저장/ })).toBeEnabled();
+  });
+
+  it("오류 상태로 섹션을 접으면 이유 상자에 한 줄, 펼치면 없다", async () => {
+    const user = userEvent.setup();
+    await fill(user);
+    expect(screen.queryByText(ko.validation.criteria)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 접기
+    expect(reasonsBox()).toHaveTextContent(ko.validation.criteria);
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 펼치기
+    expect(screen.queryByText(ko.validation.criteria)).not.toBeInTheDocument();
+  });
+});

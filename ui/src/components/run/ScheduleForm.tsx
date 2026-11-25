@@ -25,6 +25,7 @@ import {
   buildProfile as buildProfileShared,
   criteriaStateFrom,
   criteriaErrors,
+  hasCriteriaErrors,
   criteriaHasValue,
   criteriaActiveCount,
   isConnectTimeoutDraftInvalid,
@@ -219,7 +220,9 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
 
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
+  const criteriaInvalid = hasCriteriaErrors(criteriaErrs);
   const canSubmit =
+    !criteriaInvalid &&
     name.trim() !== "" &&
     scenarioId !== "" &&
     trigger != null &&
@@ -476,6 +479,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
           ...(!bindingBlock.ok
             ? bindingBlock.reasons.map((r) => ko.runDialog.bindingReasonPrefix + r)
             : []),
+          ...(!sloOpen && criteriaInvalid ? [ko.validation.criteria] : []),
           ...(httpTimeoutInvalid ? [ko.validation.httpTimeout] : []),
           ...(connectTimeoutInvalid ? [ko.validation.connectTimeout] : []),
           ...(loopCapInvalid ? [ko.validation.loopCap] : []),

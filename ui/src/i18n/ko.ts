@@ -398,6 +398,7 @@ export const ko = {
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
     connectTimeout: "연결 수립 타임아웃은 1초 이상, HTTP 타임아웃보다 작아야 합니다.",
     loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
+    criteria: "판정 기준에 고칠 값이 있습니다 — 판정 기준 칸의 붉은 안내를 확인하세요.",
     think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",
   },
   nav: {
@@ -2733,6 +2734,7 @@ export const ko = {
   },
   // 판정 기준 입력 검사 문구(실행 창·스케줄 폼 공용)
   criteria: {
+    presetBlocked: "판정 기준에 고칠 값이 있어 프리셋으로 저장할 수 없습니다.",
     errTime: "0 이상 60,000 이하, 소수 셋째 자리까지 적어 주세요.",
     errPercentileRange: "백분위는 0보다 크고 100보다 작은 수(소수 셋째 자리까지)로 적어 주세요.",
     errPercentileMissing: "백분위를 적어 주세요.",
