@@ -63,7 +63,7 @@ describe("Summary", () => {
     expect(region).toHaveTextContent("0%");
   });
 
-  it("uses md:grid-cols-10 class for open-loop and md:grid-cols-7 for closed-loop", () => {
+  it("uses md:grid-cols-11 class for open-loop and md:grid-cols-8 for closed-loop", () => {
     const { container: openContainer } = render(
       <Summary
         summary={baseSummary}
@@ -72,8 +72,8 @@ describe("Summary", () => {
       />,
     );
     const { container: closedContainer } = render(<Summary summary={baseSummary} />);
-    const openGrid = openContainer.querySelector(".md\\:grid-cols-10");
-    const closedGrid = closedContainer.querySelector(".md\\:grid-cols-7");
+    const openGrid = openContainer.querySelector(".md\\:grid-cols-11");
+    const closedGrid = closedContainer.querySelector(".md\\:grid-cols-8");
     expect(openGrid).not.toBeNull();
     expect(closedGrid).not.toBeNull();
   });
@@ -104,10 +104,10 @@ describe("Summary", () => {
     expect(region).toHaveTextContent("—");
   });
 
-  it("openLoop 미전달(closed) 시 카드는 7개 유지", () => {
+  it("openLoop 미전달(closed) 시 카드는 8개(평균 카드 포함)", () => {
     render(<Summary summary={baseSummary} />);
     const region = screen.getByRole("region", { name: /리포트 요약/ });
-    expect(region.querySelectorAll(":scope > div > div").length).toBe(7);
+    expect(region.querySelectorAll(":scope > div > div").length).toBe(8);
   });
 
   it("p50/p95/p99 카드에 도움말 버튼이 있고 클릭하면 용어 설명이 열린다", async () => {
@@ -193,5 +193,100 @@ describe("Summary", () => {
     expect(screen.getByRole("heading", { level: 3, name: ko.report.summaryTitle }).className).toBe(
       "text-lg font-semibold mb-2",
     );
+  });
+});
+
+describe("평균 카드·µs (R22·R23)", () => {
+  const stats = (o: Record<string, number | boolean> = {}) => ({
+    min_us: 0,
+    mean_us: 0,
+    max_us: 0,
+    stdev_us: 0,
+    p50_us: 0,
+    p90_us: 0,
+    p95_us: 0,
+    p99_us: 0,
+    capped: false,
+    ...o,
+  });
+  const labels = () =>
+    Array.from(
+      screen.getByRole("region", { name: /리포트 요약/ }).querySelectorAll(".grid > div"),
+    ).map((c) => c.children[0].childNodes[0].textContent);
+  const cardValue = (label: string) => {
+    const cards = Array.from(
+      screen.getByRole("region", { name: /리포트 요약/ }).querySelectorAll(".grid > div"),
+    );
+    const card = cards.find((c) => c.children[0].childNodes[0].textContent === label)!;
+    return card.children[1].textContent;
+  };
+
+  it("카드 라벨 순서", () => {
+    render(<Summary summary={baseSummary} />);
+    expect(labels()).toEqual([
+      ko.report.cardTotalRequests,
+      ko.report.cardErrors,
+      ko.report.cardAvgRps,
+      ko.report.cardDuration,
+      ko.report.cardMean,
+      "p50",
+      "p95",
+      "p99",
+    ]);
+  });
+  it("평균 값", () => {
+    const m = { ...baseSummary, mean_ms: 1843 };
+    const { unmount } = render(
+      <Summary summary={{ ...m, stats: stats({ mean_us: 1_842_613 }) }} />,
+    );
+    expect(cardValue(ko.report.cardMean)).toBe("1843 ms");
+    unmount();
+    const r2 = render(
+      <Summary summary={{ ...m, stats: stats({ mean_us: 1_842_613, capped: true }) }} />,
+    );
+    expect(cardValue(ko.report.cardMean)).toBe("≥ 1843 ms");
+    r2.unmount();
+    const r3 = render(
+      <Summary
+        summary={{ ...m, mean_ms: 60015, stats: stats({ mean_us: 60_000_000, capped: true }) }}
+      />,
+    );
+    expect(cardValue(ko.report.cardMean)).toBe("≥ 60,000 ms");
+    r3.unmount();
+    const r4 = render(<Summary summary={{ ...m, mean_ms: 0, stats: stats({ mean_us: 350 }) }} />);
+    expect(cardValue(ko.report.cardMean)).toBe("350 µs");
+    r4.unmount();
+    const r5 = render(<Summary summary={m} />);
+    expect(cardValue(ko.report.cardMean)).toBe("—");
+    r5.unmount();
+    render(
+      <Summary
+        summary={{ ...m, stats: stats({ mean_us: 1_842_613 }) }}
+        latency={{
+          sample: "passed",
+          counts: { count: 5, errors: 5, notSent: 0 },
+          switched: true,
+        }}
+      />,
+    );
+    expect(cardValue(ko.report.cardMean)).toBe("—");
+  });
+  it("p 카드", () => {
+    const r1 = render(
+      <Summary summary={{ ...baseSummary, p95_ms: 0, stats: stats({ p95_us: 350 }) }} />,
+    );
+    expect(cardValue("p95")).toBe("350 µs");
+    r1.unmount();
+    const r2 = render(
+      <Summary summary={{ ...baseSummary, p99_ms: 60030, stats: stats({ p99_us: 60_000_000 }) }} />,
+    );
+    expect(cardValue("p99")).toBe("≥ 60,000 ms");
+    r2.unmount();
+    render(<Summary summary={{ ...baseSummary, p95_ms: 43 }} />);
+    expect(cardValue("p95")).toBe("43 ms");
+  });
+  it("평균 카드 HelpTip", () => {
+    render(<Summary summary={baseSummary} />);
+    expect(screen.getByRole("button", { name: "평균 설명" })).toBeInTheDocument();
   });
 });

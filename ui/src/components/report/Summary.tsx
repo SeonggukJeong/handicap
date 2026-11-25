@@ -3,7 +3,7 @@ import { hasLatency, type LatencyCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
-import { floorPct } from "./format";
+import { floorPct, latencyShown, latencyUnitText, meanShown } from "./format";
 import type { OpenLoopRates } from "./openLoopRates";
 import { SampleTag } from "./SampleTag";
 import { WholeRunBadge } from "./WholeRunBadge";
@@ -35,15 +35,22 @@ export function Summary({
     latency != null &&
     (latency.switched || latency.sample !== "all") &&
     !hasLatency(latency.counts, latency.sample);
-  const ms = (v: number) => (noLatency ? "—" : `${v} ms`);
+  const ms = (v: number, us: number | undefined) =>
+    noLatency ? "—" : latencyUnitText(latencyShown(v, us));
+  const mean = noLatency ? null : meanShown(summary);
+  const meanValue =
+    mean === null
+      ? "—"
+      : (mean.kind !== "capped" && summary.stats?.capped ? "≥ " : "") + latencyUnitText(mean);
   const cards: Array<{ label: string; value: string; help?: string; whole?: boolean }> = [
     { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },
     { label: ko.report.cardErrors, value: summary.errors.toLocaleString() },
     { label: ko.report.cardAvgRps, value: summary.rps.toFixed(1), help: ko.glossary.rps },
     { label: ko.report.cardDuration, value: `${summary.duration_seconds}s` },
-    { label: "p50", value: ms(summary.p50_ms), help: ko.glossary.p50 },
-    { label: "p95", value: ms(summary.p95_ms), help: ko.glossary.p95 },
-    { label: "p99", value: ms(summary.p99_ms), help: ko.glossary.p99 },
+    { label: ko.report.cardMean, value: meanValue, help: ko.glossary.mean },
+    { label: "p50", value: ms(summary.p50_ms, summary.stats?.p50_us), help: ko.glossary.p50 },
+    { label: "p95", value: ms(summary.p95_ms, summary.stats?.p95_us), help: ko.glossary.p95 },
+    { label: "p99", value: ms(summary.p99_ms, summary.stats?.p99_us), help: ko.glossary.p99 },
   ];
 
   if (openLoop != null) {
@@ -73,7 +80,7 @@ export function Summary({
     );
   }
 
-  const gridColsClass = openLoop != null ? "md:grid-cols-10" : "md:grid-cols-7";
+  const gridColsClass = openLoop != null ? "md:grid-cols-11" : "md:grid-cols-8";
 
   return (
     <PageSection ariaLabel={ko.report.summaryLabel} title={ko.report.summaryTitle}>

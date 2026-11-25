@@ -193,7 +193,7 @@ describe("ReportView", () => {
     expect(head).toHaveTextContent("실패한 요청 없음");
     expect(head).not.toHaveTextContent("통과한 요청 없음");
     const summary = screen.getByRole("region", { name: /리포트 요약/ });
-    expect(summary.textContent?.match(/—/g)?.length).toBe(3);
+    expect(summary.textContent?.match(/—/g)?.length).toBe(4);
     expect(screen.getByText(/전체 구간 \(실패한 요청\)/)).toBeInTheDocument();
   });
 

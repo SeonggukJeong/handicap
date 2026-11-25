@@ -1,3 +1,6 @@
+import type { ReportSummary } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
+
 /** Format a microsecond latency into a compact human string (µs / ms / s). */
 export function formatLatency(us: number): string {
   if (!Number.isFinite(us) || us < 0) return "—";
@@ -29,4 +32,40 @@ export function msNumberText(ms: number): string {
 /** 에러율(errors/count) 표시 — count 0이면 "—". */
 export function formatErrPct(errors: number, count: number): string {
   return count === 0 ? "—" : floorPct((errors / count) * 100);
+}
+
+/** 응답 시간이 60초 상한 칸에 닿았음을 뜻하는 µs 값(서버 상한과 같다). */
+export const CAP_US = 60_000_000;
+
+export type LatencyShown =
+  | { kind: "ms"; ms: number }
+  | { kind: "us"; text: string }
+  | { kind: "capped" };
+
+/** 화면의 시간 한 칸을 무엇으로 보일지. µs 값이 없으면 지금처럼 정수 ms. */
+export function latencyShown(ms: number, us: number | undefined): LatencyShown {
+  if (us === undefined) return { kind: "ms", ms };
+  if (us >= CAP_US) return { kind: "capped" };
+  if (us < 1000) return { kind: "us", text: formatLatency(us) };
+  return { kind: "ms", ms };
+}
+
+/** 표 칸 글자(단위 없음). */
+export function latencyCellText(x: LatencyShown): string {
+  if (x.kind === "ms") return `${x.ms}`;
+  if (x.kind === "us") return x.text;
+  return ko.report.stats.capped;
+}
+
+/** 카드·문장 글자(단위 포함). */
+export function latencyUnitText(x: LatencyShown): string {
+  if (x.kind === "ms") return `${x.ms} ms`;
+  if (x.kind === "us") return x.text;
+  return `${ko.report.stats.capped} ms`;
+}
+
+/** 평균 한 칸 — 카드와 「모든 스텝」 행이 함께 쓰는 단일 식. stats가 없으면 null. */
+export function meanShown(s: Pick<ReportSummary, "mean_ms" | "stats">): LatencyShown | null {
+  if (s.stats === undefined) return null;
+  return latencyShown(Math.min(s.mean_ms, 60000), s.stats.mean_us);
 }

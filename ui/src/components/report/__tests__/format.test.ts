@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { formatLatency, floorPct, formatErrPct, msNumberText } from "../format";
+import {
+  formatLatency,
+  floorPct,
+  formatErrPct,
+  msNumberText,
+  latencyShown,
+  latencyCellText,
+  latencyUnitText,
+  meanShown,
+} from "../format";
 
 describe("msNumberText", () => {
   it("소수 3자리·뒤 0 생략·쉼표", () => {
@@ -48,4 +57,55 @@ describe("formatErrPct (R5)", () => {
   it("count 0이면 —", () => expect(formatErrPct(0, 0)).toBe("—"));
   it("1/3000은 <0.1%", () => expect(formatErrPct(1, 3000)).toBe("<0.1%"));
   it("에러 0은 0.0%", () => expect(formatErrPct(0, 100)).toBe("0.0%"));
+});
+
+const st = (o: Partial<Record<string, number | boolean>>) => ({
+  min_us: 0,
+  mean_us: 0,
+  max_us: 0,
+  stdev_us: 0,
+  p50_us: 0,
+  p90_us: 0,
+  p95_us: 0,
+  p99_us: 0,
+  capped: false,
+  ...o,
+});
+
+describe("latencyShown·셀·단위 글자", () => {
+  it("분기", () => {
+    expect(latencyShown(43, undefined)).toEqual({ kind: "ms", ms: 43 });
+    expect(latencyShown(0, 350)).toEqual({ kind: "us", text: "350 µs" });
+    expect(latencyShown(0, 999)).toEqual({ kind: "us", text: "999 µs" });
+    expect(latencyShown(1, 1000)).toEqual({ kind: "ms", ms: 1 });
+    expect(latencyShown(59999, 59_999_999)).toEqual({ kind: "ms", ms: 59999 });
+    expect(latencyShown(60030, 60_000_000)).toEqual({ kind: "capped" });
+  });
+  it("latencyCellText", () => {
+    expect(latencyCellText(latencyShown(43, undefined))).toBe("43");
+    expect(latencyCellText(latencyShown(0, 350))).toBe("350 µs");
+    expect(latencyCellText(latencyShown(60030, 60_000_000))).toBe("≥ 60,000");
+  });
+  it("latencyUnitText", () => {
+    expect(latencyUnitText(latencyShown(43, undefined))).toBe("43 ms");
+    expect(latencyUnitText(latencyShown(0, 350))).toBe("350 µs");
+    expect(latencyUnitText(latencyShown(60030, 60_000_000))).toBe("≥ 60,000 ms");
+  });
+});
+
+describe("meanShown", () => {
+  it("ms·capped·µs·null", () => {
+    expect(meanShown({ mean_ms: 1843, stats: st({ mean_us: 1_842_613 }) })).toEqual({
+      kind: "ms",
+      ms: 1843,
+    });
+    expect(
+      meanShown({ mean_ms: 60015, stats: st({ mean_us: 60_000_000, capped: true }) }),
+    ).toEqual({ kind: "capped" });
+    expect(meanShown({ mean_ms: 0, stats: st({ mean_us: 350 }) })).toEqual({
+      kind: "us",
+      text: "350 µs",
+    });
+    expect(meanShown({ mean_ms: 5, stats: undefined })).toBeNull();
+  });
 });

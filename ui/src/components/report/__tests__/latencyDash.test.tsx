@@ -41,7 +41,7 @@ describe("Summary — 통과한 요청이 없으면 「—」", () => {
     render(<Summary summary={failedSummary} latency={failedLatency} />);
     const region = screen.getByRole("region", { name: /리포트 요약/ });
     expect(region).not.toHaveTextContent("0 ms");
-    expect(region.textContent?.match(/—/g)?.length).toBe(3);
+    expect(region.textContent?.match(/—/g)?.length).toBe(4);
   });
   it("all 표본은 지금 그대로(0 ms)", () => {
     render(
@@ -263,7 +263,7 @@ describe("표본을 바꿔 본 머리말·요약·다른 기준 줄", () => {
       />,
     );
     const region = screen.getByRole("region", { name: /리포트 요약/ });
-    expect(region.textContent?.match(/—/g)?.length).toBe(3);
+    expect(region.textContent?.match(/—/g)?.length).toBe(4);
   });
   it("Summary: all + switched + 전부 보내지 않음 → 「—」", () => {
     render(
@@ -273,7 +273,7 @@ describe("표본을 바꿔 본 머리말·요약·다른 기준 줄", () => {
       />,
     );
     const region = screen.getByRole("region", { name: /리포트 요약/ });
-    expect(region.textContent?.match(/—/g)?.length).toBe(3);
+    expect(region.textContent?.match(/—/g)?.length).toBe(4);
     expect(region).not.toHaveTextContent("0 ms");
   });
   it("Summary: all, switched 없음, 전부 보내지 않음 → 지금처럼 0 ms", () => {
