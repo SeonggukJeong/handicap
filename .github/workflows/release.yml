@@ -69,6 +69,8 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
       # `+` 없는 rustc = rust-toolchain.toml로 해석된, cargo가 실제로 쓰는 버전(액션 자체 출력은 `rustc +<ver>`라 공허).
       - name: Effective toolchain
         run: rustc --version && cargo --version
@@ -183,6 +185,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
+          components: rustfmt, clippy
       # `+` 없는 rustc = rust-toolchain.toml로 해석된, cargo가 실제로 쓰는 버전(액션 자체 출력은 `rustc +<ver>`라 공허).
       - name: Effective toolchain
         run: rustc --version && cargo --version
@@ -247,11 +250,13 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # linux-tui 잡의 같은 스텝 주석 참조(러너 이미지 툴체인 충돌).
+      # linux-tui 잡의 같은 스텝 주석 참조.
       - name: Remove preinstalled toolchain (runner image conflict)
         run: rustup toolchain uninstall 1.99.1 || true
 
       - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -298,14 +303,18 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 러너 이미지(ubuntu24 20261111.127)에 미리 깔린 1.99.1 툴체인 폴더에 등록 안 된 bin/cargo-fmt가 있어
-      # rust-toolchain.toml의 rustfmt 설치가 'detected conflict'로 실패했다(v0.15.0 linux-tui 2회). 지우고 새로 받는다.
+      # 첫 cargo 호출이 rust-toolchain.toml의 rustfmt·clippy를 뒤늦게 받다가
+      # `failed to install component: 'rustfmt-preview-…', detected conflict: 'bin/cargo-fmt'`로 실패했다
+      # (v0.13.0·v0.15.0, v0.17.0은 재실행까지 2회 — 러너 이미지 20261122.23). 미리 깔린 툴체인을 지우는 아래 스텝만으로는
+      # 안 막혔다(v0.17.0 로그: `no toolchain installed for '1.99.1-…'`인데도 실패). 그래서 ci.yml처럼 툴체인 설치 때
+      # 두 컴포넌트를 함께 받아 첫 cargo 호출이 아무것도 설치하지 않게 한다. 원인은 확인하지 못했다.
       - name: Remove preinstalled toolchain (runner image conflict)
         run: rustup toolchain uninstall 1.99.1 || true
 
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: x86_64-unknown-linux-gnu
+          components: rustfmt, clippy
 
       # zig·cargo-zigbuild 버전은 scripts/tui-linux-build.sh 머리의 검증 버전과 같아야 한다.
       - name: Install zig + cargo-zigbuild
@@ -371,6 +380,8 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
       - name: Effective toolchain
         run: rustc --version && cargo --version
 
