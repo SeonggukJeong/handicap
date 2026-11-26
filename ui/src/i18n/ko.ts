@@ -3556,6 +3556,7 @@ export const ko = {
       overview: "1. 종합 결과",
       summaryBox: "요약 (자동 작성)",
       steps: "2. 단계별 결과",
+      stats: (n: number) => `${n}. 단계별 응답 시간 통계`,
       setup: (n: number) => `${n}. 준비 스텝 결과`,
       speed: (n: number) => `${n}. 단계별 응답 속도 구간`,
       chart: (n: number) => `${n}. 시간에 따른 변화`,
@@ -3606,6 +3607,17 @@ export const ko = {
       colMax: "최대",
       colCodes: "응답 코드별 건수",
       unitMs: "ms",
+    },
+    // 단계별 응답 시간 통계 절(④b R-B8).
+    stats: {
+      caption: (sample: string) => `${sample} 기준 · 단위 ms (1ms 미만은 µs)`,
+      samplePassed: "통과한 요청",
+      sampleAll: "모든 요청",
+      cols: ["단계", "최소", "평균", "p50", "p90", "p95", "p99", "최대", "표준편차"],
+      total: "모든 단계",
+      us: (n: number) => `${n}µs`,
+      cappedNote:
+        "「≥ 60,000」 = 60초를 넘긴 응답이 있어 실제 값은 더 큽니다(그 단계의 평균·표준편차도 실제보다 작게 나온 값입니다).",
     },
     // 응답 속도 구간 절(spec §7.3–§7.5). 동적 이름 뒤 조사는 병기형(ADR-0035).
     speed: {

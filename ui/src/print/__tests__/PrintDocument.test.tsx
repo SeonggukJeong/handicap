@@ -15,6 +15,7 @@ import { LABEL_CHAR_MM, PLOT_X1_MM } from "../chartModel";
 import type { Report, Run } from "../../api/schemas";
 import { build as buildSpeed, case1Input } from "./speedFixtures";
 import { buildSetupModel } from "../setupTable";
+import { ko } from "../../i18n/ko";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
 const T0 = 1_700_000_000_000;
@@ -766,6 +767,7 @@ describe("단계별 응답 속도 구간 절", () => {
     ...makeDoc(coreFixture),
     speed: buildSpeed(case1Input()),
     sectionNo: {
+      stats: null,
       setup: null,
       speed: "3. 단계별 응답 속도 구간",
       chart: "4. 시간에 따른 변화",
@@ -841,6 +843,7 @@ describe("준비 스텝 결과 절", () => {
       open: false,
     }),
     sectionNo: {
+      stats: null,
       setup: "3. 준비 스텝 결과",
       speed: null,
       chart: "4. 시간에 따른 변화",
@@ -975,5 +978,116 @@ describe("단계별 평균 응답 시간 부록 — 쪽 렌더", () => {
     await ready(root);
     expect(screen.getByText("부록. 그 밖의 기준 전체")).toBeTruthy();
     expect(container.textContent).toContain("— 부록 참조");
+  });
+});
+
+describe("단계별 응답 시간 통계 절", () => {
+  const statsModel = (cappedNote = false) => ({
+    rows: [
+      { label: "1 로그인", cells: ["31", "52", "47", "71", "88", "140", "402", "19"] },
+      { label: "2 민원 목록", cells: Array(8).fill("–") },
+    ],
+    total: {
+      label: "모든 단계",
+      cells: ["31", "52", "47", "71", "88", "140", "402", "19"],
+    },
+    caption: "통과한 요청 기준 · 단위 ms (1ms 미만은 µs)",
+    cappedNote,
+  });
+  const withStats = (cappedNote = false): PrintDoc => {
+    const d = makeDoc(coreFixture);
+    return {
+      ...d,
+      stats: statsModel(cappedNote),
+      sectionNo: {
+        ...d.sectionNo,
+        stats: "3. 단계별 응답 시간 통계",
+        chart: "4. 시간에 따른 변화",
+        conditions: "5. 측정 조건과 해석 범위",
+        glossary: "6. 용어 풀이",
+      },
+    };
+  };
+
+  it("쪽 렌더: 제목과 「모든 단계」 행이 .p-page 안에 있고 2절 표는 한 번", async () => {
+    const { root, container } = renderDoc(withStats());
+    await ready(root);
+    const pages = Array.from(container.querySelectorAll(".p-page"));
+    const inPages = (t: string) =>
+      pages.some((pg) => Array.from(pg.querySelectorAll("h2")).some((h) => h.textContent === t));
+    expect(inPages("3. 단계별 응답 시간 통계")).toBe(true);
+    expect(container.querySelectorAll(".p-stats")).toHaveLength(1);
+    expect(container.querySelectorAll(".p-steps")).toHaveLength(1);
+    expect(pages.some((pg) => within(pg as HTMLElement).queryByText("모든 단계") !== null)).toBe(
+      true,
+    );
+    expect(inPages("4. 시간에 따른 변화")).toBe(true);
+  });
+
+  it("측정 시트에 통계 표(제목·머리·행 셋)가 하나씩 있다", async () => {
+    const measured = new Map<string, Set<Element>>();
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const id = this.getAttribute("data-measure") ?? "";
+        if (id !== "") {
+          if (!measured.has(id)) measured.set(id, new Set());
+          measured.get(id)!.add(this);
+        }
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 10 * PX_PER_MM,
+          width: 0,
+          height: 10 * PX_PER_MM,
+          toJSON: () => ({}),
+        } as DOMRect;
+      });
+    const { root } = renderDoc(withStats(true));
+    await ready(root);
+    spy.mockRestore();
+    for (const id of [
+      "stats:title",
+      "stats:header",
+      "stats:row:0",
+      "stats:row:1",
+      "stats:row:2",
+      "stats:note",
+      "table:title",
+    ]) {
+      expect(measured.get(id)?.size, id).toBe(1);
+    }
+  });
+
+  it("stats가 없는 문서에는 절이 없다", async () => {
+    const { root, container } = renderDoc(makeDoc(coreFixture));
+    await ready(root);
+    expect(container.querySelectorAll(".p-stats")).toHaveLength(0);
+    expect(container.textContent).not.toContain("단계별 응답 시간 통계");
+  });
+
+  it("cappedNote 문서에 안내 글, 아니면 없다", async () => {
+    const a = renderDoc(withStats(true));
+    await ready(a.root);
+    expect(a.container.textContent).toContain(ko.print.stats.cappedNote);
+    a.unmount();
+    const b = renderDoc(withStats(false));
+    await ready(b.root);
+    expect(b.container.textContent).not.toContain(ko.print.stats.cappedNote);
+  });
+
+  it("표가 여러 쪽에 걸치면 이어짐 제목, 캡션은 한 번", async () => {
+    const spy = spyHeights((id) => (id.startsWith("stats:row:") ? 120 : 10));
+    const { root, container } = renderDoc(withStats());
+    await ready(root);
+    spy.mockRestore();
+    const titles = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
+    expect(titles.filter((x) => x === "3. 단계별 응답 시간 통계")).toHaveLength(1);
+    expect(titles.some((x) => x === "3. 단계별 응답 시간 통계 (이어짐)")).toBe(true);
+    expect(container.querySelectorAll(".p-stats-caption")).toHaveLength(1);
+    expect(container.querySelectorAll(".p-stats tbody tr")).toHaveLength(3);
   });
 });

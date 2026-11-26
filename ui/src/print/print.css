@@ -539,6 +539,34 @@
   margin: 0;
 }
 
+/* 단계별 응답 시간 통계 — 시안 b-screens 4번(.cap 8pt · 숫자 칸 오른쪽 맞춤 · 합계 행) */
+.p-root .p-stats-caption {
+  font-size: 8pt;
+  color: var(--sub);
+  margin: 0 0 2mm;
+}
+.p-root .p-block--stats {
+  padding-top: 1.5mm;
+}
+.p-root .p-stats td.p-stats-num {
+  text-align: right;
+  white-space: nowrap;
+  padding: 1.3mm 1.6mm;
+  font-variant-numeric: tabular-nums;
+}
+.p-root .p-stats th {
+  white-space: nowrap;
+}
+.p-root .p-stats-row--total td {
+  border-top: 1.5px solid var(--ink);
+  font-weight: 700;
+}
+.p-root .p-stats-note {
+  font-size: 8pt;
+  color: var(--sub);
+  margin: 0;
+}
+
 /* 단계별 응답 속도 구간 — 시안 speed-bands-v2 값 그대로 */
 .p-root {
   --b1: #d6e2f5;

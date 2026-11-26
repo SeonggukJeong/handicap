@@ -135,6 +135,7 @@ describe("buildPrintDoc", () => {
     expect(d1.speed).not.toBeNull();
     expect(d1.speed?.rows).toHaveLength(3);
     expect(d1.sectionNo).toEqual({
+      stats: null,
       setup: null,
       speed: "3. 단계별 응답 속도 구간",
       chart: "4. 시간에 따른 변화",
@@ -144,6 +145,7 @@ describe("buildPrintDoc", () => {
     const d2 = build(mkRun(), mkReport());
     expect(d2.speed).toBeNull();
     expect(d2.sectionNo).toEqual({
+      stats: null,
       setup: null,
       speed: null,
       chart: "3. 시간에 따른 변화",
@@ -153,28 +155,66 @@ describe("buildPrintDoc", () => {
   });
 
   it("sectionNumbers: four combinations", () => {
-    expect(sectionNumbers({ setup: false, speed: false })).toEqual({
+    expect(sectionNumbers({ stats: false, setup: false, speed: false })).toEqual({
+      stats: null,
       setup: null,
       speed: null,
       chart: "3. 시간에 따른 변화",
       conditions: "4. 측정 조건과 해석 범위",
       glossary: "5. 용어 풀이",
     });
-    expect(sectionNumbers({ setup: false, speed: true })).toEqual({
+    expect(sectionNumbers({ stats: false, setup: false, speed: true })).toEqual({
+      stats: null,
       setup: null,
       speed: "3. 단계별 응답 속도 구간",
       chart: "4. 시간에 따른 변화",
       conditions: "5. 측정 조건과 해석 범위",
       glossary: "6. 용어 풀이",
     });
-    expect(sectionNumbers({ setup: true, speed: false })).toEqual({
+    expect(sectionNumbers({ stats: false, setup: true, speed: false })).toEqual({
+      stats: null,
       setup: "3. 준비 스텝 결과",
       speed: null,
       chart: "4. 시간에 따른 변화",
       conditions: "5. 측정 조건과 해석 범위",
       glossary: "6. 용어 풀이",
     });
-    expect(sectionNumbers({ setup: true, speed: true })).toEqual({
+    expect(sectionNumbers({ stats: false, setup: true, speed: true })).toEqual({
+      stats: null,
+      setup: "3. 준비 스텝 결과",
+      speed: "4. 단계별 응답 속도 구간",
+      chart: "5. 시간에 따른 변화",
+      conditions: "6. 측정 조건과 해석 범위",
+      glossary: "7. 용어 풀이",
+    });
+  });
+
+  it("sectionNumbers: stats가 있으면 3절, 뒤 절이 한 칸씩 밀린다", () => {
+    const T = "3. 단계별 응답 시간 통계";
+    expect(sectionNumbers({ stats: true, setup: false, speed: false })).toEqual({
+      stats: T,
+      setup: null,
+      speed: null,
+      chart: "4. 시간에 따른 변화",
+      conditions: "5. 측정 조건과 해석 범위",
+      glossary: "6. 용어 풀이",
+    });
+    const sw = sectionNumbers({ stats: true, setup: true, speed: false });
+    expect(sw.setup).toBe("4. 준비 스텝 결과");
+    expect(sw.chart).toBe("5. 시간에 따른 변화");
+    const sp = sectionNumbers({ stats: true, setup: false, speed: true });
+    expect(sp.speed).toBe("4. 단계별 응답 속도 구간");
+    expect(sp.chart).toBe("5. 시간에 따른 변화");
+    expect(sectionNumbers({ stats: true, setup: true, speed: true })).toEqual({
+      stats: T,
+      setup: "4. 준비 스텝 결과",
+      speed: "5. 단계별 응답 속도 구간",
+      chart: "6. 시간에 따른 변화",
+      conditions: "7. 측정 조건과 해석 범위",
+      glossary: "8. 용어 풀이",
+    });
+    expect(sectionNumbers({ stats: false, setup: true, speed: true })).toEqual({
+      stats: null,
       setup: "3. 준비 스텝 결과",
       speed: "4. 단계별 응답 속도 구간",
       chart: "5. 시간에 따른 변화",
@@ -753,5 +793,99 @@ describe("buildPrintDoc 단계별 평균 응답 시간 부록(끝까지)", () =>
     const doc = build(mkRun({ profile: { ...profile, criteria } as Run["profile"] }), rep);
     expect(doc.stepLat).toBeNull();
     expect(doc.appendixNo).toEqual({ other: null, stepLat: null });
+  });
+});
+
+describe("통계 표 블록", () => {
+  const ST = {
+    min_us: 31_007,
+    mean_us: 52_118,
+    max_us: 402_175,
+    stdev_us: 19_204,
+    p50_us: 47_039,
+    p90_us: 71_039,
+    p95_us: 88_063,
+    p99_us: 140_031,
+    capped: false,
+  };
+  const withStats = (n = 3, cap = false): PrintDoc => {
+    const r = mkReport(n);
+    r.steps = r.steps.map((s) => ({
+      ...s,
+      stats: { ...ST, ...(cap ? { max_us: 60_000_000 } : {}) },
+    }));
+    r.summary = { ...r.summary, stats: ST };
+    return build(mkRun({ scenario_yaml: yamlOf(n) }), r);
+  };
+
+  it("stats가 있으면 doc.stats·3절 번호가 켜진다", () => {
+    const d = withStats();
+    expect(d.stats).not.toBeNull();
+    expect(d.sectionNo.stats).toBe("3. 단계별 응답 시간 통계");
+    expect(d.sectionNo.chart).toBe("4. 시간에 따른 변화");
+  });
+
+  it("stats 없는 리포트는 doc.stats null·번호 변화 없음", () => {
+    const d = build(mkRun(), mkReport());
+    expect(d.stats).toBeNull();
+    expect(d.sectionNo.stats).toBeNull();
+    expect(d.sectionNo.chart).toBe("3. 시간에 따른 변화");
+    expect(idsOf(standardBlocks(d, new Map()))).not.toContain("stats");
+  });
+
+  it("표준판: stats는 2절 묶음 뒤·setup·speed·chart 앞, 행 수 = 스텝 수 + 1", () => {
+    const base = withStats(3);
+    const doc: PrintDoc = { ...base, speed: buildSpeed(case1Input()) };
+    const ids = idsOf(standardBlocks(doc, heights(doc)));
+    expect(ids.indexOf("stats")).toBeGreaterThan(ids.indexOf("legend:full"));
+    expect(ids.indexOf("stats")).toBeLessThan(ids.indexOf("speed"));
+    expect(ids.indexOf("stats")).toBeLessThan(ids.indexOf("chart"));
+    const blk = standardBlocks(doc, heights(doc)).find((b) => b.id === "stats");
+    expect(blk?.kind).toBe("table");
+    expect(blk?.kind === "table" && blk.rowsMm.length).toBe(4);
+  });
+
+  it("notes 블록 뒤에 온다", () => {
+    const base = withStats(3);
+    const doc: PrintDoc = {
+      ...base,
+      table: {
+        ...base.table,
+        foldNotes: [{ columnLabel: "기타 5xx", parts: [{ code: 502, count: 3 }] }],
+      },
+    };
+    const ids = idsOf(standardBlocks(doc, heights(doc)));
+    expect(ids.indexOf("stats")).toBeGreaterThan(ids.indexOf("notes:fold"));
+  });
+
+  it("stats:note는 cappedNote일 때만, stats 바로 뒤", () => {
+    const plain = idsOf(standardBlocks(withStats(3), new Map()));
+    expect(plain).not.toContain("stats:note");
+    const capped = withStats(3, true);
+    expect(capped.stats?.cappedNote).toBe(true);
+    const ids = idsOf(standardBlocks(capped, new Map()));
+    expect(ids[ids.indexOf("stats") + 1]).toBe("stats:note");
+  });
+
+  it("높이는 MEASURE_IDS로 읽는다", () => {
+    const doc = withStats(2);
+    const h: Heights = new Map([
+      [MEASURE_IDS.statsTitle, 7],
+      [MEASURE_IDS.statsHeader, 9],
+      [MEASURE_IDS.statsRowId(0), 4],
+      [MEASURE_IDS.statsRowId(2), 6],
+    ]);
+    const blk = standardBlocks(doc, h).find((b) => b.id === "stats");
+    expect(blk?.kind === "table" && [blk.titleMm, blk.headerMm, ...blk.rowsMm]).toEqual([
+      7, 9, 4, 0, 6,
+    ]);
+  });
+
+  it("요약판에는 없다", () => {
+    const doc = withStats(3);
+    for (const l of [0, 1, 2, 3, 4, 5, 6, 7, 8] as LadderLevel[]) {
+      expect(idsOf(summaryBlocks(doc, new Map(), l))).not.toContain("stats");
+      expect(idsOf(summaryBlocks(doc, new Map(), l))).not.toContain("stats:note");
+    }
   });
 });

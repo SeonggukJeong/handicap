@@ -53,6 +53,7 @@ import { basisLine, basisOtherLine } from "../components/report/basisText";
 import { summaryLines, type SummaryLine } from "./sentences";
 import { buildSpeedModel, type SpeedModel } from "./speedBands";
 import { buildSetupModel, type SetupPrintModel } from "./setupTable";
+import { buildStatsModel, type StatsModel } from "./statsTable";
 import { buildLatencyChart, type LatencyChartModel } from "./latencyChart";
 import { buildStepLatAppendix, type StepLatModel } from "./stepLatencyAppendix";
 import { deriveLoadMode } from "../components/run/loadModel";
@@ -100,6 +101,8 @@ export type PrintDoc = {
   stair: StairReport | null;
   speed: SpeedModel | null;
   setup: SetupPrintModel | null;
+  /** 단계별 응답 시간 통계 절 — 그릴 칸이 하나도 없으면 null(절 없음). */
+  stats: StatsModel | null;
   sectionNo: SectionNo;
   stepLat: StepLatModel | null;
   appendixNo: AppendixNo;
@@ -211,6 +214,13 @@ export function buildPrintDoc(a: {
       })
     : null;
 
+  const stats = buildStatsModel({
+    rows: table.rows,
+    summary: report.summary,
+    sample,
+    hasTime,
+  });
+
   const rawName = facts.ok ? facts.name : null;
   const name =
     (rawName && rawName.trim()) ||
@@ -281,7 +291,12 @@ export function buildPrintDoc(a: {
     stair: report.stair ?? null,
     speed,
     setup,
-    sectionNo: sectionNumbers({ setup: setup !== null, speed: speed !== null }),
+    stats,
+    sectionNo: sectionNumbers({
+      stats: stats !== null,
+      setup: setup !== null,
+      speed: speed !== null,
+    }),
     stepLat,
     appendixNo: appendixNumbers({
       other: limitOtherRows(otherRows, "standard").truncated,
@@ -291,6 +306,7 @@ export function buildPrintDoc(a: {
 }
 
 export type SectionNo = {
+  stats: string | null;
   setup: string | null;
   speed: string | null;
   chart: string;
@@ -298,13 +314,15 @@ export type SectionNo = {
   glossary: string;
 };
 
-/** 있는 절만 준비 → 속도 구간 → 그림 → 조건 → 용어 순서로 3부터 센다. */
-export function sectionNumbers(a: { setup: boolean; speed: boolean }): SectionNo {
+/** 있는 절만 통계 → 준비 → 속도 구간 → 그림 → 조건 → 용어 순서로 3부터 센다. */
+export function sectionNumbers(a: { stats: boolean; setup: boolean; speed: boolean }): SectionNo {
   const s = ko.print.section;
   let n = 3;
+  const stats = a.stats ? s.stats(n++) : null;
   const setup = a.setup ? s.setup(n++) : null;
   const speed = a.speed ? s.speed(n++) : null;
   return {
+    stats,
     setup,
     speed,
     chart: s.chart(n++),
@@ -334,6 +352,9 @@ export const MEASURE_IDS = {
   setupTitle: "setup:title",
   setupHeader: "setup:header",
   setupRowId: (stepId: string): string => `setup:row:${stepId}`,
+  statsTitle: "stats:title",
+  statsHeader: "stats:header",
+  statsRowId: (i: number): string => `stats:row:${i}`,
   stepLatTitle: "steplat:title",
   stepLatRowId: (i: number): string => `steplat:row:${i}`,
 } as const;
@@ -380,6 +401,19 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
   if (hasCallouts(doc)) out.push(atom(h, "callouts:full"));
   if (doc.table.foldNotes.length > 0) out.push(atom(h, "notes:fold"));
   if (doc.table.scenarioUnreadable) out.push(atom(h, "notes:unreadable"));
+  if (doc.stats !== null) {
+    out.push({
+      kind: "table",
+      id: "stats",
+      titleMm: h.get(MEASURE_IDS.statsTitle) ?? 0,
+      headerMm: h.get(MEASURE_IDS.statsHeader) ?? 0,
+      // 단계 행 + 마지막 「모든 단계」 행
+      rowsMm: [...doc.stats.rows, doc.stats.total].map(
+        (_, i) => h.get(MEASURE_IDS.statsRowId(i)) ?? 0,
+      ),
+    });
+    if (doc.stats.cappedNote) out.push(atom(h, "stats:note"));
+  }
   if (doc.setup !== null) {
     out.push({
       kind: "table",

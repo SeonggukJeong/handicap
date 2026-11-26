@@ -217,6 +217,11 @@ describe("느림 규칙(R-B10)", () => {
     const r = row(0, { stats: stats({ p95_us: 900_000 }) });
     expect(slow(r, c, [vrow("p95_ms", true)])).toBe(false);
   });
+  it("다른 지표의 스텝 기준이 있어도 run 기준은 그 다른 지표로 빌려 쓴다", () => {
+    const c: Criteria = { max_mean_ms: 100, step_criteria: [sc("p95_ms", 5000)] };
+    const r = row(0, { stats: stats({ mean_us: 100_001 }) });
+    expect(slow(r, c, [vrow("p95_ms", true)])).toBe(true);
+  });
   it("기준 없음 → ok", () => {
     expect(stepStatus(row(0, { stats: stats() }), null, null).tags).toEqual(["ok"]);
   });

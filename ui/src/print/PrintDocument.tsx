@@ -37,6 +37,7 @@ import {
 } from "./components/StairPrintTable";
 import { SpeedBandTable, SpeedNotes, SpeedTableTitle } from "./components/SpeedBandTable";
 import { SetupPrintTable, SetupTableTitle } from "./components/SetupPrintTable";
+import { StatsNote, StatsPrintTable, StatsTableTitle } from "./components/StatsPrintTable";
 import { StepLatencyRows, StepLatencyTitle } from "./components/StepLatencyAppendix";
 import { ko } from "../i18n/ko";
 import { SignatureBlock } from "./components/SignatureBlock";
@@ -111,6 +112,8 @@ function AtomicContent({ id, doc }: { id: string; doc: PrintDoc }): ReactNode {
       return <UnreadableNote />;
     case "setup:kinds":
       return doc.setup?.kindsLine ? <p className="p-setup-kinds">{doc.setup.kindsLine}</p> : null;
+    case "stats:note":
+      return doc.stats?.cappedNote ? <StatsNote text={ko.print.stats.cappedNote} /> : null;
     case "speed:notes":
       return doc.speed ? <SpeedNotes model={doc.speed} /> : null;
     case "chart":
@@ -213,6 +216,26 @@ function MeasureSheet({ doc, kind }: { doc: PrintDoc; kind: PrintKind }) {
                 model={doc.speed}
                 from={0}
                 to={doc.speed.rows.length}
+                measure
+              />
+            </div>
+          );
+        }
+        if (b.id === "stats") {
+          if (!doc.stats || !doc.sectionNo.stats) return null;
+          return (
+            <div key={b.id}>
+              <StatsTableTitle
+                title={doc.sectionNo.stats}
+                caption={doc.stats.caption}
+                continued={false}
+                measure
+              />
+              <StatsPrintTable
+                title={doc.sectionNo.stats}
+                model={doc.stats}
+                from={0}
+                to={doc.stats.rows.length + 1}
                 measure
               />
             </div>
@@ -324,6 +347,24 @@ function PageBody(props: {
               <SpeedBandTable
                 title={doc.sectionNo.speed}
                 model={doc.speed}
+                from={it.from}
+                to={it.to}
+              />
+            </div>
+          );
+        }
+        if (it.id === "stats") {
+          if (!doc.stats || !doc.sectionNo.stats) return null;
+          return (
+            <div key={`${it.id}:${it.from}`}>
+              <StatsTableTitle
+                title={doc.sectionNo.stats}
+                caption={doc.stats.caption}
+                continued={it.continued}
+              />
+              <StatsPrintTable
+                title={doc.sectionNo.stats}
+                model={doc.stats}
                 from={it.from}
                 to={it.to}
               />
