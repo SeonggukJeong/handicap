@@ -8,6 +8,7 @@ import {
 import { stepPairs } from "../errorCells";
 import type { RunModel } from "../runModel";
 import { expectClean } from "./expectClean";
+import { mkStats } from "./fixtures";
 import { sceneModel } from "./scene";
 
 const buildDumbbell = (before: RunModel, after: RunModel) =>
@@ -335,5 +336,100 @@ describe("buildDumbbell", () => {
     const m = build([[150, 800]]);
     expect(m.axisMaxMs).toBe(800);
     expect(m.ticks.map((t) => t.label)).toEqual(["0ms", "200ms", "400ms", "600ms", "800ms"]);
+  });
+});
+
+describe('buildDumbbell 지표 인자 ("p95" 기본 · "mean")', () => {
+  const pairsOf = (b: RunModel, a: RunModel) => stepPairs(b, a);
+  const statRun = (
+    id: string,
+    meansUs: Array<number | null>,
+    over: { capped?: boolean; criteria?: Crit } = {},
+  ): RunModel => {
+    const steps = meansUs.map((_, i) => ({ id: `s${i + 1}`, name: `단계${i + 1}` }));
+    const rep = meansUs.map((us, i) => ({
+      id: `s${i + 1}`,
+      counts: { "200": 10 },
+      errors: 0,
+      p95: 600,
+      ...(us === null ? {} : { stats: mkStats({ mean_us: us, capped: over.capped ?? false }) }),
+    }));
+    return sceneModel({ id, steps, rep, profile: prof(over.criteria) });
+  };
+  const mean = (b: RunModel, a: RunModel) => buildDumbbellFromPairs(b, a, pairsOf(b, a), "mean");
+
+  it("지표를 생략하면 p95와 같다", () => {
+    const b = runOf("b", [1000, 1200]);
+    const a = runOf("a", [1040, 3400]);
+    expect(buildDumbbellFromPairs(b, a, pairsOf(b, a))).toEqual(
+      buildDumbbellFromPairs(b, a, pairsOf(b, a), "p95"),
+    );
+  });
+
+  it("p95 양쪽 60030: 분류 없음·퍼센트 괄호 없음·글자 「60초 이상」", () => {
+    const m = build([[60030, 60030]]);
+    const r = m.rows[0]!;
+    expect(r.cls).toBeNull();
+    expect(r.valueText).not.toContain("(");
+    expect(r.valueText).toBe("60초 이상 → 60초 이상");
+  });
+
+  it("mean: 단계 mean_us 61_000 → 83_000", () => {
+    const r = mean(statRun("b", [61_000]), statRun("a", [83_000])).rows[0]!;
+    expect(r.beforeMs).toBe(61);
+    expect(r.afterMs).toBe(83);
+    expect(r.cls).toBe("worse");
+    expect(["arrow", "tri"]).toContain(r.shape);
+  });
+
+  it("mean: stats 없는 쪽은 값 없음·점 하나", () => {
+    const r = mean(statRun("b", [null]), statRun("a", [83_000])).rows[0]!;
+    expect(r.beforeMs).toBeNull();
+    expect(r.afterMs).toBe(83);
+    expect(r.shape).toBe("single");
+    expect(r.cls).toBeNull();
+  });
+
+  it("mean: 잘린 평균(30_007_796µs) ↔ 안 잘린 40_000_000µs는 방향 모름·점 둘", () => {
+    const r = mean(statRun("b", [30_007_796], { capped: true }), statRun("a", [40_000_000]))
+      .rows[0]!;
+    expect(r.cls).toBeNull();
+    expect(r.shape).toBe("dots");
+    expect(r.dir).toBe(0);
+    expect(r.wordText).toBe("");
+    expect(r.beforeText).toContain(" 이상");
+    expect(r.valueText).not.toContain("(");
+  });
+
+  it("mean: 이후가 잘린 30_007_796µs, 이전 1_000_000µs → 느려짐", () => {
+    const r = mean(statRun("b", [1_000_000]), statRun("a", [30_007_796], { capped: true }))
+      .rows[0]!;
+    expect(r.cls).toBe("worse");
+    expect(r.afterText).toContain(" 이상");
+    expect(r.afterText).not.toContain("(");
+  });
+
+  it("mean 기준선: 양쪽 max_mean_ms가 같고 스텝 mean_ms 기준이 없을 때만", () => {
+    const crit = { max_mean_ms: 80 };
+    const same = mean(
+      statRun("b", [61_000], { criteria: crit }),
+      statRun("a", [83_000], { criteria: crit }),
+    );
+    expect(same.baseline?.ms).toBe(80);
+    const stepCrit = {
+      max_mean_ms: 80,
+      step_criteria: [{ metric: "mean_ms", op: "max" as const, threshold: 500, target: "s1" }],
+    };
+    const withStep = mean(
+      statRun("b", [61_000], { criteria: stepCrit }),
+      statRun("a", [83_000], { criteria: stepCrit }),
+    );
+    expect(withStep.baseline).toBeNull();
+    const p95Only = { max_p95_ms: 80 };
+    const other = mean(
+      statRun("b", [61_000], { criteria: p95Only }),
+      statRun("a", [83_000], { criteria: p95Only }),
+    );
+    expect(other.baseline).toBeNull();
   });
 });

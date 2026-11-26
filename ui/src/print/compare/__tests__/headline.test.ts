@@ -6,7 +6,8 @@ import { biggestCodeChange, hasStar, stepPairs } from "../errorCells";
 import { buildFairness } from "../fairness";
 import { buildHeadline, cmpSummaryLines, type CmpSummaryLine } from "../headline";
 import type { BoxState } from "../../verdict";
-import { baseProfile } from "./fixtures";
+import { ko } from "../../../i18n/ko";
+import { baseProfile, mkStats } from "./fixtures";
 import { sceneModel, summaryOf, type SceneRun } from "./scene";
 
 type Over = Partial<Report["summary"]>;
@@ -887,5 +888,57 @@ describe("요약 문장의 굵은 부분(시안)", () => {
       { text: "부하 조건·환경 변수", strong: true },
       { text: " 외 1개가 달라 이 비교는 참고용입니다." },
     ]);
+  });
+});
+
+describe("잘린 행과 표준판 전용 행은 머리·요약 문장을 흔들지 않는다", () => {
+  const SAME: Over = { count: 1000, errors: 0, rps: 240, mean_ms: 840, p95_ms: 2400, p99_ms: 1840 };
+
+  it("잘린 p99(나빠짐)가 첫 문장 후보여도 빈 괄호·퍼센트 없이 「변화율 계산 불가」", () => {
+    const { lines } = scene({ summary: SAME }, { summary: { ...SAME, p99_ms: 60030 } });
+    for (const l of lines) {
+      expect(l.text).not.toContain("()");
+      // 지표 이름(「99% 응답 시간」)의 %는 빼고 본다 — 변화율 퍼센트가 없어야 한다
+      expect(l.text.replaceAll(ko.print.cmp.metric.p99, "")).not.toContain("%");
+    }
+    const mentioning = lines.filter((l) => l.text.includes(ko.print.cmp.metric.p99));
+    expect(mentioning.length).toBeGreaterThan(0);
+    for (const l of mentioning) expect(l.text).toContain(ko.print.cmp.change.cutNoPct);
+  });
+
+  it("잘린 p99(pct 없음)와 평균 +50%가 함께면 2번 줄의 지표는 평균", () => {
+    const { byId } = scene(
+      { summary: SAME },
+      { summary: { ...SAME, p99_ms: 60030, mean_ms: 1260 } },
+    );
+    const two = byId(2) ?? "";
+    expect(two).toContain(ko.print.cmp.metric.mean);
+    expect(two).not.toContain(ko.print.cmp.metric.p99);
+  });
+
+  it("p90·최대 행이 나빠져도 머리 건수·글자는 두 행이 없을 때와 같다", () => {
+    const plainB = summaryOf(BEFORE);
+    const plainA = summaryOf(AFTER_GOOD);
+    const statB = { ...plainB, stats: mkStats({ p90_us: 50_000, max_us: 100_000 }) };
+    const statA = { ...plainA, stats: mkStats({ p90_us: 500_000, max_us: 60_000_000 }) };
+    const o = { errorRateReference: false, incomparable: false };
+    const mk = (b: typeof plainB, a: typeof plainA) => metricRows(b, a, o);
+    const rowsWith = mk(statB, statA);
+    expect(rowsWith.find((r) => r.key === "p90_ms")?.cls).toBe("worse");
+    expect(rowsWith.find((r) => r.key === "max_ms")?.cls).toBe("worse");
+    const h = (rows: ReturnType<typeof mk>) =>
+      buildHeadline({
+        rows,
+        beforeBox: noCrit,
+        afterBox: noCrit,
+        criteriaSame: true,
+        anyDiff: false,
+        incomparable: false,
+      });
+    const withH = h(rowsWith);
+    const withoutH = h(mk(plainB, plainA));
+    expect(withH.counts).toEqual(withoutH.counts);
+    expect(withH.countsLine).toBe(withoutH.countsLine);
+    expect(withH.word).toBe(withoutH.word);
   });
 });

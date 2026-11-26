@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { buildDumbbell as buildDumbbellFromPairs } from "../dumbbell";
 import { stepPairs } from "../errorCells";
-import { DumbbellLegend, DumbbellTable } from "../components/DumbbellTable";
+import { DumbbellLegend, DumbbellTable, DumbbellTitle } from "../components/DumbbellTable";
 import type { RunModel } from "../runModel";
+import { mkStats } from "./fixtures";
 import { sceneModel } from "./scene";
 
 const buildDumbbell = (before: RunModel, after: RunModel) =>
@@ -55,7 +56,9 @@ function model(criteria?: Record<string, unknown>) {
 }
 
 function renderTable(m = model(), from = 0, to = m.rows.length, measure = false) {
-  const view = render(<DumbbellTable model={m} from={from} to={to} measure={measure} />);
+  const view = render(
+    <DumbbellTable id="cmp:db" model={m} from={from} to={to} measure={measure} />,
+  );
   const rows = [...view.container.querySelectorAll("tbody tr")] as HTMLElement[];
   return { ...view, rows };
 }
@@ -267,5 +270,62 @@ describe("DumbbellLegend", () => {
     expect(mark.textContent).toBe("┊");
     expect(mark.style.color).toBe("rgb(180, 35, 24)");
     expect(root.textContent).toContain("┊ 기준 3초");
+  });
+});
+
+describe("평균 덤벨 표", () => {
+  const meanRun = (id: string, meanUs: number, capped: boolean) =>
+    sceneModel({
+      id,
+      steps: [{ id: "s1", name: "가" }],
+      rep: [
+        {
+          id: "s1",
+          counts: { "200": 10 },
+          errors: 0,
+          stats: mkStats({ mean_us: meanUs, capped }),
+        },
+      ],
+      profile: prof(),
+    });
+  const meanModel = (b: number, a: number, bCapped = false, aCapped = false) => {
+    const bm = meanRun("b", b, bCapped);
+    const am = meanRun("a", a, aCapped);
+    return buildDumbbellFromPairs(bm, am, stepPairs(bm, am), "mean");
+  };
+
+  it("측정 id가 cmp:dbm: 이고 cmp:db: 로 시작하는 것이 없다", () => {
+    const m = meanModel(61_000, 83_000);
+    const { container } = render(
+      <>
+        <DumbbellTitle id="cmp:dbm" title="평균" no="4" continued={false} measure />
+        <DumbbellTable id="cmp:dbm" model={m} from={0} to={1} measure />
+      </>,
+    );
+    const ids = [...container.querySelectorAll("[data-measure]")].map((e) =>
+      e.getAttribute("data-measure"),
+    );
+    expect(ids).toEqual(["cmp:dbm:title", "cmp:dbm:header", "cmp:dbm:row:0"]);
+    expect(ids.some((id) => id!.startsWith("cmp:db:"))).toBe(false);
+  });
+
+  it("제목은 받은 글자를 그린다", () => {
+    const { container } = render(
+      <DumbbellTitle id="cmp:dbm" title="단계별 평균 응답 시간 변화" no="4" continued={false} />,
+    );
+    expect(container.textContent).toContain("단계별 평균 응답 시간 변화");
+  });
+
+  it("양쪽 값이 있는데 분류가 없는 행(잘림)은 비슷 색·낱말 없이 중립으로 그린다", () => {
+    const m = meanModel(30_007_796, 40_000_000, true, false);
+    expect(m.rows[0]!.cls).toBeNull();
+    const { container } = render(<DumbbellTable id="cmp:dbm" model={m} from={0} to={1} />);
+    const row = container.querySelector("tbody tr") as HTMLElement;
+    expect(row.querySelector(".p-cmp-same, .p-cmp-ok, .p-cmp-bad")).toBeNull();
+    expect(row.textContent).not.toContain("= 비슷");
+    expect(row.textContent).toContain("이상");
+    const svg = row.querySelector("svg") as SVGElement;
+    expect(count(svg, "circle")).toBe(2);
+    expect(count(svg, "path")).toBe(0);
   });
 });

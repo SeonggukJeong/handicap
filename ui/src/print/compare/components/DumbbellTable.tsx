@@ -1,11 +1,10 @@
 import { ko } from "../../../i18n/ko";
-import { tableIds } from "../buildCompareDoc";
+import { tableIds, type CmpTableId } from "../buildCompareDoc";
 import { DB, type DumbbellModel, type DumbbellRow } from "../dumbbell";
 import { SectionHeading } from "./SectionHeading";
 
 const V = ko.print.cmp.view;
 const T = ko.print.cmp.db;
-const IDS = tableIds("cmp:db");
 const WIDTHS = [34, 96, 50];
 const VIEW_W = DB.PAD * 2 + DB.PLOT_W;
 const BASE_LABEL_SIZE = 8.5;
@@ -14,18 +13,23 @@ const GRAY = "#9aa1ad";
 const BLUE = "#3b4bc8";
 const RED = "#b42318";
 
+/** 덤벨 표는 지표마다 하나(95%·평균) — 측정 id와 제목은 부른 쪽이 정한다. */
 export function DumbbellTitle({
+  id,
+  title,
   no,
   continued,
   measure,
 }: {
+  id: CmpTableId;
+  title: string;
   no: string;
   continued: boolean;
   measure?: boolean;
 }) {
   return (
-    <div className="p-block p-block--title" data-measure={measure ? IDS.title : undefined}>
-      <SectionHeading no={no} title={V.titles.dumbbell} continued={continued} />
+    <div className="p-block p-block--title" data-measure={measure ? tableIds(id).title : undefined}>
+      <SectionHeading no={no} title={title} continued={continued} />
     </div>
   );
 }
@@ -145,12 +149,14 @@ export function DumbbellLegend({ model }: { model: DumbbellModel }) {
 
 /** `model.rows`는 전체, [from, to)만 그린다(측정 id = 전체 인덱스). */
 export function DumbbellTable(props: {
+  id: CmpTableId;
   model: DumbbellModel;
   from: number;
   to: number;
   measure?: boolean;
 }) {
-  const { model, from, to, measure } = props;
+  const { id, model, from, to, measure } = props;
+  const IDS = tableIds(id);
   const pct = (x: number) => `${(x / VIEW_W) * 100}%`;
   return (
     <table className="p-table p-cmp-db">

@@ -210,10 +210,12 @@ describe("블록", () => {
       "cmp:headline",
       "cmp:lines:full",
       "cmp:cards",
-      "cmp:kpi:bars",
+      "cmp:kpi:bars:std",
       "cmp:kpi:note",
       "cmp:db",
       "cmp:db:legend",
+      "cmp:dbm",
+      "cmp:dbm:legend",
       "cmp:err",
       "cmp:overlay",
       "cmp:cond",
@@ -255,7 +257,7 @@ describe("블록", () => {
     expect(t.rowsMm.length).toBe(d.errors.rows.length);
     expect(t.rowsMm.length).toBeGreaterThan(0);
     const list = ids(d);
-    expect(list.indexOf("cmp:err")).toBe(list.indexOf("cmp:db:legend") + 1);
+    expect(list.indexOf("cmp:err")).toBe(list.indexOf("cmp:dbm:legend") + 1);
     expect(list.includes("cmp:err:notes")).toBe(d.errors.notes.length > 0);
     const withNote = { ...d, errors: { ...d.errors, notes: ["각주"] } };
     const l2 = ids(withNote);
@@ -399,16 +401,18 @@ describe("블록", () => {
       overview: "1",
       kpi: "2",
       dumbbell: "3",
-      errors: "4",
-      overlay: "5",
+      meanDumbbell: "4",
+      errors: "5",
+      overlay: "6",
       speed: null,
-      cond: "6",
-      issues: "7",
+      cond: "7",
+      issues: "8",
     });
     expect(sectionNo("standard", { steps: false, speed: false })).toEqual({
       overview: "1",
       kpi: "2",
       dumbbell: null,
+      meanDumbbell: null,
       errors: null,
       overlay: "3",
       speed: null,
@@ -419,6 +423,7 @@ describe("블록", () => {
       overview: "1",
       kpi: "2",
       dumbbell: null,
+      meanDumbbell: null,
       errors: null,
       overlay: null,
       speed: null,
@@ -432,17 +437,32 @@ describe("블록", () => {
       overview: "1",
       kpi: "2",
       dumbbell: "3",
-      errors: "4",
-      overlay: "5",
-      speed: "6",
-      cond: "7",
-      issues: "8",
+      meanDumbbell: "4",
+      errors: "5",
+      overlay: "6",
+      speed: "7",
+      cond: "8",
+      issues: "9",
     });
     expect(sectionNo("standard", { steps: true, speed: false })).toMatchObject({
       speed: null,
-      cond: "6",
-      issues: "7",
+      cond: "7",
+      issues: "8",
     });
+  });
+
+  it("표준판 블록에 평균 덤벨(표·범례)과 표준 전용 지표 표가 있고 옛 id는 없다", () => {
+    const list = ids(doc());
+    expect(list).toContain("cmp:kpi:bars:std");
+    expect(list).not.toContain("cmp:kpi:bars");
+    expect(list.indexOf("cmp:dbm")).toBe(list.indexOf("cmp:db:legend") + 1);
+    expect(list.indexOf("cmp:dbm:legend")).toBe(list.indexOf("cmp:dbm") + 1);
+  });
+
+  it("단계가 없으면 평균 덤벨 절도 없다", () => {
+    const none = doc({ steps: [], rep: [] }, { steps: [], rep: [] });
+    expect(ids(none)).not.toContain("cmp:dbm");
+    expect(sectionNo("standard", { steps: false, speed: true }).meanDumbbell).toBeNull();
   });
 
   it("issuesShown", () => {

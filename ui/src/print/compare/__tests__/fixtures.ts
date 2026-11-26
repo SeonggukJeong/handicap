@@ -1,4 +1,4 @@
-import type { Report } from "../../../api/schemas";
+import type { LatencyStats, Report } from "../../../api/schemas";
 import type { RunMeta } from "../pair";
 
 export type StepSpec = {
@@ -35,7 +35,25 @@ export type ReportStepSpec = {
   notSent?: number;
   /** 요청 수. 없으면 counts의 합(보내지 않은 요청은 counts에 없고 count에만 든다). */
   count?: number;
+  /** µs 통계 칸. 없으면 리포트 단계 행에 `stats`가 없다. */
+  stats?: LatencyStats;
 };
+
+/** µs 통계 도우미 — 넘긴 칸만 바꾼 완전한 값. */
+export function mkStats(over: Partial<LatencyStats> = {}): LatencyStats {
+  return {
+    min_us: 1_000,
+    mean_us: 50_000,
+    max_us: 100_000,
+    stdev_us: 1_000,
+    p50_us: 50_000,
+    p90_us: 90_000,
+    p95_us: 95_000,
+    p99_us: 99_000,
+    capped: false,
+    ...over,
+  };
+}
 
 export type MkReportArgs = {
   id: string;
@@ -103,6 +121,7 @@ export function mkReport(a: MkReportArgs): Report {
       p95_ms: s.p95 ?? 600,
       p99_ms: 900,
       ...(s.notSent ? { not_sent: s.notSent } : {}),
+      ...(s.stats ? { stats: s.stats } : {}),
     })),
     status_distribution: {},
     verdict: a.verdict ?? null,

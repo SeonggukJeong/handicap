@@ -1,6 +1,16 @@
 import type { Report } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
-import { fmtCount, fmtMs, fmtMsExact, fmtPct, fmtRps, pctText, rpsText } from "../format";
+import { CAP_US } from "../../components/report/format";
+import {
+  fmtCount,
+  fmtMeanMs,
+  fmtMs,
+  fmtMsExact,
+  fmtPct,
+  fmtRps,
+  pctText,
+  rpsText,
+} from "../format";
 
 const c = ko.print.cmp;
 
@@ -33,7 +43,32 @@ export function classifyChange(
   return good ? "better" : "worse";
 }
 
-export type MetricKey = "error_rate" | "p99_ms" | "p95_ms" | "mean_ms" | "rps" | "count";
+export type MetricKey =
+  | "error_rate"
+  | "p99_ms"
+  | "p95_ms"
+  | "p90_ms"
+  | "mean_ms"
+  | "max_ms"
+  | "rps"
+  | "count";
+
+/**
+ * 한쪽만 잘린(60초 칸) 응답 시간의 방향. 값은 잘린 쪽이 하한이라 방향이 확정일 때만 말한다
+ * (잘린 이후가 이전 이상이면 나빠짐, 잘린 이전이 이후 이상이면 좋아짐). 그 밖은 모름.
+ * 호출 전제: 적어도 한쪽이 잘렸다.
+ */
+export function cutDirection(
+  before: number,
+  after: number,
+  beforeCut: boolean,
+  afterCut: boolean,
+): "worse" | "better" | null {
+  if (beforeCut && afterCut) return null;
+  if (afterCut && after >= before) return "worse";
+  if (beforeCut && before >= after) return "better";
+  return null;
+}
 export type RowClass = BaseClass | "reference" | "none";
 
 export type MetricRow = {
@@ -46,6 +81,8 @@ export type MetricRow = {
   afterText: string;
   cls: RowClass;
   major: boolean;
+  /** 표준판 핵심 지표 표에만 그린다(요약판은 거른다). */
+  standardOnly: boolean;
   /** before가 0이고 after가 0보다 크며, 하한·5% 규칙으로 "비슷"이 아닌 변화. */
   isNew: boolean;
   pct: number | null;
@@ -64,7 +101,11 @@ type Spec = {
   floor: number;
   major: boolean;
   kind: "pct" | "ms" | "rps" | "count";
-  value: (s: Report["summary"]) => number;
+  /** null = 잰 적 없음(통계 칸이 없다). */
+  value: (s: Report["summary"]) => number | null;
+  standardOnly?: true;
+  /** 이 쪽 값이 60초 칸(하한값)인가 — 응답 시간 행만. */
+  cut?: (s: Report["summary"]) => boolean;
 };
 
 const SPECS: Spec[] = [
@@ -87,6 +128,7 @@ const SPECS: Spec[] = [
     major: true,
     kind: "ms",
     value: (s) => s.p99_ms,
+    cut: (s) => s.p99_ms >= 60000,
   },
   {
     key: "p95_ms",
@@ -97,6 +139,19 @@ const SPECS: Spec[] = [
     major: true,
     kind: "ms",
     value: (s) => s.p95_ms,
+    cut: (s) => s.p95_ms >= 60000,
+  },
+  {
+    key: "p90_ms",
+    name: c.metric.p90,
+    hint: c.metric.p90Hint,
+    dir: "lower",
+    floor: FLOOR.ms,
+    major: false,
+    kind: "ms",
+    value: (s) => (s.stats ? s.stats.p90_us / 1000 : null),
+    standardOnly: true,
+    cut: (s) => (s.stats ? s.stats.p90_us >= CAP_US : false),
   },
   {
     key: "mean_ms",
@@ -107,6 +162,19 @@ const SPECS: Spec[] = [
     major: true,
     kind: "ms",
     value: (s) => s.mean_ms,
+    cut: (s) => s.stats?.capped ?? s.mean_ms >= 60000,
+  },
+  {
+    key: "max_ms",
+    name: c.metric.max,
+    hint: c.metric.maxHint,
+    dir: "lower",
+    floor: FLOOR.ms,
+    major: false,
+    kind: "ms",
+    value: (s) => (s.stats ? s.stats.max_us / 1000 : null),
+    standardOnly: true,
+    cut: (s) => (s.stats ? s.stats.max_us >= CAP_US : false),
   },
   {
     key: "rps",
@@ -188,27 +256,50 @@ export function metricRows(
   },
 ): MetricRow[] {
   return SPECS.map((spec) => {
-    const bv = spec.value(before);
-    const av = spec.value(after);
-    const base = classifyChange(spec.dir, bv, av, spec.floor);
+    const rawB = spec.value(before);
+    const rawA = spec.value(after);
+    const bv = rawB ?? 0;
+    const av = rawA ?? 0;
     const noLatB = spec.kind === "ms" && (opts.latencyMissing?.before ?? false);
     const noLatA = spec.kind === "ms" && (opts.latencyMissing?.after ?? false);
-    let cls: RowClass = base;
-    if (opts.incomparable || noLatB || noLatA) cls = "none";
-    else if (spec.key === "error_rate" && opts.errorRateReference) cls = "reference";
-
-    const texts = valueTexts(spec.kind, bv, av, (cls === "better" || cls === "worse") && bv !== av);
     // 요청이 0건인 쪽은 오류율·응답 시간을 잰 적이 없다. 건수·처리량은 0이 실제 값이다.
     const unmeasured = spec.kind === "pct" || spec.kind === "ms";
-    const b = (unmeasured && before.count === 0) || noLatB ? c.metric.notMeasured : texts.b;
-    const a = (unmeasured && after.count === 0) || noLatA ? c.metric.notMeasured : texts.a;
-    const isNew = bv === 0 && av > 0 && base !== "similar";
-    const pct = bv > 0 ? Math.abs(av - bv) / bv : null;
-    const fell = av < bv;
+    const missB = (unmeasured && before.count === 0) || noLatB || rawB === null;
+    const missA = (unmeasured && after.count === 0) || noLatA || rawA === null;
+    const cutB = !missB && (spec.cut?.(before) ?? false);
+    const cutA = !missA && (spec.cut?.(after) ?? false);
+    const cut = cutB || cutA;
+    const base = classifyChange(spec.dir, bv, av, spec.floor);
+    const cutDir = cut ? cutDirection(bv, av, cutB, cutA) : null;
+    let cls: RowClass = base;
+    if (opts.incomparable || noLatB || noLatA || rawB === null || rawA === null) cls = "none";
+    else if (spec.key === "error_rate" && opts.errorRateReference) cls = "reference";
+    else if (cut) cls = cutDir ?? "none";
+
+    const texts = valueTexts(
+      spec.kind,
+      bv,
+      av,
+      !cut && (cls === "better" || cls === "worse") && bv !== av,
+    );
+    let b = missB ? c.metric.notMeasured : texts.b;
+    let a = missA ? c.metric.notMeasured : texts.a;
+    // 평균은 분포가 잘렸으면 하한이라 「이상」(통계 칸이 있는 쪽만)
+    if (spec.key === "mean_ms") {
+      if (!missB && before.stats?.capped) b = fmtMeanMs(bv, true);
+      if (!missA && after.stats?.capped) a = fmtMeanMs(av, true);
+    }
+    const cutShown = cut && (cls === "better" || cls === "worse");
+    const isNew = !cut && bv === 0 && av > 0 && base !== "similar";
+    const pct = !cut && bv > 0 ? Math.abs(av - bv) / bv : null;
+    const fell = cutShown ? cls === "better" : av < bv;
 
     let arrow: MetricRow["arrow"] = "–";
     let changeText = "";
-    if (cls !== "none" && cls !== "reference") {
+    if (cutShown) {
+      arrow = fell ? "▼" : "▲";
+      changeText = c.change.cutNoPct;
+    } else if (cls !== "none" && cls !== "reference") {
       if (cls === "similar") {
         arrow = "=";
         changeText =
@@ -224,8 +315,8 @@ export function metricRows(
       }
     }
 
-    const barB = before.count === 0 || noLatB ? 0 : bv;
-    const barA = after.count === 0 || noLatA ? 0 : av;
+    const barB = before.count === 0 || noLatB || rawB === null ? 0 : bv;
+    const barA = after.count === 0 || noLatA || rawA === null ? 0 : av;
     const top = Math.max(barB, barA);
     return {
       key: spec.key,
@@ -237,6 +328,7 @@ export function metricRows(
       afterText: a,
       cls,
       major: spec.major,
+      standardOnly: spec.standardOnly === true,
       isNew,
       pct,
       arrow,

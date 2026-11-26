@@ -50,6 +50,8 @@ export type CompareDoc = {
   issues: string[];
   incomparable: boolean;
   dumbbell: DumbbellModel;
+  /** 단계별 평균 응답 시간 덤벨(표준판) */
+  meanDumbbell: DumbbellModel;
   errors: ErrorTableModel;
   overlay: OverlayModel;
   /** 양쪽 리포트에 speed_bands가 있을 때만 */
@@ -131,6 +133,7 @@ export function buildCompareDoc(a: {
     issues: incomparable ? [] : remainingIssues(after, pairs),
     incomparable,
     dumbbell: buildDumbbell(before, after, pairs),
+    meanDumbbell: buildDumbbell(before, after, pairs, "mean"),
     errors: buildErrorTable({ before, after, pairs, incomparable }),
     overlay: buildOverlay(before, after, incomparable),
     speed: buildSpeedCompare(before, after),
@@ -142,7 +145,7 @@ export function buildCompareDoc(a: {
 
 export const CMP_LAST_LEVEL = 5;
 
-export type CmpTableId = "cmp:cond" | "cmp:db" | "cmp:err";
+export type CmpTableId = "cmp:cond" | "cmp:db" | "cmp:dbm" | "cmp:err";
 
 export const tableIds = (id: CmpTableId) => ({
   title: `${id}:title`,
@@ -180,12 +183,14 @@ export function compareStandardBlocks(doc: CompareDoc, h: Heights): Block[] {
     atom(h, "cmp:headline"),
     atom(h, "cmp:lines:full"),
     atom(h, "cmp:cards"),
-    atom(h, "cmp:kpi:bars"),
+    atom(h, "cmp:kpi:bars:std"),
     atom(h, "cmp:kpi:note"),
     ...(doc.hasSteps
       ? [
           tableBlock("cmp:db", doc.dumbbell.rows.length, h),
           atom(h, "cmp:db:legend"),
+          tableBlock("cmp:dbm", doc.meanDumbbell.rows.length, h),
+          atom(h, "cmp:dbm:legend"),
           tableBlock("cmp:err", doc.errors.rows.length, h),
           ...(doc.errors.notes.length > 0 ? [atom(h, "cmp:err:notes")] : []),
         ]
@@ -219,6 +224,7 @@ export type SectionNos = {
   overview: string;
   kpi: string;
   dumbbell: string | null;
+  meanDumbbell: string | null;
   errors: string | null;
   overlay: string | null;
   speed: string | null;
@@ -232,6 +238,7 @@ const STANDARD_SECTIONS: SectionKey[] = [
   "overview",
   "kpi",
   "dumbbell",
+  "meanDumbbell",
   "errors",
   "overlay",
   "speed",
@@ -248,6 +255,7 @@ export function sectionNo(
     overview: "1",
     kpi: "2",
     dumbbell: null,
+    meanDumbbell: null,
     errors: null,
     overlay: null,
     speed: null,
@@ -259,6 +267,7 @@ export function sectionNo(
     overview: true,
     kpi: true,
     dumbbell: present.steps,
+    meanDumbbell: present.steps,
     errors: present.steps,
     overlay: true,
     speed: present.speed,

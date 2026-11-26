@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Report } from "../../../api/schemas";
-import { classifyChange, metricRows } from "../change";
+import type { LatencyStats, Report } from "../../../api/schemas";
+import { ko } from "../../../i18n/ko";
+import { classifyChange, cutDirection, metricRows } from "../change";
+import { mkStats } from "./fixtures";
 
 type Summary = Report["summary"];
 
@@ -73,11 +75,13 @@ describe("metricRows", () => {
       "error_rate",
       "p99_ms",
       "p95_ms",
+      "p90_ms",
       "mean_ms",
+      "max_ms",
       "rps",
       "count",
     ]);
-    expect(rows.map((r) => r.major)).toEqual([true, true, true, true, true, false]);
+    expect(rows.map((r) => r.major)).toEqual([true, true, true, false, true, false, true, false]);
   });
 
   it("시안 숫자", () => {
@@ -215,7 +219,9 @@ describe("metricRows", () => {
       error_rate: "–",
       p99_ms: "–",
       p95_ms: "–",
+      p90_ms: "–",
       mean_ms: "–",
+      max_ms: "–",
       rps: "0건/초",
       count: "0",
     });
@@ -223,11 +229,13 @@ describe("metricRows", () => {
       error_rate: "0.3%",
       p99_ms: "3.1초",
       p95_ms: "1.6초",
+      p90_ms: "–", // AFTER에는 통계 칸(stats)이 없다
       mean_ms: "0.62초",
+      max_ms: "–",
       rps: "253건/초",
       count: "144,900",
     });
-    for (const r of left) {
+    for (const r of left.filter((x) => !x.standardOnly)) {
       expect(r.barBefore, r.key).toBe(0);
       expect(r.barAfter, r.key).toBe(1);
     }
@@ -237,12 +245,14 @@ describe("metricRows", () => {
       error_rate: "–",
       p99_ms: "–",
       p95_ms: "–",
+      p90_ms: "–",
       mean_ms: "–",
+      max_ms: "–",
       rps: "0건/초",
       count: "0",
     });
     expect(row(right, "p99_ms").beforeText).toBe("3.1초");
-    for (const r of right) {
+    for (const r of right.filter((x) => !x.standardOnly)) {
       expect(r.barAfter, r.key).toBe(0);
       expect(r.barBefore, r.key).toBe(1);
     }
@@ -268,9 +278,10 @@ describe("metricRows", () => {
 
   it("완전히 같은 요약", () => {
     for (const r of metricRows(BEFORE, BEFORE, OPTS)) {
-      expect(r.cls).toBe("similar");
-      expect(r.barBefore).toBe(1);
-      expect(r.barAfter).toBe(1);
+      // 통계 칸이 없는 요약은 90%·최대를 잰 적이 없다 — 분류·막대 없음
+      expect(r.cls, r.key).toBe(r.standardOnly ? "none" : "similar");
+      expect(r.barBefore, r.key).toBe(r.standardOnly ? 0 : 1);
+      expect(r.barAfter, r.key).toBe(r.standardOnly ? 0 : 1);
     }
     const zero = { ...BEFORE, count: 0, errors: 0, rps: 0, mean_ms: 0, p95_ms: 0, p99_ms: 0 };
     for (const r of metricRows(zero, zero, OPTS)) {
@@ -278,5 +289,142 @@ describe("metricRows", () => {
       expect(r.barAfter).toBe(0);
       expect([r.beforeText, r.afterText, r.changeText].join("|")).not.toMatch(/∞|NaN|Infinity/);
     }
+  });
+});
+
+const withStats = (
+  base: Summary,
+  over: Partial<LatencyStats>,
+  sum: Partial<Summary> = {},
+): Summary => ({ ...base, ...sum, stats: mkStats(over) }) as Summary;
+
+describe("cutDirection", () => {
+  it("한쪽만 잘리고 방향이 확정일 때만 나쁨·좋음, 그 밖은 null", () => {
+    expect(cutDirection(1000, 60_000, false, true)).toBe("worse");
+    expect(cutDirection(60_000, 1000, true, false)).toBe("better");
+    expect(cutDirection(30_000, 40_000, true, false)).toBeNull();
+    expect(cutDirection(40_000, 30_000, false, true)).toBeNull();
+    expect(cutDirection(60_000, 60_000, true, true)).toBeNull();
+  });
+});
+
+describe("metricRows 응답 시간 행 다섯 + 표준판 전용 둘", () => {
+  it("행 순서와 standardOnly", () => {
+    const rows = metricRows(BEFORE, AFTER, OPTS);
+    expect(rows.map((r) => r.key)).toEqual([
+      "error_rate",
+      "p99_ms",
+      "p95_ms",
+      "p90_ms",
+      "mean_ms",
+      "max_ms",
+      "rps",
+      "count",
+    ]);
+    expect(rows.filter((r) => r.standardOnly).map((r) => r.key)).toEqual(["p90_ms", "max_ms"]);
+    expect(row(rows, "p90_ms").major).toBe(false);
+    expect(row(rows, "max_ms").major).toBe(false);
+  });
+
+  it("p90 98_000µs → 104_000µs: 나빠짐, 글자는 정확한 ms", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { p90_us: 98_000 }),
+      withStats(AFTER, { p90_us: 104_000 }),
+      OPTS,
+    );
+    const r = row(rows, "p90_ms");
+    expect(r.cls).toBe("worse");
+    expect(r.beforeText).toBe("98ms");
+    expect(r.afterText).toBe("104ms");
+  });
+
+  it("p99 정수 60030 ↔ 60030은 중립, 두 글자 다 60초 이상", () => {
+    const rows = metricRows(
+      { ...BEFORE, p99_ms: 60030 } as Summary,
+      { ...AFTER, p99_ms: 60030 } as Summary,
+      OPTS,
+    );
+    const r = row(rows, "p99_ms");
+    expect(r.cls).toBe("none");
+    expect(r.beforeText).toBe(ko.print.fmt.capSec);
+    expect(r.afterText).toBe(ko.print.fmt.capSec);
+  });
+
+  it("평균: 잘린 쪽(capped) 30000 ↔ 안 잘린 40000은 방향 모름", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { capped: true }, { mean_ms: 30000 }),
+      withStats(AFTER, { capped: false }, { mean_ms: 40000 }),
+      OPTS,
+    );
+    expect(row(rows, "mean_ms").cls).toBe("none");
+  });
+
+  it("평균: 1000 → 잘린 30000은 나빠짐, 퍼센트 없이 변화율 계산 불가", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { capped: false }, { mean_ms: 1000 }),
+      withStats(AFTER, { capped: true }, { mean_ms: 30000 }),
+      OPTS,
+    );
+    const r = row(rows, "mean_ms");
+    expect(r.cls).toBe("worse");
+    expect(r.changeText).toBe(ko.print.cmp.change.cutNoPct);
+    expect(r.pct).toBeNull();
+    expect(r.isNew).toBe(false);
+  });
+
+  it("평균 글자: capped인 쪽만 「이상」", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { capped: false }),
+      withStats(AFTER, { capped: true }, { mean_ms: 30000 }),
+      OPTS,
+    );
+    const r = row(rows, "mean_ms");
+    expect(r.afterText).toBe("30.0초 이상");
+    expect(r.beforeText).not.toContain("이상");
+  });
+
+  it("한쪽 stats 없음: p90·최대 둘 다 중립이고 그쪽 글자는 notMeasured", () => {
+    const rows = metricRows(BEFORE, withStats(AFTER, {}), OPTS);
+    for (const key of ["p90_ms", "max_ms"]) {
+      const r = row(rows, key);
+      expect(r.cls).toBe("none");
+      expect(r.beforeText).toBe(ko.print.cmp.metric.notMeasured);
+      expect(r.afterText).not.toBe(ko.print.cmp.metric.notMeasured);
+    }
+  });
+
+  it("최대 1_840_000µs → 60_000_000µs: 나빠짐 ▲, 변화율 계산 불가", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { max_us: 1_840_000 }),
+      withStats(AFTER, { max_us: 60_000_000 }),
+      OPTS,
+    );
+    const r = row(rows, "max_ms");
+    expect(r.afterText).toBe("60초 이상");
+    expect(r.cls).toBe("worse");
+    expect(r.arrow).toBe("▲");
+    expect(r.changeText).toBe(ko.print.cmp.change.cutNoPct);
+    expect(r.pct).toBeNull();
+    expect(r.isNew).toBe(false);
+  });
+
+  it("최대 60_000_000µs → 1_840_000µs: 좋아짐 ▼", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { max_us: 60_000_000 }),
+      withStats(AFTER, { max_us: 1_840_000 }),
+      OPTS,
+    );
+    const r = row(rows, "max_ms");
+    expect(r.cls).toBe("better");
+    expect(r.arrow).toBe("▼");
+  });
+
+  it("최대 둘 다 60_000_000µs: 중립", () => {
+    const rows = metricRows(
+      withStats(BEFORE, { max_us: 60_000_000 }),
+      withStats(AFTER, { max_us: 60_000_000 }),
+      OPTS,
+    );
+    expect(row(rows, "max_ms").cls).toBe("none");
   });
 });

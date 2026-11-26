@@ -166,6 +166,26 @@ describe("kpiCards", () => {
     vrow({ metric: "rps", direction: "min", threshold: 200, actual: 240 }),
   ];
   const box: BoxState = { kind: "fail", evaluated: 3, failed: 1 };
+  it("평균 카드: 분포가 잘렸으면(capped) 「30.0초 이상」, 아니면 「30.0초」", () => {
+    const stats = (capped: boolean) => ({
+      min_us: 1_000,
+      mean_us: 30_007_796,
+      max_us: 60_000_000,
+      stdev_us: 1_000,
+      p50_us: 1_000,
+      p90_us: 1_000,
+      p95_us: 1_000,
+      p99_us: 1_000,
+      capped,
+    });
+    const meanValue = (capped: boolean) =>
+      kpiCards(summary({ mean_ms: 30000, stats: stats(capped) }), [], { kind: "noCriteria" }).find(
+        (c) => c.key === "mean",
+      )!.value;
+    expect(meanValue(true)).toBe("30.0초 이상");
+    expect(meanValue(false)).toBe("30.0초");
+  });
+
   it("kpi_targets", () => {
     const cards = kpiCards(summary(), matched(crit, rows), box);
     expect(cards.map((c) => c.key)).toEqual(["rps", "mean", "p95", "errorRate"]);

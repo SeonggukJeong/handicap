@@ -2,9 +2,9 @@ import { reportSample } from "../../api/schemas";
 import { hasLatency } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
 import { niceTicks } from "../chartModel";
-import { fmtBoundary, fmtMs, fmtMsExact } from "../format";
+import { fmtBoundary, fmtMeanMs, fmtMs, fmtMsExact } from "../format";
 import { requestsSent } from "../stepTable";
-import { classifyChange, FLOOR } from "./change";
+import { classifyChange, cutDirection, FLOOR } from "./change";
 import type { StepPair } from "./errorCells";
 import type { RunModel } from "./runModel";
 
@@ -61,7 +61,12 @@ export type DumbbellModel = {
 
 const MINUS = "−";
 
-function msOf(model: RunModel, stepId: string): number | null {
+export type DbMetric = "p95" | "mean";
+
+/** 한 쪽의 한 단계 값(ms)과 그 값이 60초 칸(하한)인지. 잰 적이 없으면 null. */
+type Measured = { ms: number; cut: boolean };
+
+function measuredOf(model: RunModel, stepId: string, metric: DbMetric): Measured | null {
   const row = model.table.rows.find((r) => r.stepId === stepId);
   // 하나도 보내지 않은 쪽은 잰 시간이 없다(보냈지만 응답을 못 받은 요청은 걸린 시간이 표본에 있다)
   if (!row || !row.executed || requestsSent(row) <= 0 || !Number.isFinite(row.p95Ms)) {
@@ -73,16 +78,28 @@ function msOf(model: RunModel, stepId: string): number | null {
   ) {
     return null;
   }
-  return row.p95Ms;
+  if (metric === "mean") {
+    return row.stats ? { ms: row.stats.mean_us / 1000, cut: row.stats.capped } : null;
+  }
+  return { ms: row.p95Ms, cut: row.p95Ms >= 60000 };
 }
 
-function stepP95Criterion(model: RunModel): boolean {
-  return (model.criteria?.step_criteria ?? []).some((c) => c.metric === "p95_ms");
+function stepCriterion(model: RunModel, metric: DbMetric): boolean {
+  const name = metric === "mean" ? "mean_ms" : "p95_ms";
+  return (model.criteria?.step_criteria ?? []).some((c) => c.metric === name);
 }
 
-function valueTexts(b: number | null, a: number | null, cls: DbClass | null) {
-  let bt = b === null ? ko.print.cmp.none : fmtMs(b);
-  let at = a === null ? ko.print.cmp.none : fmtMs(a);
+function valueTexts(
+  b: number | null,
+  a: number | null,
+  cls: DbClass | null,
+  cutB: boolean,
+  cutA: boolean,
+) {
+  // 60초 칸 값은 하한이라 「이상」 — 이미 「60초 이상」이면 그대로 둔다(fmtMeanMs)
+  let bt = b === null ? ko.print.cmp.none : cutB ? fmtMeanMs(b, true) : fmtMs(b);
+  let at = a === null ? ko.print.cmp.none : cutA ? fmtMeanMs(a, true) : fmtMs(a);
+  if (cutB || cutA) return { bt, at };
   if (b !== null && a !== null && cls !== "similar" && bt === at) {
     bt = fmtMsExact(b);
     at = fmtMsExact(a);
@@ -90,12 +107,23 @@ function valueTexts(b: number | null, a: number | null, cls: DbClass | null) {
   return { bt, at };
 }
 
-export function buildDumbbell(before: RunModel, after: RunModel, pairs: StepPair[]): DumbbellModel {
-  const measured = pairs.map((p) => ({
-    p,
-    b: msOf(before, p.stepId),
-    a: msOf(after, p.stepId),
-  }));
+export function buildDumbbell(
+  before: RunModel,
+  after: RunModel,
+  pairs: StepPair[],
+  metric: DbMetric = "p95",
+): DumbbellModel {
+  const measured = pairs.map((p) => {
+    const mb = measuredOf(before, p.stepId, metric);
+    const ma = measuredOf(after, p.stepId, metric);
+    return {
+      p,
+      b: mb?.ms ?? null,
+      a: ma?.ms ?? null,
+      cutB: mb?.cut ?? false,
+      cutA: ma?.cut ?? false,
+    };
+  });
 
   let maxMs = 0;
   for (const m of measured) {
@@ -113,38 +141,56 @@ export function buildDumbbell(before: RunModel, after: RunModel, pairs: StepPair
     label: useSec ? t.tickSec(n) : t.tickMs(n),
   }));
 
-  const bMax = before.criteria?.max_p95_ms;
-  const aMax = after.criteria?.max_p95_ms;
+  const bMax = metric === "mean" ? before.criteria?.max_mean_ms : before.criteria?.max_p95_ms;
+  const aMax = metric === "mean" ? after.criteria?.max_mean_ms : after.criteria?.max_p95_ms;
   const limit =
     typeof bMax === "number" &&
     bMax === aMax &&
-    !stepP95Criterion(before) &&
-    !stepP95Criterion(after) &&
+    !stepCriterion(before, metric) &&
+    !stepCriterion(after, metric) &&
     bMax <= axisMaxMs
       ? bMax
       : null;
   const baseline =
     limit === null ? null : { ms: limit, x: xOf(limit), label: t.baseline(fmtBoundary(limit)) };
 
-  const rows: DumbbellRow[] = measured.map(({ p, b, a }) => {
+  const rows: DumbbellRow[] = measured.map(({ p, b, a, cutB, cutA }) => {
     const xBefore = b === null ? null : xOf(b);
     const xAfter = a === null ? null : xOf(a);
     const both = b !== null && a !== null;
-    const cls: DbClass | null = both ? (classifyChange("lower", b, a, FLOOR.ms) as DbClass) : null;
+    // 한쪽이라도 60초 칸(하한)이면 변화율은 모르고, 방향이 확정일 때만 분류한다.
+    const cut = both && (cutB || cutA);
+    const cls: DbClass | null = !both
+      ? null
+      : cut
+        ? cutDirection(b, a, cutB, cutA)
+        : (classifyChange("lower", b, a, FLOOR.ms) as DbClass);
 
     let shape: DbShape = "none";
     if (both && xBefore !== null && xAfter !== null) {
       const gap = Math.abs(xAfter - xBefore);
-      if (cls === "similar") shape = gap < DB.MERGE ? "merged" : "dots";
+      if (cls === "similar" || cls === null) shape = gap < DB.MERGE ? "merged" : "dots";
       else shape = gap >= DB.NARROW ? "arrow" : "tri";
     } else if (b !== null || a !== null) {
       shape = "single";
     }
 
-    const dir: -1 | 0 | 1 = both ? (a > b ? 1 : a < b ? -1 : 0) : 0;
-    const { bt, at } = valueTexts(b, a, cls);
+    const dir: -1 | 0 | 1 = !both
+      ? 0
+      : cut
+        ? cls === "worse"
+          ? 1
+          : cls === "better"
+            ? -1
+            : 0
+        : a > b
+          ? 1
+          : a < b
+            ? -1
+            : 0;
+    const { bt, at } = valueTexts(b, a, cls, cutB, cutA);
     let afterText = at;
-    if (both && cls !== "similar" && b > 0) {
+    if (both && !cut && cls !== "similar" && b > 0) {
       const pct = Math.round((Math.abs(a - b) / b) * 100);
       afterText += ` ${t.pct(a > b ? "+" : MINUS, pct)}`;
     }

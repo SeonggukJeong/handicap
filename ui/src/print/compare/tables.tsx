@@ -2,6 +2,7 @@
 import type { JSX } from "react";
 import type { CmpTableId, CompareDoc, SectionNos } from "./buildCompareDoc";
 import { CondTable, CondTitle } from "./components/CondTable";
+import { ko } from "../../i18n/ko";
 import { DumbbellTable, DumbbellTitle } from "./components/DumbbellTable";
 import { ErrorChangeTable, ErrorTitle } from "./components/ErrorChangeTable";
 
@@ -23,11 +24,20 @@ const cond: CmpTableDef = {
 
 const db: CmpTableDef = {
   rowCount: (doc) => doc.dumbbell.rows.length,
-  Title: DumbbellTitle,
+  Title: (p) => <DumbbellTitle {...p} id="cmp:db" title={ko.print.cmp.view.titles.dumbbell} />,
   Table: ({ doc, from, to, measure }) => (
-    <DumbbellTable model={doc.dumbbell} from={from} to={to} measure={measure} />
+    <DumbbellTable id="cmp:db" model={doc.dumbbell} from={from} to={to} measure={measure} />
   ),
   no: (n) => n.dumbbell ?? "",
+};
+
+const dbm: CmpTableDef = {
+  rowCount: (doc) => doc.meanDumbbell.rows.length,
+  Title: (p) => <DumbbellTitle {...p} id="cmp:dbm" title={ko.print.cmp.view.titles.meanDumbbell} />,
+  Table: ({ doc, from, to, measure }) => (
+    <DumbbellTable id="cmp:dbm" model={doc.meanDumbbell} from={from} to={to} measure={measure} />
+  ),
+  no: (n) => n.meanDumbbell ?? "",
 };
 
 const err: CmpTableDef = {
@@ -42,6 +52,7 @@ const err: CmpTableDef = {
 export const CMP_TABLES: Record<CmpTableId, CmpTableDef> = {
   "cmp:cond": cond,
   "cmp:db": db,
+  "cmp:dbm": dbm,
   "cmp:err": err,
 };
 

@@ -1,7 +1,15 @@
 import { ko } from "../i18n/ko";
 import { parsePercentileMetric, percentileMetricName } from "../api/percentileName";
 import type { Criteria, Report, Verdict } from "../api/schemas";
-import { fmtCount, fmtCriterionPair, fmtCriterionThreshold, fmtMs, fmtPct, fmtRps } from "./format";
+import {
+  fmtCount,
+  fmtCriterionPair,
+  fmtCriterionThreshold,
+  fmtMeanMs,
+  fmtMs,
+  fmtPct,
+  fmtRps,
+} from "./format";
 
 const k = ko.print;
 
@@ -190,7 +198,9 @@ export function kpiCards(
     {
       key: "mean",
       label: k.kpi.mean.label,
-      value: ms(summary.mean_ms),
+      value: opts.latency
+        ? fmtMeanMs(summary.mean_ms, summary.stats?.capped ?? false)
+        : k.fmt.noTarget,
       unit: k.kpi.mean.unit,
       explain: k.kpi.mean.explain,
     },

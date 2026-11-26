@@ -59,7 +59,18 @@ function Row({ r, bars }: { r: MetricRow; bars: boolean }) {
   );
 }
 
-export function KpiCompareTable({ doc, no, bars }: { doc: CompareDoc; no: string; bars: boolean }) {
+export function KpiCompareTable({
+  doc,
+  no,
+  bars,
+  standard,
+}: {
+  doc: CompareDoc;
+  no: string;
+  bars: boolean;
+  /** 표준판 블록만 표준판 전용 행(90%·최대)을 그린다. */
+  standard: boolean;
+}) {
   const widths = bars ? WIDTHS_BARS : WIDTHS_PLAIN;
   return (
     <section>
@@ -84,9 +95,11 @@ export function KpiCompareTable({ doc, no, bars }: { doc: CompareDoc; no: string
           </tr>
         </thead>
         <tbody>
-          {doc.rows.map((r) => (
-            <Row key={r.key} r={r} bars={bars} />
-          ))}
+          {doc.rows
+            .filter((r) => standard || !r.standardOnly)
+            .map((r) => (
+              <Row key={r.key} r={r} bars={bars} />
+            ))}
         </tbody>
       </table>
     </section>

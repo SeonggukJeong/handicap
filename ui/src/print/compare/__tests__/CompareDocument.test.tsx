@@ -111,6 +111,32 @@ const kpiRow = (container: HTMLElement, name: string) => {
 
 afterEach(() => vi.restoreAllMocks());
 
+describe("CompareDocument 90%·최대 응답 시간 행과 평균 덤벨 절", () => {
+  it("표준판: 핵심 지표 표에 두 행, 평균 덤벨 제목이 있다", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { root, container } = renderDoc(makeDoc());
+    await ready(root);
+    const kpi = container.querySelector(".p-cmp-kpi") as HTMLElement;
+    expect(within(kpi).getByText("90% 응답 시간")).toBeInTheDocument();
+    expect(within(kpi).getByText("최대 응답 시간")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "4. 단계별 평균 응답 시간 변화" }),
+    ).toBeInTheDocument();
+    warn.mockRestore();
+  });
+
+  it("요약판에는 그 두 행이 없다", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { root, container } = renderDoc(makeDoc(), "summary");
+    await ready(root);
+    const kpi = container.querySelector(".p-cmp-kpi") as HTMLElement;
+    expect(within(kpi).queryByText("90% 응답 시간")).toBeNull();
+    expect(within(kpi).queryByText("최대 응답 시간")).toBeNull();
+    expect(screen.queryByText(/단계별 평균 응답 시간 변화/)).toBeNull();
+    warn.mockRestore();
+  });
+});
+
 describe("CompareDocument 표준판", () => {
   it("머리·종합·카드·지표 표·조건 대조·남은 문제·서명란을 한 쪽에 그린다", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -134,7 +160,7 @@ describe("CompareDocument 표준판", () => {
     expect(vbox.textContent).toContain("0개 나빠짐");
 
     const kpi = container.querySelector(".p-cmp-kpi") as HTMLElement;
-    expect(within(kpi).getAllByRole("row").length).toBe(7);
+    expect(within(kpi).getAllByRole("row").length).toBe(9);
     const errRow = kpiRow(container, "오류율");
     expect(errRow.textContent).toContain("2.6%");
     expect(errRow.textContent).toContain("0.3%");
@@ -298,17 +324,18 @@ describe("CompareDocument 표준판", () => {
     expect(runs[1].querySelector(".p-cmp-ok")?.textContent).toBe("라마바");
   });
 
-  it("절 번호는 1–7", async () => {
+  it("절 번호는 1–8", async () => {
     const { root } = renderDoc(makeDoc());
     await ready(root);
     for (const t of [
       "1. 종합",
       "2. 핵심 지표 비교",
       "3. 단계별 95% 응답 시간 변화",
-      "4. 단계별 오류 변화",
-      "5. 시간에 따른 변화 — 겹쳐 보기",
-      "6. 측정 조건 대조",
-      "7. 남은 문제",
+      "4. 단계별 평균 응답 시간 변화",
+      "5. 단계별 오류 변화",
+      "6. 시간에 따른 변화 — 겹쳐 보기",
+      "7. 측정 조건 대조",
+      "8. 남은 문제",
     ]) {
       expect(screen.getByRole("heading", { name: t })).toBeInTheDocument();
     }
@@ -400,7 +427,7 @@ describe("CompareDocument 표준판", () => {
     const { root, container } = renderDoc(doc);
     await ready(root);
     const bars = container.querySelectorAll(".p-cmp-kpi .p-cmp-bar");
-    expect(bars.length).toBe(12);
+    expect(bars.length).toBe(16);
     const w = (el: Element) => parseFloat((el as HTMLElement).style.width);
     doc.rows.forEach((r, i) => {
       expect(w(bars[i * 2])).toBeCloseTo(r.barBefore * 100, 1);
@@ -499,7 +526,7 @@ describe("CompareDocument 표준판", () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     expect(container.querySelectorAll(".p-page").length).toBeGreaterThan(1);
-    expect(screen.getByRole("heading", { name: "6. 측정 조건 대조 (이어짐)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "7. 측정 조건 대조 (이어짐)" })).toBeInTheDocument();
     expect(container.querySelectorAll(".p-sign").length).toBe(1);
   });
 
@@ -533,10 +560,10 @@ describe("CompareDocument 오류 변화 절", () => {
     await ready(root);
   });
 
-  it("쪽에 4절 제목과 오류 표가 있다", async () => {
+  it("쪽에 5절 제목과 오류 표가 있다", async () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
-    expect(screen.getByRole("heading", { name: "4. 단계별 오류 변화" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "5. 단계별 오류 변화" })).toBeInTheDocument();
     expect(container.querySelector(".p-page table.p-cmp-err")).not.toBeNull();
   });
 
@@ -571,13 +598,13 @@ describe("CompareDocument 덤벨 절", () => {
     await ready(root);
   });
 
-  it("쪽에 3절 제목·덤벨 표·범례(p-cmp-b--note)가 있고 조건 대조는 6절", async () => {
+  it("쪽에 3절 제목·덤벨 표·범례(p-cmp-b--note)가 있고 조건 대조는 7절", async () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     expect(
       screen.getByRole("heading", { name: "3. 단계별 95% 응답 시간 변화" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "6. 측정 조건 대조" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "7. 측정 조건 대조" })).toBeInTheDocument();
     expect(container.querySelector(".p-page table.p-cmp-db")).not.toBeNull();
     const legend = container.querySelector(".p-page .p-cmp-db-legend") as HTMLElement;
     expect(legend.closest(".p-block")).toHaveClass("p-cmp-b--note");
@@ -788,35 +815,35 @@ describe("CompareDocument 응답 속도 구간 비교 절", () => {
     });
   };
 
-  it("있으면 6절 제목·표(p-cmp-b--section 블록)가 그려지고 조건 대조는 7절", async () => {
+  it("있으면 7절 제목·표(p-cmp-b--section 블록)가 그려지고 조건 대조는 8절", async () => {
     const { container, root } = renderDoc(speedDoc());
     expect(container.querySelector('.p-sheet [data-measure="cmp:speed"]')).not.toBeNull();
     await ready(root);
     expect(
-      screen.getByRole("heading", { name: "6. 응답 속도 구간 비교 (모든 단계)" }),
+      screen.getByRole("heading", { name: "7. 응답 속도 구간 비교 (모든 단계)" }),
     ).toBeInTheDocument();
     const table = container.querySelector(".p-page table.p-cmp-spd") as HTMLElement;
     expect(table).not.toBeNull();
     expect(table.closest(".p-block")).toHaveClass("p-cmp-b--section");
-    expect(screen.getByRole("heading", { name: "7. 측정 조건 대조" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "8. 측정 조건 대조" })).toBeInTheDocument();
     expect(container.querySelector(".p-page")?.innerHTML).not.toContain("NaN");
   });
 
-  it("없으면 6절은 측정 조건 대조", async () => {
+  it("없으면 7절은 측정 조건 대조", async () => {
     const { root } = renderDoc(makeDoc());
     await ready(root);
-    expect(screen.getByRole("heading", { name: "6. 측정 조건 대조" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "7. 측정 조건 대조" })).toBeInTheDocument();
     expect(screen.queryByText(/응답 속도 구간 비교/)).toBeNull();
   });
 });
 
 describe("CompareDocument 겹쳐 보기 절", () => {
-  it("측정 시트에 cmp:overlay가 있고 쪽에 5절 제목·그림(p-cmp-b--section 블록)이 그려진다", async () => {
+  it("측정 시트에 cmp:overlay가 있고 쪽에 6절 제목·그림(p-cmp-b--section 블록)이 그려진다", async () => {
     const { container, root } = renderDoc(makeDoc());
     expect(container.querySelector('.p-sheet [data-measure="cmp:overlay"]')).not.toBeNull();
     await ready(root);
     expect(
-      screen.getByRole("heading", { name: "5. 시간에 따른 변화 — 겹쳐 보기" }),
+      screen.getByRole("heading", { name: "6. 시간에 따른 변화 — 겹쳐 보기" }),
     ).toBeInTheDocument();
     const svg = container.querySelector(".p-page svg.p-cmp-ov") as SVGElement;
     expect(svg).not.toBeNull();

@@ -51,14 +51,18 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
       return <FairCards doc={doc} line={false} clamp={clamp} />;
     case "cmp:cards:line":
       return <FairCards doc={doc} line clamp={clamp} />;
+    case "cmp:kpi:bars:std":
+      return <KpiCompareTable doc={doc} no={no.kpi} bars standard />;
     case "cmp:kpi:bars":
-      return <KpiCompareTable doc={doc} no={no.kpi} bars />;
+      return <KpiCompareTable doc={doc} no={no.kpi} bars standard={false} />;
     case "cmp:kpi:plain":
-      return <KpiCompareTable doc={doc} no={no.kpi} bars={false} />;
+      return <KpiCompareTable doc={doc} no={no.kpi} bars={false} standard={false} />;
     case "cmp:kpi:note":
       return <KpiNote doc={doc} clamp={clamp} />;
     case "cmp:db:legend":
       return <DumbbellLegend model={doc.dumbbell} />;
+    case "cmp:dbm:legend":
+      return <DumbbellLegend model={doc.meanDumbbell} />;
     case "cmp:err:notes":
       return <ErrorNotes notes={doc.errors.notes} />;
     case "cmp:overlay":
@@ -89,10 +93,16 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
 function blockClass(id: string): string {
   if (id === "signature") return "p-block";
   if (id === "cmp:header") return "p-block p-block--header";
-  if (id === "cmp:kpi:note" || id === "cmp:db:legend" || id === "cmp:err:notes")
+  if (
+    id === "cmp:kpi:note" ||
+    id === "cmp:db:legend" ||
+    id === "cmp:dbm:legend" ||
+    id === "cmp:err:notes"
+  )
     return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";
-  const name = id.split(":")[1];
+  // 평균 덤벨 표(cmp:dbm)는 95% 덤벨(cmp:db)과 같은 클래스
+  const name = id === "cmp:dbm" ? "db" : id.split(":")[1];
   return name === "headline" || name === "kpi" || name === "overlay" || name === "speed"
     ? "p-block p-cmp-b--section"
     : `p-block p-cmp-b--${name}`;
