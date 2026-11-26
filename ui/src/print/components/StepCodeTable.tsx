@@ -13,7 +13,7 @@ const DASH = ko.print.fmt.noTarget;
 
 /** 본문 폭 180mm 안의 열 폭(mm). 숫자 열은 고정, 이름 열이 나머지.
  *  p95 = 「60초 이상」(8.3pt = 2.928mm, 글자 1em 폭 + letter-spacing 0.12em 가정 ≈ 5.22em = 15.3mm)
- *  + 패딩 2.4mm + 테두리 0.26mm → 19mm(칸 안쪽 16.3mm). 이름 열 최악(코드 7열 + 잔여) = 38mm. */
+ *  + 패딩 2.4mm + 테두리 0.26mm → 19mm(칸 안쪽 16.3mm). 이름 열 최악 = 전체 7열(`MAX_COLS`: 코드 6열 + 잔여 1열) → 180 − (15+19+6×12+16+20) = 38mm. */
 const COL_MM = { count: 15, p95: 19, code: 12, residual: 16, status: 20 } as const;
 const BODY_W_MM = 180;
 /** 묶음 제목("응답 코드별 건수 …")이 걸치는 코드 열 폭 합의 하한. 코드 열이 1·2개뿐일 때

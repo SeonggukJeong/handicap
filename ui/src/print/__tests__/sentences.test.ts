@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ko } from "../../i18n/ko";
 import { shortSummary, summaryLines, type SummaryInput, type SummaryLine } from "../sentences";
 import { buildChartModel } from "../chartModel";
 import { stepStatus, type RankedRow, type RowStatus } from "../stepStatus";
@@ -435,6 +436,22 @@ describe("slow_line — 느림 표지가 p95 때문일 때만 p95 문장 (verdic
     const rows = [real(0, "목록", 900, st({ p95_us: 900_000 }), c)];
     const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: c })), "slow")!;
     expect(t).toBe("'목록'(은)는 느립니다 (95% 응답 900ms, 기준 500ms)");
+  });
+  it("60초 칸 p95: 기준 60,000ms여도 실측에 「≥」가 붙어 두 숫자가 같은 글자가 아니다", () => {
+    const c: Criteria = { max_p95_ms: 60000 };
+    const rows = [real(0, "목록", 60000, st({ p95_us: 60_000_000 }), c)];
+    expect(rows[0].status.tags).toContain("slow");
+    const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: c })), "slow")!;
+    expect(t).toBe(ko.print.sentence.slow("목록", "≥ 60,000ms", "60,000ms"));
+    expect(t).toBe("'목록'(은)는 느립니다 (95% 응답 ≥ 60,000ms, 기준 60,000ms)");
+  });
+  it("60초 칸 p95: 기준 90,000ms여도 「≥」가 붙는다", () => {
+    const c: Criteria = { max_p95_ms: 90000 };
+    const rows = [real(0, "목록", 60000, st({ p95_us: 60_000_000 }), c)];
+    expect(rows[0].status.tags).toContain("slow");
+    const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: c })), "slow")!;
+    expect(t).toBe(ko.print.sentence.slow("목록", "≥ 60,000ms", "90,000ms"));
+    expect(t).toBe("'목록'(은)는 느립니다 (95% 응답 ≥ 60,000ms, 기준 90,000ms)");
   });
   it("p95 때문에 느린 단계와 평균 때문에 느린 단계가 섞이면 p95 쪽만 인용하고 외 N개엔 둘 다 센다", () => {
     const c: Criteria = { max_p95_ms: 500, max_mean_ms: 100 };

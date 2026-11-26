@@ -1,11 +1,12 @@
 import { ko } from "../i18n/ko";
 import { formatDurationKo } from "../i18n/duration";
 import type { Criteria, Report } from "../api/schemas";
-import { fmtCount, fmtMs, fmtMsPair, fmtCriterionPair } from "./format";
+import { fmtCount, fmtMs, fmtCriterionPair } from "./format";
 import type { ChartModel } from "./chartModel";
 import {
   p95ExceedsLimit,
   rankRows,
+  statUs,
   stepThresholds,
   type RankedRow,
   type StatusTag,
@@ -194,7 +195,11 @@ function slowLine(i: SummaryInput): string | null {
   const msOf = (r: RankedRow): number => (r.stats ? r.stats.p95_us / 1000 : r.p95Ms);
   let worst = cited[0];
   for (const c of cited) if (msOf(c.r) > msOf(worst.r)) worst = c;
-  const pair = fmtMsPair(msOf(worst.r), worst.thr);
+  // 60초 칸에 잘린 실측은 하한이라 판정 문장과 같은 길(`fmtCriterionPair`)로 「≥」를 붙인다.
+  const cut = worst.r.stats
+    ? (statUs(worst.r.stats, "p95_ms")?.cut ?? false)
+    : worst.r.p95Ms >= 60000;
+  const pair = fmtCriterionPair("p95_ms", msOf(worst.r), worst.thr, cut);
   const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
   return (
     S.slow(worst.r.name, act, pair.threshold) + (slow.length > 1 ? S.more(slow.length - 1) : "")
