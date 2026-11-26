@@ -518,6 +518,12 @@ fn write_summary_numbers(
     r + 1
 }
 
+/// 「Step stats」 시트의 앞 두 칸(스텝 id·지표). 스텝 id는 사용자 글자라 Excel 칸 한도로 자른다.
+fn write_step_stat_labels(ws: &mut Worksheet, row: u32, sid: &str, metric: &str) {
+    ws.write_string(row, 0, xlsx_text(sid)).expect("w");
+    ws.write_string(row, 1, metric).expect("w");
+}
+
 /// 비교 CSV 값 칸: 시간 지표는 µs 정수에서 ms 소수 3자리, 그 밖은 지금 글자.
 fn val_text(m: MetricVal) -> String {
     m.us.map(ms3).unwrap_or_else(|| m.v.to_string())
@@ -986,8 +992,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     let mut row = 1u32;
     for sid in &step_ids {
         for metric in STEP_METRICS {
-            ws.write_string(row, 0, sid).expect("w");
-            ws.write_string(row, 1, metric).expect("w");
+            write_step_stat_labels(ws, row, sid, metric);
             let base = step_value(&reports[baseline_idx], sid, metric);
             for (i, r) in reports.iter().enumerate() {
                 if let Some(m) = step_value(r, sid, metric) {
@@ -4629,26 +4634,26 @@ steps:
     fn missing_latency_is_blank_not_zero() {
         use calamine::{Data, Reader};
         let r = split_run("a", true, 40);
-        // 단일 CSV: 전부 실패한 스텝의 p50·p95·p99 칸은 빈 문자열.
+        // 단일 CSV: 전부 실패한 스텝의 시간 여덟 칸·capped 칸은 빈 문자열.
         let csv = String::from_utf8(report_to_csv(&r)).unwrap();
         assert_eq!(csv.lines().nth(1).unwrap(), "s,5,5,,,,,,,,,");
-        // 단일 XLSX Summary: 라벨은 있고 값 칸은 빈 칸.
+        // 단일 XLSX Summary: 라벨은 있고 시간 여덟 행·capped 행(4..=12)의 값 칸은 빈 칸.
         let mut wb = read_xlsx(report_to_xlsx(&r, None));
         let ws = wb.worksheet_range("Summary").unwrap();
-        for row in 4..=6u32 {
+        for row in 4..=12u32 {
             assert!(matches!(ws.get_value((row, 0)), Some(Data::String(_))));
             assert!(is_blank(ws.get_value((row, 1))), "summary row {row}");
         }
         assert_eq!(ws.get_value((1, 1)), Some(&Data::Float(10.0)));
         // Steps 시트
         let steps = wb.worksheet_range("Steps").unwrap();
-        for col in 3..=5u32 {
+        for col in 3..=11u32 {
             assert!(is_blank(steps.get_value((1, col))), "steps col {col}");
         }
         assert_eq!(steps.get_value((1, 2)), Some(&Data::Float(5.0)));
-        // Windows 시트: 통과한 요청이 없는 초(1행)만 빈 칸, 통과한 요청이 있는 초(2행)는 값.
+        // Windows 시트: 통과한 요청이 없는 초(1행)는 p50·p95·p99·mean_ms·capped(4..=8)가 빈 칸, 통과한 요청이 있는 초(2행)는 값.
         let win = wb.worksheet_range("Windows").unwrap();
-        for col in 4..=6u32 {
+        for col in 4..=8u32 {
             assert!(is_blank(win.get_value((1, col))), "window col {col}");
         }
         assert_eq!(win.get_value((2, 4)), Some(&Data::Float(7.0)));
@@ -4658,18 +4663,18 @@ steps:
         main.sample = Default::default();
         let mut wb = read_xlsx(report_to_xlsx(&main, Some(&r)));
         let ws = wb.worksheet_range("Summary").unwrap();
-        for row in 4..=6u32 {
+        for row in 4..=12u32 {
             assert!(is_blank(ws.get_value((row, 1))), "main {row}");
         }
         let steps = wb.worksheet_range("Steps").unwrap();
-        for col in 3..=5u32 {
+        for col in 3..=11u32 {
             assert!(is_blank(steps.get_value((1, col))), "main {col}");
         }
         let other = wb.worksheet_range("Other basis").unwrap();
-        for row in 5..=7u32 {
+        for row in 5..=13u32 {
             assert!(is_blank(other.get_value((row, 1))), "other row {row}");
         }
-        for col in 3..=5u32 {
+        for col in 3..=11u32 {
             assert!(is_blank(other.get_value((16, col))), "other steps {col}");
         }
         assert_eq!(other.get_value((16, 2)), Some(&Data::Float(5.0)));
@@ -4684,15 +4689,15 @@ steps:
         assert_eq!(csv.lines().nth(1).unwrap(), "z,0,0,,,,,,,,,");
         let mut wb = read_xlsx(report_to_xlsx(&z, None));
         let ws = wb.worksheet_range("Summary").unwrap();
-        for row in 4..=6u32 {
+        for row in 4..=12u32 {
             assert!(is_blank(ws.get_value((row, 1))), "zero summary row {row}");
         }
         let steps = wb.worksheet_range("Steps").unwrap();
-        for col in 3..=5u32 {
+        for col in 3..=11u32 {
             assert!(is_blank(steps.get_value((1, col))), "zero step col {col}");
         }
         let win = wb.worksheet_range("Windows").unwrap();
-        for col in 4..=6u32 {
+        for col in 4..=8u32 {
             assert!(is_blank(win.get_value((1, col))), "zero window col {col}");
         }
         // 옛 run(default == all)도 `stats`가 없으면 0이 아니라 빈 칸이다.
@@ -5105,6 +5110,15 @@ steps:
         // 기준 run에만 있는 스텝: 비교 쪽 값·delta_pct 빈 칸.
         assert_eq!(lines[17], "step:s2:p95_ms,40.000,,");
         assert_eq!(lines.len(), 23);
+        // 준비 스텝·basis 줄은 스텝 통계 행 뒤에 온다.
+        let [mut a, b] = with_s2();
+        a.setup = setup_of(1, 0, vec![("p1", 10, 0, 1)]);
+        let csv = String::from_utf8(comparison_to_csv(&[a, b], 0)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        let last_step = lines.iter().rposition(|l| l.starts_with("step:")).unwrap();
+        let first_setup = lines.iter().position(|l| l.starts_with("setup_")).unwrap();
+        assert_eq!(first_setup, last_step + 1);
+        assert_eq!(last_step, 22);
         // 비교 쪽 max가 60초 칸 → delta_pct = capped.
         let [a, mut b] = with_s2();
         b.summary.stats.as_mut().unwrap().max_us = 60_000_000;
@@ -5214,6 +5228,26 @@ steps:
         }
         assert_eq!(summary_value(&r, "rps").unwrap().v, 2.0);
         assert_eq!(summary_value(&r, "error_rate").unwrap().v, 1.0);
+    }
+
+    #[test]
+    fn step_stats_labels_truncate_overlong_step_id() {
+        // 비교 XLSX의 「Steps」 시트는 같은 입력에서 먼저 패닉한다(자르지 않는 선재 쓰기, roadmap §B89 (3) 연기) —
+        // 그래서 「Step stats」의 앞 두 칸 쓰기만 따로 불러 자르는지 본다.
+        use calamine::{Data, Reader};
+        let long: String = std::iter::repeat_n('가', 40_000).collect();
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        ws.set_name("Step stats").unwrap();
+        write_step_stat_labels(ws, 1, &long, "p95_ms");
+        let mut rd = read_xlsx(wb.save_to_buffer().unwrap());
+        let r = rd.worksheet_range("Step stats").unwrap();
+        assert_eq!(
+            r.get_value((1, 0)),
+            Some(&Data::String(xlsx_text(&long).to_string()))
+        );
+        assert_eq!(xlsx_text(&long).chars().count(), 32_767);
+        assert_eq!(r.get_value((1, 1)), Some(&Data::String("p95_ms".into())));
     }
 
     fn compare_trio(missing_idx: usize) -> [ReportJson; 3] {
