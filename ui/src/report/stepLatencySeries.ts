@@ -17,8 +17,15 @@ export function stepLatencySeries(
   names: Map<string, string>,
   firstTs: number | null,
 ): StepLatencySeries[] {
+  // 창을 한 번 훑어 스텝별로 묶는다(스텝마다 전체 창을 거르면 스텝 수 × 창 수). 창 순서는 유지된다.
+  const byStep = new Map<string, Report["windows"]>();
+  for (const w of report.windows) {
+    const list = byStep.get(w.step_id);
+    if (list) list.push(w);
+    else byStep.set(w.step_id, [w]);
+  }
   return report.steps.map((s) => {
-    const wins = report.windows.filter((w) => w.step_id === s.step_id);
+    const wins = byStep.get(s.step_id) ?? [];
     return {
       stepId: s.step_id,
       name: names.get(s.step_id) ?? s.step_id,

@@ -40,6 +40,38 @@ describe("stepLatencySeries", () => {
     expect(out[1].capped).toBe(true);
     expect(out[2].name).toBe("C");
   });
+  it("세 스텝 창이 섞여 와도 스텝마다 제 창만 초 순서로", () => {
+    const mixed = {
+      steps: [{ step_id: "Z" }, { step_id: "X" }, { step_id: "Y" }],
+      windows: [
+        { ts_second: 10, step_id: "X", n: 1, mean_us: 1000 },
+        { ts_second: 10, step_id: "Y", n: 1, mean_us: 2000 },
+        { ts_second: 10, step_id: "Z", n: 1, mean_us: 3000 },
+        { ts_second: 11, step_id: "Y", n: 1, mean_us: 4000 },
+        { ts_second: 12, step_id: "X", n: 0 },
+        { ts_second: 12, step_id: "Z", n: 1, mean_us: 5000, capped: true },
+        { ts_second: 13, step_id: "X", n: 1, mean_us: 6000 },
+      ],
+    } as unknown as Report;
+    const out = stepLatencySeries(mixed, new Map(), 10);
+    expect(out.map((s) => s.stepId)).toEqual(["Z", "X", "Y"]);
+    expect(out[0].points).toEqual([
+      { x: 0, meanMs: 3 },
+      { x: 2, meanMs: 5 },
+    ]);
+    expect(out[0].capped).toBe(true);
+    expect(out[1].points).toEqual([
+      { x: 0, meanMs: 1 },
+      { x: 2, meanMs: null },
+      { x: 3, meanMs: 6 },
+    ]);
+    expect(out[1].capped).toBe(false);
+    expect(out[2].points).toEqual([
+      { x: 0, meanMs: 2 },
+      { x: 1, meanMs: 4 },
+    ]);
+    expect(out[2].capped).toBe(false);
+  });
   it("firstTs가 null이어도 throw 없음", () => {
     expect(
       stepLatencySeries({ steps: [], windows: [] } as unknown as Report, new Map(), null),

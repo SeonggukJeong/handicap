@@ -15,9 +15,10 @@ type Props = {
 export function StepLatencySection({ report, stepNames, marks, firstTs }: Props) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<StepLatencyView>("grid");
+  // 접혀 있는 동안은 계열을 만들지 않는다(스텝 50개·긴 run에서 리포트를 열 때마다 드는 비용).
   const series = useMemo(
-    () => stepLatencySeries(report, stepNames, firstTs),
-    [report, stepNames, firstTs],
+    () => (open ? stepLatencySeries(report, stepNames, firstTs) : []),
+    [open, report, stepNames, firstTs],
   );
   const yMax = useMemo(() => sharedYMax(series), [series]);
   const hasMean = useMemo(
