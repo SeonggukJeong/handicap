@@ -1121,7 +1121,7 @@ pub fn build_report(
     let mut worker_acc: BTreeMap<String, WorkerAcc> = BTreeMap::new();
 
     // SQL은 step_id를 바이트 순으로 정렬해 주지만 그 순서에 기대지 않고 여기서 (ts, step) 안정 정렬한다
-    // (같은 칸의 행은 워커 순서 그대로 — 분포 합치기·빼기 결과가 행 순서에 따라 달라지지 않게).
+    // (안정 정렬 — 같은 칸 안의 행 순서 = 입력 순서, 옛 `BTreeMap` 칸에 들어가던 순서와 같다).
     let mut order: Vec<&WindowWithHdr> = rows.iter().collect();
     order.sort_by(|a, b| (a.ts_second, a.step_id.as_str()).cmp(&(b.ts_second, b.step_id.as_str())));
     for r in order {
@@ -7278,6 +7278,44 @@ steps:
 
         fn has_reason(r: &ReportJson, kind: &str) -> bool {
             r.validity.reasons.iter().any(|x| x.kind == kind)
+        }
+
+        #[test]
+        fn seconds_same_for_any_row_order_and_offsets_merge_across_workers() {
+            let c = scfg(&[10, 20], 1, 9, 1);
+            let mut fx = Fx::default();
+            // 느린 워커가 w-a(먼저), 빠른 워커가 w-b(나중) — 정렬이 없으면 offset마다 w-b만의
+            // 분포가 마지막에 p99를 덮어쓴다. 표본 15개의 p99는 최댓값이라, 마지막 워커가
+            // 최댓값을 가지면 덮어써도 값이 같아 되돌려 확인이 RED가 안 된다.
+            fx.fill("w-a", 1000, 20, |_| Some(sec(5, 30_000)));
+            fx.fill("w-b", 1001, 20, |_| Some(sec(10, 10_000))); // 1초 늦게 시작
+            fx.inp.starts = vec![start("w-a", T0), start("w-b", T0 + 1000)];
+            let sorted = fx.report(&c);
+            fx.rows.reverse();
+            assert_eq!(fx.report(&c), sorted);
+            let s0 = &sorted.seconds[0];
+            assert_eq!(s0.offset_s, 0);
+            assert_eq!(s0.count, 15);
+            assert_eq!(
+                s0.p99_us,
+                hist(&[(30_000, 5), (10_000, 10)]).value_at_quantile(0.99)
+            );
+        }
+
+        #[test]
+        fn seconds_ignore_worker_that_never_scheduled() {
+            let c = scfg(&[10, 20], 1, 9, 1);
+            let mut base = Fx::default();
+            base.fill("w-a", 1000, 20, |_| Some(sec(10, 10_000)));
+            base.inp.starts = vec![start("w-a", T0)];
+            let want = base.report(&c);
+            // w-c: open-loop 행은 있지만 launched = dropped = 0(도착을 만들지 않음), 메트릭 행은 있음
+            for o in 0..20 {
+                base.inp.open_loop.push(ol("w-c", 1000 + o, 0, 0, 0));
+                base.rows
+                    .push(mrow("w-c", 1000 + o, "s", 7, 0, &[(90_000, 7)]));
+            }
+            assert_eq!(base.report(&c), want);
         }
 
         /// 공유 누적기(계단 시험 b §4.3): 리포트(DB 행) ↔ 감시(받은 순서가 섞인 배치) 비트 동일성.

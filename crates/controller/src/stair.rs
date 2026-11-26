@@ -845,7 +845,7 @@ struct SecAcc {
     completed: u64,
     dropped: u64,
     count: u64,
-    hist: Option<Histogram<u64>>,
+    p99_us: u64,
 }
 
 fn merge_opt(acc: &mut Option<Histogram<u64>>, h: &Histogram<u64>) {
@@ -957,15 +957,34 @@ pub fn build_stair_report(
             add(&mut s.dropped, r.dropped);
             acc.push_open_loop(w.id, r.ts_second, r.launched, r.completed, r.dropped);
         }
+    }
+    // 메트릭 행: (offset, worker) 순으로 안정 정렬해 한 offset씩 마무리 — 초별 분포를 끝까지 들지 않고
+    // p99만 남긴다. 정렬 대상은 활동 워커의 메트릭뿐(입력 rows 전체 아님).
+    let mut order: Vec<(i64, &str, &WindowWithHdr)> = Vec::new();
+    for w in &workers {
+        let t0_s = w.t0_ms.div_euclid(1000);
         for r in &w.metrics {
-            let h = window_hist_per_window(&r.hdr_histogram, r.failed_hdr_histogram.as_deref());
-            let s = secs.entry(r.ts_second.saturating_sub(t0_s)).or_default();
-            add(&mut s.count, r.count);
-            if let Some(h) = &h {
-                merge_opt(&mut s.hist, h);
-            }
-            acc.push_metric(w.id, r.ts_second, r.count, r.error_count, h.as_ref());
+            order.push((r.ts_second.saturating_sub(t0_s), w.id, *r));
         }
+    }
+    order.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    let mut cur: Option<(i64, Option<Histogram<u64>>)> = None;
+    for (offset, wid, r) in order {
+        if cur.as_ref().is_some_and(|c| c.0 != offset) {
+            if let Some((o, hist)) = cur.take() {
+                secs.entry(o).or_default().p99_us = q(&hist, 0.99);
+            }
+        }
+        let h = window_hist_per_window(&r.hdr_histogram, r.failed_hdr_histogram.as_deref());
+        add(&mut secs.entry(offset).or_default().count, r.count);
+        let c = cur.get_or_insert((offset, None));
+        if let Some(h) = &h {
+            merge_opt(&mut c.1, h);
+        }
+        acc.push_metric(wid, r.ts_second, r.count, r.error_count, h.as_ref());
+    }
+    if let Some((o, hist)) = cur.take() {
+        secs.entry(o).or_default().p99_us = q(&hist, 0.99);
     }
 
     let mut numbers = acc.numbers(&vec![true; n], unknown);
@@ -1083,7 +1102,7 @@ pub fn build_stair_report(
             completed: (!unknown).then_some(s.completed),
             dropped: (!unknown).then_some(s.dropped),
             count: s.count,
-            p99_us: q(&s.hist, 0.99),
+            p99_us: s.p99_us,
         })
         .collect();
 
