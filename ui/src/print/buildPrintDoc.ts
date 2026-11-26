@@ -149,7 +149,10 @@ export function buildPrintDoc(a: {
   const table = buildStepTable(report.steps, facts, statusRule);
   const nameById = new Map(table.rows.map((r) => [r.stepId, r.name]));
   const stepName = (id: string): string => nameById.get(id) || id;
-  const ranked: RankedRow[] = table.rows.map((r) => ({ ...r, status: stepStatus(r, criteria) }));
+  const ranked: RankedRow[] = table.rows.map((r) => ({
+    ...r,
+    status: stepStatus(r, criteria, report.verdict?.criteria ?? null),
+  }));
 
   const matched = matchVerdict(expandCriteria(criteria), report.verdict);
   const box = verdictBox({

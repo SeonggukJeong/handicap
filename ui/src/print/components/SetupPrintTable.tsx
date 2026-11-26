@@ -53,7 +53,8 @@ export function SetupTableTitle({
   );
 }
 
-const ms = (v: number | null): string => (v === null ? DASH : fmtCount(v));
+const ms = (v: number | null): string =>
+  v === null ? DASH : v >= 60000 ? ko.report.stats.capped : fmtCount(v);
 
 function SetupRowView({ row, measure }: { row: SetupRow; measure?: boolean }) {
   const bad = row.errors > 0;

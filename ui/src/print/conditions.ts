@@ -3,7 +3,7 @@ import { formatDurationKo } from "../i18n/duration";
 import { ProfileSchema, type Profile } from "../api/schemas";
 import { deriveLoadMode, fixedTarget } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
-import { fmtDate, fmtDateTime, fmtMs, fmtTime } from "./format";
+import { fmtDate, fmtDateTime, fmtDurMs, fmtTime } from "./format";
 
 const c = ko.print.conditions;
 
@@ -99,7 +99,8 @@ export function conditionsBox(a: {
   add(L.duration, formatDurationKo(profileDurationSeconds(p)));
   const ramp = rampSeconds(p);
   if (ramp > 0) add(L.ramp, c.ramp(formatDurationKo(ramp)));
-  if (p.think_time) add(L.think, c.think(fmtMs(p.think_time.min_ms), fmtMs(p.think_time.max_ms)));
+  if (p.think_time)
+    add(L.think, c.think(fmtDurMs(p.think_time.min_ms), fmtDurMs(p.think_time.max_ms)));
   add(L.timeout, formatDurationKo(p.http_timeout_seconds));
   const workers = workerCount(p, a.workerBreakdownLen);
   if (workers > 0) add(L.workers, c.workers(workers));

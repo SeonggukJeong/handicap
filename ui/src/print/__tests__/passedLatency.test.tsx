@@ -144,7 +144,7 @@ const row = (over: Partial<StepRow>): RankedRow => {
     factsKnown: true,
     ...over,
   };
-  return { ...r, status: stepStatus(r, null) };
+  return { ...r, status: stepStatus(r, null, null) };
 };
 
 const p95Cell = (r: RankedRow, sample?: ReportSampleName): string => {
@@ -172,7 +172,7 @@ describe("인쇄 — 통과한 요청 없는 칸", () => {
     expect(texts).toContain(NO_SAMPLE);
   });
 
-  it("문장 목록: 응답 시간 없는 run은 95% 응답시간 문장을 내지 않는다", () => {
+  it("문장 목록: 응답 시간 없는 run은 95% 응답 시간 문장을 내지 않는다", () => {
     const rep = failedReport(PASSED);
     rep.verdict = null;
     rep.run.profile = { ...profile, criteria: undefined };

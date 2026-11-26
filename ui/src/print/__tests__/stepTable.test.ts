@@ -166,6 +166,24 @@ describe("buildStepTable", () => {
     expect(row.cells["c503"].cls).toBe("counted");
   });
 
+  it("stats는 그 스텝 ReportStep.stats를 그대로 싣고 없으면 undefined", () => {
+    const stats = {
+      min_us: 1,
+      mean_us: 2,
+      max_us: 3,
+      stdev_us: 4,
+      p50_us: 5,
+      p90_us: 6,
+      p95_us: 7,
+      p99_us: 8,
+      capped: false,
+    };
+    const facts = okFacts([sf("A"), sf("B")]);
+    const t = buildStepTable([rs("A", { "200": 1 }, { stats }), rs("B", { "200": 1 })], facts, 1);
+    expect(t.rows[0].stats).toBe(stats);
+    expect(t.rows[1].stats).toBeUndefined();
+  });
+
   it("residual_is_subset_and_floored", () => {
     const facts = okFacts([sf("A", { statusChecks: [[200]] })]);
     const t = buildStepTable(

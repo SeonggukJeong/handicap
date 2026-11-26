@@ -24,7 +24,7 @@ const row = (over: Partial<StepRow>): RankedRow => {
     factsKnown: true,
     ...over,
   };
-  return { ...r, status: stepStatus(r, null) };
+  return { ...r, status: stepStatus(r, null, null) };
 };
 
 const p95Cell = (r: RankedRow): string => {
@@ -33,7 +33,7 @@ const p95Cell = (r: RankedRow): string => {
   return cells[2].textContent ?? "";
 };
 
-describe("StepTable 95% 응답시간 칸 — 표본이 없는 단계", () => {
+describe("StepTable 95% 응답 시간 칸 — 표본이 없는 단계", () => {
   it("요청을 전부 보내지 않은 단계는 「1ms 미만」이 아니라 「–」", () => {
     const text = p95Cell(row({ count: 5, errorCount: 5, notSent: 5, p95Ms: 0 }));
     expect(text).toBe(ko.print.fmt.noTarget);

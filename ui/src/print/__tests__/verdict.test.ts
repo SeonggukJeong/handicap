@@ -148,7 +148,7 @@ describe("expandCriteria / matchVerdict", () => {
 
 describe("criterionName", () => {
   it("names and particles", () => {
-    expect(criterionName("p95_ms")).toEqual({ name: "95% 응답시간", subj: "이" });
+    expect(criterionName("p95_ms")).toEqual({ name: "95% 응답 시간", subj: "이" });
     expect(criterionName("4xx_count")).toEqual({ name: "4xx 응답 수", subj: "가" });
     expect(criterionName("min_window_rps")).toEqual({ name: "가장 낮은 1초 처리량", subj: "이" });
     expect(criterionName("weird")).toEqual({ name: "weird", subj: "(이)가" });
@@ -180,7 +180,7 @@ describe("kpiCards", () => {
     expect(by.rps.explain).toBe("1초에 처리한 요청 수. 클수록 많이 감당합니다.");
     expect(by.mean.explain).toBe("요청을 보내고 답을 받기까지 걸린 시간의 평균.");
     expect(by.p95.explain).toBe("100번 중 95번은 이 시간 안에 답을 받았습니다.");
-    expect(by.p95.label).toBe("95% 응답시간");
+    expect(by.p95.label).toBe("95% 응답 시간");
     expect(by.p95.value).toBe("2.4초");
     expect(by.errorRate.value).toBe("2.6%");
     expect(by.rps.value).toBe("240");
@@ -242,7 +242,7 @@ describe("otherCriteriaRows", () => {
       name,
     );
     expect(out).toEqual([
-      { name: "99% 응답시간", target: "5,000ms 이하", actual: "6,000ms", judgement: "fail" },
+      { name: "99% 응답 시간", target: "5,000ms 이하", actual: "6,000ms", judgement: "fail" },
       {
         name: "가장 낮은 1초 처리량",
         target: "10.0건/초 이상",
@@ -250,7 +250,7 @@ describe("otherCriteriaRows", () => {
         judgement: "notEvaluable",
       },
       {
-        name: "로그인 · 95% 응답시간",
+        name: "로그인 · 95% 응답 시간",
         target: "2,000ms 이하",
         actual: "2,500ms",
         judgement: "fail",
@@ -294,7 +294,7 @@ describe("otherCriteriaRows", () => {
       name,
     );
     expect(out).toEqual([
-      { name: "99% 응답시간", target: "5,000ms 이하", actual: "–", judgement: "notJudged" },
+      { name: "99% 응답 시간", target: "5,000ms 이하", actual: "–", judgement: "notJudged" },
     ]);
   });
 });
@@ -433,10 +433,10 @@ describe("새 시간 기준 (평균·최대·백분위 목록)", () => {
     expect(out[0].threshold).toBe(2);
   });
   it("criterionName", () => {
-    expect(criterionName("mean_ms")).toEqual({ name: "평균 응답시간", subj: "이" });
-    expect(criterionName("max_ms")).toEqual({ name: "최대 응답시간", subj: "이" });
-    expect(criterionName("p99.9_ms")).toEqual({ name: "99.9% 응답시간", subj: "이" });
-    expect(criterionName("p95_ms")).toEqual({ name: "95% 응답시간", subj: "이" });
+    expect(criterionName("mean_ms")).toEqual({ name: "평균 응답 시간", subj: "이" });
+    expect(criterionName("max_ms")).toEqual({ name: "최대 응답 시간", subj: "이" });
+    expect(criterionName("p99.9_ms")).toEqual({ name: "99.9% 응답 시간", subj: "이" });
+    expect(criterionName("p95_ms")).toEqual({ name: "95% 응답 시간", subj: "이" });
   });
   it("평균 카드 목표가 mean_ms 기준을 읽고 기준 행은 other에 없다", () => {
     const c: Criteria = { max_mean_ms: 3000 };

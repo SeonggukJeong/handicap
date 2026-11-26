@@ -980,7 +980,7 @@
   text-overflow: ellipsis;
 }
 
-/* 비교 보고서: 단계별 95% 응답시간 변화(덤벨 표) — compare-report-v2.html 시안 값 */
+/* 비교 보고서: 단계별 95% 응답 시간 변화(덤벨 표) — compare-report-v2.html 시안 값 */
 .p-root .p-cmp-db th,
 .p-root .p-cmp-db td {
   padding: 1.3mm 1.8mm;

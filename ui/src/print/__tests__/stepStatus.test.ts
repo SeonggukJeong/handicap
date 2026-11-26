@@ -7,12 +7,14 @@ import {
   LEGEND_SHORT,
   rankRows,
   selectTopRows,
+  isLatencyMetric,
+  statUs,
   stepStatus,
   stepThresholds,
   type RankedRow,
 } from "../stepStatus";
 import type { Cell, CellClass, StepRow, StepTableModel } from "../stepTable";
-import type { Criteria, Report } from "../../api/schemas";
+import type { Criteria, LatencyStats, Report, Verdict } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 
 const row = (index: number, over: Partial<StepRow> = {}): StepRow => ({
@@ -34,9 +36,22 @@ const row = (index: number, over: Partial<StepRow> = {}): StepRow => ({
   ...over,
 });
 
+const stats = (over: Partial<LatencyStats> = {}): LatencyStats => ({
+  min_us: 1000,
+  mean_us: 1000,
+  max_us: 1000,
+  stdev_us: 0,
+  p50_us: 1000,
+  p90_us: 1000,
+  p95_us: 1000,
+  p99_us: 1000,
+  capped: false,
+  ...over,
+});
+
 const rk = (r: StepRow, crit: Criteria | null = null): RankedRow => ({
   ...r,
-  status: stepStatus(r, crit),
+  status: stepStatus(r, crit, null),
 });
 
 describe("threshold_source_order", () => {
@@ -65,48 +80,151 @@ describe("threshold_source_order", () => {
 describe("status_priority", () => {
   const crit: Criteria = { max_error_rate: 0.01, max_p95_ms: 500 };
   it("error", () => {
-    const s = stepStatus(row(0, { errorCount: 20 }), crit);
+    const s = stepStatus(row(0, { errorCount: 20 }), crit, null);
     expect(s.tags).toEqual(["error"]);
     expect(s.grade).toBe(3);
     expect(s.errorRate).toBeCloseTo(0.02);
   });
   it("slow + uncounted", () => {
     const s = stepStatus(
-      row(0, { p95Ms: 800, perCode: [{ code: 404, count: 5, cls: "uncounted" }] }),
+      row(0, {
+        p95Ms: 800,
+        stats: stats({ p95_us: 800_000 }),
+        perCode: [{ code: 404, count: 5, cls: "uncounted" }],
+      }),
       crit,
+      null,
     );
     expect(s.tags).toEqual(["slow", "uncounted"]);
     expect(s.grade).toBe(2);
   });
   it("hasErrors when no error criterion", () => {
-    const s = stepStatus(row(0, { errorCount: 1 }), null);
+    const s = stepStatus(row(0, { errorCount: 1 }), null, null);
     expect(s.tags).toEqual(["hasErrors"]);
     expect(s.grade).toBe(2);
   });
   it("ok keeps errorRate", () => {
-    const s = stepStatus(row(0, { count: 4000, errorCount: 10 }), crit);
+    const s = stepStatus(row(0, { count: 4000, errorCount: 10 }), crit, null);
     expect(s.tags).toEqual(["ok"]);
     expect(s.grade).toBe(1);
     expect(s.errorRate).toBe(0.0025);
   });
   it("exactly at threshold is not flagged", () => {
-    const s = stepStatus(row(0, { count: 1000, errorCount: 10, p95Ms: 500 }), crit);
+    const s = stepStatus(
+      row(0, { count: 1000, errorCount: 10, p95Ms: 500, stats: stats({ p95_us: 500_000 }) }),
+      crit,
+      null,
+    );
     expect(s.tags).toEqual(["ok"]);
     expect(s.grade).toBe(1);
   });
   it("unknown tag and notRun", () => {
     expect(
-      stepStatus(row(0, { perCode: [{ code: 500, count: 1, cls: "unknown" }] }), crit).tags,
+      stepStatus(row(0, { perCode: [{ code: 500, count: 1, cls: "unknown" }] }), crit, null).tags,
     ).toEqual(["unknown"]);
-    const n = stepStatus(row(0, { executed: false, count: 0 }), crit);
+    const n = stepStatus(row(0, { executed: false, count: 0 }), crit, null);
     expect(n.tags).toEqual(["notRun"]);
     expect(n.grade).toBe(0);
   });
 });
 
+type CriterionResult = Verdict["criteria"][number];
+const vrow = (
+  metric: string,
+  passed: boolean,
+  o: Partial<CriterionResult> = {},
+): CriterionResult => ({
+  metric,
+  direction: "max",
+  threshold: 1,
+  actual: 2,
+  passed,
+  target: "s0",
+  ...o,
+});
+const sc = (metric: string, threshold: number) => ({
+  metric,
+  op: "max" as const,
+  threshold,
+  target: "s0",
+});
+const slow = (r: StepRow, c: Criteria | null, v: CriterionResult[] | null) =>
+  stepStatus(r, c, v).tags.includes("slow");
+
+describe("isLatencyMetric · statUs", () => {
+  it("시간 지표 판별", () => {
+    for (const m of ["mean_ms", "max_ms", "p50_ms", "p75_ms", "p99.9_ms"])
+      expect(isLatencyMetric(m)).toBe(true);
+    for (const m of ["error_rate", "rps", "min_ms", "p_ms", "stdev_ms"])
+      expect(isLatencyMetric(m)).toBe(false);
+  });
+  it("statUs 값과 잘림", () => {
+    const st = stats({
+      mean_us: 5,
+      max_us: 60_000_000,
+      p90_us: 7,
+      p95_us: 59_999_999,
+      capped: true,
+    });
+    expect(statUs(st, "mean_ms")).toEqual({ us: 5, cut: true });
+    expect(statUs(st, "max_ms")).toEqual({ us: 60_000_000, cut: true });
+    expect(statUs(st, "p90_ms")).toEqual({ us: 7, cut: false });
+    expect(statUs(st, "p95_ms")).toEqual({ us: 59_999_999, cut: false });
+    expect(statUs(st, "p75_ms")).toBeNull();
+    expect(statUs(st, "min_ms")).toBeNull();
+  });
+});
+
+describe("느림 규칙(R-B10)", () => {
+  it("스텝 mean_ms 기준의 판정 행이 실패면 느림", () => {
+    const c: Criteria = { step_criteria: [sc("mean_ms", 100)] };
+    expect(slow(row(0), c, [vrow("mean_ms", false)])).toBe(true);
+    expect(slow(row(0), c, [vrow("mean_ms", true)])).toBe(false);
+  });
+  it("스텝 p75_ms 기준도 판정 행으로 느림", () => {
+    const c: Criteria = { step_criteria: [sc("p75_ms", 100)] };
+    expect(slow(row(0), c, [vrow("p75_ms", false)])).toBe(true);
+  });
+  it("표본 없는 판정 행은 느림 아님", () => {
+    const c: Criteria = { step_criteria: [sc("mean_ms", 100)] };
+    expect(slow(row(0), c, [vrow("mean_ms", false, { no_sample: true })])).toBe(false);
+  });
+  it("run 평균 기준: µs를 반올림 ms×1000과 비교", () => {
+    const c: Criteria = { max_mean_ms: 3000 };
+    expect(slow(row(0, { stats: stats({ mean_us: 3_000_400 }) }), c, null)).toBe(true);
+    expect(slow(row(0, { stats: stats({ mean_us: 3_000_000 }) }), c, null)).toBe(false);
+  });
+  it("잘린 값은 값 비교로 통과해도 느림", () => {
+    const c: Criteria = { max_percentiles_ms: [{ percentile: 90, max_ms: 70000 }] };
+    expect(slow(row(0, { stats: stats({ p90_us: 60_000_000 }) }), c, null)).toBe(true);
+  });
+  it("stats가 없는 백분위(75)만 있으면 느림 아님", () => {
+    const c: Criteria = { max_percentiles_ms: [{ percentile: 75, max_ms: 1 }] };
+    expect(slow(row(0, { stats: stats({ p90_us: 9_000_000 }) }), c, null)).toBe(false);
+  });
+  it("중단 run(판정 행 없음): 스텝 평균 기준은 stats로, p75는 건너뜀", () => {
+    const m: Criteria = { step_criteria: [sc("mean_ms", 100)] };
+    expect(slow(row(0, { stats: stats({ mean_us: 100_001 }) }), m, null)).toBe(true);
+    expect(slow(row(0, { stats: stats({ mean_us: 100_000 }) }), m, null)).toBe(false);
+    const p: Criteria = { step_criteria: [sc("p75_ms", 1)] };
+    expect(slow(row(0, { stats: stats({ mean_us: 9_000_000 }) }), p, null)).toBe(false);
+  });
+  it("stats가 없으면 run 기준 빌려 쓰기를 건너뜀", () => {
+    expect(slow(row(0, { p95Ms: 900 }), { max_p95_ms: 200 }, null)).toBe(false);
+  });
+  it("같은 지표의 스텝 기준이 있으면 run 기준은 건너뜀(스텝 기준 우선)", () => {
+    const c: Criteria = { max_p95_ms: 200, step_criteria: [sc("p95_ms", 5000)] };
+    const r = row(0, { stats: stats({ p95_us: 900_000 }) });
+    expect(slow(r, c, [vrow("p95_ms", true)])).toBe(false);
+  });
+  it("기준 없음 → ok", () => {
+    expect(stepStatus(row(0, { stats: stats() }), null, null).tags).toEqual(["ok"]);
+  });
+});
+
 describe("status_uses_profile_criteria_not_verdict", () => {
   it("aborted run still flags error from criteria", () => {
-    const s = stepStatus(row(0, { errorCount: 500 }), { max_error_rate: 0.1 });
+    const s = stepStatus(row(0, { errorCount: 500 }), { max_error_rate: 0.1 }, null);
     expect(s.tags).toEqual(["error"]);
   });
 });
@@ -318,8 +436,8 @@ describe("glossary_only_present", () => {
     );
     expect(g.entries.map((e) => e.term)).toEqual([
       "처리량",
-      "평균 응답시간",
-      "95% 응답시간",
+      "평균 응답 시간",
+      "95% 응답 시간",
       "오류율",
       "400",
       "401",
@@ -368,8 +486,8 @@ describe("glossary_only_present", () => {
     const plain = glossary(model([], []), [], []);
     expect(plain.entries.map((e) => e.term)).toEqual([
       "처리량",
-      "평균 응답시간",
-      "95% 응답시간",
+      "평균 응답 시간",
+      "95% 응답 시간",
       "오류율",
     ]);
   });

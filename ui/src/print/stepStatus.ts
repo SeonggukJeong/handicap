@@ -1,5 +1,6 @@
 import { ko } from "../i18n/ko";
-import type { Criteria, Report } from "../api/schemas";
+import type { Criteria, LatencyStats, Report, Verdict } from "../api/schemas";
+import { CAP_US } from "../components/report/format";
 import { fmtCount, fmtPct } from "./format";
 import type { StepRow, StepTableModel } from "./stepTable";
 
@@ -31,13 +32,87 @@ export function stepThresholds(
   };
 }
 
-export function stepStatus(row: StepRow, criteria: Criteria | null | undefined): RowStatus {
+/** 평균·최대·백분위(`p{N}_ms`) 같은 응답 시간 지표인지. */
+export function isLatencyMetric(metric: string): boolean {
+  return metric === "mean_ms" || metric === "max_ms" || /^p\d+(\.\d+)?_ms$/.test(metric);
+}
+
+/** 지표의 µs 값과 60초 칸에 잘렸는지(평균은 분포가 잘렸는지). stats가 싣지 않는 지표는 null. */
+export function statUs(stats: LatencyStats, metric: string): { us: number; cut: boolean } | null {
+  if (metric === "mean_ms") return { us: stats.mean_us, cut: stats.capped };
+  const us =
+    metric === "max_ms"
+      ? stats.max_us
+      : metric === "p50_ms"
+        ? stats.p50_us
+        : metric === "p90_ms"
+          ? stats.p90_us
+          : metric === "p95_ms"
+            ? stats.p95_us
+            : metric === "p99_ms"
+              ? stats.p99_us
+              : null;
+  return us === null ? null : { us, cut: us >= CAP_US };
+}
+
+const overLimit = (stats: LatencyStats, metric: string, threshold: number): boolean => {
+  const v = statUs(stats, metric);
+  return v !== null && (v.cut || v.us > Math.round(threshold * 1000));
+};
+
+function isSlow(
+  row: StepRow,
+  criteria: Criteria | null | undefined,
+  verdictRows: Verdict["criteria"] | null,
+): boolean {
+  const own = (criteria?.step_criteria ?? []).filter(
+    (c) => c.target === row.stepId && c.op === "max" && isLatencyMetric(c.metric),
+  );
+  if (verdictRows !== null) {
+    if (
+      verdictRows.some(
+        (v) =>
+          v.target === row.stepId &&
+          v.direction === "max" &&
+          isLatencyMetric(v.metric) &&
+          !v.passed &&
+          v.no_sample !== true,
+      )
+    )
+      return true;
+  } else if (row.stats && own.some((c) => overLimit(row.stats!, c.metric, c.threshold))) {
+    return true;
+  }
+  if (!row.stats || !criteria) return false;
+  const ownMetrics = new Set(own.map((c) => c.metric));
+  const borrowed: Array<[string, number | undefined]> = [
+    ["p50_ms", criteria.max_p50_ms],
+    ["p95_ms", criteria.max_p95_ms],
+    ["p99_ms", criteria.max_p99_ms],
+    ["mean_ms", criteria.max_mean_ms],
+    ["max_ms", criteria.max_max_ms],
+  ];
+  for (const e of criteria.max_percentiles_ms ?? [])
+    if ([50, 90, 95, 99].includes(e.percentile)) borrowed.push([`p${e.percentile}_ms`, e.max_ms]);
+  return borrowed.some(
+    ([metric, threshold]) =>
+      threshold !== undefined &&
+      !ownMetrics.has(metric) &&
+      overLimit(row.stats!, metric, threshold),
+  );
+}
+
+export function stepStatus(
+  row: StepRow,
+  criteria: Criteria | null | undefined,
+  verdictRows: Verdict["criteria"] | null,
+): RowStatus {
   if (!row.executed) return { tags: ["notRun"], grade: 0, errorRate: 0 };
   const errorRate = row.count > 0 ? row.errorCount / row.count : 0;
   const t = stepThresholds(row.stepId, criteria);
   const tags: StatusTag[] = [];
   if (t.errorRate !== null && errorRate > t.errorRate) tags.push("error");
-  if (t.p95Ms !== null && row.p95Ms > t.p95Ms) tags.push("slow");
+  if (isSlow(row, criteria, verdictRows)) tags.push("slow");
   if (t.errorRate === null && errorRate > 0) tags.push("hasErrors");
   if (row.perCode.some((p) => p.cls === "uncounted")) tags.push("uncounted");
   if (row.perCode.some((p) => p.cls === "unknown")) tags.push("unknown");

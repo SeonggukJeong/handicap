@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { conditionsBox, loadConditionLine, measuredWindow } from "../conditions";
 import { ProfileSchema } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
+import { fmtDurMs } from "../format";
 
 const t = (y: number, mo: number, d: number, h: number, mi: number) =>
   new Date(y, mo - 1, d, h, mi).getTime();
@@ -87,6 +89,16 @@ describe("conditionsBox", () => {
         { label: "환경 변수", value: "환경 변수 3개 사용" },
       ],
     });
+  });
+  it("대기가 60초 이상이어도 길이 글자(60초 이상 아님)", () => {
+    const r = conditionsBox({
+      profileRaw: { ...full, think_time: { min_ms: 60000, max_ms: 120000 } },
+      workerBreakdownLen: 1,
+      envCount: 0,
+    });
+    const think = r.ok ? r.rows.find((x) => x.label === "단계 사이 쉼") : undefined;
+    expect(think?.value).not.toContain("60초 이상");
+    expect(think?.value).toBe(ko.print.conditions.think(fmtDurMs(60000), fmtDurMs(120000)));
   });
   it("optional rows omitted", () => {
     const r = conditionsBox({

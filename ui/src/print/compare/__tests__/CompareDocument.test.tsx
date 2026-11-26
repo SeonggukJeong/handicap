@@ -304,7 +304,7 @@ describe("CompareDocument 표준판", () => {
     for (const t of [
       "1. 종합",
       "2. 핵심 지표 비교",
-      "3. 단계별 95% 응답시간 변화",
+      "3. 단계별 95% 응답 시간 변화",
       "4. 단계별 오류 변화",
       "5. 시간에 따른 변화 — 겹쳐 보기",
       "6. 측정 조건 대조",
@@ -575,7 +575,7 @@ describe("CompareDocument 덤벨 절", () => {
     const { root, container } = renderDoc(makeDoc());
     await ready(root);
     expect(
-      screen.getByRole("heading", { name: "3. 단계별 95% 응답시간 변화" }),
+      screen.getByRole("heading", { name: "3. 단계별 95% 응답 시간 변화" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "6. 측정 조건 대조" })).toBeInTheDocument();
     expect(container.querySelector(".p-page table.p-cmp-db")).not.toBeNull();
@@ -586,7 +586,7 @@ describe("CompareDocument 덤벨 절", () => {
   it("단계가 없으면 덤벨 절이 없고 번호를 당긴다", async () => {
     const { root } = renderDoc(makeDoc({ steps: [], rep: [] }, { steps: [], rep: [] }));
     await ready(root);
-    expect(screen.queryByText(/단계별 95% 응답시간 변화/)).toBeNull();
+    expect(screen.queryByText(/단계별 95% 응답 시간 변화/)).toBeNull();
     expect(screen.queryByText(/단계별 오류 변화/)).toBeNull();
     expect(screen.getByRole("heading", { name: "4. 측정 조건 대조" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "5. 남은 문제" })).toBeInTheDocument();
@@ -595,7 +595,7 @@ describe("CompareDocument 덤벨 절", () => {
   it("요약판에는 덤벨 절이 없다", async () => {
     const { root } = renderDoc(makeDoc(), "summary");
     await ready(root);
-    expect(screen.queryByText(/단계별 95% 응답시간 변화/)).toBeNull();
+    expect(screen.queryByText(/단계별 95% 응답 시간 변화/)).toBeNull();
   });
 });
 

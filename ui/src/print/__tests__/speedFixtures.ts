@@ -40,7 +40,7 @@ export function rr(
     residualUncertain: false,
     factsKnown: true,
   };
-  return { ...base, status: stepStatus(base, criteria) };
+  return { ...base, status: stepStatus(base, criteria, null) };
 }
 
 /** failing: 미달 행 키 — run 수준은 metric, 단계 기준은 `${target}:${metric}`. null = 서버 판정 없음. */

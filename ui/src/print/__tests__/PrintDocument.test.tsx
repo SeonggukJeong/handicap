@@ -271,7 +271,7 @@ describe("PrintDocument", () => {
     await ready(root);
     expect(screen.getByText("✕ 부적합")).toBeInTheDocument();
     expect(screen.getByText("평가한 기준 3개 중 1개 미달")).toBeInTheDocument();
-    for (const label of ["처리량", "평균 응답시간", "95% 응답시간", "오류율"]) {
+    for (const label of ["처리량", "평균 응답 시간", "95% 응답 시간", "오류율"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
     const th503 = screen.getByText("503").closest("th");
@@ -464,7 +464,7 @@ describe("PrintDocument", () => {
     expect(container.textContent).not.toContain("4. 시간에 따른 변화");
     expect(container.textContent).not.toContain("6. 용어 풀이");
     expect(screen.getByText("✕ 부적합")).toBeInTheDocument();
-    expect(screen.getByText("평균 응답시간")).toBeInTheDocument();
+    expect(screen.getByText("평균 응답 시간")).toBeInTheDocument();
     expect(screen.getByText("요청 수")).toBeInTheDocument();
     expect(container.querySelectorAll(".p-page").length).toBe(1);
   });

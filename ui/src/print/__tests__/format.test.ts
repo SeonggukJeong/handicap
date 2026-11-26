@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ko } from "../../i18n/ko";
 import {
   fmtBoundary,
   fmtCount,
@@ -6,6 +7,8 @@ import {
   fmtCriterionThreshold,
   fmtDate,
   fmtDateTime,
+  fmtDurMs,
+  fmtMeanMs,
   fmtMs,
   fmtMsExact,
   fmtMsPair,
@@ -32,6 +35,25 @@ describe("fmtMs", () => {
     [59950, "60.0초"],
   ])("%s -> %s", (ms, out) => {
     expect(fmtMs(ms)).toBe(out);
+  });
+});
+
+describe("fmtMs 60초 칸 / fmtDurMs / fmtMeanMs", () => {
+  it("응답 시간은 60,000 이상이면 60초 칸 글자", () => {
+    expect(fmtMs(60000)).toBe(ko.print.fmt.capSec);
+    expect(fmtMs(60030)).toBe("60초 이상");
+    expect(fmtMs(59998)).toBe("60.0초");
+    expect(fmtMs(59998.207)).toBe("60.0초");
+  });
+  it("길이 글자는 그대로", () => {
+    expect(fmtDurMs(120000)).toBe("120.0초");
+    expect(fmtDurMs(60000)).toBe("60.0초");
+  });
+  it("평균은 잘렸으면 이상을 붙이되 60초 칸이면 한 번만", () => {
+    expect(fmtMeanMs(30000, true)).toBe(ko.print.fmt.orMore("30.0초"));
+    expect(fmtMeanMs(30000, true)).toBe("30.0초 이상");
+    expect(fmtMeanMs(30000, false)).toBe("30.0초");
+    expect(fmtMeanMs(60030, true)).toBe("60초 이상");
   });
 });
 
@@ -166,5 +188,15 @@ describe("fmtCriterionPair capped", () => {
   });
   it("시간이 아니면 ≥ 없음", () => {
     expect(fmtCriterionPair("error_rate", 0.1, 0.05, true).actual).not.toContain("≥");
+  });
+});
+
+describe("ko.print 띄어쓰기", () => {
+  it("응답시간(붙여쓰기)이 인쇄 문구에 없다", () => {
+    const json = JSON.stringify(ko.print, (_, v) => (typeof v === "function" ? undefined : v));
+    expect(json).not.toContain("응답시간");
+    expect(ko.print.sentence.fallback("1ms")).toContain("응답 시간");
+    expect(ko.print.sentence.fallback("1ms")).not.toContain("응답시간");
+    expect(ko.print.criteria.percentileName(95)).toBe("95% 응답 시간");
   });
 });

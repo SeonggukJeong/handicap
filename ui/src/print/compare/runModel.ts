@@ -52,7 +52,10 @@ export function buildRunModel(meta: RunMeta, report: Report): RunModel {
     criteria,
     env: envValueToRecord(report.run.env),
     table,
-    ranked: table.rows.map((r) => ({ ...r, status: stepStatus(r, criteria) })),
+    ranked: table.rows.map((r) => ({
+      ...r,
+      status: stepStatus(r, criteria, report.verdict?.criteria ?? null),
+    })),
     box: verdictBox({ count, status: meta.status, criteria, verdict: report.verdict }),
     workers: workerCount(profile, report.worker_breakdown?.length ?? 0),
   };

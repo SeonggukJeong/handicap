@@ -166,7 +166,7 @@ describe("buildSpeedModel", () => {
     expect(m.ruleBoxFail).toBe(true);
     const rule = joined(m.rule?.segs ?? []);
     expect(rule).toBe(
-      "기준 「95% 응답시간 3,000ms 이하」는 3초 초과가 5% 이하여야 통과입니다. 이번 측정은 모든 단계를 합친 요청의 7.00%가 3초를 넘어 이 기준은 미달입니다.",
+      "기준 「95% 응답 시간 3,000ms 이하」는 3초 초과가 5% 이하여야 통과입니다. 이번 측정은 모든 단계를 합친 요청의 7.00%가 3초를 넘어 이 기준은 미달입니다.",
     );
     expect(rule).not.toContain("넘어 미달");
     expect(m.rule?.segs.find((g) => g.text === "이 기준은 미달")).toMatchObject({
@@ -224,7 +224,7 @@ describe("buildSpeedModel", () => {
     expect(m.rows[0].ownNote).toBeNull();
     expect(m.stepRules).toHaveLength(1);
     expect(joined(m.stepRules[0])).toBe(
-      "단계 기준 「④ 첨부 업로드 95% 응답시간 5,000ms 이하」: 5초 초과 14.00% — 미달.",
+      "단계 기준 「④ 첨부 업로드 95% 응답 시간 5,000ms 이하」: 5초 초과 14.00% — 미달.",
     );
     const lastSeg = m.stepRules[0].find((g) => g.text === "미달");
     expect(lastSeg).toMatchObject({ strong: true, bad: true });
@@ -332,8 +332,8 @@ describe("buildSpeedModel", () => {
     expect(m.rule).toBeNull();
     expect(m.ruleBoxFail).toBe(false);
     expect(m.stepRules.map(joined)).toEqual([
-      "단계 기준 「① 로그인 95% 응답시간 800ms 이하」: 800ms 초과 9.00% — 미달.",
-      "단계 기준 「② 첨부 업로드 95% 응답시간 5,000ms 이하」: 5초 초과 2.80% — 통과.",
+      "단계 기준 「① 로그인 95% 응답 시간 800ms 이하」: 800ms 초과 9.00% — 미달.",
+      "단계 기준 「② 첨부 업로드 95% 응답 시간 5,000ms 이하」: 5초 초과 2.80% — 통과.",
     ]);
     const s1 = m.rows[0];
     expect(s1.merged).toBe(true);
@@ -667,7 +667,7 @@ describe("buildSpeedModel", () => {
       failing: [],
     });
     const rule = joined(m.rule?.segs ?? []);
-    expect(rule).toContain("50% 응답시간 2,000ms 이하");
+    expect(rule).toContain("50% 응답 시간 2,000ms 이하");
     expect(rule).toContain("2초 초과가 50% 이하여야 통과");
     expect(m.rows[0].over.mark).toBe("none");
     expect(m.rows[1].over).toMatchObject({ mark: "warn", glyph: "▲" });
@@ -691,7 +691,7 @@ describe("buildSpeedModel", () => {
       failing: [],
     });
     const rule = joined(m.rule?.segs ?? []);
-    expect(rule).toContain("99% 응답시간 3,000ms 이하");
+    expect(rule).toContain("99% 응답 시간 3,000ms 이하");
     expect(rule).toContain("3초 초과가 1% 이하여야 통과");
     expect(m.rows[0].over.mark).toBe("none");
     expect(m.rows[1].over).toMatchObject({ mark: "warn", glyph: "▲" });

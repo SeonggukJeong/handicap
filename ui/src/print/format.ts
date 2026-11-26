@@ -3,8 +3,8 @@ import { msNumberText } from "../components/report/format";
 
 const f = ko.print.fmt;
 
-/** 응답 시간(ms) → 사람이 읽는 표기. Math.round 기반(toFixed 반올림 오차 회피). */
-export function fmtMs(ms: number): string {
+/** 길이(ms) → 사람이 읽는 표기(대기 시간 등). Math.round 기반(toFixed 반올림 오차 회피). */
+export function fmtDurMs(ms: number): string {
   if (ms <= 0) return f.msUnderOne;
   if (ms < 10) return f.ms(Math.round(ms));
   if (ms < 1000) {
@@ -12,6 +12,16 @@ export function fmtMs(ms: number): string {
     if (v < 1) return f.sec(v.toFixed(2));
   }
   return f.sec((Math.round(ms / 100) / 10).toFixed(1));
+}
+
+/** 응답 시간(ms) 글자 — 60초 칸(≥ 60,000)은 「60초 이상」, 그 밖은 길이 글자. */
+export function fmtMs(ms: number): string {
+  return ms >= 60000 ? f.capSec : fmtDurMs(ms);
+}
+
+/** 평균 글자 — 분포가 잘렸으면 하한이라 「이상」(이미 60초 칸이면 한 번만). */
+export function fmtMeanMs(ms: number, capped: boolean): string {
+  return capped && ms < 60000 ? f.orMore(fmtMs(ms)) : fmtMs(ms);
 }
 
 export function fmtCount(n: number): string {

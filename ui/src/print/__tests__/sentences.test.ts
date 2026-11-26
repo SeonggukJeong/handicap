@@ -445,7 +445,7 @@ describe("special_lines", () => {
 describe("fallback_line", () => {
   it("clean run", () => {
     expect(summaryLines(base())).toEqual([
-      { kind: "fallback", text: "오류 없이 끝났습니다. 95% 응답시간은 2.4초입니다." },
+      { kind: "fallback", text: "오류 없이 끝났습니다. 95% 응답 시간은 2.4초입니다." },
     ]);
   });
 });
@@ -508,7 +508,7 @@ describe("short_summary", () => {
   it("fallback-only list is kept (clean run without criteria)", () => {
     const ls = summaryLines(base());
     expect(shortSummary(ls)).toEqual([
-      { kind: "fallback", text: "오류 없이 끝났습니다. 95% 응답시간은 2.4초입니다." },
+      { kind: "fallback", text: "오류 없이 끝났습니다. 95% 응답 시간은 2.4초입니다." },
     ]);
   });
 });
@@ -539,7 +539,7 @@ describe("verdict_line capped", () => {
     (m.row as { capped?: boolean }).capped = true;
     const l = summaryLines(base({ box: { kind: "fail", evaluated: 1, failed: 1 }, matched: [m] }));
     expect(kindLine(l, "verdict")).toBe(
-      "평균 응답시간이 기준을 넘었습니다 (측정 ≥ 1,842.613ms, 기준 1,000ms 이하)",
+      "평균 응답 시간이 기준을 넘었습니다 (측정 ≥ 1,842.613ms, 기준 1,000ms 이하)",
     );
   });
 });

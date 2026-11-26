@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { ko } from "../../i18n/ko";
 import { plain, strong } from "../../i18n/lineParts";
 import { SetupPrintTable, SetupTableTitle } from "../components/SetupPrintTable";
 import type { SetupPrintModel, SetupRow } from "../setupTable";
@@ -83,6 +84,19 @@ describe("SetupPrintTable", () => {
     expect(trs[1].children[3].textContent).toBe("–");
     expect(trs[1].children[4].textContent).toBe("–");
     expect(trs[1].children[5].textContent).toBe("–");
+  });
+
+  it("60,000ms 이상은 60초 칸 글자, 그 밖은 그대로, null은 대시", () => {
+    const m = model([
+      row({ stepId: "a", p50Ms: 12, p95Ms: 60030, maxMs: 60030 }),
+      row({ stepId: "b", no: 2, p50Ms: null, p95Ms: null, maxMs: null }),
+    ]);
+    const { container } = render(<SetupPrintTable title={TITLE} model={m} from={0} to={2} />);
+    const trs = container.querySelectorAll("tbody tr");
+    expect(trs[0].children[3].textContent).toBe("12");
+    expect(trs[0].children[4].textContent).toBe(ko.report.stats.capped);
+    expect(trs[0].children[5].textContent).toBe(ko.report.stats.capped);
+    expect(trs[1].children[4].textContent).toBe("–");
   });
 
   it("from/to 조각만 그린다", () => {

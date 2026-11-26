@@ -1,5 +1,5 @@
 import { ko } from "../i18n/ko";
-import type { Report } from "../api/schemas";
+import type { LatencyStats, Report } from "../api/schemas";
 import { stepNo } from "./format";
 import { requestLine } from "./redact";
 import type { ScenarioFacts, StepFacts } from "./scenarioFacts";
@@ -162,6 +162,8 @@ export type StepRow = {
   count: number;
   errorCount: number;
   p95Ms: number;
+  /** 그 스텝의 µs 통계(통과 표본). 없으면 undefined — 옛 리포트·통과한 요청 없음. */
+  stats?: LatencyStats;
   perCode: Array<{ code: number; count: number; cls: CellClass }>;
   cells: Record<string, Cell>;
   residual: number;
@@ -232,6 +234,7 @@ export function buildStepTable(
       count: r?.count ?? 0,
       errorCount,
       p95Ms: r?.p95_ms ?? 0,
+      stats: r?.stats,
       perCode,
       cells: {},
       residual,

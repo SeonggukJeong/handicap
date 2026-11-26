@@ -259,7 +259,7 @@ describe("buildPrintDoc", () => {
     expect(p95.target).toContain("목표 ");
     expect(p95.target).not.toBe("목표 없음 (참고값)");
     expect(doc.box.kind).toBe("fail");
-    expect(doc.otherRows.some((r) => r.name === "99% 응답시간" && r.judgement === "fail")).toBe(
+    expect(doc.otherRows.some((r) => r.name === "99% 응답 시간" && r.judgement === "fail")).toBe(
       true,
     );
   });
@@ -274,7 +274,7 @@ describe("buildPrintDoc", () => {
     expect(doc.box.kind).toBe("noCriteria");
     expect(idsOf(summaryBlocks(doc, new Map(), 6))).toContain("verdict:short");
     expect(shortSummary(doc.lines).map((l) => l.text)).toEqual([
-      "오류 없이 끝났습니다. 95% 응답시간은 0.08초입니다.",
+      "오류 없이 끝났습니다. 95% 응답 시간은 0.08초입니다.",
     ]);
   });
 

@@ -538,7 +538,7 @@ describe("cmpSummaryLines 2·3번 줄", () => {
     expect(s.rows[0].cls).toBe("reference");
     const t = s.byId(2) ?? "";
     expect(t).not.toContain("오류율");
-    expect(t).toContain("99% 응답시간");
+    expect(t).toContain("99% 응답 시간");
   });
 
   it("답이 비슷이면 2번 줄이 없다", () => {
@@ -556,12 +556,12 @@ describe("cmpSummaryLines 2·3번 줄", () => {
   it("엇갈림이면 3번 줄에 나빠진 지표 하나", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, errors: 3, p95_ms: 2800 } });
     expect(s.headline.answer).toBe("mixed");
-    expect(s.byId(3)).toBe("반면 95% 응답시간은 2.4초 → 2.8초로 늘었습니다.");
+    expect(s.byId(3)).toBe("반면 95% 응답 시간은 2.4초 → 2.8초로 늘었습니다.");
   });
 
   it("오류율이 나빠진 엇갈림: 2번은 좋아진 지표, 3번은 오류율", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, errors: 90, p95_ms: 1000 } });
-    expect(s.byId(2)).toContain("95% 응답시간");
+    expect(s.byId(2)).toContain("95% 응답 시간");
     expect(s.byId(3)).toContain("반면 오류율은");
     expect(s.byId(3)).toContain("늘었습니다");
   });
@@ -585,7 +585,7 @@ describe("cmpSummaryLines 악화·조사·줄었음", () => {
     const s = scene({ summary: BEFORE }, { summary: { ...BEFORE, p95_ms: 4000 } });
     expect(s.headline.answer).toBe("worsened");
     const t = s.byId(2) ?? "";
-    expect(t).toContain("95% 응답시간");
+    expect(t).toContain("95% 응답 시간");
     expect(t).toContain("2.4초 → 4.0초");
     expect(t).toContain("67%");
     expect(s.byId(3)).toBeUndefined();
@@ -597,7 +597,7 @@ describe("cmpSummaryLines 악화·조사·줄었음", () => {
       { summary: { ...BEFORE, p95_ms: 3000, p99_ms: 6000, mean_ms: 1000 } },
     );
     expect(s.headline.answer).toBe("worsened");
-    expect(s.byId(2)).toContain("99% 응답시간");
+    expect(s.byId(2)).toContain("99% 응답 시간");
   });
 
   it("악화에서 오류율이 맨 위고 코드가 늘었으면 건수 문장이 이어진다", () => {
@@ -803,7 +803,7 @@ describe("요약 문장의 굵은 부분(시안)", () => {
       { text: "이 되었습니다." },
     ]);
     expect(s.partsOf(3)).toEqual([
-      { text: "반면 95% 응답시간은 " },
+      { text: "반면 95% 응답 시간은 " },
       { text: "2.4초 → 2.8초", strong: true },
       { text: "로 늘었습니다." },
     ]);

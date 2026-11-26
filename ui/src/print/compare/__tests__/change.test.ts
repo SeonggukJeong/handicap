@@ -123,7 +123,7 @@ describe("metricRows", () => {
     expect(row(pct, "p95_ms").changeText).toBe("±5% 이내");
   });
 
-  it("같은 글자 방지: 응답시간", () => {
+  it("같은 글자 방지: 응답 시간", () => {
     const worse = row(
       metricRows({ ...BEFORE, p95_ms: 1060 }, { ...AFTER, p95_ms: 1140 }, OPTS),
       "p95_ms",
@@ -204,7 +204,7 @@ describe("metricRows", () => {
     expect(er.isNew).toBe(false);
   });
 
-  it("요청 0건인 쪽은 오류율·응답시간을 '–'로, 건수·처리량은 0으로, 막대는 0", () => {
+  it("요청 0건인 쪽은 오류율·응답 시간을 '–'로, 건수·처리량은 0으로, 막대는 0", () => {
     const zero = { ...BEFORE, count: 0, errors: 0, rps: 0, mean_ms: 0, p95_ms: 0, p99_ms: 7 };
     const opts = { ...OPTS, incomparable: true };
     const texts = (rows: ReturnType<typeof metricRows>, side: "beforeText" | "afterText") =>
