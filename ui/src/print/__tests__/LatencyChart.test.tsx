@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { LatencyChart } from "../components/LatencyChart";
 import { sparkPath } from "../../report/sparkPath";
 import { ko } from "../../i18n/ko";
-import { PLOT_X0_MM, PLOT_X1_MM } from "../chartModel";
+import { PLOT_X0_MM, PLOT_X1_MM, markerX } from "../chartModel";
 import type { PrintDoc } from "../buildPrintDoc";
 
 const K = ko.print.latencyChart;
@@ -61,6 +61,27 @@ describe("LatencyChart", () => {
     const b = render(<LatencyChart doc={doc(model(false))} />);
     expect(b.container.textContent).not.toContain(K.capped);
     expect(b.container.textContent).toContain(K.caption("2초"));
+  });
+  it("chart.steady가 있으면 유지 구간 점선 둘이 시작·끝 칸 경계에", () => {
+    const d = {
+      chart: { durationSec: 6, timeTicks: [0, 6], steady: { startSec: 2, endSec: 5 } },
+      latencyChart: model(false),
+    } as unknown as PrintDoc;
+    const { container } = render(<LatencyChart doc={d} />);
+    const lines = [...container.querySelectorAll("line[data-steady-line]")];
+    expect(lines).toHaveLength(2);
+    const at = (sec: number) => String(Math.round(markerX(sec, 6) * 100) / 100);
+    expect(lines.map((l) => l.getAttribute("x1"))).toEqual([at(2), at(5)]);
+    for (const l of lines) {
+      expect(l.getAttribute("x2")).toBe(l.getAttribute("x1"));
+      expect(l.getAttribute("y1")).toBe("8");
+      expect(l.getAttribute("y2")).toBe("47");
+      expect(l.getAttribute("stroke-dasharray")).toBe("3 1.5");
+    }
+  });
+  it("chart.steady가 없으면 점선이 없다", () => {
+    const { container } = render(<LatencyChart doc={doc(model(false))} />);
+    expect(container.querySelectorAll("[data-steady-line]")).toHaveLength(0);
   });
   it("초가 없던 칸(observed false)은 건너뛰어 잇는다", () => {
     const m = model(false);

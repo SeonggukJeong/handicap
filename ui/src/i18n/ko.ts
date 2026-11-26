@@ -8,6 +8,9 @@ import { plain, strong, type LinePart } from "./lineParts";
  * - i18n 라이브러리 없음 — 나중에 en.ts + 컨텍스트 스위치를 더할 수 있는 구조만 유지.
  * - 용어 정의(glossary)는 전 화면 HelpTip의 단일 소스 — 화면마다 설명이 달라지면 안 된다.
  */
+/** 「스텝별로 보기」 단추 이름 — 포화 안내(`saturation.stall`)가 같은 이름을 가리킨다. */
+const STEP_LATENCY_TOGGLE = "스텝별로 보기";
+
 export const ko = {
   // 크로스커팅 UI 동작/상태 — 의미가 어디서나 동일한 것만(ADR-0035, spec R2).
   // 도메인 한정 라벨(Name/Method/VUs/표 헤더 등)은 여기 두지 말고 도메인 네임스페이스로.
@@ -1668,7 +1671,7 @@ export const ko = {
     timeSeriesErrors: "초당 에러",
     // ── 「스텝별로 보기」 작은 평균 그래프 격자 (④a) ──
     stepLatency: {
-      toggle: "스텝별로 보기",
+      toggle: STEP_LATENCY_TOGGLE,
       hint: (yMax: string) =>
         `스텝마다 평균 응답 시간입니다. 모든 그래프가 같은 세로 눈금(0–${yMax} ms)이라 높이로 서로 비교할 수 있습니다. 순서는 스텝 표와 같습니다.`,
       hintCapped: "60초를 넘긴 응답이 있는 초의 평균은 실제보다 작게 나온 값입니다.",
@@ -2096,7 +2099,8 @@ export const ko = {
     stall: (typical: string, m: string, chart: string) =>
       `평소에는 동시 실행이 ${typical}개만 쓰였어요(설정 ${m}개). 못 보낸 순간에는 응답이 멈춰서 슬롯이 잠깐 다 찼던 거예요. ` +
       `슬롯 수를 바꾸기 전에 그 시각에 서버에서 무슨 일이 있었는지 먼저 확인해 보세요(드물게 부하기 쪽이 멈춘 경우도 있어요). ` +
-      `멈춘 시각은 아래 「${chart}」 그래프에서 위로 튄 곳이에요.`,
+      `멈춘 시각은 아래 「${chart}」 그래프의 평균선이 위로 튄 곳이에요. ` +
+      `한 스텝만 멈췄다면 그 아래 「${STEP_LATENCY_TOGGLE}」에서 더 잘 보여요.`,
     sut:
       `대상 서버(SUT)가 응답 열화 신호를 보여요(에러·지연 상승) — 지금 슬롯·부하를 늘리면 서버만 더 힘들어져요. ` +
       `서버 용량·설정부터 점검한 뒤 다시 실행하세요.`,

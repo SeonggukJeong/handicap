@@ -420,6 +420,13 @@ describe("InsightPanel", () => {
     expect(row.textContent).toContain("14개");
     expect(row.textContent).toContain("2,500개");
     expect(row.textContent).toContain(ko.report.latencyChart.title);
+    expect(row.textContent).toContain(
+      `「${ko.report.latencyChart.title}」 그래프의 평균선이 위로 튄 곳이에요.`,
+    );
+    expect(row.textContent).toContain(
+      `한 스텝만 멈췄다면 그 아래 「${ko.report.stepLatency.toggle}」에서 더 잘 보여요.`,
+    );
+    expect(ko.report.stepLatency.toggle).toBe("스텝별로 보기");
     expect(document.body.textContent).not.toContain("올려 다시 실행");
   });
 
