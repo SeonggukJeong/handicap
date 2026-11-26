@@ -1,7 +1,7 @@
 # 판정 기준·응답 시간 통계 ④ — 시간대별 평균 응답 시간 그래프 + 인쇄·CSV/XLSX·비교의 통계 칸 (verdict-stats-b) 설계
 
 - 날짜: 2026-11-25 · 기준 master `c9e6574d`(③c 머지 뒤)
-- 상태: spec 검토 APPROVE(2026-11-26, 3라운드 — 1차 지적 9건·2차 5건 반영). ④a plan 검토(1차)가 찾은 빈틈 — 60초 칸이 섞인 초·창의 평균이 표시 없이 하한값으로 보임 — 을 창·초별 `capped` 표지로 메움(R-A1·R-A2·R-A4·R-A5·R-A8·R-A9, 같은 날 재검토 APPROVE). ④a plan `docs/superpowers/plans/2026-11-26-verdict-stats-4a.md` 검토 APPROVE(3라운드). ④b·④c plan은 ④a 구현 뒤.
+- 상태: spec 검토 APPROVE(2026-11-26, 3라운드 — 1차 지적 9건·2차 5건 반영). ④a plan 검토(1차)가 찾은 빈틈 — 60초 칸이 섞인 초·창의 평균이 표시 없이 하한값으로 보임 — 을 창·초별 `capped` 표지로 메움(R-A1·R-A2·R-A4·R-A5·R-A8·R-A9, 같은 날 재검토 APPROVE). ④a plan `docs/superpowers/plans/2026-11-26-verdict-stats-4a.md` 검토 APPROVE(3라운드). **④a 구현·최종 리뷰·라이브 끝(2026-11-26, 코드 `33fbd79c`..`3367b864`, 판단·연기 roadmap §B98 — 「요청이 없던 초는 잇기」·부록 카드 상자 x0 10 등 spec/plan과 다른 판단 포함).** ④b·④c plan은 다음.
 - 유형: `user-path`
 - 출처: roadmap §A17 ④ + 항목 3·4(나머지 표면) · ③ spec(`2026-11-23-verdict-stats-a-design.md`) §1.3·§10이 ④로 넘긴 것 · roadmap §B97 (1) 「60초 칸 스텝의 최소가 59998」.
 - 목업(시각 기준): `2026-11-25-verdict-stats-b-mockups/b-screens.html` — 점선 테두리가 새로 생기는 것. 사용자가 「대체로 괜찮다」로 승인(2026-11-25), 해석하다 필요한 것은 나중에 더 말하기로 함.
