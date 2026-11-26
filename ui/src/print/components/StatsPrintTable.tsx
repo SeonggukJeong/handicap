@@ -82,7 +82,7 @@ export function StatsPrintTable(props: {
       <thead data-measure={measure ? MEASURE_IDS.statsHeader : undefined}>
         <tr>
           {K.cols.map((c, i) => (
-            <th key={c} className={i === 0 ? "p-l" : undefined}>
+            <th key={c} className={i === 0 ? "p-l" : "p-stats-num"}>
               {c}
             </th>
           ))}

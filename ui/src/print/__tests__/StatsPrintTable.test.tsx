@@ -31,6 +31,18 @@ describe("StatsPrintTable", () => {
     ]);
   });
 
+  it("숫자 머리 여덟 칸은 숫자 칸과 같은 맞춤 클래스, 단계 머리는 아니다", () => {
+    const { container } = render(
+      <StatsPrintTable title={TITLE} model={model([r("1 로그인")])} from={0} to={2} />,
+    );
+    const heads = screen.getAllByRole("columnheader");
+    expect(heads[0]).not.toHaveClass("p-stats-num");
+    for (const h of heads.slice(1)) expect(h).toHaveClass("p-stats-num");
+    expect(heads.slice(1)).toHaveLength(8);
+    const td = container.querySelector("tbody tr")!.children[1];
+    expect(td).toHaveClass("p-stats-num");
+  });
+
   it("「모든 단계」 행이 마지막, 숫자 칸은 오른쪽 맞춤 표시", () => {
     const { container } = render(
       <StatsPrintTable title={TITLE} model={model([r("1 로그인"), r("2 목록")])} from={0} to={3} />,

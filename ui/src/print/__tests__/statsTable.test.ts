@@ -121,6 +121,36 @@ describe("buildStatsModel", () => {
     expect(m.cappedNote).toBe(false);
   });
 
+  it("스텝은 모두 정상이고 합계만 capped면 안내가 켜진다", () => {
+    const m = build([A], { summary: summary({ stats: stats({ capped: true }) }) })!;
+    expect(m.cappedNote).toBe(true);
+  });
+
+  it("합계에 60초 칸이 있으면(스텝은 정상) 안내가 켜진다", () => {
+    const m = build([A], { summary: summary({ stats: stats({ max_us: 60_000_000 }) }) })!;
+    expect(m.total.cells[6]).toBe(ko.report.stats.capped);
+    expect(m.cappedNote).toBe(true);
+  });
+
+  it("그려지지 않은 합계(hasTime 거짓)의 capped는 안내를 켜지 않는다", () => {
+    const m = build([A], {
+      summary: summary({ stats: stats({ capped: true, max_us: 60_000_000 }) }),
+      hasTime: false,
+    })!;
+    expect(m.total.cells).toEqual(Array(8).fill(DASH));
+    expect(m.cappedNote).toBe(false);
+  });
+
+  it("표본이 failed면 캡션은 「모든 요청」 기준", () => {
+    const m = buildStatsModel({
+      rows: [A],
+      summary: summary({ stats: stats() }),
+      sample: "failed",
+      hasTime: true,
+    })!;
+    expect(m.caption).toBe(ko.print.stats.caption(ko.print.stats.sampleAll));
+  });
+
   it("합계가 시간 없음(hasTime 거짓)이면 합계 행은 「–」", () => {
     const m = build([A], { hasTime: false })!;
     expect(m.total.cells).toEqual(Array(8).fill(DASH));

@@ -548,10 +548,12 @@
 .p-root .p-block--stats {
   padding-top: 1.5mm;
 }
-.p-root .p-stats td.p-stats-num {
+.p-root .p-stats .p-stats-num {
   text-align: right;
-  white-space: nowrap;
   padding: 1.3mm 1.6mm;
+}
+.p-root .p-stats td.p-stats-num {
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .p-root .p-stats th {
