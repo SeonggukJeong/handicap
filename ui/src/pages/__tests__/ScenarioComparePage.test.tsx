@@ -48,6 +48,17 @@ const baseReport = {
     p50_ms: 10,
     p95_ms: 25,
     p99_ms: 35,
+    stats: {
+      min_us: 5000,
+      mean_us: 18000,
+      max_us: 35000,
+      stdev_us: 2500,
+      p50_us: 10000,
+      p90_us: 25000,
+      p95_us: 25000,
+      p99_us: 35000,
+      capped: false,
+    },
   },
   steps: [],
   status_distribution: { "200": 98, "500": 2 },
@@ -60,7 +71,12 @@ const baseReport = {
 const reportB = {
   ...baseReport,
   run: { ...baseReport.run, id: "B" },
-  summary: { ...baseReport.summary, p95_ms: 30, p99_ms: 40 },
+  summary: {
+    ...baseReport.summary,
+    p95_ms: 30,
+    p99_ms: 40,
+    stats: { ...baseReport.summary.stats, p90_us: 30000, p95_us: 30000, p99_us: 40000 },
+  },
 };
 
 describe("ScenarioComparePage", () => {
@@ -152,7 +168,9 @@ describe("ScenarioComparePage", () => {
     );
     renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
     await screen.findByText("p95_ms");
-    expect(screen.queryByText(/선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/선택한 run 가운데 오류 집계 규칙이 다른 run이 있습니다/),
+    ).not.toBeInTheDocument();
   });
 
   it("두 규칙이 다 다른 run을 비교하면 안내 한 문장만 보인다", async () => {

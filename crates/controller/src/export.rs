@@ -1,5 +1,6 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
+use crate::latency_stats::{CAP_US, LatencyStats};
 use crate::report::{ReportJson, SetupReport};
 use crate::sample::{Sample, SampleBlock};
 use crate::steady::{Basis, BasisState};
@@ -18,14 +19,72 @@ pub enum Polarity {
 pub struct Delta {
     pub pct: Option<f64>,
     pub polarity: Polarity,
+    /// 한쪽이라도 60초 칸이라 변화율을 낼 수 없다(`pct`는 None).
+    pub capped: bool,
+}
+
+/// 비교 요약의 지표 순서(화면 `compareReports.ts`와 같은 순서). 시간 지표 여덟 + rps + error_rate.
+const SUMMARY_METRICS: [&str; 10] = [
+    "p50_ms",
+    "p90_ms",
+    "p95_ms",
+    "p99_ms",
+    "mean_ms",
+    "min_ms",
+    "max_ms",
+    "stdev_ms",
+    "rps",
+    "error_rate",
+];
+
+/// 스텝별 비교 지표 순서. 비교 CSV·XLSX의 스텝 행(다음 task)이 읽기 전까지는 테스트만 쓴다.
+#[allow(dead_code)]
+const STEP_METRICS: [&str; 6] = [
+    "p95_ms", "mean_ms", "min_ms", "max_ms", "stdev_ms", "p90_ms",
+];
+
+/// 응답 시간 지표(낮을수록 좋음)인가.
+fn is_time_metric(metric: &str) -> bool {
+    matches!(
+        metric,
+        "p50_ms" | "p90_ms" | "p95_ms" | "p99_ms" | "mean_ms" | "min_ms" | "max_ms" | "stdev_ms"
+    )
+}
+
+/// 비교에 쓰는 값 하나. `us`는 시간 지표일 때만(CSV 글자용), `cut`은 60초 칸에 걸린 값.
+#[derive(Debug, Clone, Copy)]
+struct MetricVal {
+    v: f64,
+    /// 시간 지표의 원래 µs — CSV 글자(다음 task)가 읽는다.
+    #[allow(dead_code)]
+    us: Option<u64>,
+    cut: bool,
+}
+
+/// `stats`에서 시간 지표 하나를 꺼낸다. 평균·표준편차는 `stats.capped`, 나머지는 µs ≥ `CAP_US`로 「잘림」.
+fn stat_val(stats: &LatencyStats, metric: &str) -> Option<MetricVal> {
+    let (us, cut) = match metric {
+        "p50_ms" => (stats.p50_us, stats.p50_us >= CAP_US),
+        "p90_ms" => (stats.p90_us, stats.p90_us >= CAP_US),
+        "p95_ms" => (stats.p95_us, stats.p95_us >= CAP_US),
+        "p99_ms" => (stats.p99_us, stats.p99_us >= CAP_US),
+        "mean_ms" => (stats.mean_us, stats.capped),
+        "min_ms" => (stats.min_us, stats.min_us >= CAP_US),
+        "max_ms" => (stats.max_us, stats.max_us >= CAP_US),
+        "stdev_ms" => (stats.stdev_us, stats.capped),
+        _ => return None,
+    };
+    Some(MetricVal {
+        v: us as f64 / 1000.0,
+        us: Some(us),
+        cut,
+    })
 }
 
 /// lower_is_better metrics return true. count/duration are neutral (caller excludes them).
 fn delta(metric: &str, base: f64, val: f64) -> Delta {
-    let lower_is_better = matches!(
-        metric,
-        "p50_ms" | "p95_ms" | "p99_ms" | "error_rate" | "setup_failed" | "setup_errors"
-    );
+    let lower_is_better =
+        is_time_metric(metric) || matches!(metric, "error_rate" | "setup_failed" | "setup_errors");
     let pct = if base == 0.0 {
         None
     } else {
@@ -38,7 +97,29 @@ fn delta(metric: &str, base: f64, val: f64) -> Delta {
     } else {
         Polarity::Bad
     };
-    Delta { pct, polarity }
+    Delta {
+        pct,
+        polarity,
+        capped: false,
+    }
+}
+
+/// 60초 칸 규칙을 얹은 변화율. 둘 다 안 잘렸으면 `delta`와 같다. 한쪽만 잘렸으면 `pct: None`·`capped`,
+/// 방향은 비교 쪽이 잘렸고 값 ≥ 기준이면 bad, 기준 쪽이 잘렸고 값 ≥ 비교면 good, 아니면 neutral.
+/// 둘 다 잘렸으면 neutral.
+fn delta_of(metric: &str, base: MetricVal, val: MetricVal) -> Delta {
+    let polarity = match (base.cut, val.cut) {
+        (false, false) => return delta(metric, base.v, val.v),
+        (true, true) => Polarity::Neutral,
+        (false, true) if val.v >= base.v => Polarity::Bad,
+        (true, false) if base.v >= val.v => Polarity::Good,
+        _ => Polarity::Neutral,
+    };
+    Delta {
+        pct: None,
+        polarity,
+        capped: true,
+    }
 }
 
 /// pct 분수를 UI `formatPct`(CompareMatrix.tsx:12-14)와 동일하게: 부호 + 소수1자리 + '%'.
@@ -51,6 +132,13 @@ fn format_pct(pct: f64) -> String {
 /// 비교 Δ 셀 텍스트(글리프 + %)를 UI `DeltaChip`(CompareMatrix.tsx:17-49)과 1:1로 생성.
 /// pct None(base=0) → value>0 ? "신규" : "동일". 글리프: Bad=▲, Good=▼, Neutral=없음.
 fn delta_cell_text(d: &Delta, value: f64) -> String {
+    if d.capped {
+        return match d.polarity {
+            Polarity::Bad => "▲ —".to_string(),
+            Polarity::Good => "▼ —".to_string(),
+            Polarity::Neutral => "—".to_string(),
+        };
+    }
     let base = match d.pct {
         None => {
             if value > 0.0 {
@@ -68,38 +156,46 @@ fn delta_cell_text(d: &Delta, value: f64) -> String {
     }
 }
 
-/// Extract one summary metric's value from a run (error_rate is a fraction).
-fn summary_metric(s: &crate::report::ReportSummary, metric: &str) -> f64 {
-    match metric {
-        "p50_ms" => s.p50_ms as f64,
-        "p95_ms" => s.p95_ms as f64,
-        "p99_ms" => s.p99_ms as f64,
-        "rps" => s.rps,
-        "error_rate" => {
-            if s.count == 0 {
-                0.0
-            } else {
-                s.errors as f64 / s.count as f64
-            }
-        }
-        _ => 0.0,
-    }
-}
-
 /// 통과한 요청이 하나도 없어 응답 시간이 「값 없음」인가. 통과 = `count − errors`
 /// (「보내지 않음」도 오류에 든다). 나눌 수 없는 옛 run은 `default == All`이라 늘 거짓.
 fn latency_missing(sample: &SampleBlock, count: u64, errors: u64) -> bool {
     sample.default == Sample::Passed && count == errors
 }
 
-/// 비교용 요약 값. 응답 시간 지표가 값 없음이면 `None`.
-fn summary_value(r: &ReportJson, metric: &str) -> Option<f64> {
-    let latency = matches!(metric, "p50_ms" | "p95_ms" | "p99_ms");
-    if latency && latency_missing(&r.sample, r.summary.count, r.summary.errors) {
-        None
-    } else {
-        Some(summary_metric(&r.summary, metric))
+/// 비교용 요약 값. 시간 지표는 `summary.stats`에서(없거나 통과한 요청이 없으면 `None`),
+/// `rps`·`error_rate`는 그대로(`cut: false`).
+fn summary_value(r: &ReportJson, metric: &str) -> Option<MetricVal> {
+    let plain = |v: f64| {
+        Some(MetricVal {
+            v,
+            us: None,
+            cut: false,
+        })
+    };
+    match metric {
+        "rps" => plain(r.summary.rps),
+        "error_rate" => plain(if r.summary.count == 0 {
+            0.0
+        } else {
+            r.summary.errors as f64 / r.summary.count as f64
+        }),
+        _ if is_time_metric(metric) => {
+            if latency_missing(&r.sample, r.summary.count, r.summary.errors) {
+                return None;
+            }
+            r.summary.stats.as_ref().and_then(|s| stat_val(s, metric))
+        }
+        _ => None,
     }
+}
+
+/// 비교용 스텝 값(시간 지표만). 스텝이 없거나 통과한 요청이 없거나 `stats`가 없으면 `None`.
+fn step_value(r: &ReportJson, step_id: &str, metric: &str) -> Option<MetricVal> {
+    let st = r.steps.iter().find(|s| s.step_id == step_id)?;
+    if latency_missing(&r.sample, st.count, st.error_count) {
+        return None;
+    }
+    st.stats.as_ref().and_then(|s| stat_val(s, metric))
 }
 
 fn sample_label(s: Sample) -> &'static str {
@@ -118,8 +214,6 @@ fn latency_csv(missing: bool, ms: u64) -> String {
         ms.to_string()
     }
 }
-
-const SUMMARY_METRICS: [&str; 5] = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_rate"];
 
 /// 모든 CSV/XLSX 인사이트 표면이 공유하는 정규 컬럼 순서(단일 소스).
 /// `Insight` 구조체(insights.rs) 필드 순서와 일치. 비교 표면은 `run_id` 열을
@@ -379,14 +473,14 @@ pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8>
         for r in reports {
             rec.push(
                 summary_value(r, metric)
-                    .map(|v| v.to_string())
+                    .map(|m| m.v.to_string())
                     .unwrap_or_default(),
             );
         }
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
                 let pct = match (base, summary_value(r, metric)) {
-                    (Some(b), Some(v)) => delta(metric, b, v).pct,
+                    (Some(b), Some(v)) => delta_of(metric, b, v).pct,
                     _ => None,
                 };
                 rec.push(pct.map(|p| format!("{p:.6}")).unwrap_or_default());
@@ -678,16 +772,16 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         ws.write_string(row, 0, *metric).expect("w");
         let base = summary_value(&reports[baseline_idx], metric);
         for (i, r) in reports.iter().enumerate() {
-            if let Some(v) = summary_value(r, metric) {
-                ws.write_number(row, (1 + i) as u16, v).expect("w");
+            if let Some(m) = summary_value(r, metric) {
+                ws.write_number(row, (1 + i) as u16, m.v).expect("w");
             }
         }
         let mut dcol = delta_start;
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
                 if let (Some(b), Some(val)) = (base, summary_value(r, metric)) {
-                    let d = delta(metric, b, val);
-                    write_delta_cell(ws, row, dcol, &d, val, &fmt_bad, &fmt_good);
+                    let d = delta_of(metric, b, val);
+                    write_delta_cell(ws, row, dcol, &d, val.v, &fmt_bad, &fmt_good);
                 }
                 dcol += 1;
             }
@@ -726,17 +820,11 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         ws.write_string(row, 0, sid).expect("w");
         // baseline p95 (그 스텝이 있을 때만 Some — absent면 None, unwrap_or 금지).
         // 값 없음(통과한 요청 없음)인 스텝도 None.
-        let step_p95 = |r: &ReportJson| {
-            r.steps
-                .iter()
-                .find(|s| &s.step_id == sid)
-                .filter(|s| !latency_missing(&r.sample, s.count, s.error_count))
-                .map(|s| s.p95_ms as f64)
-        };
+        let step_p95 = |r: &ReportJson| step_value(r, sid, "p95_ms");
         let base = step_p95(&reports[baseline_idx]);
         for (i, r) in reports.iter().enumerate() {
-            if let Some(v) = step_p95(r) {
-                ws.write_number(row, (1 + i) as u16, v).expect("w");
+            if let Some(m) = step_p95(r) {
+                ws.write_number(row, (1 + i) as u16, m.v).expect("w");
             }
         }
         // Δ 셀: 비-baseline run마다 dcol 무조건 전진, 기록은 base·val 둘 다 Some일 때만.
@@ -745,8 +833,8 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
             if i != baseline_idx {
                 let val = step_p95(r);
                 if let (Some(b), Some(v)) = (base, val) {
-                    let d = delta("p95_ms", b, v);
-                    write_delta_cell(ws, row, dcol, &d, v, &fmt_bad, &fmt_good);
+                    let d = delta_of("p95_ms", b, v);
+                    write_delta_cell(ws, row, dcol, &d, v.v, &fmt_bad, &fmt_good);
                 }
                 dcol += 1;
             }
@@ -1551,9 +1639,33 @@ mod tests {
     use crate::report::*;
     use std::collections::BTreeMap;
 
+    /// 정수 ms 칸과 같은 값의 µs 통계(새 칸은 정상 범위의 임의 값: 최소 = p50/2, 평균 = p50,
+    /// 최대 = p99, 표준편차 = p95/10, p90 = p95).
+    fn lat_stats(p50: u64, p95: u64, p99: u64) -> crate::latency_stats::LatencyStats {
+        crate::latency_stats::LatencyStats {
+            min_us: p50 * 500,
+            mean_us: p50 * 1000,
+            max_us: p99 * 1000,
+            stdev_us: p95 * 100,
+            p50_us: p50 * 1000,
+            p90_us: p95 * 1000,
+            p95_us: p95 * 1000,
+            p99_us: p99 * 1000,
+            capped: false,
+        }
+    }
+
+    /// 요약의 정수 칸과 `stats`를 같은 값으로 맞춘다.
+    fn set_lat(r: &mut ReportJson, p50: u64, p95: u64, p99: u64) {
+        r.summary.p50_ms = p50;
+        r.summary.p95_ms = p95;
+        r.summary.p99_ms = p99;
+        r.summary.stats = Some(lat_stats(p50, p95, p99));
+    }
+
     fn step(id: &str, count: u64, p95: u64) -> ReportStep {
         ReportStep {
-            stats: None,
+            stats: Some(lat_stats(1, p95, p95)),
             step_id: id.into(),
             count,
             error_count: 0,
@@ -1632,6 +1744,75 @@ mod tests {
         assert!(lines[1].starts_with("a,10,0,1,50,50"));
     }
 
+    const GOLDEN: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/compare_golden.json"
+    ));
+
+    fn pol_name(p: Polarity) -> String {
+        format!("{p:?}").to_lowercase()
+    }
+
+    fn assert_delta(label: &str, d: &Delta, exp: &serde_json::Value) {
+        match exp["pct"].as_f64() {
+            None => assert!(d.pct.is_none(), "{label}: pct null"),
+            Some(p) => assert!(
+                (d.pct.expect("pct") - p).abs() < 1e-9,
+                "{label}: pct {:?} vs {p}",
+                d.pct
+            ),
+        }
+        assert_eq!(
+            pol_name(d.polarity),
+            exp["polarity"].as_str().unwrap(),
+            "{label}: polarity"
+        );
+        assert_eq!(
+            d.capped,
+            exp["capped"].as_bool().unwrap(),
+            "{label}: capped"
+        );
+    }
+
+    /// 골든 행(`values`·`deltas`) 하나를 리포트 목록에 대어 본다. `get`은 리포트·행에서 값을 꺼낸다.
+    fn assert_rows(
+        label: &str,
+        reports: &[ReportJson],
+        baseline_id: &str,
+        rows: &[&serde_json::Value],
+        get: impl Fn(&ReportJson, &serde_json::Value) -> Option<MetricVal>,
+    ) {
+        let base_idx = reports
+            .iter()
+            .position(|r| r.run.id == baseline_id)
+            .unwrap();
+        for row in rows {
+            let metric = row["metric"].as_str().unwrap();
+            let vals: Vec<Option<MetricVal>> = reports.iter().map(|r| get(r, row)).collect();
+            for (i, v) in vals.iter().enumerate() {
+                let tag = format!("{label}: {metric} #{i}");
+                match row["values"][i].as_f64() {
+                    None => assert!(v.is_none(), "{tag}: value null"),
+                    Some(e) => assert!(
+                        (v.expect("value").v - e).abs() < 1e-9,
+                        "{tag}: value {:?} vs {e}",
+                        v.map(|m| m.v)
+                    ),
+                }
+                let exp = &row["deltas"][i];
+                if exp.is_null() {
+                    assert!(
+                        i == base_idx || v.is_none() || vals[base_idx].is_none(),
+                        "{tag}: delta null only for baseline/missing"
+                    );
+                } else {
+                    let d = delta_of(metric, vals[base_idx].expect("base"), v.expect("val"));
+                    assert_delta(&tag, &d, exp);
+                }
+            }
+        }
+    }
+
     #[test]
     fn golden_summary_deltas_match() {
         #[derive(serde::Deserialize)]
@@ -1640,46 +1821,84 @@ mod tests {
             baseline_id: String,
             expected: serde_json::Value,
         }
-        let g: Golden = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../testdata/compare_golden.json"
-        )))
-        .expect("golden parse");
-        let base_idx = g
+        let g: Golden = serde_json::from_str(GOLDEN).expect("golden parse");
+        let rows: Vec<&serde_json::Value> =
+            g.expected["summary"].as_array().unwrap().iter().collect();
+        let names: Vec<&str> = rows.iter().map(|r| r["metric"].as_str().unwrap()).collect();
+        assert_eq!(names, SUMMARY_METRICS.to_vec());
+        assert_rows("summary", &g.reports, &g.baseline_id, &rows, |r, row| {
+            summary_value(r, row["metric"].as_str().unwrap())
+        });
+    }
+
+    #[test]
+    fn golden_step_deltas_match() {
+        #[derive(serde::Deserialize)]
+        struct Golden {
+            reports: Vec<ReportJson>,
+            baseline_id: String,
+            expected: serde_json::Value,
+        }
+        let g: Golden = serde_json::from_str(GOLDEN).expect("golden parse");
+        let rows: Vec<&serde_json::Value> = g.expected["step_deltas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .collect();
+        let mut ids: Vec<String> = g
             .reports
             .iter()
-            .position(|r| r.run.id == g.baseline_id)
-            .unwrap();
-        for row in g.expected["summary"].as_array().unwrap() {
+            .flat_map(|r| r.steps.iter().map(|s| s.step_id.clone()))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        let want: Vec<(String, String)> = ids
+            .iter()
+            .flat_map(|id| {
+                STEP_METRICS
+                    .iter()
+                    .map(move |m| (id.clone(), m.to_string()))
+            })
+            .collect();
+        let got: Vec<(String, String)> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r["step_id"].as_str().unwrap().to_string(),
+                    r["metric"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(got, want);
+        assert_rows("steps", &g.reports, &g.baseline_id, &rows, |r, row| {
+            step_value(
+                r,
+                row["step_id"].as_str().unwrap(),
+                row["metric"].as_str().unwrap(),
+            )
+        });
+    }
+
+    #[test]
+    fn golden_capped_table_matches() {
+        let g: serde_json::Value = serde_json::from_str(GOLDEN).expect("golden parse");
+        let rows = g["expected"]["capped"].as_array().unwrap();
+        assert_eq!(rows.len(), 7);
+        for row in rows {
             let metric = row["metric"].as_str().unwrap();
-            let base = summary_metric(&g.reports[base_idx].summary, metric);
-            for (i, r) in g.reports.iter().enumerate() {
-                let exp = &row["deltas"][i];
-                let d = delta(metric, base, summary_metric(&r.summary, metric));
-                if exp.is_null() {
-                    assert_eq!(i, base_idx, "{metric}: null delta only for baseline");
-                } else {
-                    let exp_pct = exp["pct"].as_f64().unwrap();
-                    assert!(
-                        (d.pct.unwrap() - exp_pct).abs() < 1e-9,
-                        "{metric} pct mismatch"
-                    );
-                    assert_eq!(
-                        format!("{:?}", d.polarity).to_lowercase(),
-                        exp["polarity"].as_str().unwrap()
-                    );
-                }
-            }
+            let mv = |v: &str, cut: &str| MetricVal {
+                v: row[v].as_f64().unwrap(),
+                us: None,
+                cut: row[cut].as_bool().unwrap(),
+            };
+            let d = delta_of(metric, mv("base", "base_cut"), mv("val", "val_cut"));
+            assert_delta(&format!("capped {metric}"), &d, row);
         }
     }
 
     #[test]
     fn golden_polarity_matches() {
-        let g: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../testdata/compare_golden.json"
-        )))
-        .expect("golden parse");
+        let g: serde_json::Value = serde_json::from_str(GOLDEN).expect("golden parse");
         let rows = g["expected"]["polarity"].as_array().unwrap();
         assert_eq!(rows.len(), 12);
         for row in rows {
@@ -1687,6 +1906,7 @@ mod tests {
             let base = row["base"].as_f64().unwrap();
             let val = row["val"].as_f64().unwrap();
             let d = delta(metric, base, val);
+            assert!(!d.capped, "{metric}: delta() never capped");
             match row["pct"].as_f64() {
                 None => assert!(d.pct.is_none(), "{metric} {base}->{val}: pct null"),
                 Some(p) => assert!(
@@ -1695,9 +1915,72 @@ mod tests {
                 ),
             }
             assert_eq!(
-                format!("{:?}", d.polarity).to_lowercase(),
+                pol_name(d.polarity),
                 row["polarity"].as_str().unwrap(),
                 "{metric} {base}->{val}"
+            );
+        }
+    }
+
+    #[test]
+    fn golden_missing_cases_match() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            reports: Vec<ReportJson>,
+            baseline_id: String,
+            expected: serde_json::Value,
+        }
+        #[derive(serde::Deserialize)]
+        struct Golden {
+            missing_cases: Vec<Case>,
+        }
+        let g: Golden = serde_json::from_str(GOLDEN).expect("golden parse");
+        assert_eq!(g.missing_cases.len(), 2);
+        for case in &g.missing_cases {
+            let rows: Vec<&serde_json::Value> = case.expected["summary"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .collect();
+            assert_eq!(rows.len(), SUMMARY_METRICS.len(), "{}", case.name);
+            assert_rows(
+                &case.name,
+                &case.reports,
+                &case.baseline_id,
+                &rows,
+                |r, row| summary_value(r, row["metric"].as_str().unwrap()),
+            );
+        }
+    }
+
+    #[test]
+    fn golden_stats_cases_match() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            reports: Vec<ReportJson>,
+            baseline_id: String,
+            expected: serde_json::Value,
+        }
+        #[derive(serde::Deserialize)]
+        struct Golden {
+            stats_cases: Vec<Case>,
+        }
+        let g: Golden = serde_json::from_str(GOLDEN).expect("golden parse");
+        assert_eq!(g.stats_cases.len(), 3);
+        for case in &g.stats_cases {
+            let rows: Vec<&serde_json::Value> = case.expected["summary"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .collect();
+            assert_rows(
+                &case.name,
+                &case.reports,
+                &case.baseline_id,
+                &rows,
+                |r, row| summary_value(r, row["metric"].as_str().unwrap()),
             );
         }
     }
@@ -1928,21 +2211,21 @@ mod tests {
         use std::io::Cursor;
         let mut a = report_with_steps(vec![step("s", 1, 100)]);
         a.run.id = "A".into();
-        a.summary.p95_ms = 100;
+        set_lat(&mut a, 50, 100, 100);
         let mut b = report_with_steps(vec![step("s", 1, 150)]);
         b.run.id = "B".into();
-        b.summary.p95_ms = 150;
+        set_lat(&mut b, 75, 150, 150);
         let bytes = comparison_to_xlsx(&[a, b], 0);
         let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
         let sum = wb.worksheet_range("Summary").unwrap();
-        // SUMMARY_METRICS = [p50_ms, p95_ms, p99_ms, rps, error_rate]; p95_ms is index 1 → row 2.
+        // SUMMARY_METRICS = [p50_ms, p90_ms, p95_ms, ..]; p95_ms is index 2 → row 3.
         // col 0 = metric label, col 1 = base run value, col 2 = candidate value.
-        assert_eq!(sum.get_value((2, 1)), Some(&Data::Float(100.0)));
-        assert_eq!(sum.get_value((2, 2)), Some(&Data::Float(150.0)));
+        assert_eq!(sum.get_value((3, 1)), Some(&Data::Float(100.0)));
+        assert_eq!(sum.get_value((3, 2)), Some(&Data::Float(150.0)));
         // Δ 열(col 3 = delta_start = 1 metric + 2 run 값 뒤). p95 100→150:
         // lower_is_better, val>base → Bad, pct=+50.0% → "▲ +50.0%".
         assert_eq!(
-            sum.get_value((2, 3)),
+            sum.get_value((3, 3)),
             Some(&calamine::Data::String("▲ +50.0%".into()))
         );
 
@@ -2263,7 +2546,8 @@ mod tests {
             delta_cell_text(
                 &Delta {
                     pct: Some(0.5),
-                    polarity: Bad
+                    polarity: Bad,
+                    capped: false,
                 },
                 150.0
             ),
@@ -2273,7 +2557,8 @@ mod tests {
             delta_cell_text(
                 &Delta {
                     pct: Some(-0.182),
-                    polarity: Good
+                    polarity: Good,
+                    capped: false,
                 },
                 9.0
             ),
@@ -2284,7 +2569,8 @@ mod tests {
             delta_cell_text(
                 &Delta {
                     pct: Some(0.0),
-                    polarity: Neutral
+                    polarity: Neutral,
+                    capped: false,
                 },
                 100.0
             ),
@@ -2295,7 +2581,8 @@ mod tests {
             delta_cell_text(
                 &Delta {
                     pct: None,
-                    polarity: Good
+                    polarity: Good,
+                    capped: false,
                 },
                 9.0
             ),
@@ -2305,7 +2592,8 @@ mod tests {
             delta_cell_text(
                 &Delta {
                     pct: None,
-                    polarity: Bad
+                    polarity: Bad,
+                    capped: false,
                 },
                 5.0
             ),
@@ -2315,12 +2603,34 @@ mod tests {
             delta_cell_text(
                 &Delta {
                     pct: None,
-                    polarity: Neutral
+                    polarity: Neutral,
+                    capped: false,
                 },
                 0.0
             ),
             "동일"
         );
+    }
+
+    #[test]
+    fn delta_cell_text_capped() {
+        use Polarity::*;
+        let d = |polarity| Delta {
+            pct: None,
+            polarity,
+            capped: true,
+        };
+        // 60초 칸 변화율: 「신규」·「동일」이 아니라 「—」(값은 보지 않는다).
+        assert_eq!(delta_cell_text(&d(Bad), 60000.0), "▲ —");
+        assert_eq!(delta_cell_text(&d(Good), 0.0), "▼ —");
+        assert_eq!(delta_cell_text(&d(Neutral), 60000.0), "—");
+        // 잘림이 pct 갈래보다 먼저다.
+        let with_pct = Delta {
+            pct: Some(0.5),
+            polarity: Bad,
+            capped: true,
+        };
+        assert_eq!(delta_cell_text(&with_pct, 1.0), "▲ —");
     }
 
     fn insight(kind: &str, severity: &str) -> crate::insights::Insight {
@@ -3733,18 +4043,50 @@ steps:
 
     #[test]
     fn comparison_csv_without_setup_is_unchanged() {
-        let a = named_run("A", vec![step("a", 10, 50)]);
-        let b = named_run("B", vec![step("a", 10, 60)]);
+        let mut a = named_run("A", vec![step("a", 10, 50)]);
+        set_lat(&mut a, 50, 100, 100);
+        let mut b = named_run("B", vec![step("a", 10, 60)]);
+        set_lat(&mut b, 60, 120, 120);
         let csv = String::from_utf8(comparison_to_csv(&[a, b], 0)).unwrap();
         assert_eq!(
             csv,
             "metric,A (base),B,delta_pct B\n\
-             p50_ms,0,0,\n\
-             p95_ms,0,0,\n\
-             p99_ms,0,0,\n\
+             p50_ms,50,60,0.200000\n\
+             p90_ms,100,120,0.200000\n\
+             p95_ms,100,120,0.200000\n\
+             p99_ms,100,120,0.200000\n\
+             mean_ms,50,60,0.200000\n\
+             min_ms,25,30,0.200000\n\
+             max_ms,100,120,0.200000\n\
+             stdev_ms,10,12,0.200000\n\
              rps,0,0,\n\
              error_rate,0,0,\n"
         );
+    }
+
+    #[test]
+    fn comparison_without_stats_is_blank_not_zero() {
+        // `stats`가 없는 리포트(옛 run·요청 0건)는 정수 칸이 0이어도 0을 찍지 않는다 — 시간 여덟 행이 빈 칸.
+        use calamine::Reader;
+        let a = named_run("A", vec![step("a", 10, 50)]);
+        let b = named_run("B", vec![step("a", 10, 60)]);
+        assert!(a.summary.stats.is_none() && b.summary.stats.is_none());
+        let csv = String::from_utf8(comparison_to_csv(&[a, b], 0)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 11);
+        for line in &lines[1..=8] {
+            assert!(line.ends_with(",,,"), "{line}");
+        }
+        assert_eq!(lines[9], "rps,0,0,");
+        let a = named_run("A", vec![step("a", 10, 50)]);
+        let b = named_run("B", vec![step("a", 10, 60)]);
+        let mut wb = read_xlsx(comparison_to_xlsx(&[a, b], 0));
+        let ws = wb.worksheet_range("Summary").unwrap();
+        for row in 1..=8u32 {
+            for col in [1u32, 2, 3] {
+                assert!(is_blank(ws.get_value((row, col))), "row {row} col {col}");
+            }
+        }
     }
 
     #[test]
@@ -3808,11 +4150,11 @@ steps:
         let csv = String::from_utf8(comparison_to_csv(&[a, b, c], 0)).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "metric,A (base),B,C,delta_pct B,delta_pct C");
-        assert_eq!(lines[5], "error_rate,0,0,0,,");
-        assert_eq!(lines[6], "setup_ok,50,,47,,-0.060000");
-        assert_eq!(lines[7], "setup_failed,0,,3,,");
-        assert_eq!(lines[8], "basis,steady,steady,steady,,");
-        assert_eq!(lines.len(), 9);
+        assert_eq!(lines[10], "error_rate,0,0,0,,");
+        assert_eq!(lines[11], "setup_ok,50,,47,,-0.060000");
+        assert_eq!(lines[12], "setup_failed,0,,3,,");
+        assert_eq!(lines[13], "basis,steady,steady,steady,,");
+        assert_eq!(lines.len(), 14);
     }
 
     #[test]
@@ -3925,9 +4267,9 @@ steps:
         let csv = String::from_utf8(comparison_to_csv(&reports, 1)).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "metric,A,B (base),C,delta_pct A,delta_pct C");
-        assert_eq!(lines[6], "setup_ok,50,,47,,");
-        assert_eq!(lines[7], "setup_failed,0,,3,,");
-        assert_eq!(lines.len(), 8);
+        assert_eq!(lines[11], "setup_ok,50,,47,,");
+        assert_eq!(lines[12], "setup_failed,0,,3,,");
+        assert_eq!(lines.len(), 13);
     }
 
     fn passed_split() -> crate::sample::SampleBlock {
@@ -3941,6 +4283,7 @@ steps:
     /// 나눌 수 있는 run. `all_failed`면 모든 요청이 실패해 통과한 요청이 없다.
     fn split_run(id: &str, all_failed: bool, p95: u64) -> ReportJson {
         let mut st = step("s", 5, p95);
+        st.stats = Some(lat_stats(p95 / 2, p95, p95));
         let mut r = report_with_steps(vec![]);
         r.run.id = id.into();
         r.sample = passed_split();
@@ -3948,11 +4291,14 @@ steps:
         r.summary.p50_ms = p95 / 2;
         r.summary.p95_ms = p95;
         r.summary.p99_ms = p95;
+        r.summary.stats = Some(lat_stats(p95 / 2, p95, p95));
         if all_failed {
             r.summary.errors = 10;
             r.summary.p50_ms = 0;
             r.summary.p95_ms = 0;
             r.summary.p99_ms = 0;
+            r.summary.stats = None;
+            st.stats = None;
             st.error_count = 5;
             st.p50_ms = 0;
             st.p95_ms = 0;
@@ -4171,11 +4517,12 @@ steps:
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines[0], "metric,A (base),B,C,delta_pct B,delta_pct C");
         assert_eq!(lines[1], "p50_ms,50,,75,,0.500000");
-        assert_eq!(lines[2], "p95_ms,100,,150,,0.500000");
-        assert!(lines[4].starts_with("rps,"));
+        assert_eq!(lines[2], "p90_ms,100,,150,,0.500000");
+        assert_eq!(lines[3], "p95_ms,100,,150,,0.500000");
+        assert!(lines[9].starts_with("rps,"));
         let mut wb = read_xlsx(comparison_to_xlsx(&reports, 0));
         let ws = wb.worksheet_range("Summary").unwrap();
-        for row in 1..=3u32 {
+        for row in 1..=8u32 {
             assert!(!blank(ws.get_value((row, 1))), "base row {row}");
             assert!(blank(ws.get_value((row, 2))), "B value row {row}");
             assert!(blank(ws.get_value((row, 4))), "Δ B row {row}");
@@ -4211,67 +4558,5 @@ steps:
         assert!(blank(ws.get_value((1, 3))));
         assert!(blank(ws.get_value((1, 5))));
         assert!(!blank(ws.get_value((1, 4))));
-    }
-
-    #[test]
-    fn golden_missing_cases_match() {
-        #[derive(serde::Deserialize)]
-        struct Case {
-            name: String,
-            reports: Vec<ReportJson>,
-            baseline_id: String,
-            expected: serde_json::Value,
-        }
-        #[derive(serde::Deserialize)]
-        struct Golden {
-            missing_cases: Vec<Case>,
-        }
-        let g: Golden = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../testdata/compare_golden.json"
-        )))
-        .expect("golden parse");
-        assert_eq!(g.missing_cases.len(), 2);
-        for case in &g.missing_cases {
-            let base_idx = case
-                .reports
-                .iter()
-                .position(|r| r.run.id == case.baseline_id)
-                .unwrap();
-            for row in case.expected["summary"].as_array().unwrap() {
-                let metric = row["metric"].as_str().unwrap();
-                let base = summary_value(&case.reports[base_idx], metric);
-                for (i, r) in case.reports.iter().enumerate() {
-                    let val = summary_value(r, metric);
-                    let exp_val = &row["values"][i];
-                    match val {
-                        None => assert!(exp_val.is_null(), "{}: {metric} value {i}", case.name),
-                        Some(v) => assert!(
-                            (v - exp_val.as_f64().unwrap()).abs() < 1e-9,
-                            "{}: {metric} value {i}",
-                            case.name
-                        ),
-                    }
-                    let exp = &row["deltas"][i];
-                    match (i == base_idx, base, val) {
-                        (false, Some(b), Some(v)) => {
-                            let d = delta(metric, b, v);
-                            assert!(
-                                (d.pct.unwrap() - exp["pct"].as_f64().unwrap()).abs() < 1e-9,
-                                "{}: {metric} pct {i}",
-                                case.name
-                            );
-                            assert_eq!(
-                                format!("{:?}", d.polarity).to_lowercase(),
-                                exp["polarity"].as_str().unwrap(),
-                                "{}: {metric} polarity {i}",
-                                case.name
-                            );
-                        }
-                        _ => assert!(exp.is_null(), "{}: {metric} delta {i}", case.name),
-                    }
-                }
-            }
-        }
     }
 }

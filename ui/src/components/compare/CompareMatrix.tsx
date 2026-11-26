@@ -20,7 +20,39 @@ function formatPct(pct: number): string {
 
 function DeltaChip({ cell }: { cell: Cell }) {
   if (cell.delta === null) return null;
-  const { pct, polarity } = cell.delta;
+  const { pct, polarity, capped } = cell.delta;
+
+  if (capped) {
+    // 한쪽이 60초 칸 — 변화율 대신 「—」(신규·동일이 아니다). 색·글리프는 방향.
+    const title = ko.compare.cappedDeltaTitle;
+    if (polarity === "bad") {
+      return (
+        <span
+          className="ml-1 text-red-600 text-xs"
+          title={title}
+          aria-label={ko.compare.worseAria(title)}
+        >
+          ▲—
+        </span>
+      );
+    }
+    if (polarity === "good") {
+      return (
+        <span
+          className="ml-1 text-green-600 text-xs"
+          title={title}
+          aria-label={ko.compare.betterAria(title)}
+        >
+          ▼—
+        </span>
+      );
+    }
+    return (
+      <span className="ml-1 text-slate-500 text-xs" title={title} aria-label={title}>
+        —
+      </span>
+    );
+  }
 
   let text: string;
   if (pct === null) {

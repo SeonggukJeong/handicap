@@ -2296,6 +2296,7 @@ export const ko = {
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,
+    cappedDeltaTitle: "60초를 넘긴 응답이 있어 변화율을 계산할 수 없습니다",
     setupOk: "준비 성공",
     setupFailed: "준비 실패",
     setupStepP95: (name: string) => `${name} p95 ms`,

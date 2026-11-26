@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { CompareMatrix } from "../CompareMatrix";
 import type { CompareResult } from "../../../compare/compareReports";
 import { runColor } from "../../../compare/runLabel";
+import { ko } from "../../../i18n/ko";
 
 const result: CompareResult = {
   runIds: ["A", "B"],
@@ -14,11 +15,12 @@ const result: CompareResult = {
       metric: "p95_ms",
       cells: [
         { value: 152, delta: null },
-        { value: 184, delta: { pct: 0.21, polarity: "bad" } },
+        { value: 184, delta: { pct: 0.21, polarity: "bad", capped: false } },
       ],
     },
   ],
   steps: [],
+  stepStats: [],
   status: [],
   verdict: { passed: [true, false] },
   stepMismatch: true,
@@ -33,6 +35,7 @@ describe("CompareMatrix verdict polarity (spec R8)", () => {
       baselineIdx: 0,
       summary: [],
       steps: [],
+      stepStats: [],
       status: [],
       verdict: { passed },
       stepMismatch: false,
@@ -131,6 +134,7 @@ describe("CompareMatrix sublines (run-identity Task 9, additive optional prop)",
     baselineIdx: 1,
     summary: [],
     steps: [],
+    stepStats: [],
     status: [],
     verdict: { passed: [null, null] },
     stepMismatch: false,
@@ -180,6 +184,7 @@ describe("CompareMatrix 준비 스텝 section", () => {
     baselineIdx: 0,
     summary: [row("p95_ms", "p95_ms")],
     steps: [row("m1", "p95_ms", "m1")],
+    stepStats: [],
     status: [row("200", "status")],
     verdict: { passed: [null, null] },
     stepMismatch: false,
@@ -232,5 +237,63 @@ describe("CompareMatrix 준비 스텝 section", () => {
     );
     const tr = screen.getByText("준비 성공").closest("tr")!;
     expect(tr.querySelectorAll("td")[2]).toHaveTextContent("—");
+  });
+});
+
+describe("CompareMatrix 60초 칸 변화율 칩 (R-B5)", () => {
+  const labels = { A: "#A", B: "#B" };
+  const capped = (polarity: "good" | "bad" | "neutral"): CompareResult => ({
+    runIds: ["A", "B"],
+    baselineIdx: 0,
+    summary: [
+      {
+        label: "max_ms",
+        metric: "max_ms",
+        cells: [
+          { value: 1840, delta: null },
+          { value: 60000, delta: { pct: null, polarity, capped: true } },
+        ],
+      },
+    ],
+    steps: [],
+    stepStats: [],
+    status: [],
+    setup: [],
+    verdict: { passed: [null, null] },
+    stepMismatch: false,
+  });
+  const chip = (polarity: "good" | "bad" | "neutral") => {
+    const { container } = render(
+      <CompareMatrix result={capped(polarity)} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const td = screen.getByText("max_ms").closest("tr")!.querySelectorAll("td")[2];
+    const el = td.querySelector("span");
+    expect(el, "chip").not.toBeNull();
+    return { td, el: el!, container };
+  };
+
+  it("bad → 「▲—」, title은 잘림 사유, aria-label은 「더 나쁨: 사유」", () => {
+    const { el } = chip("bad");
+    expect(el).toHaveTextContent("▲—");
+    expect(el).toHaveAttribute("title", ko.compare.cappedDeltaTitle);
+    expect(el).toHaveAttribute("aria-label", ko.compare.worseAria(ko.compare.cappedDeltaTitle));
+  });
+
+  it("good → 「▼—」, aria-label은 「더 좋음: 사유」", () => {
+    const { el } = chip("good");
+    expect(el).toHaveTextContent("▼—");
+    expect(el).toHaveAttribute("aria-label", ko.compare.betterAria(ko.compare.cappedDeltaTitle));
+  });
+
+  it("neutral → 「—」, aria-label은 사유 그대로(「동일」·「신규」 없음)", () => {
+    const { td, el } = chip("neutral");
+    expect(el).toHaveTextContent(/^—$/);
+    expect(el).toHaveAttribute("aria-label", ko.compare.cappedDeltaTitle);
+    expect(td.textContent).not.toMatch(/신규|동일/);
+    expect(el.getAttribute("aria-label")).not.toMatch(/신규|동일/);
+  });
+
+  it("사유 문구 자체가 정해진 글자다", () => {
+    expect(ko.compare.cappedDeltaTitle).toBe("60초를 넘긴 응답이 있어 변화율을 계산할 수 없습니다");
   });
 });

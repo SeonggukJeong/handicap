@@ -1,20 +1,122 @@
 {
   "reports": [
     {
-      "run": { "id": "run-baseline", "scenario_id": "s1", "status": "completed", "profile": null, "env": null, "started_at": 0, "ended_at": 30000, "created_at": 0 },
+      "run": {
+        "id": "run-baseline",
+        "scenario_id": "s1",
+        "status": "completed",
+        "profile": null,
+        "env": null,
+        "started_at": 0,
+        "ended_at": 30000,
+        "created_at": 0
+      },
       "scenario_yaml": "",
-      "summary": { "count": 10000, "errors": 10, "rps": 20400.0, "duration_seconds": 30, "mean_ms": 25, "p50_ms": 9, "p95_ms": 152, "p99_ms": 240 },
+      "summary": {
+        "count": 10000,
+        "errors": 10,
+        "rps": 20400.0,
+        "duration_seconds": 30,
+        "mean_ms": 25,
+        "p50_ms": 9,
+        "p95_ms": 152,
+        "p99_ms": 240,
+        "stats": {
+          "min_us": 2000,
+          "mean_us": 25000,
+          "max_us": 400000,
+          "stdev_us": 30000,
+          "p50_us": 9000,
+          "p90_us": 100000,
+          "p95_us": 152000,
+          "p99_us": 240000,
+          "capped": false
+        }
+      },
       "windows": [],
-      "steps": [],
+      "steps": [
+        {
+          "step_id": "s1",
+          "count": 100,
+          "error_count": 0,
+          "status_counts": {},
+          "p50_ms": 8,
+          "p95_ms": 80,
+          "p99_ms": 200,
+          "stats": {
+            "min_us": 1000,
+            "mean_us": 20000,
+            "max_us": 300000,
+            "stdev_us": 10000,
+            "p50_us": 8000,
+            "p90_us": 50000,
+            "p95_us": 80000,
+            "p99_us": 200000,
+            "capped": false
+          },
+          "loop_breakdown": []
+        }
+      ],
       "status_distribution": {},
       "if_breakdown": []
     },
     {
-      "run": { "id": "run-candidate", "scenario_id": "s1", "status": "completed", "profile": null, "env": null, "started_at": 0, "ended_at": 30000, "created_at": 1000 },
+      "run": {
+        "id": "run-candidate",
+        "scenario_id": "s1",
+        "status": "completed",
+        "profile": null,
+        "env": null,
+        "started_at": 0,
+        "ended_at": 30000,
+        "created_at": 1000
+      },
       "scenario_yaml": "",
-      "summary": { "count": 10000, "errors": 20, "rps": 19800.0, "duration_seconds": 30, "mean_ms": 32, "p50_ms": 11, "p95_ms": 184, "p99_ms": 251 },
+      "summary": {
+        "count": 10000,
+        "errors": 20,
+        "rps": 19800.0,
+        "duration_seconds": 30,
+        "mean_ms": 32,
+        "p50_ms": 11,
+        "p95_ms": 184,
+        "p99_ms": 251,
+        "stats": {
+          "min_us": 3000,
+          "mean_us": 32000,
+          "max_us": 500000,
+          "stdev_us": 36000,
+          "p50_us": 11000,
+          "p90_us": 120000,
+          "p95_us": 184000,
+          "p99_us": 251000,
+          "capped": false
+        }
+      },
       "windows": [],
-      "steps": [],
+      "steps": [
+        {
+          "step_id": "s1",
+          "count": 100,
+          "error_count": 0,
+          "status_counts": {},
+          "p50_ms": 9,
+          "p95_ms": 100,
+          "p99_ms": 210,
+          "stats": {
+            "min_us": 1000,
+            "mean_us": 25000,
+            "max_us": 240000,
+            "stdev_us": 15000,
+            "p50_us": 9000,
+            "p90_us": 60000,
+            "p95_us": 100000,
+            "p99_us": 210000,
+            "capped": false
+          },
+          "loop_breakdown": []
+        }
+      ],
       "status_distribution": {},
       "if_breakdown": []
     }
@@ -22,25 +124,412 @@
   "baseline_id": "run-baseline",
   "expected": {
     "summary": [
-      { "metric": "p50_ms", "values": [9, 11], "deltas": [null, { "pct": 0.2222222222222222, "polarity": "bad" }] },
-      { "metric": "p95_ms", "values": [152, 184], "deltas": [null, { "pct": 0.21052631578947367, "polarity": "bad" }] },
-      { "metric": "p99_ms", "values": [240, 251], "deltas": [null, { "pct": 0.04583333333333333, "polarity": "bad" }] },
-      { "metric": "rps", "values": [20400, 19800], "deltas": [null, { "pct": -0.029411764705882353, "polarity": "bad" }] },
-      { "metric": "error_rate", "values": [0.001, 0.002], "deltas": [null, { "pct": 1.0, "polarity": "bad" }] }
+      {
+        "metric": "p50_ms",
+        "values": [
+          9,
+          11
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.2222222222222222,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "p90_ms",
+        "values": [
+          100,
+          120
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.2,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "p95_ms",
+        "values": [
+          152,
+          184
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.21052631578947367,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "p99_ms",
+        "values": [
+          240,
+          251
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.04583333333333333,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "mean_ms",
+        "values": [
+          25,
+          32
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.28,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "min_ms",
+        "values": [
+          2,
+          3
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.5,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "max_ms",
+        "values": [
+          400,
+          500
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.25,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "stdev_ms",
+        "values": [
+          30,
+          36
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.2,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "rps",
+        "values": [
+          20400,
+          19800
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": -0.029411764705882353,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "metric": "error_rate",
+        "values": [
+          0.001,
+          0.002
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 1.0,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      }
+    ],
+    "step_deltas": [
+      {
+        "step_id": "s1",
+        "metric": "p95_ms",
+        "values": [
+          80,
+          100
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.25,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "step_id": "s1",
+        "metric": "mean_ms",
+        "values": [
+          20,
+          25
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.25,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "step_id": "s1",
+        "metric": "min_ms",
+        "values": [
+          1,
+          1
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0,
+            "polarity": "neutral",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "step_id": "s1",
+        "metric": "max_ms",
+        "values": [
+          300,
+          240
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": -0.2,
+            "polarity": "good",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "step_id": "s1",
+        "metric": "stdev_ms",
+        "values": [
+          10,
+          15
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.5,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      },
+      {
+        "step_id": "s1",
+        "metric": "p90_ms",
+        "values": [
+          50,
+          60
+        ],
+        "deltas": [
+          null,
+          {
+            "pct": 0.2,
+            "polarity": "bad",
+            "capped": false
+          }
+        ]
+      }
+    ],
+    "capped": [
+      {
+        "metric": "max_ms",
+        "base": 1840,
+        "val": 60000,
+        "base_cut": false,
+        "val_cut": true,
+        "pct": null,
+        "polarity": "bad",
+        "capped": true
+      },
+      {
+        "metric": "mean_ms",
+        "base": 40000,
+        "val": 30007.796,
+        "base_cut": false,
+        "val_cut": true,
+        "pct": null,
+        "polarity": "neutral",
+        "capped": true
+      },
+      {
+        "metric": "max_ms",
+        "base": 60000,
+        "val": 1840,
+        "base_cut": true,
+        "val_cut": false,
+        "pct": null,
+        "polarity": "good",
+        "capped": true
+      },
+      {
+        "metric": "mean_ms",
+        "base": 30007.796,
+        "val": 40000,
+        "base_cut": true,
+        "val_cut": false,
+        "pct": null,
+        "polarity": "neutral",
+        "capped": true
+      },
+      {
+        "metric": "p99_ms",
+        "base": 60000,
+        "val": 60000,
+        "base_cut": true,
+        "val_cut": true,
+        "pct": null,
+        "polarity": "neutral",
+        "capped": true
+      },
+      {
+        "metric": "stdev_ms",
+        "base": 100,
+        "val": 100,
+        "base_cut": false,
+        "val_cut": true,
+        "pct": null,
+        "polarity": "bad",
+        "capped": true
+      },
+      {
+        "metric": "p95_ms",
+        "base": 152,
+        "val": 184,
+        "base_cut": false,
+        "val_cut": false,
+        "pct": 0.21052631578947367,
+        "polarity": "bad",
+        "capped": false
+      }
     ],
     "polarity": [
-      { "metric": "setup_ok", "base": 50, "val": 47, "pct": -0.06, "polarity": "bad" },
-      { "metric": "setup_ok", "base": 47, "val": 50, "pct": 0.06382978723404255, "polarity": "good" },
-      { "metric": "setup_ok", "base": 50, "val": 50, "pct": 0, "polarity": "neutral" },
-      { "metric": "setup_ok", "base": 0, "val": 5, "pct": null, "polarity": "good" },
-      { "metric": "setup_failed", "base": 2, "val": 3, "pct": 0.5, "polarity": "bad" },
-      { "metric": "setup_failed", "base": 3, "val": 2, "pct": -0.3333333333333333, "polarity": "good" },
-      { "metric": "setup_failed", "base": 3, "val": 3, "pct": 0, "polarity": "neutral" },
-      { "metric": "setup_failed", "base": 0, "val": 3, "pct": null, "polarity": "bad" },
-      { "metric": "setup_errors", "base": 4, "val": 6, "pct": 0.5, "polarity": "bad" },
-      { "metric": "setup_errors", "base": 6, "val": 3, "pct": -0.5, "polarity": "good" },
-      { "metric": "setup_errors", "base": 0, "val": 0, "pct": null, "polarity": "neutral" },
-      { "metric": "setup_errors", "base": 0, "val": 2, "pct": null, "polarity": "bad" }
+      {
+        "metric": "setup_ok",
+        "base": 50,
+        "val": 47,
+        "pct": -0.06,
+        "polarity": "bad"
+      },
+      {
+        "metric": "setup_ok",
+        "base": 47,
+        "val": 50,
+        "pct": 0.06382978723404255,
+        "polarity": "good"
+      },
+      {
+        "metric": "setup_ok",
+        "base": 50,
+        "val": 50,
+        "pct": 0,
+        "polarity": "neutral"
+      },
+      {
+        "metric": "setup_ok",
+        "base": 0,
+        "val": 5,
+        "pct": null,
+        "polarity": "good"
+      },
+      {
+        "metric": "setup_failed",
+        "base": 2,
+        "val": 3,
+        "pct": 0.5,
+        "polarity": "bad"
+      },
+      {
+        "metric": "setup_failed",
+        "base": 3,
+        "val": 2,
+        "pct": -0.3333333333333333,
+        "polarity": "good"
+      },
+      {
+        "metric": "setup_failed",
+        "base": 3,
+        "val": 3,
+        "pct": 0,
+        "polarity": "neutral"
+      },
+      {
+        "metric": "setup_failed",
+        "base": 0,
+        "val": 3,
+        "pct": null,
+        "polarity": "bad"
+      },
+      {
+        "metric": "setup_errors",
+        "base": 4,
+        "val": 6,
+        "pct": 0.5,
+        "polarity": "bad"
+      },
+      {
+        "metric": "setup_errors",
+        "base": 6,
+        "val": 3,
+        "pct": -0.5,
+        "polarity": "good"
+      },
+      {
+        "metric": "setup_errors",
+        "base": 0,
+        "val": 0,
+        "pct": null,
+        "polarity": "neutral"
+      },
+      {
+        "metric": "setup_errors",
+        "base": 0,
+        "val": 2,
+        "pct": null,
+        "polarity": "bad"
+      }
     ]
   },
   "missing_cases": [
@@ -48,34 +537,202 @@
       "name": "baseline_missing",
       "reports": [
         {
-          "run": { "id": "run-baseline", "scenario_id": "s1", "status": "completed", "profile": null, "env": null, "started_at": 0, "ended_at": 30000, "created_at": 0 },
+          "run": {
+            "id": "run-baseline",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 0
+          },
           "scenario_yaml": "",
-          "summary": { "count": 10000, "errors": 10000, "rps": 20400.0, "duration_seconds": 30, "mean_ms": 0, "p50_ms": 0, "p95_ms": 0, "p99_ms": 0 },
+          "summary": {
+            "count": 10000,
+            "errors": 10000,
+            "rps": 20400.0,
+            "duration_seconds": 30,
+            "mean_ms": 0,
+            "p50_ms": 0,
+            "p95_ms": 0,
+            "p99_ms": 0
+          },
           "windows": [],
           "steps": [],
           "status_distribution": {},
           "if_breakdown": [],
-          "sample": { "selected": "passed", "default": "passed", "split": true }
+          "sample": {
+            "selected": "passed",
+            "default": "passed",
+            "split": true
+          }
         },
         {
-          "run": { "id": "run-candidate", "scenario_id": "s1", "status": "completed", "profile": null, "env": null, "started_at": 0, "ended_at": 30000, "created_at": 1000 },
+          "run": {
+            "id": "run-candidate",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 1000
+          },
           "scenario_yaml": "",
-          "summary": { "count": 10000, "errors": 20, "rps": 19800.0, "duration_seconds": 30, "mean_ms": 32, "p50_ms": 11, "p95_ms": 184, "p99_ms": 251 },
+          "summary": {
+            "count": 10000,
+            "errors": 20,
+            "rps": 19800.0,
+            "duration_seconds": 30,
+            "mean_ms": 32,
+            "p50_ms": 11,
+            "p95_ms": 184,
+            "p99_ms": 251,
+            "stats": {
+              "min_us": 3000,
+              "mean_us": 32000,
+              "max_us": 500000,
+              "stdev_us": 36000,
+              "p50_us": 11000,
+              "p90_us": 120000,
+              "p95_us": 184000,
+              "p99_us": 251000,
+              "capped": false
+            }
+          },
           "windows": [],
           "steps": [],
           "status_distribution": {},
           "if_breakdown": [],
-          "sample": { "selected": "passed", "default": "passed", "split": true }
+          "sample": {
+            "selected": "passed",
+            "default": "passed",
+            "split": true
+          }
         }
       ],
       "baseline_id": "run-baseline",
       "expected": {
         "summary": [
-          { "metric": "p50_ms", "values": [null, 11], "deltas": [null, null] },
-          { "metric": "p95_ms", "values": [null, 184], "deltas": [null, null] },
-          { "metric": "p99_ms", "values": [null, 251], "deltas": [null, null] },
-          { "metric": "rps", "values": [20400, 19800], "deltas": [null, { "pct": -0.029411764705882353, "polarity": "bad" }] },
-          { "metric": "error_rate", "values": [1.0, 0.002], "deltas": [null, { "pct": -0.998, "polarity": "good" }] }
+          {
+            "metric": "p50_ms",
+            "values": [
+              null,
+              11
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p90_ms",
+            "values": [
+              null,
+              120
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p95_ms",
+            "values": [
+              null,
+              184
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p99_ms",
+            "values": [
+              null,
+              251
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "mean_ms",
+            "values": [
+              null,
+              32
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "min_ms",
+            "values": [
+              null,
+              3
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "max_ms",
+            "values": [
+              null,
+              500
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "stdev_ms",
+            "values": [
+              null,
+              36
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "rps",
+            "values": [
+              20400,
+              19800
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": -0.029411764705882353,
+                "polarity": "bad",
+                "capped": false
+              }
+            ]
+          },
+          {
+            "metric": "error_rate",
+            "values": [
+              1.0,
+              0.002
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": -0.998,
+                "polarity": "good",
+                "capped": false
+              }
+            ]
+          }
         ]
       }
     },
@@ -83,34 +740,704 @@
       "name": "candidate_missing",
       "reports": [
         {
-          "run": { "id": "run-baseline", "scenario_id": "s1", "status": "completed", "profile": null, "env": null, "started_at": 0, "ended_at": 30000, "created_at": 0 },
+          "run": {
+            "id": "run-baseline",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 0
+          },
           "scenario_yaml": "",
-          "summary": { "count": 10000, "errors": 10, "rps": 20400.0, "duration_seconds": 30, "mean_ms": 25, "p50_ms": 9, "p95_ms": 152, "p99_ms": 240 },
+          "summary": {
+            "count": 10000,
+            "errors": 10,
+            "rps": 20400.0,
+            "duration_seconds": 30,
+            "mean_ms": 25,
+            "p50_ms": 9,
+            "p95_ms": 152,
+            "p99_ms": 240,
+            "stats": {
+              "min_us": 2000,
+              "mean_us": 25000,
+              "max_us": 400000,
+              "stdev_us": 30000,
+              "p50_us": 9000,
+              "p90_us": 100000,
+              "p95_us": 152000,
+              "p99_us": 240000,
+              "capped": false
+            }
+          },
           "windows": [],
           "steps": [],
           "status_distribution": {},
           "if_breakdown": [],
-          "sample": { "selected": "passed", "default": "passed", "split": true }
+          "sample": {
+            "selected": "passed",
+            "default": "passed",
+            "split": true
+          }
         },
         {
-          "run": { "id": "run-candidate", "scenario_id": "s1", "status": "completed", "profile": null, "env": null, "started_at": 0, "ended_at": 30000, "created_at": 1000 },
+          "run": {
+            "id": "run-candidate",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 1000
+          },
           "scenario_yaml": "",
-          "summary": { "count": 10000, "errors": 10000, "rps": 19800.0, "duration_seconds": 30, "mean_ms": 0, "p50_ms": 0, "p95_ms": 0, "p99_ms": 0 },
+          "summary": {
+            "count": 10000,
+            "errors": 10000,
+            "rps": 19800.0,
+            "duration_seconds": 30,
+            "mean_ms": 0,
+            "p50_ms": 0,
+            "p95_ms": 0,
+            "p99_ms": 0
+          },
           "windows": [],
           "steps": [],
           "status_distribution": {},
           "if_breakdown": [],
-          "sample": { "selected": "passed", "default": "passed", "split": true }
+          "sample": {
+            "selected": "passed",
+            "default": "passed",
+            "split": true
+          }
         }
       ],
       "baseline_id": "run-baseline",
       "expected": {
         "summary": [
-          { "metric": "p50_ms", "values": [9, null], "deltas": [null, null] },
-          { "metric": "p95_ms", "values": [152, null], "deltas": [null, null] },
-          { "metric": "p99_ms", "values": [240, null], "deltas": [null, null] },
-          { "metric": "rps", "values": [20400, 19800], "deltas": [null, { "pct": -0.029411764705882353, "polarity": "bad" }] },
-          { "metric": "error_rate", "values": [0.001, 1.0], "deltas": [null, { "pct": 999.0, "polarity": "bad" }] }
+          {
+            "metric": "p50_ms",
+            "values": [
+              9,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p90_ms",
+            "values": [
+              100,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p95_ms",
+            "values": [
+              152,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p99_ms",
+            "values": [
+              240,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "mean_ms",
+            "values": [
+              25,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "min_ms",
+            "values": [
+              2,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "max_ms",
+            "values": [
+              400,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "stdev_ms",
+            "values": [
+              30,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "rps",
+            "values": [
+              20400,
+              19800
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": -0.029411764705882353,
+                "polarity": "bad",
+                "capped": false
+              }
+            ]
+          },
+          {
+            "metric": "error_rate",
+            "values": [
+              0.001,
+              1.0
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": 999.0,
+                "polarity": "bad",
+                "capped": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "stats_cases": [
+    {
+      "name": "candidate_capped",
+      "reports": [
+        {
+          "run": {
+            "id": "run-baseline",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 0
+          },
+          "scenario_yaml": "",
+          "summary": {
+            "count": 10000,
+            "errors": 10,
+            "rps": 20400.0,
+            "duration_seconds": 30,
+            "mean_ms": 25,
+            "p50_ms": 9,
+            "p95_ms": 152,
+            "p99_ms": 240,
+            "stats": {
+              "min_us": 2000,
+              "mean_us": 25000,
+              "max_us": 400000,
+              "stdev_us": 30000,
+              "p50_us": 9000,
+              "p90_us": 100000,
+              "p95_us": 152000,
+              "p99_us": 240000,
+              "capped": false
+            }
+          },
+          "windows": [],
+          "steps": [],
+          "status_distribution": {},
+          "if_breakdown": []
+        },
+        {
+          "run": {
+            "id": "run-candidate",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 1000
+          },
+          "scenario_yaml": "",
+          "summary": {
+            "count": 10000,
+            "errors": 20,
+            "rps": 19800.0,
+            "duration_seconds": 30,
+            "mean_ms": 30008,
+            "p50_ms": 1,
+            "p95_ms": 60000,
+            "p99_ms": 60000,
+            "stats": {
+              "min_us": 1000,
+              "mean_us": 30007796,
+              "max_us": 60000000,
+              "stdev_us": 29999796,
+              "p50_us": 1000,
+              "p90_us": 60000000,
+              "p95_us": 60000000,
+              "p99_us": 60000000,
+              "capped": true
+            }
+          },
+          "windows": [],
+          "steps": [],
+          "status_distribution": {},
+          "if_breakdown": []
+        }
+      ],
+      "baseline_id": "run-baseline",
+      "expected": {
+        "summary": [
+          {
+            "metric": "p50_ms",
+            "values": [
+              9,
+              1
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": -0.8888888888888888,
+                "polarity": "good",
+                "capped": false
+              }
+            ]
+          },
+          {
+            "metric": "p90_ms",
+            "values": [
+              100,
+              60000
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": null,
+                "polarity": "bad",
+                "capped": true
+              }
+            ]
+          },
+          {
+            "metric": "max_ms",
+            "values": [
+              400,
+              60000
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": null,
+                "polarity": "bad",
+                "capped": true
+              }
+            ]
+          },
+          {
+            "metric": "mean_ms",
+            "values": [
+              25,
+              30007.796
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": null,
+                "polarity": "bad",
+                "capped": true
+              }
+            ]
+          },
+          {
+            "metric": "stdev_ms",
+            "values": [
+              30,
+              29999.796
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": null,
+                "polarity": "bad",
+                "capped": true
+              }
+            ]
+          },
+          {
+            "metric": "min_ms",
+            "values": [
+              2,
+              1
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": -0.5,
+                "polarity": "good",
+                "capped": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "both_capped",
+      "reports": [
+        {
+          "run": {
+            "id": "run-baseline",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 0
+          },
+          "scenario_yaml": "",
+          "summary": {
+            "count": 10000,
+            "errors": 10,
+            "rps": 20400.0,
+            "duration_seconds": 30,
+            "mean_ms": 30008,
+            "p50_ms": 1,
+            "p95_ms": 60000,
+            "p99_ms": 60000,
+            "stats": {
+              "min_us": 1000,
+              "mean_us": 30007796,
+              "max_us": 60000000,
+              "stdev_us": 29999796,
+              "p50_us": 1000,
+              "p90_us": 60000000,
+              "p95_us": 60000000,
+              "p99_us": 60000000,
+              "capped": true
+            }
+          },
+          "windows": [],
+          "steps": [],
+          "status_distribution": {},
+          "if_breakdown": []
+        },
+        {
+          "run": {
+            "id": "run-candidate",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 1000
+          },
+          "scenario_yaml": "",
+          "summary": {
+            "count": 10000,
+            "errors": 20,
+            "rps": 19800.0,
+            "duration_seconds": 30,
+            "mean_ms": 30008,
+            "p50_ms": 1,
+            "p95_ms": 60000,
+            "p99_ms": 60000,
+            "stats": {
+              "min_us": 1000,
+              "mean_us": 30007796,
+              "max_us": 60000000,
+              "stdev_us": 29999796,
+              "p50_us": 1000,
+              "p90_us": 60000000,
+              "p95_us": 60000000,
+              "p99_us": 60000000,
+              "capped": true
+            }
+          },
+          "windows": [],
+          "steps": [],
+          "status_distribution": {},
+          "if_breakdown": []
+        }
+      ],
+      "baseline_id": "run-baseline",
+      "expected": {
+        "summary": [
+          {
+            "metric": "max_ms",
+            "values": [
+              60000,
+              60000
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": null,
+                "polarity": "neutral",
+                "capped": true
+              }
+            ]
+          },
+          {
+            "metric": "mean_ms",
+            "values": [
+              30007.796,
+              30007.796
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": null,
+                "polarity": "neutral",
+                "capped": true
+              }
+            ]
+          },
+          {
+            "metric": "p50_ms",
+            "values": [
+              1,
+              1
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": 0,
+                "polarity": "neutral",
+                "capped": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "stats_absent",
+      "reports": [
+        {
+          "run": {
+            "id": "run-baseline",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 0
+          },
+          "scenario_yaml": "",
+          "summary": {
+            "count": 10000,
+            "errors": 10,
+            "rps": 20400.0,
+            "duration_seconds": 30,
+            "mean_ms": 25,
+            "p50_ms": 9,
+            "p95_ms": 152,
+            "p99_ms": 240,
+            "stats": {
+              "min_us": 2000,
+              "mean_us": 25000,
+              "max_us": 400000,
+              "stdev_us": 30000,
+              "p50_us": 9000,
+              "p90_us": 100000,
+              "p95_us": 152000,
+              "p99_us": 240000,
+              "capped": false
+            }
+          },
+          "windows": [],
+          "steps": [],
+          "status_distribution": {},
+          "if_breakdown": []
+        },
+        {
+          "run": {
+            "id": "run-candidate",
+            "scenario_id": "s1",
+            "status": "completed",
+            "profile": null,
+            "env": null,
+            "started_at": 0,
+            "ended_at": 30000,
+            "created_at": 1000
+          },
+          "scenario_yaml": "",
+          "summary": {
+            "count": 10000,
+            "errors": 20,
+            "rps": 19800.0,
+            "duration_seconds": 30,
+            "mean_ms": 32,
+            "p50_ms": 11,
+            "p95_ms": 184,
+            "p99_ms": 251
+          },
+          "windows": [],
+          "steps": [],
+          "status_distribution": {},
+          "if_breakdown": []
+        }
+      ],
+      "baseline_id": "run-baseline",
+      "expected": {
+        "summary": [
+          {
+            "metric": "p50_ms",
+            "values": [
+              9,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p90_ms",
+            "values": [
+              100,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p95_ms",
+            "values": [
+              152,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "p99_ms",
+            "values": [
+              240,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "mean_ms",
+            "values": [
+              25,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "min_ms",
+            "values": [
+              2,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "max_ms",
+            "values": [
+              400,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "stdev_ms",
+            "values": [
+              30,
+              null
+            ],
+            "deltas": [
+              null,
+              null
+            ]
+          },
+          {
+            "metric": "rps",
+            "values": [
+              20400,
+              19800
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": -0.029411764705882353,
+                "polarity": "bad",
+                "capped": false
+              }
+            ]
+          },
+          {
+            "metric": "error_rate",
+            "values": [
+              0.001,
+              0.002
+            ],
+            "deltas": [
+              null,
+              {
+                "pct": 1.0,
+                "polarity": "bad",
+                "capped": false
+              }
+            ]
+          }
         ]
       }
     }
