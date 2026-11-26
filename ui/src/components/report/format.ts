@@ -57,6 +57,14 @@ export function latencyCellText(x: LatencyShown): string {
   return ko.report.stats.capped;
 }
 
+export type TimeRound = "floor" | "round";
+
+/** 통계 한 칸(µs) 글자 — 최소·최대·백분위는 내림, 평균·표준편차는 반올림, 1ms 미만 µs, 60초 칸 「≥ 60,000」. */
+export function statMsText(us: number, round: TimeRound): string {
+  const ms = round === "floor" ? Math.floor(us / 1000) : Math.round(us / 1000);
+  return latencyCellText(latencyShown(ms, us));
+}
+
 /** 반복 나눔 아래 줄(stats 없음) — 60,000ms 초과는 60초 칸에서만 나오므로 「≥ 60,000」. */
 export function splitLatencyText(ms: number): string {
   return ms > 60000 ? ko.report.stats.capped : `${ms}`;

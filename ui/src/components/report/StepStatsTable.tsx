@@ -2,7 +2,15 @@ import { Fragment, useState } from "react";
 import type { ReportSampleName, ReportStep, ReportSummary } from "../../api/schemas";
 import { hasLatency, stepCounts } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
-import { CAP_US, latencyCellText, latencyShown, meanShown, splitLatencyText } from "./format";
+import {
+  CAP_US,
+  latencyCellText,
+  latencyShown,
+  meanShown,
+  splitLatencyText,
+  statMsText,
+  type TimeRound,
+} from "./format";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { RetryBadge } from "./LoopExitSummary";
@@ -35,13 +43,11 @@ const STAT_BG = "bg-slate-50";
 const NAME_WRAP = " whitespace-normal min-w-[10rem]";
 const URL_WRAP = " whitespace-normal min-w-[16rem]";
 const TOTAL_TOP = "border-t border-slate-300";
-const floorMs = (us: number) => Math.floor(us / 1000);
-const roundMs = (us: number) => Math.round(us / 1000);
 
 // 통계 열 한 칸 — µs 값이 없으면 「—」.
-function statText(us: number | undefined, toMs: (us: number) => number): string {
+function statText(us: number | undefined, round: TimeRound): string {
   if (us === undefined) return "—";
-  return latencyCellText(latencyShown(toMs(us), us));
+  return statMsText(us, round);
 }
 
 // 하나도 보내지 않은 스텝에는 잰 시간이 없다 — 0으로 찍지 않는다.
@@ -248,8 +254,8 @@ export function StepStatsTable({
               const isOpen = open.has(s.step_id);
               // 새 통계 칸 — p 칸과 같이 하나도 보내지 않은 스텝은 「—」.
               const sent = hasLatency(stepCounts(s), sample);
-              const shownStat = (us: number | undefined, toMs: (us: number) => number) =>
-                sent ? statText(us, toMs) : "—";
+              const shownStat = (us: number | undefined, round: TimeRound) =>
+                sent ? statText(us, round) : "—";
               return (
                 <Fragment key={s.step_id}>
                   <tr className="border-b border-slate-100">
@@ -277,23 +283,23 @@ export function StepStatsTable({
                     {statsOpen && (
                       <>
                         <td className={`${STAT_BG} py-2 pr-4`}>
-                          {shownStat(s.stats?.min_us, floorMs)}
+                          {shownStat(s.stats?.min_us, "floor")}
                         </td>
                         <td className={`${STAT_BG} py-2 pr-4`}>
-                          {shownStat(s.stats?.mean_us, roundMs)}
+                          {shownStat(s.stats?.mean_us, "round")}
                         </td>
                         <td className={`${STAT_BG} py-2 pr-4`}>
-                          {shownStat(s.stats?.max_us, floorMs)}
+                          {shownStat(s.stats?.max_us, "floor")}
                         </td>
                         <td className={`${STAT_BG} py-2 pr-4`}>
-                          {shownStat(s.stats?.stdev_us, roundMs)}
+                          {shownStat(s.stats?.stdev_us, "round")}
                         </td>
                       </>
                     )}
                     <td className="py-2 pr-4">{latency(s, s.p50_ms, s.stats?.p50_us, sample)}</td>
                     {statsOpen && (
                       <td className={`${STAT_BG} py-2 pr-4`}>
-                        {shownStat(s.stats?.p90_us, floorMs)}
+                        {shownStat(s.stats?.p90_us, "floor")}
                       </td>
                     )}
                     <td className="py-2 pr-4">{latency(s, s.p95_ms, s.stats?.p95_us, sample)}</td>
@@ -396,7 +402,7 @@ export function StepStatsTable({
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>{summary.count}</td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>{summary.errors}</td>
                 <td className={`${TOTAL_TOP} ${STAT_BG} py-2 pr-4`}>
-                  {statText(sst?.min_us, floorMs)}
+                  {statText(sst?.min_us, "floor")}
                 </td>
                 <td className={`${TOTAL_TOP} ${STAT_BG} py-2 pr-4`}>
                   {(() => {
@@ -405,16 +411,16 @@ export function StepStatsTable({
                   })()}
                 </td>
                 <td className={`${TOTAL_TOP} ${STAT_BG} py-2 pr-4`}>
-                  {statText(sst?.max_us, floorMs)}
+                  {statText(sst?.max_us, "floor")}
                 </td>
                 <td className={`${TOTAL_TOP} ${STAT_BG} py-2 pr-4`}>
-                  {statText(sst?.stdev_us, roundMs)}
+                  {statText(sst?.stdev_us, "round")}
                 </td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>
                   {summaryP(summary.p50_ms, sst?.p50_us)}
                 </td>
                 <td className={`${TOTAL_TOP} ${STAT_BG} py-2 pr-4`}>
-                  {statText(sst?.p90_us, floorMs)}
+                  {statText(sst?.p90_us, "floor")}
                 </td>
                 <td className={`${TOTAL_TOP} py-2 pr-4`}>
                   {summaryP(summary.p95_ms, sst?.p95_us)}

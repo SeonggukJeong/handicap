@@ -1,7 +1,9 @@
+import { Fragment, useState } from "react";
 import type { Cell, CompareResult, CompareRow } from "../../compare/compareReports";
 import { verdictPolarity } from "../../compare/compareReports";
 import { runColor } from "../../compare/runLabel";
 import { ko } from "../../i18n/ko";
+import { statMsText } from "../report/format";
 import { Callout } from "../ui/Callout";
 
 type Props = {
@@ -18,38 +20,28 @@ function formatPct(pct: number): string {
   return `${sign}${(pct * 100).toFixed(1)}%`;
 }
 
+// 방향 → 색·글리프·읽어 주는 글. 한 곳에서 골라 일반 칩과 「60초 칸」 칩이 같이 쓴다.
+const POLARITY_CHIP = {
+  bad: { cls: "text-red-600", glyph: "▲", aria: ko.compare.worseAria },
+  good: { cls: "text-green-600", glyph: "▼", aria: ko.compare.betterAria },
+  neutral: { cls: "text-slate-500", glyph: "", aria: ko.compare.neutralAria },
+} as const;
+
 function DeltaChip({ cell }: { cell: Cell }) {
   if (cell.delta === null) return null;
   const { pct, polarity, capped } = cell.delta;
+  const chip = POLARITY_CHIP[polarity];
 
   if (capped) {
     // 한쪽이 60초 칸 — 변화율 대신 「—」(신규·동일이 아니다). 색·글리프는 방향.
     const title = ko.compare.cappedDeltaTitle;
-    if (polarity === "bad") {
-      return (
-        <span
-          className="ml-1 text-red-600 text-xs"
-          title={title}
-          aria-label={ko.compare.worseAria(title)}
-        >
-          ▲—
-        </span>
-      );
-    }
-    if (polarity === "good") {
-      return (
-        <span
-          className="ml-1 text-green-600 text-xs"
-          title={title}
-          aria-label={ko.compare.betterAria(title)}
-        >
-          ▼—
-        </span>
-      );
-    }
     return (
-      <span className="ml-1 text-slate-500 text-xs" title={title} aria-label={title}>
-        —
+      <span
+        className={`ml-1 ${chip.cls} text-xs`}
+        title={title}
+        aria-label={polarity === "neutral" ? title : chip.aria(title)}
+      >
+        {chip.glyph}—
       </span>
     );
   }
@@ -62,30 +54,21 @@ function DeltaChip({ cell }: { cell: Cell }) {
     text = formatPct(pct);
   }
 
-  if (polarity === "bad") {
-    return (
-      <span className="ml-1 text-red-600 text-xs" aria-label={ko.compare.worseAria(text)}>
-        ▲{text}
-      </span>
-    );
-  }
-  if (polarity === "good") {
-    return (
-      <span className="ml-1 text-green-600 text-xs" aria-label={ko.compare.betterAria(text)}>
-        ▼{text}
-      </span>
-    );
-  }
-  // neutral
   return (
-    <span className="ml-1 text-slate-500 text-xs" aria-label={ko.compare.neutralAria(text)}>
+    <span className={`ml-1 ${chip.cls} text-xs`} aria-label={chip.aria(text)}>
+      {chip.glyph}
       {text}
     </span>
   );
 }
 
 function CellContent({ cell }: { cell: Cell }) {
-  const display = cell.value === null ? "—" : String(cell.value);
+  const display =
+    cell.value === null
+      ? "—"
+      : cell.time
+        ? statMsText(cell.time.us, cell.time.round)
+        : String(cell.value);
   return (
     <>
       {display}
@@ -98,12 +81,21 @@ function SectionRows({
   title,
   rows,
   runCount,
+  labelOf,
+  stepStats,
 }: {
   title: string;
   rows: CompareRow[];
   runCount: number;
+  /** 행 이름 — 없으면 `row.label`. */
+  labelOf?: (row: CompareRow) => string;
+  /** 스텝 절에서만 — 있으면 제목 칸 오른쪽에 「응답 시간 통계 더 보기」 단추를 둔다. */
+  stepStats?: CompareRow[];
 }) {
+  // 대량 부가 표 — 기본 접힘.
+  const [open, setOpen] = useState(false);
   if (rows.length === 0) return null;
+  const hasStats = stepStats !== undefined && stepStats.length > 0;
   return (
     <>
       <tr>
@@ -111,26 +103,60 @@ function SectionRows({
           colSpan={runCount + 1}
           className="py-2 px-3 text-left text-sm font-semibold text-slate-600 bg-slate-50 dark:bg-slate-800 dark:text-slate-300 border-t border-slate-200 dark:border-slate-700"
         >
-          {title}
+          <div className="flex items-center justify-between gap-2">
+            <span>{title}</span>
+            {hasStats && (
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 rounded px-2.5 py-0.5 text-[13px] font-normal text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                {open ? ko.report.stats.toggleLess : ko.report.stats.toggleMore}
+              </button>
+            )}
+          </div>
         </th>
       </tr>
       {rows.map((row) => (
-        <tr
-          key={row.metric + (row.id ?? row.label)}
-          className="border-b border-slate-100 dark:border-slate-800"
-        >
-          <td
-            className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
-            title={row.label}
-          >
-            {row.label}
-          </td>
-          {row.cells.slice(0, runCount).map((cell, i) => (
-            <td key={i} className="py-2 pr-4 text-sm">
-              <CellContent cell={cell} />
+        <Fragment key={row.metric + (row.id ?? row.label)}>
+          <tr className="border-b border-slate-100 dark:border-slate-800">
+            <td
+              className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
+              title={row.label}
+            >
+              {labelOf ? labelOf(row) : row.label}
             </td>
-          ))}
-        </tr>
+            {row.cells.slice(0, runCount).map((cell, i) => (
+              <td key={i} className="py-2 pr-4 text-sm">
+                <CellContent cell={cell} />
+              </td>
+            ))}
+          </tr>
+          {open &&
+            hasStats &&
+            row.id !== undefined &&
+            stepStats
+              .filter((stat) => stat.id === row.id)
+              .map((stat) => {
+                const name = ko.compare.statLabel[stat.metric as keyof typeof ko.compare.statLabel];
+                return (
+                  <tr
+                    key={`${row.id}:${stat.metric}`}
+                    className="border-b border-slate-100 dark:border-slate-800"
+                  >
+                    <td className="py-1.5 pl-4 pr-4 text-xs text-slate-600 dark:text-slate-400 break-all">
+                      {ko.compare.stepStatLabel(name ?? stat.label)}
+                    </td>
+                    {stat.cells.slice(0, runCount).map((cell, i) => (
+                      <td key={i} className="py-1.5 pr-4 text-xs">
+                        <CellContent cell={cell} />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+        </Fragment>
       ))}
     </>
   );
@@ -224,10 +250,22 @@ export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Pr
           </tr>
 
           {/* Summary section rows with spanning sub-header */}
-          <SectionRows title={ko.report.summaryTitle} rows={summary} runCount={colCount} />
+          <SectionRows
+            title={ko.report.summaryTitle}
+            rows={summary}
+            runCount={colCount}
+            labelOf={(row) =>
+              ko.compare.statLabel[row.metric as keyof typeof ko.compare.statLabel] ?? row.label
+            }
+          />
 
           {/* Steps section rows with spanning sub-header */}
-          <SectionRows title={ko.report.stepsHeading} rows={steps} runCount={colCount} />
+          <SectionRows
+            title={ko.report.stepsHeading}
+            rows={steps}
+            runCount={colCount}
+            stepStats={result.stepStats}
+          />
 
           <SectionRows title={ko.report.setup.title} rows={result.setup} runCount={colCount} />
 

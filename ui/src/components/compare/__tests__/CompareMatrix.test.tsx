@@ -266,7 +266,10 @@ describe("CompareMatrix 60초 칸 변화율 칩 (R-B5)", () => {
     const { container } = render(
       <CompareMatrix result={capped(polarity)} labels={labels} onBaselineChange={vi.fn()} />,
     );
-    const td = screen.getByText("max_ms").closest("tr")!.querySelectorAll("td")[2];
+    const td = screen
+      .getByText(ko.compare.statLabel.max_ms)
+      .closest("tr")!
+      .querySelectorAll("td")[2];
     const el = td.querySelector("span");
     expect(el, "chip").not.toBeNull();
     return { td, el: el!, container };
@@ -295,5 +298,138 @@ describe("CompareMatrix 60초 칸 변화율 칩 (R-B5)", () => {
 
   it("사유 문구 자체가 정해진 글자다", () => {
     expect(ko.compare.cappedDeltaTitle).toBe("60초를 넘긴 응답이 있어 변화율을 계산할 수 없습니다");
+  });
+});
+
+describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 보기」 (R-B7)", () => {
+  const labels = { A: "#A", B: "#B" };
+  const SUMMARY_METRICS = [
+    "p50_ms",
+    "p90_ms",
+    "p95_ms",
+    "p99_ms",
+    "mean_ms",
+    "min_ms",
+    "max_ms",
+    "stdev_ms",
+    "rps",
+    "error_rate",
+  ];
+  const STEP_STAT_METRICS = ["mean_ms", "min_ms", "max_ms", "stdev_ms", "p90_ms"];
+  const cell = (value: number | null, time?: { us: number; round: "floor" | "round" }) => ({
+    value,
+    delta: null,
+    ...(time ? { time } : {}),
+  });
+  const row = (metric: string, cells: ReturnType<typeof cell>[], id?: string, label?: string) => ({
+    label: label ?? metric,
+    ...(id ? { id } : {}),
+    metric,
+    cells,
+  });
+  function build(opts?: { noStepStats?: boolean }): CompareResult {
+    const summary = SUMMARY_METRICS.map((m) => {
+      if (m === "min_ms") return row(m, [cell(0.35, { us: 350, round: "floor" }), cell(null)]);
+      if (m === "max_ms")
+        return row(m, [cell(60000, { us: 60_000_000, round: "floor" }), cell(1840)]);
+      if (m === "mean_ms") return row(m, [cell(52.118, { us: 52118, round: "round" }), cell(null)]);
+      if (m === "rps") return row(m, [cell(812.4), cell(790.1)]);
+      return row(m, [cell(10), cell(11)]);
+    });
+    const steps = [
+      row("p95_ms", [cell(88), cell(90)], "stepid-login", "로그인"),
+      row("p95_ms", [cell(140), cell(171)], "stepid-list", "목록 조회"),
+    ];
+    const stepStats = opts?.noStepStats
+      ? []
+      : ["stepid-list", "stepid-login"].flatMap((id) =>
+          STEP_STAT_METRICS.map((m) => row(m, [cell(1), cell(2)], id)),
+        );
+    return {
+      runIds: ["A", "B"],
+      baselineIdx: 0,
+      summary,
+      steps,
+      stepStats,
+      status: [],
+      verdict: { passed: [true, true] },
+      stepMismatch: false,
+      setup: [],
+    };
+  }
+  const names = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll("tbody tr")).map((tr) => tr.querySelector("td")?.textContent);
+
+  it("요약 절 행 이름 순서와 칸 글자", () => {
+    const { container } = render(
+      <CompareMatrix result={build()} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const all = names(container);
+    const start = all.indexOf("p50_ms");
+    expect(all.slice(start, start + 10)).toEqual([
+      "p50_ms",
+      ko.compare.statLabel.p90_ms,
+      "p95_ms",
+      "p99_ms",
+      ko.compare.statLabel.mean_ms,
+      ko.compare.statLabel.min_ms,
+      ko.compare.statLabel.max_ms,
+      ko.compare.statLabel.stdev_ms,
+      "rps",
+      "error_rate",
+    ]);
+    const tds = (name: string) =>
+      Array.from(
+        Array.from(container.querySelectorAll("tbody tr"))
+          .find((tr) => tr.querySelector("td")?.textContent === name)!
+          .querySelectorAll("td"),
+      ).map((t) => t.textContent);
+    expect(tds(ko.compare.statLabel.min_ms)).toEqual([ko.compare.statLabel.min_ms, "350 µs", "—"]);
+    expect(tds(ko.compare.statLabel.max_ms)[1]).toBe(ko.report.stats.capped);
+    expect(tds(ko.compare.statLabel.mean_ms)[1]).toBe("52");
+    expect(tds("rps")[1]).toBe("812.4");
+  });
+
+  it("스텝 절: 단추는 접힘이 기본, 누르면 스텝 × 5행이 p95 행 바로 밑에", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <CompareMatrix result={build()} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const btn = screen.getByRole("button", { name: ko.report.stats.toggleMore });
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    expect(names(container).filter((n) => n?.startsWith("└ "))).toHaveLength(0);
+    await user.click(btn);
+    const open = screen.getByRole("button", { name: ko.report.stats.toggleLess });
+    expect(open).toHaveAttribute("aria-expanded", "true");
+    const all = names(container);
+    expect(all.filter((n) => n?.startsWith("└ "))).toHaveLength(10);
+    const sub = STEP_STAT_METRICS.map((m) =>
+      ko.compare.stepStatLabel(ko.compare.statLabel[m as keyof typeof ko.compare.statLabel]),
+    );
+    for (const stepName of ["로그인", "목록 조회"]) {
+      const i = all.indexOf(stepName);
+      expect(all.slice(i + 1, i + 6)).toEqual(sub);
+    }
+  });
+
+  it("stepStats가 비면 단추가 없다", () => {
+    render(
+      <CompareMatrix
+        result={build({ noStepStats: true })}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: ko.report.stats.toggleMore })).toBeNull();
+  });
+
+  it("펼친 상태에서 중복 key 경고가 없다", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<CompareMatrix result={build()} labels={labels} onBaselineChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: ko.report.stats.toggleMore }));
+    const joined = spy.mock.calls.map((c) => c.map(String).join(" ")).join("\n");
+    spy.mockRestore();
+    expect(joined).not.toContain("same key");
   });
 });

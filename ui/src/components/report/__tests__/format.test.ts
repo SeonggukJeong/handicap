@@ -10,6 +10,7 @@ import {
   latencyUnitText,
   meanShown,
   splitLatencyText,
+  statMsText,
 } from "../format";
 
 describe("msNumberText", () => {
@@ -124,5 +125,17 @@ describe("splitLatencyText — 나눈 줄은 정수 ms, 60,000 초과는 60초 �
     expect(splitLatencyText(60030)).toBe(ko.report.stats.capped);
     expect(splitLatencyText(60000)).toBe("60000");
     expect(splitLatencyText(44)).toBe("44");
+  });
+});
+
+describe("statMsText — 통계 한 칸의 시간 글자(내림/반올림·µs·60초 칸)", () => {
+  it("내림·반올림·µs·60초 칸", () => {
+    expect(statMsText(1499, "floor")).toBe("1");
+    expect(statMsText(1500, "round")).toBe("2");
+    expect(statMsText(1499, "round")).toBe("1");
+    expect(statMsText(350, "floor")).toBe("350 µs");
+    expect(statMsText(999, "round")).toBe("999 µs");
+    expect(statMsText(60_000_000, "floor")).toBe(ko.report.stats.capped);
+    expect(statMsText(59_998_207, "floor")).toBe("59998");
   });
 });
