@@ -53,6 +53,31 @@ describe("LatencyTimeSeriesChart", () => {
     expect(meanLayer!.querySelectorAll("circle").length).toBe(1);
   });
 
+  it("세로축 눈금은 천 단위 쉼표 (60,000)", () => {
+    const { container } = render(
+      <LatencyTimeSeriesChart
+        data={[base[0], { ts_second: 101, mean: 60000, p95: 60000, capped: true }, base[2]]}
+        width={600}
+        height={220}
+      />,
+    );
+    const ticks = [
+      ...container.querySelectorAll(".recharts-yAxis .recharts-cartesian-axis-tick-value"),
+    ].map((t) => t.textContent);
+    expect(ticks).toContain("60,000");
+    expect(ticks).not.toContain("60000");
+  });
+
+  it("세로축 폭 80 — 「ms」 글자는 축 영역 왼쪽 안(여백 5 + 간격 5 = x 10)", () => {
+    const { container } = render(<LatencyTimeSeriesChart data={base} width={600} height={220} />);
+    const axis = container.querySelector(".recharts-yAxis line.recharts-cartesian-axis-line");
+    // 축 선 x = 왼쪽 여백 5 + 축 폭 80.
+    expect(axis?.getAttribute("x1")).toBe("85");
+    const label = container.querySelector(".recharts-yAxis .recharts-label");
+    expect(label?.textContent).toBe("ms");
+    expect(label?.getAttribute("x")).toBe("10");
+  });
+
   it("선 굵기 평균 2·p95 1.6, 평균이 p95 위에 그려진다", () => {
     const { container } = render(<LatencyTimeSeriesChart data={base} width={600} height={220} />);
     const paths = [...container.querySelectorAll("path.recharts-line-curve")];

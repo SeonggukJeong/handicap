@@ -107,6 +107,29 @@ describe("StepLatencyAppendix", () => {
     const mid = [...first.querySelectorAll("text")].find((t) => t.textContent === fmtElapsed(30))!;
     expect(mid.getAttribute("text-anchor")).toBe("middle");
   });
+  const timeLabel = (durationSec: number, t: number): Element => {
+    const c = { durationSec, timeTicks: timeTicks(durationSec) } as unknown as ChartModel;
+    const { container } = render(
+      <StepLatencyRows model={model(false)} chart={c} from={0} to={1} />,
+    );
+    return [...container.querySelector("svg")!.querySelectorAll("text")].find(
+      (e) => e.getAttribute("y") === "25" && e.textContent === fmtElapsed(t),
+    )!;
+  };
+  it("마지막 눈금이 오른쪽 끝 6mm 안이면 제 자리에서 끝 맞춤 (5401초, 눈금 5400)", () => {
+    expect(timeTicks(5401)).toEqual([0, 1800, 3600, 5400]);
+    const last = timeLabel(5401, 5400);
+    expect(last.getAttribute("text-anchor")).toBe("end");
+    expect(last.getAttribute("x")).toBe(String(Math.round((10 + (5400 / 5401) * 74) * 100) / 100));
+    expect(timeLabel(5401, 3600).getAttribute("text-anchor")).toBe("middle");
+  });
+  it("솎은 뒤 마지막 눈금이 오른쪽 끝에서 6mm 넘게 떨어지면 가운데 맞춤 (330초 -> 0, 120, 300)", () => {
+    expect(timeTicks(330)).toEqual([0, 60, 120, 180, 240, 300]);
+    expect(labelsOf(330, timeTicks(330))).toEqual([0, 120, 300].map((t) => fmtElapsed(t)));
+    const last = timeLabel(330, 300);
+    expect(last.getAttribute("text-anchor")).toBe("middle");
+    expect(last.getAttribute("x")).toBe(String(Math.round((10 + (300 / 330) * 74) * 100) / 100));
+  });
   it("끝 시각이 아닌 눈금은 8mm 안이어도 제 자리에서 가운데 맞춤 (330초, 눈금 300)", () => {
     const c330 = {
       durationSec: 330,

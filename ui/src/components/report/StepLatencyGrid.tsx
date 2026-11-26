@@ -4,9 +4,12 @@ import type { StepLatencyViewProps } from "./stepLatencyViews";
 
 const W = 300;
 const H = 80;
+/** 혼자 남은 점(둥근 끝)이 가장자리에서 반쯤 잘리지 않게 위아래처럼 좌우도 2 들인다. 띠도 같은 상자. */
+const X0 = 2;
+const X1 = W - 2;
 
 export function StepLatencyGrid({ series, yMax, xMax, marks }: StepLatencyViewProps) {
-  const scale = (x: number) => (x / Math.max(xMax, 1)) * W;
+  const scale = (x: number) => X0 + (x / Math.max(xMax, 1)) * (X1 - X0);
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
       {series.map((s) => (
@@ -40,8 +43,8 @@ export function StepLatencyGrid({ series, yMax, xMax, marks }: StepLatencyViewPr
                 {
                   xMax,
                   yMax,
-                  x0: 0,
-                  x1: W,
+                  x0: X0,
+                  x1: X1,
                   yTop: 2,
                   yBottom: H - 2,
                 },

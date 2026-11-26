@@ -67,9 +67,32 @@ describe("StepLatencySection", () => {
           { x: 1, y: null },
           { x: 2, y: 60 },
         ],
-        { xMax: 2, yMax: 300, x0: 0, x1: 300, yTop: 2, yBottom: 78 },
+        { xMax: 2, yMax: 300, x0: 2, x1: 298, yTop: 2, yBottom: 78 },
       ),
     );
+  });
+  it("유지 구간 띠는 선과 같은 안쪽 상자(x 2–298)에 TimeSeriesChart 색으로", async () => {
+    const user = userEvent.setup();
+    const marks = {
+      bands: [
+        { kind: "ramp" as const, x1: 0, x2: 1 },
+        { kind: "discard" as const, x1: 1, x2: 2 },
+      ],
+      lines: [],
+    };
+    const { container } = render(
+      <StepLatencySection report={rep(false)} stepNames={names} marks={marks} firstTs={100} />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.report.stepLatency.toggle }));
+    const card = screen.getByTitle("스텝A").parentElement as HTMLElement;
+    const rects = [...card.querySelectorAll("svg rect")];
+    expect(rects).toHaveLength(2);
+    // xMax = 2(점 x 최대 2, 띠 x2 최대 2). x = 2 + (값 / 2) × 296.
+    expect(rects.map((r) => r.getAttribute("x"))).toEqual(["2", "150"]);
+    expect(rects.map((r) => r.getAttribute("width"))).toEqual(["148", "148"]);
+    expect(rects.map((r) => r.getAttribute("fill"))).toEqual(["#94a3b8", "#f59e0b"]);
+    expect(rects.map((r) => r.getAttribute("fill-opacity"))).toEqual(["0.22", "0.16"]);
+    expect(container.querySelectorAll("svg rect")).toHaveLength(6);
   });
   it("capped 창이 있을 때만 hintCapped", async () => {
     const user = userEvent.setup();

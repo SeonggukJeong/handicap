@@ -9,6 +9,8 @@ const X0 = 10;
 const X1 = 84;
 const Y_TOP = 2;
 const Y_BOTTOM = 22;
+/** 마지막 시간 눈금이 오른쪽 끝에서 이만큼(mm) 안이면 끝 맞춤. */
+const END_ANCHOR_MM = 6;
 const tickText = (v: number): string => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -83,9 +85,11 @@ function Card({
           <text x={X0 - 1} y={22.5} textAnchor="end">
             0
           </text>
-          {cardTicks(chart.timeTicks).map((t) => {
+          {cardTicks(chart.timeTicks).map((t, i, kept) => {
             const x = r2(X0 + (t / Math.max(chart.durationSec, 1)) * (X1 - X0));
-            const atEnd = t === chart.durationSec;
+            // 마지막 눈금이 오른쪽 끝 가까이면(눈금은 보통 run 길이 + 1초가 아니라 설정한 둥근 길이라
+            // 끝에서 조금 안쪽) 가운데 맞춤이 svg 밖으로 잘린다 — 제 자리에서 끝 맞춤.
+            const atEnd = i === kept.length - 1 && X1 - x < END_ANCHOR_MM;
             return (
               <text key={t} x={x} y={25} textAnchor={atEnd ? "end" : "middle"}>
                 {fmtElapsed(t)}

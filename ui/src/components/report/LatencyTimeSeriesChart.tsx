@@ -76,7 +76,12 @@ export function LatencyTimeSeriesChart({ data, marks, sampleTag, width, height }
       ) : (
         <XAxis dataKey="x" label={{ value: "seconds", position: "insideBottom", offset: -4 }} />
       )}
-      <YAxis label={{ value: "ms", angle: -90, position: "insideLeft" }} />
+      {/* 폭 80: 「60,000」(6자) 눈금 글자 오른쪽 끝이 축 선 8px 앞, 왼쪽 끝이 「ms」(축 영역 왼쪽 + 5) 회전 글자 오른쪽보다 안쪽에 오게. */}
+      <YAxis
+        width={80}
+        tickFormatter={(v: number) => v.toLocaleString("en-US")}
+        label={{ value: "ms", angle: -90, position: "insideLeft" }}
+      />
       <Tooltip
         formatter={(value, name, item) => {
           const v = typeof value === "number" ? value : Number(value);
