@@ -54,7 +54,7 @@ describe("LatencyTimeSeriesChart", () => {
     expect(meanLayer!.querySelectorAll("circle").length).toBe(1);
   });
 
-  it("세로축 눈금은 천 단위 쉼표 (60,000)", () => {
+  it("세로축 눈금은 TimeSeriesChart처럼 기본 글자 (60000, 쉼표 없음 — 넓은 글꼴에서 잘림 방지)", () => {
     const { container } = render(
       <LatencyTimeSeriesChart
         data={[base[0], { ts_second: 101, mean: 60000, p95: 60000, capped: true }, base[2]]}
@@ -65,8 +65,8 @@ describe("LatencyTimeSeriesChart", () => {
     const ticks = [
       ...container.querySelectorAll(".recharts-yAxis .recharts-cartesian-axis-tick-value"),
     ].map((t) => t.textContent);
-    expect(ticks).toContain("60,000");
-    expect(ticks).not.toContain("60000");
+    expect(ticks).toContain("60000");
+    expect(ticks).not.toContain("60,000");
   });
 
   it("세로축 폭은 다른 시계열 그래프(TimeSeriesChart)와 같고 회전 「ms」 글자는 없다 — 시간축 정렬", () => {
