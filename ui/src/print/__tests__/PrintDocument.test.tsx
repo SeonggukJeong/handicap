@@ -357,9 +357,9 @@ describe("PrintDocument", () => {
     expect(doc.table.columns.length).toBe(7);
     const { root, container } = renderDoc(doc);
     await ready(root);
-    const nameMm = 180 - (15 + 13 + 6 * 12 + 16 + 20);
+    const nameMm = 180 - (15 + 19 + 6 * 12 + 16 + 20);
     const budget = requestLineBudget(nameMm);
-    expect(budget).toBe(33);
+    expect(budget).toBe(29);
     const name = container.querySelector(".p-name");
     expect(name?.textContent).toContain(longName);
     const req = container.querySelector(".p-req");
@@ -388,7 +388,7 @@ describe("PrintDocument", () => {
     const one = await widthsOf({ "200": 100 }, 0);
     expect(one.n).toBe(1);
     expect(codeMm(one)).toEqual([36]);
-    expect(one.mm[0]).toBe(180 - (15 + 13 + 36 + 20));
+    expect(one.mm[0]).toBe(180 - (15 + 19 + 36 + 20));
 
     const two = await widthsOf({ "200": 90, "500": 10 }, 10);
     expect(two.n).toBe(2);

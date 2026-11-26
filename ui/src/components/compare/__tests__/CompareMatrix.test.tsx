@@ -316,7 +316,7 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
     "error_rate",
   ];
   const STEP_STAT_METRICS = ["mean_ms", "min_ms", "max_ms", "stdev_ms", "p90_ms"];
-  const cell = (value: number | null, time?: { us: number; round: "floor" | "round" }) => ({
+  const cell = (value: number | null, time?: { us: number }) => ({
     value,
     delta: null,
     ...(time ? { time } : {}),
@@ -329,11 +329,12 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
   });
   function build(opts?: { noStepStats?: boolean }): CompareResult {
     const summary = SUMMARY_METRICS.map((m) => {
-      if (m === "min_ms") return row(m, [cell(0.35, { us: 350, round: "floor" }), cell(null)]);
-      if (m === "max_ms")
-        return row(m, [cell(60000, { us: 60_000_000, round: "floor" }), cell(1840)]);
-      if (m === "mean_ms") return row(m, [cell(52.118, { us: 52118, round: "round" }), cell(null)]);
-      if (m === "rps") return row(m, [cell(812.4), cell(790.1)]);
+      if (m === "min_ms") return row(m, [cell(0.35, { us: 350 }), cell(null)]);
+      if (m === "max_ms") return row(m, [cell(60000, { us: 60_000_000 }), cell(1840)]);
+      if (m === "mean_ms") return row(m, [cell(52.118, { us: 52118 }), cell(null)]);
+      if (m === "p50_ms")
+        return row(m, [cell(115.204, { us: 115204 }), cell(115.633, { us: 115633 })]);
+      if (m === "rps") return row(m, [cell(27.14164546225615), cell(790.1)]);
       return row(m, [cell(10), cell(11)]);
     });
     const steps = [
@@ -386,8 +387,11 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
       ).map((t) => t.textContent);
     expect(tds(ko.compare.statLabel.min_ms)).toEqual([ko.compare.statLabel.min_ms, "350 µs", "—"]);
     expect(tds(ko.compare.statLabel.max_ms)[1]).toBe(ko.report.stats.capped);
-    expect(tds(ko.compare.statLabel.mean_ms)[1]).toBe("52");
-    expect(tds("rps")[1]).toBe("812.4");
+    // 사용자 결정(2026-11-26): 비교 화면 시간 칸은 CSV `ms3` 글자 — 소수 3자리.
+    expect(tds(ko.compare.statLabel.mean_ms)[1]).toBe("52.118");
+    expect(tds("p50_ms").slice(1)).toEqual(["115.204", "115.633"]);
+    expect(tds("rps")[1]).toBe("27.14");
+    expect(tds("error_rate")[1]).toBe("10");
   });
 
   it("스텝 절: 단추는 접힘이 기본, 누르면 스텝 × 5행이 p95 행 바로 밑에", async () => {
@@ -467,5 +471,72 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
     const joined = spy.mock.calls.map((c) => c.map(String).join(" ")).join("\n");
     spy.mockRestore();
     expect(joined).not.toContain("same key");
+  });
+});
+
+describe("CompareMatrix 변화율 칩 글리프 = 값이 움직인 방향, 색 = 좋고 나쁨 (사용자 결정 2026-11-26)", () => {
+  const labels = { A: "#A", B: "#B" };
+  const one = (
+    value: number,
+    delta: { pct: number | null; polarity: "good" | "bad" | "neutral" },
+  ): CompareResult => ({
+    runIds: ["A", "B"],
+    baselineIdx: 0,
+    summary: [
+      {
+        label: "x",
+        metric: "x",
+        cells: [
+          { value: 1, delta: null },
+          { value, delta: { ...delta, capped: false } },
+        ],
+      },
+    ],
+    steps: [],
+    stepStats: [],
+    status: [],
+    setup: [],
+    verdict: { passed: [null, null] },
+    stepMismatch: false,
+  });
+  const chipOf = (r: CompareResult) => {
+    render(<CompareMatrix result={r} labels={labels} onBaselineChange={vi.fn()} />);
+    const td = screen.getByText("x").closest("tr")!.querySelectorAll("td")[2];
+    const el = td.querySelector("span");
+    expect(el, "chip").not.toBeNull();
+    return el!;
+  };
+
+  it("rps처럼 떨어져서 나쁨 → ▼-23.8% 빨강", () => {
+    const el = chipOf(one(27.1, { pct: -0.238, polarity: "bad" }));
+    expect(el).toHaveTextContent("▼-23.8%");
+    expect(el.className).toContain("text-red-600");
+    expect(el).toHaveAttribute("aria-label", ko.compare.worseAria("-23.8%"));
+  });
+  it("올라서 나쁨 → ▲+29.1% 빨강", () => {
+    const el = chipOf(one(5, { pct: 0.291, polarity: "bad" }));
+    expect(el).toHaveTextContent("▲+29.1%");
+    expect(el.className).toContain("text-red-600");
+  });
+  it("떨어져서 좋음 → ▼-20.0% 초록", () => {
+    const el = chipOf(one(5, { pct: -0.2, polarity: "good" }));
+    expect(el).toHaveTextContent("▼-20.0%");
+    expect(el.className).toContain("text-green-600");
+    expect(el).toHaveAttribute("aria-label", ko.compare.betterAria("-20.0%"));
+  });
+  it("rps처럼 올라서 좋음 → ▲+10.0% 초록", () => {
+    const el = chipOf(one(5, { pct: 0.1, polarity: "good" }));
+    expect(el).toHaveTextContent("▲+10.0%");
+    expect(el.className).toContain("text-green-600");
+  });
+  it("0% 중립 → 글리프 없음", () => {
+    const el = chipOf(one(5, { pct: 0, polarity: "neutral" }));
+    expect(el).toHaveTextContent(/^\+0\.0%$/);
+  });
+  it("기준 0 · 값 5 → ▲신규, 값 0 → 글리프 없는 동일", () => {
+    expect(chipOf(one(5, { pct: null, polarity: "good" }))).toHaveTextContent("▲신규");
+  });
+  it("기준 0 · 값 0 → 동일", () => {
+    expect(chipOf(one(0, { pct: null, polarity: "neutral" }))).toHaveTextContent(/^동일$/);
   });
 });

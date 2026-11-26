@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import nodePath from "node:path";
 import type { LatencyStats, Report } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 import { classifyChange, cutDirection, metricRows } from "../change";
@@ -436,4 +438,34 @@ describe("metricRows 응답 시간 행 다섯 + 표준판 전용 둘", () => {
     expect(r.changeText).toBe("");
     expect(r.wordText).toBe(ko.print.cmp.change.none);
   });
+});
+
+describe("cutDirection ↔ 공유 골든 capped 표(computeDeltaCapped와 같은 방향)", () => {
+  type GoldenCapped = {
+    metric: string;
+    base: number;
+    val: number;
+    base_cut: boolean;
+    val_cut: boolean;
+    polarity: "good" | "bad" | "neutral";
+    capped: boolean;
+  };
+  const golden = JSON.parse(
+    readFileSync(
+      nodePath.resolve(__dirname, "../../../../../testdata/compare_golden.json"),
+      "utf8",
+    ),
+  ) as { expected: { capped: GoldenCapped[] } };
+  const cappedRows = golden.expected.capped.filter((r) => r.capped);
+  const want = { bad: "worse", good: "better", neutral: null } as const;
+
+  it("잘린 행이 있다(공허 방지)", () => {
+    expect(cappedRows.length).toBeGreaterThan(0);
+    expect(new Set(cappedRows.map((r) => r.polarity)).size).toBe(3);
+  });
+  for (const [i, row] of cappedRows.entries()) {
+    it(`#${i} ${row.metric} ${row.base}(${row.base_cut}) → ${row.val}(${row.val_cut}): ${row.polarity}`, () => {
+      expect(cutDirection(row.base, row.val, row.base_cut, row.val_cut)).toBe(want[row.polarity]);
+    });
+  }
 });

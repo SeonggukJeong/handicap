@@ -150,7 +150,8 @@ describe("ScenarioComparePage", () => {
     const row = screen.getByText("p95_ms").closest("tr")!;
     const cells = row.querySelectorAll("td");
     expect(cells[1].textContent).toBe("—");
-    expect(cells[2].textContent).toBe("30");
+    // 비교 화면 시간 칸은 ms 소수 3자리(사용자 결정 2026-11-26).
+    expect(cells[2].textContent).toBe("30.000");
   });
 
   it("상태 코드 규칙이 다른 run을 비교하면 안내가 보이고, 같으면 없다", async () => {

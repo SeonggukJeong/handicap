@@ -27,7 +27,9 @@ const TEXT: Record<RowClass, string> = {
 
 const pctWidth = (v: number): string => `${Math.round(v * 1000) / 10}%`;
 
-const WIDTHS_BARS = [34, 20, 20, 26, 80];
+// 변화 칸 36mm = 「▲ 변화율 계산 불가」 ≈ 9.98em × 2.928mm(8.3pt) = 29.2mm + 패딩 3.6mm + 테두리 0.26mm
+// (글자 1em 폭 + letter-spacing 0.12em 가정). 이전·이후 25mm = 굵은 「30.0초 이상」 ≈ 20.2mm + 3.9mm.
+const WIDTHS_BARS = [34, 25, 25, 36, 60];
 const WIDTHS_PLAIN = [60, 36, 36, 48];
 
 function Row({ r, bars }: { r: MetricRow; bars: boolean }) {
@@ -43,7 +45,7 @@ function Row({ r, bars }: { r: MetricRow; bars: boolean }) {
         <b>{r.afterText}</b>
       </td>
       <td className={CELL[r.cls]}>
-        <span className={TEXT[r.cls]}>{lead}</span>
+        <span className={`${TEXT[r.cls]} p-nowrap`}>{lead}</span>
         <br />
         <small>{r.wordText}</small>
       </td>

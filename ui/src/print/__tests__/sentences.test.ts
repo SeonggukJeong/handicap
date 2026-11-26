@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { shortSummary, summaryLines, type SummaryInput, type SummaryLine } from "../sentences";
 import { buildChartModel } from "../chartModel";
-import type { RankedRow, RowStatus } from "../stepStatus";
+import { stepStatus, type RankedRow, type RowStatus } from "../stepStatus";
 import type { BoxState, Matched } from "../verdict";
 import type { StepRow } from "../stepTable";
-import type { Criteria, Report } from "../../api/schemas";
+import type { Criteria, LatencyStats, Report } from "../../api/schemas";
 
 type W = Report["windows"][number];
 const win = (
@@ -393,6 +393,57 @@ describe("slow_line", () => {
     expect(kindLine(summaryLines(base({ rows, ranked: rows, criteria: crit })), "slow")).toBe(
       "'첨부 업로드'(은)는 느립니다 (95% 응답 4,800ms, 기준 3,000ms)",
     );
+  });
+});
+
+describe("slow_line — 느림 표지가 p95 때문일 때만 p95 문장 (verdict-stats-4b 최종 리뷰)", () => {
+  const st = (over: Partial<LatencyStats>): LatencyStats => ({
+    min_us: 1000,
+    mean_us: 1000,
+    max_us: 1000,
+    stdev_us: 0,
+    p50_us: 1000,
+    p90_us: 1000,
+    p95_us: 1000,
+    p99_us: 1000,
+    capped: false,
+    ...over,
+  });
+  // 실제 stepStatus로 표지를 만든다 — 미리 붙인 표지가 아니다.
+  const real = (index: number, name: string, p95Ms: number, stats: LatencyStats, c: Criteria) => {
+    const row = mkRow(index, name, { p95Ms, stats });
+    return { ...row, status: stepStatus(row, c, null) };
+  };
+
+  it("평균 기준 때문에 느림인 단계는 95% 문장에 올리지 않는다(표 표지는 그대로)", () => {
+    const c: Criteria = { max_p95_ms: 500, max_mean_ms: 100 };
+    const rows = [real(0, "목록", 300, st({ mean_us: 150_000, p95_us: 300_000 }), c)];
+    expect(rows[0].status.tags).toContain("slow");
+    const lines = summaryLines(base({ rows, ranked: rows, criteria: c }));
+    expect(kindLine(lines, "slow")).toBeUndefined();
+    expect(lines.some((l) => l.text.includes("95% 응답"))).toBe(false);
+  });
+  it("p95가 µs로만 기준을 넘으면(3,000,400µs vs 3000) 두 숫자가 다른 글자다", () => {
+    const c: Criteria = { max_p95_ms: 3000 };
+    const rows = [real(0, "목록", 3000, st({ p95_us: 3_000_400 }), c)];
+    expect(rows[0].status.tags).toContain("slow");
+    const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: c })), "slow")!;
+    expect(t).toBe("'목록'(은)는 느립니다 (95% 응답 3,000.4ms, 기준 3,000ms)");
+  });
+  it("평범한 p95 초과는 그대로 문장이 된다", () => {
+    const c: Criteria = { max_p95_ms: 500 };
+    const rows = [real(0, "목록", 900, st({ p95_us: 900_000 }), c)];
+    const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: c })), "slow")!;
+    expect(t).toBe("'목록'(은)는 느립니다 (95% 응답 900ms, 기준 500ms)");
+  });
+  it("p95 때문에 느린 단계와 평균 때문에 느린 단계가 섞이면 p95 쪽만 인용하고 외 N개엔 둘 다 센다", () => {
+    const c: Criteria = { max_p95_ms: 500, max_mean_ms: 100 };
+    const rows = [
+      real(0, "평균만", 300, st({ mean_us: 150_000, p95_us: 300_000 }), c),
+      real(1, "p95", 900, st({ p95_us: 900_000 }), c),
+    ];
+    const t = kindLine(summaryLines(base({ rows, ranked: rows, criteria: c })), "slow")!;
+    expect(t).toBe("'p95'(은)는 느립니다 (95% 응답 900ms, 기준 500ms) 외 1개");
   });
 });
 

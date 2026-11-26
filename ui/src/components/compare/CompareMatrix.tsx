@@ -3,7 +3,7 @@ import type { Cell, CompareResult, CompareRow } from "../../compare/compareRepor
 import { verdictPolarity } from "../../compare/compareReports";
 import { runColor } from "../../compare/runLabel";
 import { ko } from "../../i18n/ko";
-import { statMsText } from "../report/format";
+import { statMs3Text } from "../report/format";
 import { Callout } from "../ui/Callout";
 
 type Props = {
@@ -20,12 +20,18 @@ function formatPct(pct: number): string {
   return `${sign}${(pct * 100).toFixed(1)}%`;
 }
 
-// 방향 → 색·글리프·읽어 주는 글. 한 곳에서 골라 일반 칩과 「60초 칸」 칩이 같이 쓴다.
+// 극성 → 색·읽어 주는 글. 글리프는 일반 칩에선 값이 움직인 방향(아래 `directionGlyph`), 「60초 칸」 칩에선 극성.
 const POLARITY_CHIP = {
   bad: { cls: "text-red-600", glyph: "▲", aria: ko.compare.worseAria },
   good: { cls: "text-green-600", glyph: "▼", aria: ko.compare.betterAria },
   neutral: { cls: "text-slate-500", glyph: "", aria: ko.compare.neutralAria },
 } as const;
+
+/** 값이 움직인 방향 글리프 — 색(좋고 나쁨)과 무관. 서버 `delta_cell_text`와 같은 규칙. */
+function directionGlyph(pct: number | null, value: number | null): string {
+  if (pct === null) return value !== null && value > 0 ? "▲" : "";
+  return pct > 0 ? "▲" : pct < 0 ? "▼" : "";
+}
 
 function DeltaChip({ cell }: { cell: Cell }) {
   if (cell.delta === null) return null;
@@ -33,7 +39,7 @@ function DeltaChip({ cell }: { cell: Cell }) {
   const chip = POLARITY_CHIP[polarity];
 
   if (capped) {
-    // 한쪽이 60초 칸 — 변화율 대신 「—」(신규·동일이 아니다). 색·글리프는 방향.
+    // 한쪽이 60초 칸 — 변화율 대신 「—」(신규·동일이 아니다). 시간 지표는 낮을수록 좋아 극성이 곧 방향.
     const title = ko.compare.cappedDeltaTitle;
     return (
       <span
@@ -56,19 +62,21 @@ function DeltaChip({ cell }: { cell: Cell }) {
 
   return (
     <span className={`ml-1 ${chip.cls} text-xs`} aria-label={chip.aria(text)}>
-      {chip.glyph}
+      {directionGlyph(pct, cell.value)}
       {text}
     </span>
   );
 }
 
-function CellContent({ cell }: { cell: Cell }) {
+function CellContent({ cell, metric }: { cell: Cell; metric: string }) {
   const display =
     cell.value === null
       ? "—"
       : cell.time
-        ? statMsText(cell.time.us, cell.time.round)
-        : String(cell.value);
+        ? statMs3Text(cell.time.us)
+        : metric === "rps"
+          ? cell.value.toFixed(2)
+          : String(cell.value);
   return (
     <>
       {display}
@@ -136,7 +144,7 @@ function SectionRows({
             </td>
             {row.cells.slice(0, runCount).map((cell, i) => (
               <td key={i} className="py-2 pr-4 text-sm">
-                <CellContent cell={cell} />
+                <CellContent cell={cell} metric={row.metric} />
               </td>
             ))}
           </tr>
@@ -160,7 +168,7 @@ function SectionRows({
                     </td>
                     {stat.cells.slice(0, runCount).map((cell, i) => (
                       <td key={i} className="py-2 pr-4 text-sm">
-                        <CellContent cell={cell} />
+                        <CellContent cell={cell} metric={stat.metric} />
                       </td>
                     ))}
                   </tr>

@@ -65,6 +65,12 @@ export function statMsText(us: number, round: TimeRound): string {
   return latencyCellText(latencyShown(ms, us));
 }
 
+/** 비교 화면 시간 칸(µs) — CSV `ms3` 글자와 같은 정수 산술 `ms.mmm`(부동소수 금지). 1ms 미만 µs, 60초 칸은 `statMsText`와 같다. */
+export function statMs3Text(us: number): string {
+  if (us >= CAP_US || us < 1000) return statMsText(us, "floor");
+  return `${Math.floor(us / 1000)}.${String(us % 1000).padStart(3, "0")}`;
+}
+
 /** 반복 나눔 아래 줄(stats 없음) — 60,000ms 초과는 60초 칸에서만 나오므로 「≥ 60,000」. */
 export function splitLatencyText(ms: number): string {
   return ms > 60000 ? ko.report.stats.capped : `${ms}`;

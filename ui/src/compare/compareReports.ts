@@ -5,11 +5,11 @@ import { stepLatencyMissing, summaryLatencyMissing } from "./latencyMissing";
 export type Polarity = "good" | "bad" | "neutral";
 /** `capped`: 한쪽이라도 60초 칸이라 변화율을 낼 수 없다(`pct`는 null). */
 export type Delta = { pct: number | null; polarity: Polarity; capped: boolean };
-/** `time`: 시간 지표 칸의 원래 µs와 ms 글자로 바꿀 때의 반올림 방식(평균·표준편차는 round). */
+/** `time`: 시간 지표 칸의 원래 µs(비교 화면이 ms 소수 3자리 글자로 보인다). */
 export type Cell = {
   value: number | null;
   delta: Delta | null;
-  time?: { us: number; round: "floor" | "round" };
+  time?: { us: number };
 };
 export type CompareRow = { label: string; id?: string; metric: string; cells: Cell[] };
 export type CompareResult = {
@@ -96,8 +96,8 @@ export function computeDeltaCapped(
   return { pct: null, polarity, capped: true };
 }
 
-/** 비교에 쓰는 값 하나: ms 값, 60초 칸 여부, (시간 지표면) 원래 µs와 반올림 방식. */
-type Pt = { v: number; cut: boolean; time?: { us: number; round: "floor" | "round" } };
+/** 비교에 쓰는 값 하나: ms 값, 60초 칸 여부, (시간 지표면) 원래 µs. */
+type Pt = { v: number; cut: boolean; time?: { us: number } };
 
 /** `stats`에서 시간 지표 하나를 꺼낸다. 평균·표준편차의 「잘림」은 `stats.capped`, 나머지는 µs ≥ `CAP_US`. */
 function statPt(stats: LatencyStats | undefined, metric: TimeMetric): Pt | null {
@@ -107,7 +107,7 @@ function statPt(stats: LatencyStats | undefined, metric: TimeMetric): Pt | null 
   return {
     v: us / 1000,
     cut: mean ? stats.capped : us >= CAP_US,
-    time: { us, round: mean ? "round" : "floor" },
+    time: { us },
   };
 }
 

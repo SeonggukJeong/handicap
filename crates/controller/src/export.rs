@@ -128,7 +128,9 @@ fn format_pct(pct: f64) -> String {
 }
 
 /// 비교 Δ 셀 텍스트(글리프 + %)를 UI `DeltaChip`(`ui/src/components/compare/CompareMatrix.tsx`)과 1:1로 생성.
-/// pct None(base=0) → value>0 ? "신규" : "동일". 글리프: Bad=▲, Good=▼, Neutral=없음.
+/// 글리프는 값이 움직인 방향(pct 부호: 양수=▲·음수=▼·0=없음, pct None은 value>0 ? ▲ 신규 : 동일) —
+/// 좋고 나쁨은 색(극성)만 말한다. 60초 칸(capped)만 시간 지표(낮을수록 좋음)라 극성이 곧 방향:
+/// Bad=▲, Good=▼, Neutral=없음.
 fn delta_cell_text(d: &Delta, value: f64) -> String {
     if d.capped {
         return match d.polarity {
@@ -137,20 +139,12 @@ fn delta_cell_text(d: &Delta, value: f64) -> String {
             Polarity::Neutral => "—".to_string(),
         };
     }
-    let base = match d.pct {
-        None => {
-            if value > 0.0 {
-                "신규".to_string()
-            } else {
-                "동일".to_string()
-            }
-        }
+    match d.pct {
+        None if value > 0.0 => "▲ 신규".to_string(),
+        None => "동일".to_string(),
+        Some(p) if p > 0.0 => format!("▲ {}", format_pct(p)),
+        Some(p) if p < 0.0 => format!("▼ {}", format_pct(p)),
         Some(p) => format_pct(p),
-    };
-    match d.polarity {
-        Polarity::Bad => format!("▲ {base}"),
-        Polarity::Good => format!("▼ {base}"),
-        Polarity::Neutral => base,
     }
 }
 
@@ -2765,6 +2759,29 @@ mod tests {
             ),
             "▼ -18.2%"
         );
+        // 글리프는 값이 움직인 방향(pct 부호) — 색(극성)과 무관. rps-like: 떨어졌는데 나쁨 → ▼.
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: Some(-0.238),
+                    polarity: Bad,
+                    capped: false,
+                },
+                27.1
+            ),
+            "▼ -23.8%"
+        );
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: Some(0.1),
+                    polarity: Good,
+                    capped: false,
+                },
+                39.0
+            ),
+            "▲ +10.0%"
+        );
         // 동률(val==base) → Neutral, 글리프 없음
         assert_eq!(
             delta_cell_text(
@@ -2787,7 +2804,7 @@ mod tests {
                 },
                 9.0
             ),
-            "▼ 신규"
+            "▲ 신규"
         );
         assert_eq!(
             delta_cell_text(
@@ -4412,7 +4429,7 @@ steps:
         }
         assert_eq!(cell(&ws, 1, 1), Some(&Data::Float(50.0)));
         assert_eq!(cell(&ws, 1, 3), Some(&Data::Float(47.0)));
-        assert_eq!(cell(&ws, 1, 5).cloned(), s("▲ -6.0%"));
+        assert_eq!(cell(&ws, 1, 5).cloned(), s("▼ -6.0%"));
         assert_eq!(cell(&ws, 2, 5).cloned(), s("▲ 신규"));
         assert_eq!(cell(&ws, 3, 5).cloned(), s("▲ +241.7%"));
         assert_eq!(cell(&ws, 4, 5).cloned(), s("▲ +200.0%"));
@@ -4456,7 +4473,7 @@ steps:
         for (i, n) in names.iter().enumerate() {
             assert_eq!(cell(&ws, 1 + i as u32, 0).cloned(), s(n), "row {i}");
         }
-        assert_eq!(cell(&ws, 1, 4).cloned(), s("▼ +6.4%"));
+        assert_eq!(cell(&ws, 1, 4).cloned(), s("▲ +6.4%"));
         assert_eq!(cell(&ws, 2, 4).cloned(), s("▼ -100.0%"));
         assert_eq!(cell(&ws, 5, 4).cloned(), s("▼ -70.7%"));
         assert_eq!(cell(&ws, 6, 4).cloned(), s("▼ -66.7%"));

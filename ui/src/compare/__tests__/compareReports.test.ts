@@ -173,15 +173,15 @@ describe("golden stats_cases vs Rust (리포트 단위 잘림 판정)", () => {
   });
 });
 
-describe("Cell.time (정밀 글자용 µs와 반올림 방식)", () => {
+describe("Cell.time (정밀 글자용 µs)", () => {
   const result = compareReports(golden.reports, golden.baseline_id);
   const base = (metric: string) => result.summary.find((r) => r.metric === metric)!.cells[0];
-  it("평균·표준편차는 round, 나머지 시간 지표는 floor", () => {
-    expect(base("mean_ms").time).toEqual({ us: 25000, round: "round" });
-    expect(base("stdev_ms").time).toEqual({ us: 30000, round: "round" });
-    expect(base("min_ms").time).toEqual({ us: 2000, round: "floor" });
+  it("시간 지표 칸은 원래 µs를 싣는다", () => {
+    expect(base("mean_ms").time).toEqual({ us: 25000 });
+    expect(base("stdev_ms").time).toEqual({ us: 30000 });
+    expect(base("min_ms").time).toEqual({ us: 2000 });
     for (const m of ["p50_ms", "p90_ms", "p95_ms", "p99_ms", "max_ms"]) {
-      expect(base(m).time?.round, m).toBe("floor");
+      expect(base(m).time, m).toEqual({ us: expect.any(Number) });
     }
   });
   it("rps·error_rate 칸은 time이 없다", () => {
@@ -506,13 +506,13 @@ describe("compareReports setup rows", () => {
 
   it("no setup anywhere → setup is [] and existing cells are unchanged", () => {
     type D = { pct: number | null; polarity: string; capped: boolean };
-    const t = (us: number, round: "floor" | "round" = "floor") => ({ us, round });
+    const t = (us: number) => ({ us });
     const d = (pct: number | null, polarity: string): D => ({ pct, polarity, capped: false });
     // 행 하나: 라벨(스텝 통계 행은 지표 이름)·값·time·Δ. 스텝 행은 id도 싣는다.
     const row = (
       label: string,
       values: (number | null)[],
-      times: ({ us: number; round: string } | undefined)[],
+      times: ({ us: number } | undefined)[],
       deltas: (D | null)[],
       metric: string = label,
       id?: string,
@@ -545,10 +545,10 @@ describe("compareReports setup rows", () => {
         row("p90_ms", [25, 30], [t(25000), t(30000)], [null, d(0.2, "bad")]),
         row("p95_ms", [25, 30], [t(25000), t(30000)], [null, d(0.2, "bad")]),
         row("p99_ms", [35, 35], [t(35000), t(35000)], [null, d(0, "neutral")]),
-        row("mean_ms", [10, 10], [t(10000, "round"), t(10000, "round")], [null, d(0, "neutral")]),
+        row("mean_ms", [10, 10], [t(10000), t(10000)], [null, d(0, "neutral")]),
         row("min_ms", [5, 5], [t(5000), t(5000)], [null, d(0, "neutral")]),
         row("max_ms", [35, 35], [t(35000), t(35000)], [null, d(0, "neutral")]),
-        row("stdev_ms", [2.5, 3], [t(2500, "round"), t(3000, "round")], [null, d(0.2, "bad")]),
+        row("stdev_ms", [2.5, 3], [t(2500), t(3000)], [null, d(0.2, "bad")]),
         row("rps", [20, 20], [undefined, undefined], [null, d(0, "neutral")]),
         row("error_rate", [0.02, 0.02], [undefined, undefined], [null, d(0, "neutral")]),
       ],
@@ -557,29 +557,15 @@ describe("compareReports setup rows", () => {
         row("m2", [25, null], [t(25000), undefined], [null, null], "p95_ms", "m2"),
       ],
       stepStats: [
-        row(
-          "mean_ms",
-          [1, 1],
-          [t(1000, "round"), t(1000, "round")],
-          [null, d(0, "neutral")],
-          "mean_ms",
-          "m1",
-        ),
+        row("mean_ms", [1, 1], [t(1000), t(1000)], [null, d(0, "neutral")], "mean_ms", "m1"),
         row("min_ms", [0.5, 0.5], [t(500), t(500)], [null, d(0, "neutral")], "min_ms", "m1"),
         row("max_ms", [25, 30], [t(25000), t(30000)], [null, d(0.2, "bad")], "max_ms", "m1"),
-        row(
-          "stdev_ms",
-          [2.5, 3],
-          [t(2500, "round"), t(3000, "round")],
-          [null, d(0.2, "bad")],
-          "stdev_ms",
-          "m1",
-        ),
+        row("stdev_ms", [2.5, 3], [t(2500), t(3000)], [null, d(0.2, "bad")], "stdev_ms", "m1"),
         row("p90_ms", [25, 30], [t(25000), t(30000)], [null, d(0.2, "bad")], "p90_ms", "m1"),
-        row("mean_ms", [1, null], [t(1000, "round"), undefined], [null, null], "mean_ms", "m2"),
+        row("mean_ms", [1, null], [t(1000), undefined], [null, null], "mean_ms", "m2"),
         row("min_ms", [0.5, null], [t(500), undefined], [null, null], "min_ms", "m2"),
         row("max_ms", [25, null], [t(25000), undefined], [null, null], "max_ms", "m2"),
-        row("stdev_ms", [2.5, null], [t(2500, "round"), undefined], [null, null], "stdev_ms", "m2"),
+        row("stdev_ms", [2.5, null], [t(2500), undefined], [null, null], "stdev_ms", "m2"),
         row("p90_ms", [25, null], [t(25000), undefined], [null, null], "p90_ms", "m2"),
       ],
       status: [

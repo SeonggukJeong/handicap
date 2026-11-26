@@ -3,7 +3,13 @@ import { formatDurationKo } from "../i18n/duration";
 import type { Criteria, Report } from "../api/schemas";
 import { fmtCount, fmtMs, fmtMsPair, fmtCriterionPair } from "./format";
 import type { ChartModel } from "./chartModel";
-import { rankRows, stepThresholds, type RankedRow, type StatusTag } from "./stepStatus";
+import {
+  p95ExceedsLimit,
+  rankRows,
+  stepThresholds,
+  type RankedRow,
+  type StatusTag,
+} from "./stepStatus";
 import type { StepRow } from "./stepTable";
 import { criterionName, type BoxState, type Matched } from "./verdict";
 
@@ -179,13 +185,20 @@ function hiddenLine(i: SummaryInput): string | null {
 function slowLine(i: SummaryInput): string | null {
   const slow = i.ranked.filter((r) => r.status.tags.includes("slow"));
   if (slow.length === 0) return null;
-  let worst = slow[0];
-  for (const r of slow) if (r.p95Ms > worst.p95Ms) worst = r;
-  const thr = stepThresholds(worst.stepId, i.criteria).p95Ms;
-  if (thr === null) return null;
-  const pair = fmtMsPair(worst.p95Ms, thr);
+  // 느림 표지는 평균·최대·다른 백분위 때문일 수도 있다 — 95% 문장은 p95가 실제로 기준을 넘은 단계만 인용한다.
+  const cited = slow.flatMap((r) => {
+    const thr = stepThresholds(r.stepId, i.criteria).p95Ms;
+    return thr !== null && p95ExceedsLimit(r, thr) ? [{ r, thr }] : [];
+  });
+  if (cited.length === 0) return null;
+  const msOf = (r: RankedRow): number => (r.stats ? r.stats.p95_us / 1000 : r.p95Ms);
+  let worst = cited[0];
+  for (const c of cited) if (msOf(c.r) > msOf(worst.r)) worst = c;
+  const pair = fmtMsPair(msOf(worst.r), worst.thr);
   const act = pair.tiny ? `${pair.actual} ${ko.print.fmt.tiny}` : pair.actual;
-  return S.slow(worst.name, act, pair.threshold) + (slow.length > 1 ? S.more(slow.length - 1) : "");
+  return (
+    S.slow(worst.r.name, act, pair.threshold) + (slow.length > 1 ? S.more(slow.length - 1) : "")
+  );
 }
 
 export function summaryLines(i: SummaryInput): SummaryLine[] {

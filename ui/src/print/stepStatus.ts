@@ -60,6 +60,11 @@ const overLimit = (stats: LatencyStats, metric: string, threshold: number): bool
   return v !== null && (v.cut || v.us > Math.round(threshold * 1000));
 };
 
+/** 이 단계의 95% 응답이 `threshold`(ms)를 넘었나 — `isSlow`의 p95 판정과 같은 µs 비교(잘림도 넘음). stats가 없으면 정수 ms 비교. */
+export function p95ExceedsLimit(row: Pick<StepRow, "p95Ms" | "stats">, threshold: number): boolean {
+  return row.stats ? overLimit(row.stats, "p95_ms", threshold) : row.p95Ms > threshold;
+}
+
 function isSlow(
   row: StepRow,
   criteria: Criteria | null | undefined,

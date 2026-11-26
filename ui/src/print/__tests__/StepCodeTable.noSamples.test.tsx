@@ -73,3 +73,16 @@ describe("StepTable 95% 응답 시간 칸 — 표본이 없는 단계", () => {
     expect(p95Cell(row({ count: 5, p95Ms: 0 }))).toBe(ko.print.fmt.msUnderOne);
   });
 });
+
+describe("StepTable 95% 응답 칸 — 「60초 이상」이 두 줄로 접히지 않는다 (라이브: 「60초 이/상」)", () => {
+  it("p95 칸 td에 p-nowrap, 열 폭은 「60초 이상」이 들어가는 19mm", () => {
+    const { container } = render(
+      <StepTable columns={[]} items={[{ kind: "step", row: row({ count: 5, p95Ms: 60000 }) }]} />,
+    );
+    const cell = container.querySelectorAll("tbody tr td")[2] as HTMLElement;
+    expect(cell.textContent).toBe(ko.print.fmt.capSec);
+    expect(cell).toHaveClass("p-nowrap");
+    const cols = Array.from(container.querySelectorAll("colgroup col")) as HTMLElement[];
+    expect(cols[2].style.width).toBe("19mm");
+  });
+});

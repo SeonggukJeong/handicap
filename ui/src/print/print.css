@@ -888,6 +888,11 @@
   overflow-wrap: anywhere;
 }
 
+/* 한 줄 고정 글자(「60초 이상」·「▲ 변화율 계산 불가」) — 칸 폭은 그 글자가 들어가도록 따로 잡는다 */
+.p-root .p-nowrap {
+  white-space: nowrap;
+}
+
 /* 핵심 지표 표 */
 .p-root .p-cmp-kpi th,
 .p-root .p-cmp-kpi td,

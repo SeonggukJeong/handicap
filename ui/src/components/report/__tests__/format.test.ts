@@ -11,6 +11,7 @@ import {
   meanShown,
   splitLatencyText,
   statMsText,
+  statMs3Text,
 } from "../format";
 
 describe("msNumberText", () => {
@@ -137,5 +138,17 @@ describe("statMsText — 통계 한 칸의 시간 글자(내림/반올림·µs·
     expect(statMsText(999, "round")).toBe("999 µs");
     expect(statMsText(60_000_000, "floor")).toBe(ko.report.stats.capped);
     expect(statMsText(59_998_207, "floor")).toBe("59998");
+  });
+});
+
+describe("statMs3Text — 비교 화면 시간 칸(CSV ms3 글자, 소수 3자리)", () => {
+  it("표", () => {
+    expect(statMs3Text(999)).toBe(statMsText(999, "floor"));
+    expect(statMs3Text(350)).toBe("350 µs");
+    expect(statMs3Text(1000)).toBe("1.000");
+    expect(statMs3Text(115_204)).toBe("115.204");
+    expect(statMs3Text(52_118)).toBe("52.118");
+    expect(statMs3Text(59_999_999)).toBe("59999.999");
+    expect(statMs3Text(60_000_000)).toBe(ko.report.stats.capped);
   });
 });
