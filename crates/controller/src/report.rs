@@ -1088,14 +1088,18 @@ pub fn build_report(
     // 느린 스텝 인사이트), 점유(항상 모든 요청 — 포화 원인의 `latency_rose`).
     // Emit one window per (ts_second, step_id) — BTreeMap iterates sorted by (ts, step),
     // matching the previous SQL ORDER BY. Percentiles come from the merged histogram.
+    // `latency_stats`가 false면(점유 창) 평균·60초 표지를 계산하지 않는다 — 점유 창은 백분위와 건수만 읽힌다
+    // (`evaluate_criteria`·`derive_insights`·인사이트 시점 옮기기). 평균은 분포를 한 번 더 훑는다.
     let window_of = |ts_second: i64,
                      step_id: String,
                      status_counts: BTreeMap<String, u64>,
                      count: u64,
                      error_count: u64,
-                     h: Option<&Histogram<u64>>|
+                     h: Option<&Histogram<u64>>,
+                     latency_stats: bool|
      -> ReportWindow {
         let wp = h.map(percentiles_of).unwrap_or_else(Percentiles::empty);
+        let h_stats = h.filter(|_| latency_stats);
         ReportWindow {
             ts_second,
             step_id,
@@ -1105,9 +1109,9 @@ pub fn build_report(
             p50_ms: wp.p50_ms,
             p95_ms: wp.p95_ms,
             p99_ms: wp.p99_ms,
-            n: h.map_or(0, |h| h.len()),
-            mean_us: h.and_then(crate::latency_stats::mean_us),
-            capped: h.is_some_and(crate::latency_stats::is_capped),
+            n: h_stats.map_or(0, |h| h.len()),
+            mean_us: h_stats.and_then(crate::latency_stats::mean_us),
+            capped: h_stats.is_some_and(crate::latency_stats::is_capped),
         }
     };
     // 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이다. 아닐 때만 빌려서 따로 만든다.
@@ -1122,6 +1126,7 @@ pub fn build_report(
                     acc.count,
                     acc.error_count,
                     acc.hist.resolve(Sample::All).hist(),
+                    false,
                 )
             })
             .collect()
@@ -1154,7 +1159,15 @@ pub fn build_report(
         if let Some(h) = h {
             merge_into(&mut sec_hist, h);
         }
-        windows.push(window_of(ts, step, status, acc.count, acc.error_count, h));
+        windows.push(window_of(
+            ts,
+            step,
+            status,
+            acc.count,
+            acc.error_count,
+            h,
+            true,
+        ));
     }
     if let Some(prev) = cur_sec {
         latency_by_second.push(second_of(prev, &sec_hist));
@@ -4984,6 +4997,62 @@ steps:
                 .expect("포화 인사이트");
             assert_eq!(sat.cause.as_deref(), Some("sut"), "sample={s:?}");
         }
+    }
+
+    #[test]
+    fn occupancy_windows_change_no_output() {
+        use crate::sample::Sample;
+        // 실패가 하나도 없는 나눌 수 있는 run — 통과한 요청 = 모든 요청이다. 기본 표본(통과)으로 보면
+        // 점유 창을 따로 만들고, 모든 요청으로 보면 보여 주는 창이 곧 점유 창이다. 두 리포트는 표본 이름만 달라야 한다
+        // (점유 창이 평균·60초 표지를 계산하든 말든 판정·인사이트·보여 주는 창은 같다).
+        let mut run = run_row();
+        run.profile.target_rps = Some(10);
+        run.profile.max_in_flight = Some(5);
+        run.profile.criteria = Some(Criteria {
+            max_p95_ms: Some(100),
+            ..Criteria::default()
+        });
+        run.dropped = 20;
+        run.started_at = Some(100_000);
+        run.ended_at = Some(112_000);
+        let mut rows: Vec<WindowWithHdr> = Vec::new();
+        for ts in 100..112i64 {
+            let a: Vec<u64> = if ts < 108 {
+                vec![40_000, 40_000, 40_000, 2_000]
+            } else {
+                vec![40_000, 30_000_000, 30_000_000, 60_000_000]
+            };
+            rows.push(WindowWithHdr {
+                step_id: "a".into(),
+                ..split_win(ts, &a, Some(&[]))
+            });
+            rows.push(WindowWithHdr {
+                step_id: "b".into(),
+                ..split_win(ts, &[5_000, 7_000], Some(&[]))
+            });
+        }
+        let by_default = report_with_run(&run, &rows, None);
+        let all = report_with_run(&run, &rows, Some(Sample::All));
+        assert!(by_default.sample.split);
+        assert_eq!(by_default.sample.selected, Sample::Passed);
+        assert_eq!(all.sample.selected, Sample::All);
+        // 보여 주는 창은 평균·60초 표지를 그대로 가진다.
+        let late = ws_win(&by_default, 108, "a");
+        assert_eq!(late.n, 4);
+        assert!(late.mean_us.is_some());
+        assert!(late.capped);
+        assert!(
+            by_default
+                .insights
+                .iter()
+                .any(|i| i.kind == "load_gen_saturated"),
+            "점유 창을 읽는 포화 인사이트가 나와야 비교가 뜻이 있다"
+        );
+        let mut a = serde_json::to_value(&by_default).unwrap();
+        let mut b = serde_json::to_value(&all).unwrap();
+        a.as_object_mut().unwrap().remove("sample");
+        b.as_object_mut().unwrap().remove("sample");
+        assert_eq!(a, b);
     }
 
     #[test]
