@@ -101,8 +101,7 @@ function blockClass(id: string): string {
   )
     return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";
-  // 평균 덤벨 표(cmp:dbm)는 95% 덤벨(cmp:db)과 같은 클래스
-  const name = id === "cmp:dbm" ? "db" : id.split(":")[1];
+  const name = id.split(":")[1];
   return name === "headline" || name === "kpi" || name === "overlay" || name === "speed"
     ? "p-block p-cmp-b--section"
     : `p-block p-cmp-b--${name}`;

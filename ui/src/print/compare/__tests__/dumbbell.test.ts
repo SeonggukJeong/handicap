@@ -8,6 +8,7 @@ import {
 import { stepPairs } from "../errorCells";
 import type { RunModel } from "../runModel";
 import { expectClean } from "./expectClean";
+import { ko } from "../../../i18n/ko";
 import { mkStats } from "./fixtures";
 import { sceneModel } from "./scene";
 
@@ -397,7 +398,7 @@ describe('buildDumbbell 지표 인자 ("p95" 기본 · "mean")', () => {
     expect(r.shape).toBe("dots");
     expect(r.dir).toBe(0);
     expect(r.wordText).toBe("");
-    expect(r.beforeText).toContain(" 이상");
+    expect(r.beforeText).toBe("30.0초 이상");
     expect(r.valueText).not.toContain("(");
   });
 
@@ -405,19 +406,19 @@ describe('buildDumbbell 지표 인자 ("p95" 기본 · "mean")', () => {
     const r = mean(statRun("b", [1_000_000]), statRun("a", [30_007_796], { capped: true }))
       .rows[0]!;
     expect(r.cls).toBe("worse");
-    expect(r.afterText).toContain(" 이상");
+    expect(r.afterText).toBe("30.0초 이상");
     expect(r.afterText).not.toContain("(");
   });
 
   it("mean 기준선: 양쪽 max_mean_ms가 같고 스텝 mean_ms 기준이 없을 때만", () => {
-    const crit = { max_mean_ms: 80 };
+    const crit = { max_mean_ms: 100 };
     const same = mean(
       statRun("b", [61_000], { criteria: crit }),
       statRun("a", [83_000], { criteria: crit }),
     );
-    expect(same.baseline?.ms).toBe(80);
+    expect(same.baseline?.ms).toBe(100);
     const stepCrit = {
-      max_mean_ms: 80,
+      max_mean_ms: 100,
       step_criteria: [{ metric: "mean_ms", op: "max" as const, threshold: 500, target: "s1" }],
     };
     const withStep = mean(
@@ -431,5 +432,35 @@ describe('buildDumbbell 지표 인자 ("p95" 기본 · "mean")', () => {
       statRun("a", [83_000], { criteria: p95Only }),
     );
     expect(other.baseline).toBeNull();
+  });
+
+  describe("기준선 넘나듦 글자는 하한값으로 말하지 않는다", () => {
+    const crit35 = { max_mean_ms: 35_000 };
+    const cross = (b: number, bCut: boolean, a: number, aCut: boolean) => {
+      const bm = statRun("b", [b], { capped: bCut, criteria: crit35 });
+      const am = statRun("a", [a], { capped: aCut, criteria: crit35 });
+      const m = mean(bm, am);
+      expect(m.baseline?.ms).toBe(35_000);
+      return m.rows[0]!.crossText;
+    };
+    it("안 잘린 값끼리면 안으로·초과 글자가 그대로", () => {
+      expect(cross(40_000_000, false, 20_000_000, false)).toBe(ko.print.cmp.db.crossIn);
+      expect(cross(20_000_000, false, 40_000_000, false)).toBe(ko.print.cmp.db.crossOver);
+    });
+    it("기준 안쪽 값이 잘렸으면(안으로·초과 둘 다) 글자 없음", () => {
+      expect(cross(40_000_000, false, 30_007_796, true)).toBeNull();
+      expect(cross(30_007_796, true, 40_000_000, false)).toBeNull();
+    });
+    it("기준 바깥 값이 잘렸어도 안쪽 값이 안 잘렸으면 글자 유지", () => {
+      expect(cross(59_000_000, true, 20_000_000, false)).toBe(ko.print.cmp.db.crossIn);
+      expect(cross(20_000_000, false, 59_000_000, true)).toBe(ko.print.cmp.db.crossOver);
+    });
+    it("p95 갈래도 같다: 기준 70초, 안쪽 값(65초)이 잘렸으면 글자 없음", () => {
+      const lim = { max_p95_ms: 70_000 };
+      const into = build([[100_000, 65_000]], lim, lim).rows[0]!;
+      expect(into.crossText).toBeNull();
+      const kept = build([[100_000, 1_000]], lim, lim).rows[0]!;
+      expect(kept.crossText).toBe(ko.print.cmp.db.crossIn);
+    });
   });
 });

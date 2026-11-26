@@ -941,4 +941,27 @@ describe("잘린 행과 표준판 전용 행은 머리·요약 문장을 흔들�
     expect(withH.countsLine).toBe(withoutH.countsLine);
     expect(withH.word).toBe(withoutH.word);
   });
+
+  it("반면 문장: 값이 같아도 잘림 때문에 나빠진 평균은 「늘었습니다」", () => {
+    const base: Over = {
+      count: 1000,
+      errors: 0,
+      rps: 240,
+      mean_ms: 30000,
+      p95_ms: 2400,
+      p99_ms: 1840,
+    };
+    const { byId, rows, headline } = scene(
+      { summary: { ...base, stats: mkStats({ capped: false }) } },
+      { summary: { ...base, p95_ms: 1600, stats: mkStats({ capped: true }) } },
+    );
+    const mean = rows.find((r) => r.key === "mean_ms")!;
+    expect(mean.cls).toBe("worse");
+    expect(mean.before).toBe(mean.after);
+    expect(headline.answer).toBe("mixed");
+    const three = byId(3) ?? "";
+    expect(three).toContain(ko.print.cmp.metric.mean);
+    expect(three).toContain("늘었습니다");
+    expect(three).not.toContain("줄었습니다");
+  });
 });

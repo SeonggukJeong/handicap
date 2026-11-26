@@ -590,6 +590,14 @@ describe("CompareDocument 오류 변화 절", () => {
 });
 
 describe("CompareDocument 덤벨 절", () => {
+  it("측정 시트에 평균 덤벨 표의 제목·머리·행·범례가 있다", async () => {
+    const { container, root } = renderDoc(makeDoc());
+    for (const id of ["cmp:dbm:title", "cmp:dbm:header", "cmp:dbm:row:0", "cmp:dbm:legend"]) {
+      expect(container.querySelector(`.p-sheet [data-measure="${id}"]`), id).not.toBeNull();
+    }
+    await ready(root);
+  });
+
   it("측정 시트에 덤벨 표의 제목·머리·행·범례가 있다", async () => {
     const { container, root } = renderDoc(makeDoc());
     for (const id of ["cmp:db:title", "cmp:db:header", "cmp:db:row:0", "cmp:db:legend"]) {

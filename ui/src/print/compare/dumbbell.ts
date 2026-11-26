@@ -200,8 +200,9 @@ export function buildDumbbell(
 
     let crossText: string | null = null;
     if (limit !== null && both) {
-      if (b > limit && a <= limit) crossText = t.crossIn;
-      else if (b <= limit && a > limit) crossText = t.crossOver;
+      // 잘린 값은 하한이라 기준 안쪽에 놓인 값이 잘렸으면 넘나듦을 말하지 않는다
+      if (b > limit && a <= limit) crossText = cutA ? null : t.crossIn;
+      else if (b <= limit && a > limit) crossText = cutB ? null : t.crossOver;
     }
 
     const note =

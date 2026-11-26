@@ -213,11 +213,10 @@ export function cmpSummaryLines(a: {
         line(2, L.biggest(lead.name, lead.beforeText, lead.afterText, lead.changeText), code),
       );
     }
+    // 늘었나 줄었나는 값이 아니라 행의 방향(▲/▼)으로 — 잘린 값은 같은 숫자여도 방향이 있다
     const down = answer === "mixed" ? topRow(a.rows, "worse") : null;
     if (down) {
-      out.push(
-        line(3, L.opposite(down.name, down.beforeText, down.afterText, down.after > down.before)),
-      );
+      out.push(line(3, L.opposite(down.name, down.beforeText, down.afterText, down.arrow === "▲")));
     }
   }
   if (a.fairness.anyDiff) {

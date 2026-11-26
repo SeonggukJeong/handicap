@@ -348,6 +348,10 @@ describe("metricRows 응답 시간 행 다섯 + 표준판 전용 둘", () => {
     expect(r.cls).toBe("none");
     expect(r.beforeText).toBe(ko.print.fmt.capSec);
     expect(r.afterText).toBe(ko.print.fmt.capSec);
+    expect(r.pct).toBeNull();
+    expect(r.arrow).toBe("–");
+    expect(r.changeText).toBe("");
+    expect(r.wordText).toBe(ko.print.cmp.change.none);
   });
 
   it("평균: 잘린 쪽(capped) 30000 ↔ 안 잘린 40000은 방향 모름", () => {
@@ -425,6 +429,11 @@ describe("metricRows 응답 시간 행 다섯 + 표준판 전용 둘", () => {
       withStats(AFTER, { max_us: 60_000_000 }),
       OPTS,
     );
-    expect(row(rows, "max_ms").cls).toBe("none");
+    const r = row(rows, "max_ms");
+    expect(r.cls).toBe("none");
+    expect(r.pct).toBeNull();
+    expect(r.arrow).toBe("–");
+    expect(r.changeText).toBe("");
+    expect(r.wordText).toBe(ko.print.cmp.change.none);
   });
 });
