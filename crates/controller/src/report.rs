@@ -1121,29 +1121,29 @@ pub fn build_report(
     let mut worker_acc: BTreeMap<String, WorkerAcc> = BTreeMap::new();
 
     // SQL은 step_id를 바이트 순으로 정렬해 주지만 그 순서에 기대지 않고 여기서 (ts, step) 안정 정렬한다
-    // (안정 정렬 — 같은 칸 안의 행 순서 = 입력 순서, 옛 `BTreeMap` 칸에 들어가던 순서와 같다).
+    // (안정 정렬 — 같은 칸 안의 행은 입력 순서대로 합쳐진다).
     let mut order: Vec<&WindowWithHdr> = rows.iter().collect();
     order.sort_by(|a, b| (a.ts_second, a.step_id.as_str()).cmp(&(b.ts_second, b.step_id.as_str())));
     for r in order {
         let sc = parse_status_counts(&r.status_counts);
-        if cur_cell
-            .as_ref()
-            .is_none_or(|((ts, step), _)| *ts != r.ts_second || *step != r.step_id)
+        if let Some(((ts, step), done)) =
+            cur_cell.take_if(|((ts, step), _)| *ts != r.ts_second || *step != r.step_id)
         {
-            if let Some(((ts, step), done)) = cur_cell.take() {
-                sink.push(ts, step, done);
-            }
-            cur_cell = Some((
-                (r.ts_second, r.step_id.clone()),
-                WindowAcc {
-                    count: 0,
-                    error_count: 0,
-                    status: BTreeMap::new(),
-                    hist: SplitHist::default(),
-                },
-            ));
+            sink.push(ts, step, done);
         }
-        let acc = &mut cur_cell.as_mut().expect("방금 채운 칸").1;
+        let acc = &mut cur_cell
+            .get_or_insert_with(|| {
+                (
+                    (r.ts_second, r.step_id.clone()),
+                    WindowAcc {
+                        count: 0,
+                        error_count: 0,
+                        status: BTreeMap::new(),
+                        hist: SplitHist::default(),
+                    },
+                )
+            })
+            .1;
         acc.count += r.count as u64;
         acc.error_count += r.error_count as u64;
         add_status(&mut acc.status, &sc);

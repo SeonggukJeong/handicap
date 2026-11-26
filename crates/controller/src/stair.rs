@@ -970,10 +970,8 @@ pub fn build_stair_report(
     order.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
     let mut cur: Option<(i64, Option<Histogram<u64>>)> = None;
     for (offset, wid, r) in order {
-        if cur.as_ref().is_some_and(|c| c.0 != offset) {
-            if let Some((o, hist)) = cur.take() {
-                secs.entry(o).or_default().p99_us = q(&hist, 0.99);
-            }
+        if let Some((o, hist)) = cur.take_if(|c| c.0 != offset) {
+            secs.entry(o).or_default().p99_us = q(&hist, 0.99);
         }
         let h = window_hist_per_window(&r.hdr_histogram, r.failed_hdr_histogram.as_deref());
         add(&mut secs.entry(offset).or_default().count, r.count);

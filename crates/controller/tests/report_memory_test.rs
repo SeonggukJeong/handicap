@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const MIB: usize = 1024 * 1024;
 const N_R: i64 = 60;
 const REPORT_ABS: usize = 64 * MIB;
-const REPORT_GROWTH: usize = 16 * MIB;
+const REPORT_GROWTH: usize = 4 * MIB;
 const N_S: i64 = 300;
 const STAIR_ABS: usize = 32 * MIB;
 const STAIR_GROWTH: usize = 8 * MIB;
