@@ -412,6 +412,42 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
     }
   });
 
+  it("단추는 제목 글자 바로 다음 형제, 통계 행 이름 칸은 p95 행과 같은 글자 크기, 툴팁은 표시 이름", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <CompareMatrix result={build()} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const btn = screen.getByRole("button", { name: ko.report.stats.toggleMore });
+    const titleEl = btn.previousElementSibling;
+    expect(titleEl).toHaveTextContent(ko.report.stepsHeading);
+    expect(btn.parentElement?.className).not.toContain("justify-between");
+    await user.click(btn);
+    const nameTd = (text: string) =>
+      Array.from(container.querySelectorAll("tbody tr td:first-child")).find(
+        (td) => td.textContent === text,
+      ) as HTMLElement;
+    const sizeTokens = (el: HTMLElement) =>
+      el.className.split(/\s+/).filter((c) => /^text-(xs|sm|base|lg|\[)/.test(c));
+    const sub = nameTd(ko.compare.stepStatLabel(ko.compare.statLabel.mean_ms));
+    expect(sizeTokens(sub)).toEqual(sizeTokens(nameTd("로그인")));
+    expect(sub.className).not.toContain("text-xs");
+    expect(nameTd(ko.compare.statLabel.min_ms)).toHaveAttribute(
+      "title",
+      ko.compare.statLabel.min_ms,
+    );
+    expect(sub).toHaveAttribute("title", sub.textContent);
+    expect(nameTd("로그인")).toHaveAttribute("title", "로그인");
+  });
+
+  it("상속 속성 이름(constructor) 지표도 던지지 않고 label로", () => {
+    const r = build();
+    r.summary.push(row("constructor", [cell(1), cell(2)]));
+    const { container } = render(
+      <CompareMatrix result={r} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    expect(names(container)).toContain("constructor");
+  });
+
   it("stepStats가 비면 단추가 없다", () => {
     render(
       <CompareMatrix

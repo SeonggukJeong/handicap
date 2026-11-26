@@ -77,6 +77,13 @@ function CellContent({ cell }: { cell: Cell }) {
   );
 }
 
+// 새 통계 지표의 한국어 이름 — 상속 속성 이름(`constructor` 등)은 label로 떨어진다.
+function statName(row: CompareRow): string {
+  return Object.hasOwn(ko.compare.statLabel, row.metric)
+    ? ko.compare.statLabel[row.metric as keyof typeof ko.compare.statLabel]
+    : row.label;
+}
+
 function SectionRows({
   title,
   rows,
@@ -103,7 +110,7 @@ function SectionRows({
           colSpan={runCount + 1}
           className="py-2 px-3 text-left text-sm font-semibold text-slate-600 bg-slate-50 dark:bg-slate-800 dark:text-slate-300 border-t border-slate-200 dark:border-slate-700"
         >
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
             <span>{title}</span>
             {hasStats && (
               <button
@@ -123,7 +130,7 @@ function SectionRows({
           <tr className="border-b border-slate-100 dark:border-slate-800">
             <td
               className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
-              title={row.label}
+              title={labelOf ? labelOf(row) : row.label}
             >
               {labelOf ? labelOf(row) : row.label}
             </td>
@@ -139,17 +146,20 @@ function SectionRows({
             stepStats
               .filter((stat) => stat.id === row.id)
               .map((stat) => {
-                const name = ko.compare.statLabel[stat.metric as keyof typeof ko.compare.statLabel];
+                const text = ko.compare.stepStatLabel(statName(stat));
                 return (
                   <tr
                     key={`${row.id}:${stat.metric}`}
                     className="border-b border-slate-100 dark:border-slate-800"
                   >
-                    <td className="py-1.5 pl-4 pr-4 text-xs text-slate-600 dark:text-slate-400 break-all">
-                      {ko.compare.stepStatLabel(name ?? stat.label)}
+                    <td
+                      className="py-2 pl-4 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
+                      title={text}
+                    >
+                      {text}
                     </td>
                     {stat.cells.slice(0, runCount).map((cell, i) => (
-                      <td key={i} className="py-1.5 pr-4 text-xs">
+                      <td key={i} className="py-2 pr-4 text-sm">
                         <CellContent cell={cell} />
                       </td>
                     ))}
@@ -254,9 +264,7 @@ export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Pr
             title={ko.report.summaryTitle}
             rows={summary}
             runCount={colCount}
-            labelOf={(row) =>
-              ko.compare.statLabel[row.metric as keyof typeof ko.compare.statLabel] ?? row.label
-            }
+            labelOf={statName}
           />
 
           {/* Steps section rows with spanning sub-header */}
