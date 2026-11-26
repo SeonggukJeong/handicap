@@ -70,7 +70,11 @@ pub fn mean_us(h: &Histogram<u64>) -> Option<u64> {
 pub fn latency_stats(h: &Histogram<u64>) -> Option<LatencyStats> {
     let max = max_us(h)?;
     Some(LatencyStats {
-        min_us: h.min(),
+        min_us: if is_cap_value(h, h.min()) {
+            CAP_US
+        } else {
+            h.min()
+        },
         mean_us: mean_us(h)?,
         max_us: max,
         stdev_us: h.stdev().round() as u64,
@@ -185,6 +189,25 @@ mod tests {
             ((s.mean_us as f64) - exact).abs() / exact <= 0.001,
             "mean {} vs exact {exact}",
             s.mean_us
+        );
+    }
+
+    #[test]
+    fn min_is_cap_value_in_cap_bucket() {
+        // 60초 칸 값이면 최소도 그 칸의 값(60,000,000)으로 — 칸 아래 끝(59,998,208)이 아니다.
+        assert_eq!(
+            latency_stats(&hist(&[60_000_000])).unwrap().min_us,
+            60_000_000
+        );
+        // 60초 미만 값은 그대로(칸 안의 값).
+        assert_eq!(
+            latency_stats(&hist(&[59_000_000])).unwrap().min_us,
+            58_982_400
+        );
+        // 60초 칸 아래 표본이 하나라도 있으면 그 최소.
+        assert_eq!(
+            latency_stats(&hist(&[1000, 60_000_000])).unwrap().min_us,
+            1000
         );
     }
 

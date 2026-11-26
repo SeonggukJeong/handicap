@@ -182,7 +182,8 @@ async fn single_run_csv_export_returns_csv() {
         .next()
         .expect("CSV must have at least one line");
     assert_eq!(
-        first_line, "step_id,count,error_count,p50_ms,p95_ms,p99_ms",
+        first_line,
+        "step_id,count,error_count,min_ms,mean_ms,p50_ms,p90_ms,p95_ms,p99_ms,max_ms,stdev_ms,capped",
         "CSV header mismatch: {first_line}"
     );
 }

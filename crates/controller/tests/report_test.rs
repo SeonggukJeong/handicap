@@ -1483,11 +1483,11 @@ async fn xlsx_route_carries_both_bases() {
         open_workbook_from_rs(std::io::Cursor::new(bytes)).unwrap();
     let summary = wb.worksheet_range("Summary").unwrap();
     assert_eq!(
-        summary.get_value((9, 0)),
+        summary.get_value((15, 0)),
         Some(&Data::String("basis".into()))
     );
     assert_eq!(
-        summary.get_value((9, 1)),
+        summary.get_value((15, 1)),
         Some(&Data::String("whole".into()))
     );
     let other = wb.worksheet_range("Other basis").unwrap();
@@ -1497,7 +1497,7 @@ async fn xlsx_route_carries_both_bases() {
     );
     let steps = wb.worksheet_range("Steps").unwrap();
     assert_eq!(steps.get_value((1, 1)), Some(&Data::Float(whole_count)));
-    assert_eq!(other.get_value((10, 1)), Some(&Data::Float(steady_count)));
+    assert_eq!(other.get_value((16, 1)), Some(&Data::Float(steady_count)));
 }
 
 /// 통과한 요청 4건(40 ms)과 실패한 요청 6건(2 ms)이 섞인 run. `split`이면 실패 칸을 채운다.
