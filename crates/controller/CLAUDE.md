@@ -51,7 +51,7 @@
 - **임의 백분위는 `value_at_quantile(N/100)` 말고 정수 순위(`latency_stats::value_at_milli`)로** (verdict-stats ③a): `99.9/100 = 0.9990000000000001`이라 1,000건에서 999번째가 아니라 최대를 준다. 0.50·0.95·0.99는 부동소수 순위가 정수 순위와 같아 기존 정수 ms 칸은 그대로 둔다.
 - **나눌 수 없는 run(행 없음·실패 칸 NULL 행이 하나라도)은 실패 칸을 읽지 않는다** (passed-latency A): 깨진 실패 칸 하나가 옛 run의 값을 지우지 않게. 빈 BLOB(실패 없음)과 NULL(옛 부하기)은 다르다 — 빈 벡터를 NULL로 저장하면 run이 나눌 수 없음으로 바뀐다.
 - **계단은 run 단위가 아니라 창 단위 표본이다** (passed-latency A): `stair.rs`·`stair_monitor.rs`가 둘 다 `window_hist_per_window`(실패 칸 있으면 통과, 없으면 모든 요청)를 써야 실행 중 숫자 = 종료 뒤 숫자다. 한쪽만 고치지 말 것.
-- **`build_report`는 창마다 풀어 둔 분포(창당 ≈300 KB)를 끝까지 들고 있다 — 메모리가 창 수(초 × 스텝)에 비례한다** (verdict-stats ④a 라이브): 600초 × 스텝 10 = RSS 1.8 GB, 1시간 × 10 ≈ 11 GB(roadmap §B98 (1)). 큰 합성 run 테스트는 기본 크기를 작게(`report_build_timing`의 `REPORT_TIMING_SECONDS`). 초별 합계(`latency_by_second`)는 창을 만드는 한 번의 훑기에서 같은 분포를 다시 쓴다 — 창 분포를 두 번 풀지 말 것. 점유 창(`selected != All`)은 `n`·`mean_us`·`capped`를 계산하지 않는다(읽는 곳 없음 — 새 소비처가 읽으면 `window_of`의 `latency_stats` 인자를 참으로).
+- **`build_report`는 행을 (ts, step)으로 안정 정렬해 한 칸씩 마무리하고 분포를 버린다**(report-memory) — 창 분포를 칸 끝 너머로 들고 가는 구조(맵·벡터에 쌓기)를 다시 만들지 말 것, 메모리가 초 × 스텝에 비례해 1시간 × 스텝 10 ≈ 11 GB였다. `tests/report_memory_test.rs`가 잡는다. 초별 합계는 칸 마무리에서 같은 분포를 쓴다. 점유 창은 `n`·`mean_us`·`capped`를 계산하지 않는다(읽는 곳 없음 — 새 소비처가 읽으면 `latency_stats`를 참으로).
 
 ## 저장소 / 마이그레이션 (SQLite, `store.rs`)
 

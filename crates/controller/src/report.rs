@@ -980,13 +980,118 @@ pub fn build_report(
         status: BTreeMap<String, u64>,
         hist: SplitHist<'r>,
     }
+    // 응답 시간 값의 세 용도: 보여 주는 값(`selected`), 판정(항상 `default_sample` — 판정·속도 구간·
+    // 느린 스텝 인사이트), 점유(항상 모든 요청 — 포화 원인의 `latency_rose`).
+    // `latency_stats`가 false면(점유 창) 평균·60초 표지를 계산하지 않는다 — 점유 창은 백분위와 건수만 읽힌다
+    // (`evaluate_criteria`·`derive_insights`·인사이트 시점 옮기기). 평균은 분포를 한 번 더 훑는다.
+    fn window_of(
+        ts_second: i64,
+        step_id: String,
+        status_counts: BTreeMap<String, u64>,
+        count: u64,
+        error_count: u64,
+        h: Option<&Histogram<u64>>,
+        latency_stats: bool,
+    ) -> ReportWindow {
+        let wp = h.map(percentiles_of).unwrap_or_else(Percentiles::empty);
+        let h_stats = h.filter(|_| latency_stats);
+        ReportWindow {
+            ts_second,
+            step_id,
+            count,
+            error_count,
+            status_counts,
+            p50_ms: wp.p50_ms,
+            p95_ms: wp.p95_ms,
+            p99_ms: wp.p99_ms,
+            n: h_stats.map_or(0, |h| h.len()),
+            mean_us: h_stats.and_then(crate::latency_stats::mean_us),
+            capped: h_stats.is_some_and(crate::latency_stats::is_capped),
+        }
+    }
+    fn second_of(ts_second: i64, h: &Histogram<u64>) -> SecondLatency {
+        SecondLatency {
+            ts_second,
+            n: h.len(),
+            mean_us: crate::latency_stats::mean_us(h),
+            p95_us: crate::latency_stats::value_at_milli(h, 95_000),
+            capped: crate::latency_stats::is_capped(h),
+        }
+    }
+    // 칸(ts_second, step_id)이 끝날 때마다 `push`로 받아 창 칸을 만들고 분포를 버린다. 같은 분포를 그 초의
+    // 임시 분포(`sec_hist`)에 합쳐 초별 모든 스텝 합계도 낸다(칸이 (ts, step) 순으로 들어오므로 같은 초가
+    // 이어진다). 빈·깨진 칸은 합치지 않는다. 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이라
+    // `occupancy`는 `None`(아닐 때만 따로 만든다).
+    struct WindowSink {
+        selected: Sample,
+        windows: Vec<ReportWindow>,
+        occupancy: Option<Vec<ReportWindow>>,
+        latency_by_second: Vec<SecondLatency>,
+        sec_hist: Histogram<u64>,
+        cur_sec: Option<i64>,
+    }
+    impl WindowSink {
+        fn new(selected: Sample) -> Self {
+            Self {
+                selected,
+                windows: Vec::new(),
+                occupancy: (selected != Sample::All).then(Vec::new),
+                latency_by_second: Vec::new(),
+                sec_hist: fresh_hist(),
+                cur_sec: None,
+            }
+        }
+        fn push(&mut self, ts: i64, step: String, mut acc: WindowAcc<'_>) {
+            if let Some(occ) = self.occupancy.as_mut() {
+                occ.push(window_of(
+                    ts,
+                    step.clone(),
+                    acc.status.clone(),
+                    acc.count,
+                    acc.error_count,
+                    acc.hist.resolve(Sample::All).hist(),
+                    false,
+                ));
+            }
+            if self.cur_sec != Some(ts) {
+                if let Some(prev) = self.cur_sec {
+                    self.latency_by_second.push(second_of(prev, &self.sec_hist));
+                    self.sec_hist.reset();
+                }
+                self.cur_sec = Some(ts);
+            }
+            let status = std::mem::take(&mut acc.status);
+            let resolved = acc.hist.resolve(self.selected);
+            let h = resolved.hist();
+            if let Some(h) = h {
+                merge_into(&mut self.sec_hist, h);
+            }
+            self.windows.push(window_of(
+                ts,
+                step,
+                status,
+                acc.count,
+                acc.error_count,
+                h,
+                true,
+            ));
+        }
+        fn finish(mut self) -> Self {
+            if let Some(prev) = self.cur_sec {
+                self.latency_by_second.push(second_of(prev, &self.sec_hist));
+            }
+            self
+        }
+    }
     // 나눌 수 있는 run(모든 행에 실패 칸)이면 기본 표본 = 통과한 요청, 아니면 모든 요청.
     let split = crate::sample::run_is_split(rows);
     let default_sample = if split { Sample::Passed } else { Sample::All };
     let selected = sample
         .filter(|s| split || *s == Sample::All)
         .unwrap_or(default_sample);
-    let mut window_acc: BTreeMap<(i64, String), WindowAcc> = BTreeMap::new();
+    // 행을 (ts, step)으로 정렬해 한 칸씩 마무리한다 — 현재 칸 하나만 분포를 들고 있다.
+    let mut cur_cell: Option<((i64, String), WindowAcc)> = None;
+    let mut sink = WindowSink::new(selected);
     let mut overall = SplitHist::default();
     let mut per_step: BTreeMap<String, SplitHist> = BTreeMap::new();
     // (count, error_count, status_counts, 범위가 있을 때 응답 수 합 Σ status_counts)
@@ -1015,16 +1120,30 @@ pub fn build_report(
     }
     let mut worker_acc: BTreeMap<String, WorkerAcc> = BTreeMap::new();
 
-    for r in rows {
+    // SQL은 step_id를 바이트 순으로 정렬해 주지만 그 순서에 기대지 않고 여기서 (ts, step) 안정 정렬한다
+    // (같은 칸의 행은 워커 순서 그대로 — 분포 합치기·빼기 결과가 행 순서에 따라 달라지지 않게).
+    let mut order: Vec<&WindowWithHdr> = rows.iter().collect();
+    order.sort_by(|a, b| (a.ts_second, a.step_id.as_str()).cmp(&(b.ts_second, b.step_id.as_str())));
+    for r in order {
         let sc = parse_status_counts(&r.status_counts);
-        let acc = window_acc
-            .entry((r.ts_second, r.step_id.clone()))
-            .or_insert_with(|| WindowAcc {
-                count: 0,
-                error_count: 0,
-                status: BTreeMap::new(),
-                hist: SplitHist::default(),
-            });
+        if cur_cell
+            .as_ref()
+            .is_none_or(|((ts, step), _)| *ts != r.ts_second || *step != r.step_id)
+        {
+            if let Some(((ts, step), done)) = cur_cell.take() {
+                sink.push(ts, step, done);
+            }
+            cur_cell = Some((
+                (r.ts_second, r.step_id.clone()),
+                WindowAcc {
+                    count: 0,
+                    error_count: 0,
+                    status: BTreeMap::new(),
+                    hist: SplitHist::default(),
+                },
+            ));
+        }
+        let acc = &mut cur_cell.as_mut().expect("방금 채운 칸").1;
         acc.count += r.count as u64;
         acc.error_count += r.error_count as u64;
         add_status(&mut acc.status, &sc);
@@ -1084,94 +1203,16 @@ pub fn build_report(
         }
     }
 
-    // 응답 시간 값의 세 용도: 보여 주는 값(`selected`), 판정(항상 `default_sample` — 판정·속도 구간·
-    // 느린 스텝 인사이트), 점유(항상 모든 요청 — 포화 원인의 `latency_rose`).
-    // Emit one window per (ts_second, step_id) — BTreeMap iterates sorted by (ts, step),
-    // matching the previous SQL ORDER BY. Percentiles come from the merged histogram.
-    // `latency_stats`가 false면(점유 창) 평균·60초 표지를 계산하지 않는다 — 점유 창은 백분위와 건수만 읽힌다
-    // (`evaluate_criteria`·`derive_insights`·인사이트 시점 옮기기). 평균은 분포를 한 번 더 훑는다.
-    let window_of = |ts_second: i64,
-                     step_id: String,
-                     status_counts: BTreeMap<String, u64>,
-                     count: u64,
-                     error_count: u64,
-                     h: Option<&Histogram<u64>>,
-                     latency_stats: bool|
-     -> ReportWindow {
-        let wp = h.map(percentiles_of).unwrap_or_else(Percentiles::empty);
-        let h_stats = h.filter(|_| latency_stats);
-        ReportWindow {
-            ts_second,
-            step_id,
-            count,
-            error_count,
-            status_counts,
-            p50_ms: wp.p50_ms,
-            p95_ms: wp.p95_ms,
-            p99_ms: wp.p99_ms,
-            n: h_stats.map_or(0, |h| h.len()),
-            mean_us: h_stats.and_then(crate::latency_stats::mean_us),
-            capped: h_stats.is_some_and(crate::latency_stats::is_capped),
-        }
-    };
-    // 모든 요청 표본을 보여 줄 때는 보여 주는 창이 점유 창이다. 아닐 때만 빌려서 따로 만든다.
-    let occupancy_windows: Option<Vec<ReportWindow>> = (selected != Sample::All).then(|| {
-        window_acc
-            .iter()
-            .map(|((ts, step), acc)| {
-                window_of(
-                    *ts,
-                    step.clone(),
-                    acc.status.clone(),
-                    acc.count,
-                    acc.error_count,
-                    acc.hist.resolve(Sample::All).hist(),
-                    false,
-                )
-            })
-            .collect()
-    });
-    // 보여 주는 창은 누적을 옮겨 가며(복사 없이) 한 번의 훑기로 만든다. 창마다 분포를 한 번만 풀어
-    // 창 칸을 채우고, 같은 분포를 그 초의 임시 분포에 합쳐 초별 모든 스텝 합계를 낸다(BTreeMap이
-    // (ts, step) 순이라 같은 초의 창이 이어 나온다). 빈·깨진 창은 합치지 않는다.
-    let second_of = |ts_second: i64, h: &Histogram<u64>| SecondLatency {
-        ts_second,
-        n: h.len(),
-        mean_us: crate::latency_stats::mean_us(h),
-        p95_us: crate::latency_stats::value_at_milli(h, 95_000),
-        capped: crate::latency_stats::is_capped(h),
-    };
-    let mut windows: Vec<ReportWindow> = Vec::with_capacity(window_acc.len());
-    let mut latency_by_second: Vec<SecondLatency> = Vec::new();
-    let mut sec_hist = fresh_hist();
-    let mut cur_sec: Option<i64> = None;
-    for ((ts, step), mut acc) in window_acc {
-        if cur_sec != Some(ts) {
-            if let Some(prev) = cur_sec {
-                latency_by_second.push(second_of(prev, &sec_hist));
-                sec_hist.reset();
-            }
-            cur_sec = Some(ts);
-        }
-        let status = std::mem::take(&mut acc.status);
-        let resolved = acc.hist.resolve(selected);
-        let h = resolved.hist();
-        if let Some(h) = h {
-            merge_into(&mut sec_hist, h);
-        }
-        windows.push(window_of(
-            ts,
-            step,
-            status,
-            acc.count,
-            acc.error_count,
-            h,
-            true,
-        ));
+    // 마지막 칸을 마무리한다.
+    if let Some(((ts, step), done)) = cur_cell.take() {
+        sink.push(ts, step, done);
     }
-    if let Some(prev) = cur_sec {
-        latency_by_second.push(second_of(prev, &sec_hist));
-    }
+    let WindowSink {
+        windows,
+        occupancy: occupancy_windows,
+        latency_by_second,
+        ..
+    } = sink.finish();
     let occupancy: &[ReportWindow] = occupancy_windows.as_deref().unwrap_or(&windows);
 
     let overall_judging = overall.resolve(default_sample);
@@ -4834,8 +4875,7 @@ steps:
 
     /// 리포트 생성 시간 측정(단언 없음, ④a): N초(기본 600, `REPORT_TIMING_SECONDS`로 바꿈) × 스텝 10개
     /// 행, 행마다 표본 100개(그중 실패 5개)의 `build_report` 5회 중앙값. 초별 합치기(`latency_by_second`)를
-    /// 더한 비용을 기준선과 비교할 때 쓴다. 기본값이 600초인 까닭: 창마다 풀어 둔 분포가 메모리에 남아
-    /// (600초 실측 최대 1.8 GB, 창 하나 약 300 KB) 3,600초는 10 GB를 넘는다.
+    /// 더한 비용을 기준선과 비교할 때 쓴다. 기본값이 600초인 까닭: 디버그 빌드 실행 시간.
     #[test]
     #[ignore]
     fn report_build_timing() {
@@ -4865,6 +4905,12 @@ steps:
             })
             .collect();
         times.sort();
+        eprintln!(
+            "ROWS bytes {}",
+            rows.iter()
+                .map(|r| r.hdr_histogram.len() + r.failed_hdr_histogram.as_ref().map_or(0, Vec::len))
+                .sum::<usize>()
+        );
         eprintln!(
             "TIMING build_report {secs}s x 10 steps median {:?} (runs {:?})",
             times[2], times
@@ -8741,6 +8787,198 @@ steps:
                 let back: StairReport = serde_json::from_str(&golden).unwrap();
                 assert_eq!(back, r);
             }
+        }
+    }
+    mod stream_windows {
+        use super::*;
+        use crate::sample::Sample;
+
+        fn row(ts: i64, step: &str, worker: &str, all: &[u64], failed: &[u64]) -> WindowWithHdr {
+            let ok = all.len().saturating_sub(failed.len());
+            let mut sc = serde_json::Map::new();
+            if ok > 0 {
+                sc.insert("200".into(), serde_json::json!(ok));
+            }
+            if !failed.is_empty() {
+                sc.insert("500".into(), serde_json::json!(failed.len()));
+            }
+            WindowWithHdr {
+                ts_second: ts,
+                step_id: step.into(),
+                worker_id: worker.into(),
+                count: all.len() as i64,
+                error_count: failed.len() as i64,
+                status_counts: serde_json::Value::Object(sc).to_string(),
+                hdr_histogram: make_hdr_bytes(all),
+                failed_hdr_histogram: Some(make_hdr_bytes(failed)),
+            }
+        }
+
+        fn broken(ts: i64, step: &str, worker: &str) -> WindowWithHdr {
+            WindowWithHdr {
+                ts_second: ts,
+                step_id: step.into(),
+                worker_id: worker.into(),
+                count: 3,
+                error_count: 0,
+                status_counts: r#"{"200":3}"#.into(),
+                hdr_histogram: vec![0xde, 0xad, 0xbe, 0xef],
+                failed_hdr_histogram: Some(make_hdr_bytes(&[])),
+            }
+        }
+
+        /// SQL 순서(ts, step 바이트 순, worker).
+        fn mixed_rows() -> Vec<WindowWithHdr> {
+            vec![
+                row(100, "B", "w-0", &[30_000; 2], &[]),
+                row(
+                    100,
+                    "a",
+                    "w-0",
+                    &[10_000, 10_000, 10_000, 10_000, 50_000],
+                    &[50_000],
+                ),
+                row(100, "a", "w-1", &[20_000; 3], &[]),
+                row(100, "é", "w-0", &[5_000; 2], &[]),
+                row(101, "B", "w-0", &[40_000, 40_000], &[2_000, 2_000, 2_000]),
+                row(101, "B", "w-1", &[40_000; 2], &[]),
+                broken(101, "a", "w-0"),
+                row(103, "a", "w-0", &[15_000; 2], &[]),
+            ]
+        }
+
+        fn reorder(rows: Vec<WindowWithHdr>, idx: &[usize]) -> Vec<WindowWithHdr> {
+            let mut slots: Vec<Option<WindowWithHdr>> = rows.into_iter().map(Some).collect();
+            idx.iter().map(|&i| slots[i].take().unwrap()).collect()
+        }
+
+        fn run() -> RunRow {
+            let mut r = run_row();
+            r.started_at = Some(100_000);
+            r.ended_at = Some(104_000);
+            r
+        }
+
+        fn build(
+            run: &RunRow,
+            rows: &[WindowWithHdr],
+            scope: Option<&SteadyScope<'_>>,
+            sample: Option<Sample>,
+        ) -> ReportJson {
+            let yaml = run.scenario_yaml.clone();
+            build_report(
+                run,
+                &yaml,
+                rows,
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &crate::stair::StairInputs::default(),
+                &[],
+                None,
+                scope,
+                sample,
+            )
+        }
+
+        #[test]
+        fn same_report_for_any_row_order() {
+            let run = run();
+            let whole = build(&run, &mixed_rows(), None, None);
+            let orders: [&[usize]; 3] = [
+                &[7, 6, 5, 4, 3, 2, 1, 0],
+                &[0, 1, 3, 4, 6, 7, 2, 5],
+                &[4, 0, 7, 2, 6, 1, 5, 3],
+            ];
+            let samples = [
+                None,
+                Some(Sample::Passed),
+                Some(Sample::Failed),
+                Some(Sample::All),
+            ];
+            for use_scope in [false, true] {
+                let scope = closed_scope(&whole, 101, 104, 0);
+                let scope = use_scope.then_some(&scope);
+                for sample in samples {
+                    let want =
+                        serde_json::to_value(build(&run, &mixed_rows(), scope, sample)).unwrap();
+                    for idx in orders {
+                        let got = serde_json::to_value(build(
+                            &run,
+                            &reorder(mixed_rows(), idx),
+                            scope,
+                            sample,
+                        ))
+                        .unwrap();
+                        assert_eq!(
+                            got, want,
+                            "order {idx:?} sample {sample:?} scope {use_scope}"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn one_window_per_cell_in_key_order() {
+            let run = run();
+            let rep = build(
+                &run,
+                &reorder(mixed_rows(), &[7, 6, 5, 4, 3, 2, 1, 0]),
+                None,
+                None,
+            );
+            let keys: Vec<(i64, &str)> = rep
+                .windows
+                .iter()
+                .map(|w| (w.ts_second, w.step_id.as_str()))
+                .collect();
+            assert_eq!(
+                keys,
+                vec![
+                    (100, "B"),
+                    (100, "a"),
+                    (100, "é"),
+                    (101, "B"),
+                    (101, "a"),
+                    (103, "a")
+                ]
+            );
+            let a100 = &rep.windows[1];
+            assert_eq!((a100.count, a100.n), (8, 7)); // 통과 표본 = w-0의 10ms×4 + w-1의 20ms×3
+            let broken = &rep.windows[4];
+            assert_eq!(
+                (
+                    broken.count,
+                    broken.p50_ms,
+                    broken.p95_ms,
+                    broken.p99_ms,
+                    broken.n,
+                    broken.mean_us
+                ),
+                (3, 0, 0, 0, 0, None)
+            );
+            let secs: Vec<i64> = rep.latency_by_second.iter().map(|s| s.ts_second).collect();
+            assert_eq!(secs, vec![100, 101, 103]);
+        }
+
+        #[test]
+        fn no_rows_no_windows() {
+            let rep = build(&run(), &[], None, None);
+            assert!(rep.windows.is_empty() && rep.latency_by_second.is_empty());
+        }
+
+        #[test]
+        fn single_row_one_window() {
+            let rep = build(&run(), &[row(100, "a", "w-0", &[10_000], &[])], None, None);
+            assert_eq!(rep.windows.len(), 1);
+            let secs: Vec<i64> = rep.latency_by_second.iter().map(|s| s.ts_second).collect();
+            assert_eq!(secs, vec![100]);
         }
     }
 }
