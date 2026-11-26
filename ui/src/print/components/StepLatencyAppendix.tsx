@@ -13,8 +13,17 @@ const tickText = (v: number): string => v.toLocaleString("en-US", { maximumFract
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** 카드 그림은 74mm뿐이라 본문 눈금이 5개를 넘으면 짝수 번째만 그린다(긴 글자끼리 겹침 방지). */
-const cardTicks = (ticks: number[]): number[] =>
-  ticks.length > 5 ? ticks.filter((_, i) => i % 2 === 0) : ticks;
+const cardTicks = (ticks: number[]): number[] => {
+  if (ticks.length <= 5) return ticks;
+  const kept = ticks.filter((_, i) => i % 2 === 0);
+  const n = ticks.length;
+  // 끝 눈금 인덱스(n-1)가 홀수면 빠지므로, 바로 앞 짝수(n-2)를 빼고 끝 눈금을 넣는다.
+  if ((n - 1) % 2 === 1) {
+    kept.pop();
+    kept.push(ticks[n - 1]);
+  }
+  return kept;
+};
 
 const yMaxOf = (m: StepLatModel): number => Math.max(m.yTicks[m.yTicks.length - 1] ?? 1, 1e-9);
 
@@ -88,7 +97,7 @@ function Card({
           <path
             data-steplat-line=""
             d={sparkPath(
-              card.bins.map((y, i) => ({ x: model.points[i], y })),
+              card.bins.flatMap((y, i) => (card.seen[i] ? [{ x: model.points[i], y }] : [])),
               box,
             )}
             fill="none"

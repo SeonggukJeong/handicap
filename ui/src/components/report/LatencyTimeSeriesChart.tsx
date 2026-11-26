@@ -102,19 +102,22 @@ export function LatencyTimeSeriesChart({ data, marks, sampleTag, width, height }
       ))}
       <Line
         type="monotone"
-        dataKey="mean"
-        name="mean"
-        stroke={MEAN_COLOR}
-        dot={loneDot(meanValues, MEAN_COLOR)}
+        dataKey="p95"
+        name="p95"
+        stroke={P95_COLOR}
+        strokeWidth={1.6}
+        strokeDasharray="6 4"
+        dot={loneDot(p95Values, P95_COLOR)}
         isAnimationActive={false}
       />
       <Line
         type="monotone"
-        dataKey="p95"
-        name="p95"
-        stroke={P95_COLOR}
-        strokeDasharray="6 4"
-        dot={loneDot(p95Values, P95_COLOR)}
+        dataKey="mean"
+        name="mean"
+        className="mean-line"
+        stroke={MEAN_COLOR}
+        strokeWidth={2}
+        dot={loneDot(meanValues, MEAN_COLOR)}
         isAnimationActive={false}
       />
     </LineChart>

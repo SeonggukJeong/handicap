@@ -418,7 +418,7 @@ describe("standard blocks", () => {
   it("chart:latency는 chart 바로 뒤, 없으면 없고, 요약판엔 없다", () => {
     const base = ladderDoc();
     const lc = {
-      bins: [{ startSec: 0, seconds: 1, meanMs: 1, p95Ms: 1, capped: false }],
+      bins: [{ startSec: 0, seconds: 1, meanMs: 1, p95Ms: 1, capped: false, observed: true }],
       yTicks: [0, 1],
       capped: false,
       p95Label: "p95",
@@ -652,7 +652,7 @@ describe("buildPrintDoc — 집계 기준", () => {
 });
 
 describe("단계별 평균 응답 시간 부록 블록·번호", () => {
-  const card = { title: "① a", hasData: true, bins: [1] as (number | null)[] };
+  const card = { title: "① a", hasData: true, bins: [1] as (number | null)[], seen: [true] };
   const stepLat: StepLatModel = {
     cards: [card, card, card],
     pairs: [

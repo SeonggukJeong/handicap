@@ -3,7 +3,13 @@ import type { Report } from "../api/schemas";
 import { niceTicks, type ChartModel } from "./chartModel";
 import type { StepRow } from "./stepTable";
 
-export type StepLatCard = { title: string; hasData: boolean; bins: (number | null)[] };
+export type StepLatCard = {
+  title: string;
+  hasData: boolean;
+  bins: (number | null)[];
+  /** 그 칸에 그 단계 창이 하나라도 있었는지. false면 「관측 없음」이라 선을 건너뛴다. */
+  seen: boolean[];
+};
 export type StepLatModel = {
   cards: StepLatCard[];
   pairs: [StepLatCard, StepLatCard | null][];
@@ -21,23 +27,26 @@ export function buildStepLatAppendix(
 ): StepLatModel | null {
   if (t0 === null || rows.length === 0 || chart.bins.length === 0) return null;
   const nBins = chart.bins.length;
-  const acc = new Map<string, { n: number; sum: number }[]>(
-    rows.map((r) => [r.stepId, chart.bins.map(() => ({ n: 0, sum: 0 }))]),
+  const acc = new Map<string, { n: number; sum: number; seen: boolean }[]>(
+    rows.map((r) => [r.stepId, chart.bins.map(() => ({ n: 0, sum: 0, seen: false }))]),
   );
   let capped = false;
   for (const w of windows) {
     const a = acc.get(w.step_id);
     if (a === undefined) continue;
     if (w.capped) capped = true;
+    const i = Math.max(0, Math.min(nBins - 1, Math.floor((w.ts_second - t0) / chart.binSeconds)));
+    a[i].seen = true;
     if (w.n > 0 && w.mean_us !== undefined) {
-      const i = Math.max(0, Math.min(nBins - 1, Math.floor((w.ts_second - t0) / chart.binSeconds)));
       a[i].n += w.n;
       a[i].sum += w.n * w.mean_us;
     }
   }
   const cards: StepLatCard[] = rows.map((r) => {
-    const bins = (acc.get(r.stepId) ?? []).map((c) => (c.n > 0 ? c.sum / c.n / 1000 : null));
-    return { title: `${r.no} ${r.name}`, hasData: bins.some((b) => b !== null), bins };
+    const cells = acc.get(r.stepId) ?? [];
+    const bins = cells.map((c) => (c.n > 0 ? c.sum / c.n / 1000 : null));
+    const seen = cells.map((c) => c.seen);
+    return { title: `${r.no} ${r.name}`, hasData: bins.some((b) => b !== null), bins, seen };
   });
   if (!cards.some((c) => c.hasData)) return null;
   const max = Math.max(0, ...cards.flatMap((c) => c.bins.map((b) => b ?? 0)));

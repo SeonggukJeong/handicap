@@ -48,8 +48,16 @@ describe("LatencyTimeSeriesChart", () => {
         height={220}
       />,
     );
-    const meanLayer = container.querySelector("g.recharts-line");
+    const meanLayer = container.querySelector("g.recharts-line.mean-line");
     expect(meanLayer).not.toBeNull();
     expect(meanLayer!.querySelectorAll("circle").length).toBe(1);
+  });
+
+  it("선 굵기 평균 2·p95 1.6, 평균이 p95 위에 그려진다", () => {
+    const { container } = render(<LatencyTimeSeriesChart data={base} width={600} height={220} />);
+    const paths = [...container.querySelectorAll("path.recharts-line-curve")];
+    expect(paths.length).toBe(2);
+    expect(paths.map((p) => p.getAttribute("stroke"))).toEqual(["#9333ea", "#2563eb"]);
+    expect(paths.map((p) => p.getAttribute("stroke-width"))).toEqual(["1.6", "2"]);
   });
 });

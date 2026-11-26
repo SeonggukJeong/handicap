@@ -67,7 +67,7 @@ describe("StepLatencySection", () => {
           { x: 1, y: null },
           { x: 2, y: 60 },
         ],
-        { xMax: 2, yMax: 300, x0: 0, x1: 300, yTop: 0, yBottom: 80 },
+        { xMax: 2, yMax: 300, x0: 0, x1: 300, yTop: 2, yBottom: 78 },
       ),
     );
   });
@@ -95,5 +95,40 @@ describe("StepLatencySection", () => {
     );
     await user.click(screen.getByRole("button", { name: ko.report.stepLatency.toggle }));
     expect(container.querySelectorAll("svg").length).toBe(0);
+  });
+  it("안내의 눈금 최댓값은 자리 구분 쉼표 (60000 -> 0–60,000 ms)", async () => {
+    const user = userEvent.setup();
+    const report = {
+      steps: [{ step_id: "A", stats: st(60000000) }],
+      windows: [{ ts_second: 100, step_id: "A", n: 1, mean_us: 60000000, capped: true }],
+    } as unknown as Report;
+    render(
+      <StepLatencySection
+        report={report}
+        stepNames={new Map([["A", "스텝A"]])}
+        marks={null}
+        firstTs={100}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.report.stepLatency.toggle }));
+    expect(screen.getByText(/0–60,000 ms/)).toBeInTheDocument();
+  });
+  it("평균이 하나도 없으면 눈금 안내 문장을 그리지 않고 카드는 「응답 시간 없음」", async () => {
+    const user = userEvent.setup();
+    const report = {
+      steps: [{ step_id: "A" }],
+      windows: [{ ts_second: 100, step_id: "A", n: 0 }],
+    } as unknown as Report;
+    render(
+      <StepLatencySection
+        report={report}
+        stepNames={new Map([["A", "스텝A"]])}
+        marks={null}
+        firstTs={100}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.report.stepLatency.toggle }));
+    expect(screen.queryByText(/같은 세로 눈금/)).toBeNull();
+    expect(screen.getByText(ko.report.stepLatency.noData)).toBeInTheDocument();
   });
 });

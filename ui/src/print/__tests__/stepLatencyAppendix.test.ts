@@ -134,4 +134,21 @@ describe("buildStepLatAppendix", () => {
     const m = buildStepLatAppendix([w("s0", 100, { n: 1, mean_us: 1000 })], rows(1), 100, chart)!;
     expect(m.points).toEqual([1, 3, 4.5]);
   });
+  it("그 칸에 그 단계 창이 없으면 seen false, n 0 창만 있으면 seen true + null", () => {
+    // 칸 1초, 4칸. s0 창: 0,1,3초 (2초 없음, s1 이 2초에 창), 3초 창은 n 0.
+    const m = buildStepLatAppendix(
+      [
+        w("s0", 100, { n: 1, mean_us: 10000 }),
+        w("s0", 101, { n: 1, mean_us: 20000 }),
+        w("s1", 102, { n: 1, mean_us: 5000 }),
+        w("s0", 103, { n: 0 }),
+      ],
+      rows(2),
+      100,
+      even(1, 4),
+    )!;
+    expect(m.cards[0].bins).toEqual([10, 20, null, null]);
+    expect(m.cards[0].seen).toEqual([true, true, false, true]);
+    expect(m.cards[1].seen).toEqual([false, false, true, false]);
+  });
 });

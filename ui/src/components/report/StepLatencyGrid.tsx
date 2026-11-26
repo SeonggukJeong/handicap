@@ -42,8 +42,8 @@ export function StepLatencyGrid({ series, yMax, xMax, marks }: StepLatencyViewPr
                   yMax,
                   x0: 0,
                   x1: W,
-                  yTop: 0,
-                  yBottom: H,
+                  yTop: 2,
+                  yBottom: H - 2,
                 },
               )}
               fill="none"

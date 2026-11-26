@@ -10,6 +10,8 @@ export type LatencyBin = {
   meanMs: number | null;
   p95Ms: number | null;
   capped: boolean;
+  /** 그 칸에 초별 값이 하나라도 있었는지. false면 「관측 없음」이라 선을 건너뛴다. */
+  observed: boolean;
 };
 export type LatencyChartModel = {
   bins: LatencyBin[];
@@ -22,11 +24,18 @@ export type LatencyChartModel = {
 /** 초별 응답 시간을 `chart.bins`와 같은 칸으로 묶는다. 칸 평균은 n 가중, p95는 칸 안 최댓값. */
 export function binLatency(series: SecondLatency[], t0: number, chart: ChartModel): LatencyBin[] {
   const nBins = chart.bins.length;
-  const acc = chart.bins.map(() => ({ n: 0, sum: 0, p95: null as number | null, capped: false }));
+  const acc = chart.bins.map(() => ({
+    n: 0,
+    sum: 0,
+    p95: null as number | null,
+    capped: false,
+    observed: false,
+  }));
   for (const s of series) {
     if (nBins === 0) break;
     const i = Math.max(0, Math.min(nBins - 1, Math.floor((s.ts_second - t0) / chart.binSeconds)));
     const a = acc[i];
+    a.observed = true;
     if (s.capped) a.capped = true;
     if (s.n > 0 && s.mean_us !== undefined) {
       a.n += s.n;
@@ -40,6 +49,7 @@ export function binLatency(series: SecondLatency[], t0: number, chart: ChartMode
     meanMs: acc[i].n > 0 ? acc[i].sum / acc[i].n / 1000 : null,
     p95Ms: acc[i].p95 === null ? null : acc[i].p95 / 1000,
     capped: acc[i].capped,
+    observed: acc[i].observed,
   }));
 }
 

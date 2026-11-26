@@ -42,10 +42,10 @@ describe("binLatency", () => {
       capped: false,
     });
   });
-  it("n 0인 초만 있는 칸은 null, 초 없는 칸도 null", () => {
+  it("n 0인 초만 있는 칸은 observed true + null, 초 없는 칸은 observed false", () => {
     const bins = binLatency([{ ts_second: 102, n: 0 }], 100, chartOf(2, 6));
-    expect(bins[1]).toMatchObject({ meanMs: null, p95Ms: null, capped: false });
-    expect(bins[0]).toMatchObject({ meanMs: null, p95Ms: null, capped: false });
+    expect(bins[1]).toMatchObject({ meanMs: null, p95Ms: null, capped: false, observed: true });
+    expect(bins[0]).toMatchObject({ meanMs: null, p95Ms: null, capped: false, observed: false });
   });
   it("capped 초가 든 칸은 capped", () => {
     const bins = binLatency(

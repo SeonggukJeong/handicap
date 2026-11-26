@@ -34,7 +34,7 @@ function LatencySvg({ doc }: { doc: PrintDoc }) {
   };
   const bins = m.bins;
   const pts = (pick: (b: LatencyBin) => number | null) =>
-    bins.map((b) => ({ x: b.startSec + b.seconds / 2, y: pick(b) }));
+    bins.flatMap((b) => (b.observed ? [{ x: b.startSec + b.seconds / 2, y: pick(b) }] : []));
   return (
     <svg
       viewBox={`0 0 ${CHART_W_MM} ${CHART_H_MM}`}

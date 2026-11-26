@@ -20,6 +20,10 @@ export function StepLatencySection({ report, stepNames, marks, firstTs }: Props)
     [report, stepNames, firstTs],
   );
   const yMax = useMemo(() => sharedYMax(series), [series]);
+  const hasMean = useMemo(
+    () => series.some((s) => s.points.some((p) => p.meanMs !== null)),
+    [series],
+  );
   const xMax = useMemo(() => {
     let m = 0;
     for (const s of series) for (const p of s.points) if (p.x > m) m = p.x;
@@ -62,7 +66,11 @@ export function StepLatencySection({ report, stepNames, marks, firstTs }: Props)
       </div>
       {open ? (
         <div>
-          <p className="mt-1.5 text-xs text-slate-500">{t.hint(String(yMax))}</p>
+          {hasMean ? (
+            <p className="mt-1.5 text-xs text-slate-500">
+              {t.hint(yMax.toLocaleString("en-US", { maximumFractionDigits: 2 }))}
+            </p>
+          ) : null}
           {series.some((s) => s.capped) ? (
             <p className="mt-1 text-xs text-slate-500">{t.hintCapped}</p>
           ) : null}

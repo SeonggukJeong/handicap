@@ -9,9 +9,9 @@ import type { PrintDoc } from "../buildPrintDoc";
 const K = ko.print.latencyChart;
 const model = (capped: boolean): NonNullable<PrintDoc["latencyChart"]> => ({
   bins: [
-    { startSec: 0, seconds: 2, meanMs: 10, p95Ms: 20, capped },
-    { startSec: 2, seconds: 2, meanMs: null, p95Ms: null, capped: false },
-    { startSec: 4, seconds: 2, meanMs: 30, p95Ms: 40, capped: false },
+    { startSec: 0, seconds: 2, meanMs: 10, p95Ms: 20, capped, observed: true },
+    { startSec: 2, seconds: 2, meanMs: null, p95Ms: null, capped: false, observed: true },
+    { startSec: 4, seconds: 2, meanMs: 30, p95Ms: 40, capped: false, observed: true },
   ],
   yTicks: [0, 20, 40],
   capped,
@@ -61,5 +61,34 @@ describe("LatencyChart", () => {
     const b = render(<LatencyChart doc={doc(model(false))} />);
     expect(b.container.textContent).not.toContain(K.capped);
     expect(b.container.textContent).toContain(K.caption("2초"));
+  });
+  it("초가 없던 칸(observed false)은 건너뛰어 잇는다", () => {
+    const m = model(false);
+    m.bins[1] = {
+      startSec: 2,
+      seconds: 2,
+      meanMs: null,
+      p95Ms: null,
+      capped: false,
+      observed: false,
+    };
+    const { container } = render(<LatencyChart doc={doc(m)} />);
+    const mean = sparkPath(
+      [
+        { x: 1, y: 10 },
+        { x: 5, y: 30 },
+      ],
+      box,
+    );
+    const p95 = sparkPath(
+      [
+        { x: 1, y: 20 },
+        { x: 5, y: 40 },
+      ],
+      box,
+    );
+    const paths = [...container.querySelectorAll("path[data-latency-line]")];
+    expect(paths.map((p) => p.getAttribute("d"))).toEqual([mean, p95]);
+    expect(mean).not.toMatch(/M.*M/);
   });
 });

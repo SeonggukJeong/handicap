@@ -911,6 +911,7 @@ describe("단계별 평균 응답 시간 부록 — 쪽 렌더", () => {
     title: `${i + 1} 부록단계${i}`,
     hasData: true,
     bins: [10, 20, 30] as (number | null)[],
+    seen: [true, true, true],
   });
   const cards = [0, 1, 2, 3, 4].map(mkCard);
   const stepLat = {
