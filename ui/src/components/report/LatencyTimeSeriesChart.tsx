@@ -76,12 +76,9 @@ export function LatencyTimeSeriesChart({ data, marks, sampleTag, width, height }
       ) : (
         <XAxis dataKey="x" label={{ value: "seconds", position: "insideBottom", offset: -4 }} />
       )}
-      {/* 폭 80: 「60,000」(6자) 눈금 글자 오른쪽 끝이 축 선 8px 앞, 왼쪽 끝이 「ms」(축 영역 왼쪽 + 5) 회전 글자 오른쪽보다 안쪽에 오게. */}
-      <YAxis
-        width={80}
-        tickFormatter={(v: number) => v.toLocaleString("en-US")}
-        label={{ value: "ms", angle: -90, position: "insideLeft" }}
-      />
+      {/* 축 폭은 위아래 TimeSeriesChart와 같은 기본값(60)이어야 같은 초가 같은 x에 선다. 단위는 제목
+          「응답 시간 (ms)」에 있어 회전 글자를 두지 않는다(「60,000」은 60 안에 든다). */}
+      <YAxis tickFormatter={(v: number) => v.toLocaleString("en-US")} />
       <Tooltip
         formatter={(value, name, item) => {
           const v = typeof value === "number" ? value : Number(value);
