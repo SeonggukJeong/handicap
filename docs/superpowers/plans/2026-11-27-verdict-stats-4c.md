@@ -27,7 +27,7 @@ REVIEW-GATE: APPROVED
 - 재지 않은 쪽은 0으로 그리지 않는다(`ui/CLAUDE.md` 인쇄 보고서 절) — 응답 시간 값이 없는 쪽은 선이 없고 범례 줄에 글로 적는다.
 - 요약판(한 쪽)에는 넣지 않는다(spec §1.2 — 요약판에 그래프 없음).
 - 화면 문구는 모두 `ui/src/i18n/ko.ts`(ADR-0035), 보고서 문체(working-rules §8).
-- 실행 중 화면·단일 run 인쇄의 그림은 바뀌지 않는다(`binLatency`는 인자 타입만 넓힘 — 기존 `print/__tests__/latencyChart.test.ts` 무수정 green).
+- 실행 중 화면·단일 run 인쇄의 그림은 바뀌지 않는다(`binLatency`는 인자 타입만 넓힘 — 기존 `print/__tests__/latencyChart.test.ts` 무수정 green). **정정(2026-11-27, 사용자 결정 `c2497c01`)**: 단일 run 인쇄 「응답 시간」 그림도 홀로 남은 묶음을 묶음 폭 선분으로 그린다(공용 `latencyLinePoints`) — 그 테스트 파일에 단위 테스트를 더했고 `LatencyChart.test.tsx` 기존 단언 하나가 새 규칙 값으로 바뀌었다. 실행 중 화면은 그대로.
 - 값은 정확히 — 테스트 기대값은 아래에 적은 숫자 그대로(working-rules §10-1).
 - 결함을 설명하는 주석을 쓰지 않는다(working-rules §7).
 
