@@ -62,6 +62,35 @@ const CASES: Array<[number, number, DbClass, DbShape, -1 | 0 | 1, string, string
   [4800, 400, "better", "arrow", -1, "4.8초 → 0.40초 (−92%)", "빨라짐"],
 ];
 
+describe("buildDumbbell 95% 덤벨은 stats의 µs로 계산한다 (R4)", () => {
+  const one = (p95: number, stats?: number): RunModel =>
+    sceneModel({
+      id: stats === undefined ? "n" : "s",
+      steps: [{ id: "s1", name: "단계1" }],
+      rep: [
+        {
+          id: "s1",
+          counts: { "200": 10 },
+          errors: 0,
+          p95,
+          ...(stats === undefined ? {} : { stats: mkStats({ p95_us: stats }) }),
+        },
+      ],
+      profile: prof(),
+    });
+
+  it("정수 칸 100·105여도 stats 100_000·105_400µs면 105.4ms·나빠짐", () => {
+    const m = buildDumbbell(one(100, 100_000), one(105, 105_400));
+    expect(m.rows[0]!.afterMs).toBe(105.4);
+    expect(m.rows[0]!.cls).toBe("worse");
+  });
+
+  it("stats가 없는 단계는 정수 칸 그대로", () => {
+    const m = buildDumbbell(one(100), one(105));
+    expect(m.rows[0]!.afterMs).toBe(105);
+  });
+});
+
 describe("buildDumbbell", () => {
   it("시안 6사례", () => {
     const m = build(CASES.map((c) => [c[0], c[1]]));

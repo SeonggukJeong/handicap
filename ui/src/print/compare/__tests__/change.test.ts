@@ -298,7 +298,18 @@ const withStats = (
   base: Summary,
   over: Partial<LatencyStats>,
   sum: Partial<Summary> = {},
-): Summary => ({ ...base, ...sum, stats: mkStats(over) }) as Summary;
+): Summary => {
+  const merged = { ...base, ...sum };
+  return {
+    ...merged,
+    stats: mkStats({
+      p95_us: merged.p95_ms * 1000,
+      p99_us: merged.p99_ms * 1000,
+      mean_us: merged.mean_ms * 1000,
+      ...over,
+    }),
+  } as Summary;
+};
 
 describe("cutDirection", () => {
   it("한쪽만 잘리고 방향이 확정일 때만 나쁨·좋음, 그 밖은 null", () => {
@@ -468,4 +479,55 @@ describe("cutDirection ↔ 공유 골든 capped 표(computeDeltaCapped와 같은
       expect(cutDirection(row.base, row.val, row.base_cut, row.val_cut)).toBe(want[row.polarity]);
     });
   }
+});
+
+describe("metricRows 99%·95%·평균은 stats의 µs로 계산한다 (R4)", () => {
+  const sum = (over: Partial<Summary>, stats?: Partial<LatencyStats>): Summary =>
+    ({ ...BEFORE, ...over, ...(stats ? { stats: mkStats(stats) } : {}) }) as Summary;
+
+  it("95% 행은 stats의 µs로 계산한다 — 정수 칸으로는 「비슷」인 차이", () => {
+    const before = sum({ p95_ms: 100 }, { p95_us: 100_000 });
+    const after = sum({ p95_ms: 105 }, { p95_us: 105_400 });
+    const r = row(metricRows(before, after, OPTS), "p95_ms");
+    expect(r.cls).toBe("worse");
+    expect(r.pct).toBeCloseTo(0.054, 9);
+    expect(r.before).toBe(100);
+    expect(r.after).toBe(105.4);
+  });
+
+  it("99%·평균 행도 stats에서 읽는다", () => {
+    const before = sum({ p99_ms: 100, mean_ms: 100 }, { p99_us: 100_000, mean_us: 100_000 });
+    const after = sum({ p99_ms: 105, mean_ms: 105 }, { p99_us: 105_400, mean_us: 105_400 });
+    const rows = metricRows(before, after, OPTS);
+    const p99 = row(rows, "p99_ms");
+    expect(p99.cls).toBe("worse");
+    expect(p99.after).toBe(105.4);
+    const mean = row(rows, "mean_ms");
+    expect(mean.cls).toBe("worse");
+    expect(mean.after).toBe(105.4);
+  });
+
+  it("stats가 한쪽에만 있으면 각 쪽이 제 출처를 쓴다", () => {
+    const before = sum({ p95_ms: 100 });
+    const after = sum({ p95_ms: 105 }, { p95_us: 105_400 });
+    const r = row(metricRows(before, after, OPTS), "p95_ms");
+    expect(r.before).toBe(100);
+    expect(r.after).toBe(105.4);
+    expect(r.cls).toBe("worse");
+    expect(Number.isFinite(r.pct)).toBe(true);
+  });
+
+  it("stats가 둘 다 없으면 정수 칸 그대로", () => {
+    const r = row(metricRows(sum({ p95_ms: 100 }), sum({ p95_ms: 105 }), OPTS), "p95_ms");
+    expect(r.cls).toBe("similar");
+  });
+
+  it("잘림은 정수 칸이 아니라 stats의 µs로 본다", () => {
+    const before = sum({ p95_ms: 1000 }, { p95_us: 1_000_000 });
+    const after = sum({ p95_ms: 60000 }, { p95_us: 59_999_000 });
+    const r = row(metricRows(before, after, OPTS), "p95_ms");
+    expect(r.pct).not.toBeNull();
+    expect(r.pct).toBeCloseTo(58.999, 9);
+    expect(r.changeText).not.toBe(ko.print.cmp.change.cutNoPct);
+  });
 });

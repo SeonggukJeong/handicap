@@ -78,6 +78,19 @@ describe("buildHeadline 구조화 개수", () => {
     expect(h.countsLine).toContain(`${c.worse}개 나빠짐`);
   });
 
+  it("머리말은 stats의 µs 값을 따른다 — 정수 칸으로는 비슷인 95% 차이가 나빠짐 1개", () => {
+    const us = (p95_us: number) => mkStats({ p95_us, p99_us: 3_000_000, mean_us: 840_000 });
+    const b = { ...BEFORE, p95_ms: 100, stats: us(100_000) };
+    const a = { ...BEFORE, p95_ms: 105, stats: us(105_400) };
+    expect(head(b, a).counts).toEqual({ total: 5, better: 0, similar: 4, worse: 1 });
+    expect(head({ ...b, stats: undefined }, { ...a, stats: undefined }).counts).toEqual({
+      total: 5,
+      better: 0,
+      similar: 5,
+      worse: 0,
+    });
+  });
+
   it("판정 신호가 있으면 verdictChange에 두 글리프, 없으면 null", () => {
     const good = head(BEFORE, BEFORE, { beforeBox: fail, afterBox: pass });
     expect(good.verdictChange).toEqual({ before: "✕", after: "●" });
@@ -919,8 +932,16 @@ describe("잘린 행과 표준판 전용 행은 머리·요약 문장을 흔들�
   it("p90·최대 행이 나빠져도 머리 건수·글자는 두 행이 없을 때와 같다", () => {
     const plainB = summaryOf(BEFORE);
     const plainA = summaryOf(AFTER_GOOD);
-    const statB = { ...plainB, stats: mkStats({ p90_us: 50_000, max_us: 100_000 }) };
-    const statA = { ...plainA, stats: mkStats({ p90_us: 500_000, max_us: 60_000_000 }) };
+    const us = (m: typeof plainB) => ({
+      p95_us: m.p95_ms * 1000,
+      p99_us: m.p99_ms * 1000,
+      mean_us: m.mean_ms * 1000,
+    });
+    const statB = { ...plainB, stats: mkStats({ ...us(plainB), p90_us: 50_000, max_us: 100_000 }) };
+    const statA = {
+      ...plainA,
+      stats: mkStats({ ...us(plainA), p90_us: 500_000, max_us: 60_000_000 }),
+    };
     const o = { errorRateReference: false, incomparable: false };
     const mk = (b: typeof plainB, a: typeof plainA) => metricRows(b, a, o);
     const rowsWith = mk(statB, statA);
@@ -952,8 +973,29 @@ describe("잘린 행과 표준판 전용 행은 머리·요약 문장을 흔들�
       p99_ms: 1840,
     };
     const { byId, rows, headline } = scene(
-      { summary: { ...base, stats: mkStats({ capped: false }) } },
-      { summary: { ...base, p95_ms: 1600, stats: mkStats({ capped: true }) } },
+      {
+        summary: {
+          ...base,
+          stats: mkStats({
+            capped: false,
+            mean_us: 30_000_000,
+            p99_us: 1_840_000,
+            p95_us: 2_400_000,
+          }),
+        },
+      },
+      {
+        summary: {
+          ...base,
+          p95_ms: 1600,
+          stats: mkStats({
+            capped: true,
+            mean_us: 30_000_000,
+            p99_us: 1_840_000,
+            p95_us: 1_600_000,
+          }),
+        },
+      },
     );
     const mean = rows.find((r) => r.key === "mean_ms")!;
     expect(mean.cls).toBe("worse");

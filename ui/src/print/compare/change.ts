@@ -127,8 +127,8 @@ const SPECS: Spec[] = [
     floor: FLOOR.ms,
     major: true,
     kind: "ms",
-    value: (s) => s.p99_ms,
-    cut: (s) => s.p99_ms >= 60000,
+    value: (s) => (s.stats ? s.stats.p99_us / 1000 : s.p99_ms),
+    cut: (s) => (s.stats ? s.stats.p99_us >= CAP_US : s.p99_ms >= 60000),
   },
   {
     key: "p95_ms",
@@ -138,8 +138,8 @@ const SPECS: Spec[] = [
     floor: FLOOR.ms,
     major: true,
     kind: "ms",
-    value: (s) => s.p95_ms,
-    cut: (s) => s.p95_ms >= 60000,
+    value: (s) => (s.stats ? s.stats.p95_us / 1000 : s.p95_ms),
+    cut: (s) => (s.stats ? s.stats.p95_us >= CAP_US : s.p95_ms >= 60000),
   },
   {
     key: "p90_ms",
@@ -161,7 +161,7 @@ const SPECS: Spec[] = [
     floor: FLOOR.ms,
     major: true,
     kind: "ms",
-    value: (s) => s.mean_ms,
+    value: (s) => (s.stats ? s.stats.mean_us / 1000 : s.mean_ms),
     cut: (s) => s.stats?.capped ?? s.mean_ms >= 60000,
   },
   {

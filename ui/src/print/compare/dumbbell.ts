@@ -1,6 +1,7 @@
 import { reportSample } from "../../api/schemas";
 import { hasLatency } from "../../report/hasLatency";
 import { ko } from "../../i18n/ko";
+import { CAP_US } from "../../components/report/format";
 import { niceTicks } from "../chartModel";
 import { fmtBoundary, fmtMeanMs, fmtMs, fmtMsExact } from "../format";
 import { requestsSent } from "../stepTable";
@@ -81,6 +82,7 @@ function measuredOf(model: RunModel, stepId: string, metric: DbMetric): Measured
   if (metric === "mean") {
     return row.stats ? { ms: row.stats.mean_us / 1000, cut: row.stats.capped } : null;
   }
+  if (row.stats) return { ms: row.stats.p95_us / 1000, cut: row.stats.p95_us >= CAP_US };
   return { ms: row.p95Ms, cut: row.p95Ms >= 60000 };
 }
 
