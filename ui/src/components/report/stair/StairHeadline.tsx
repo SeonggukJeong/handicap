@@ -1,6 +1,6 @@
 import type { StairReport } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
-import { headlineParts } from "./stairFormat";
+import { configLineText, headlineParts } from "./stairFormat";
 
 const FIRST_TONE: Record<StairReport["headline"]["kind"], string> = {
   saturated: "border-red-300 bg-red-50 text-red-800",
@@ -34,6 +34,7 @@ export function StairHeadline({ stair }: { stair: StairReport }) {
           </p>
         ))}
       </div>
+      <p className="text-sm text-slate-700 break-words">{configLineText(stair)}</p>
       {stair.notes.t0_estimated && <p className="text-xs text-slate-600">{t.noteT0}</p>}
       {stair.notes.open_loop_unknown && (
         <p className="text-xs text-slate-600">{t.noteOpenLoopUnknown}</p>

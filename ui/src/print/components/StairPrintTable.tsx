@@ -2,6 +2,7 @@ import type { StairReport, StairState } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import {
   clockText,
+  configLineText,
   headlineParts,
   headlineText,
   noteTexts,
@@ -9,10 +10,10 @@ import {
   suspendedLineText,
 } from "../../components/report/stair/stairFormat";
 import { MEASURE_IDS } from "../buildPrintDoc";
-import { buildStairRows, discardWarningSteps } from "../stairTable";
+import { buildStairRows, discardWarningSteps, type StairPrintRow } from "../stairTable";
 
 /** 본문 폭 180mm 안의 열 폭(mm): # · 목표 · 달성 · 처리량 · p50 · p95 · p99 · 오류율 · dropped · 측정 구간 · 판정. */
-const WIDTHS = [7, 18, 18, 18, 13, 13, 13, 13, 14, 28, 25];
+const WIDTHS = [7, 18, 18, 18, 12, 12, 12, 13, 17, 28, 25];
 
 const TONE: Record<StairState, string> = {
   ok: "p-ok",
@@ -48,6 +49,7 @@ export function StairHeadline({ stair, short }: { stair: StairReport; short?: bo
         {stair.slot_limited_targets.length > 0 && slot && (
           <div className="p-note p-warn">{slot.text}</div>
         )}
+        <div className="p-note">{configLineText(stair)}</div>
         <div className="p-note">{ko.print.stair.summaryNote}</div>
       </section>
     );
@@ -59,6 +61,7 @@ export function StairHeadline({ stair, short }: { stair: StairReport; short?: bo
           {l}
         </div>
       ))}
+      <div className="p-note">{configLineText(stair)}</div>
       {noteTexts(stair).map((n) => (
         <div key={n} className="p-note">
           {n}
@@ -89,6 +92,22 @@ export function StairTableTitle({ continued, measure }: { continued: boolean; me
   );
 }
 
+const MARK_TEXT = {
+  lastOk: ko.report.stair.markLastOk,
+  satStart: ko.report.stair.markSatStart,
+  suspectStart: ko.report.stair.markSuspectStart,
+} as const;
+
+/** 행 클래스 — 포화·즉시 정지 행은 바탕, 포화(의심) 시작 행은 위 굵은 선, 마지막 정상 행은 아래 선. */
+function rowClass(r: StairPrintRow): string {
+  const out: string[] = [];
+  if (r.mark === "satStart" || r.mark === "suspectStart") out.push("p-stair-row--start");
+  if (r.mark === "lastOk") out.push("p-stair-row--lastok");
+  if (r.state === "saturated" || r.state === "emergency_stopped") out.push("p-stair-row--bad");
+  else if (r.state === "unconfirmed") out.push("p-stair-row--warn");
+  return out.join(" ");
+}
+
 /** [from, to) 행만 그린다(측정 id = 전체 인덱스). */
 export function StairPrintTable(props: {
   stair: StairReport;
@@ -114,11 +133,16 @@ export function StairPrintTable(props: {
       </thead>
       <tbody>
         {model.rows.slice(from, to).map((r) => (
-          <tr key={r.index} data-measure={measure ? MEASURE_IDS.stairRowId(r.index) : undefined}>
+          <tr
+            key={r.index}
+            className={rowClass(r)}
+            data-measure={measure ? MEASURE_IDS.stairRowId(r.index) : undefined}
+          >
             {r.cells.slice(0, 10).map((v, i) => (
               <td key={i}>{v}</td>
             ))}
             <td className={TONE[r.state]}>
+              {r.mark && <div className="p-stair-mark">{MARK_TEXT[r.mark]}</div>}
               <div className="p-status">{r.cells[10]}</div>
               {r.reasons.length > 0 && <small>{r.reasons.join(" · ")}</small>}
             </td>

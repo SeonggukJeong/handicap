@@ -1448,6 +1448,13 @@ export const ko = {
         axisRps: "시작 (iter/s)",
         axisP99: "p99 (ms, 로그)",
       },
+      configLine: (ramp: number, hold: number, discard: number) =>
+        `계단마다 상승 ${ramp}초 · 유지 ${hold}초(앞 ${discard}초 버림)`,
+      steepest: (from: string, to: string, perSec: string) =>
+        `가장 가파른 상승 ${from} → ${to} iter/s (초당 +${perSec})`,
+      markLastOk: "▲ 마지막 정상",
+      markSatStart: "▼ 여기부터 포화",
+      markSuspectStart: "▼ 포화 의심 시작",
       tableLabel: "계단 표",
       tinyErrorRate: "<0.1%",
       cols: {
@@ -1750,6 +1757,8 @@ export const ko = {
       errPct: string;
     }) =>
       `${p.duration} 동안 목표 도착률 초당 ${p.targetRps}회로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
+    headlineStairTotals: (p: { duration: string; count: string; errPct: string }) =>
+      `전체 ${p.duration} 동안 ${p.count}회 요청 · 에러 ${p.errPct}`,
     headlineOpenCurve: (p: { duration: string; count: string; latency: string; errPct: string }) =>
       `${p.duration} 동안 단계별 도착률 곡선으로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
     headlineClosedCurve: (p: {
@@ -2828,6 +2837,54 @@ export const ko = {
       title: "계단 부하 판정 결과",
       continued: " (이어짐)",
       summaryNote: "계단 표는 표준 보고서에 있습니다.",
+      summary: {
+        detail: (rps: string) => `처리량 ${rps} req/s`,
+        detailP95: (rps: string, p95: string) => `처리량 ${rps} req/s · 95% 응답 시간 ${p95} ms`,
+        saturated: (t: string, last: string, d: string) =>
+          `목표 ${t} iter/s 계단부터 포화했고, 마지막 정상 계단은 ${last} iter/s입니다(${d}).`,
+        saturatedNoLast: (t: string) => `목표 ${t} iter/s 계단부터 포화했고, 정상 계단이 없습니다.`,
+        unconfirmed: (t: string, last: string, d: string) =>
+          `목표 ${t} iter/s 계단에서 포화가 의심되지만 다음 계단으로 확인하지 못했습니다. 마지막 정상 계단은 ${last} iter/s입니다(${d}).`,
+        unconfirmedNoLast: (t: string) =>
+          `목표 ${t} iter/s 계단에서 포화가 의심되지만 다음 계단으로 확인하지 못했습니다. 정상 계단이 없습니다.`,
+        allOk: (t: string, d: string) =>
+          `목표 ${t} iter/s까지 모든 계단이 정상이었고 포화 지점은 찾지 못했습니다(${d}).`,
+        okThenUnmeasured: (t: string, d: string) =>
+          `목표 ${t} iter/s까지 정상이었고 이후 계단은 측정되지 않았습니다(${d}).`,
+      },
+      kpi: {
+        unitTarget: "iter/s",
+        unitThroughput: "req/s",
+        unitMs: "ms",
+        none: "–",
+        lastOk: {
+          label: "마지막 정상 계단",
+          explain: "판정 기준 안에서 버틴 가장 높은 목표입니다.",
+          noneValue: "없음",
+          noneExplain: "정상으로 판정된 계단이 없습니다.",
+          where: (n: number) => `${n}번째 계단`,
+          achieved: (v: string) => `달성 ${v} iter/s`,
+        },
+        throughput: {
+          label: "그 계단의 처리량",
+          explain: "마지막 정상 계단에서 1초에 처리한 요청 수.",
+          errorRate: (v: string) => `오류율 ${v}`,
+        },
+        p95: {
+          label: "그 계단의 95% 응답 시간",
+          explain: "마지막 정상 계단에서 100번 중 95번은 이 시간 안에 답을 받았습니다.",
+          p99: (v: string) => `p99 ${v} ms`,
+        },
+        saturation: {
+          label: "포화 시작",
+          labelSuspect: "포화 의심",
+          explain: "이 목표부터 판정 기준을 넘었습니다.",
+          explainSuspect: "다음 계단으로 확인하기 전에 측정이 끝났습니다.",
+          notFound: "못 찾음",
+          explainAllOk: "모든 계단이 정상입니다. 더 높은 목표로 다시 측정하세요.",
+          explainUnmeasured: "이후 계단은 측정되지 않았습니다.",
+        },
+      },
     },
     page: {
       openPrint: "보고서 인쇄",
@@ -3469,6 +3526,7 @@ export const ko = {
       sizeOpenFixed: (n: number) => `초당 ${n}회`,
       sizeOpenCurve: (n: number, k: number) => `최대 초당 ${n}회 · ${k}단계`,
       ramp: (d: string) => `${d}에 걸쳐 늘림`,
+      rampStair: (ramp: string) => `계단마다 ${ramp}에 걸쳐 늘림`,
       think: (min: string, max: string) => `${min}–${max} 무작위`,
       workers: (n: number) => `워커 ${n}대`,
       data: (n: number) => `데이터 ${n}개 연결`,

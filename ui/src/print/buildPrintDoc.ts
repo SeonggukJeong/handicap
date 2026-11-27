@@ -18,6 +18,7 @@ import { fmtDate } from "./format";
 import { readScenarioFacts } from "./scenarioFacts";
 import { targetSystems } from "./redact";
 import { discardWarningSteps } from "./stairTable";
+import { stairKpiCards, stairSummaryText } from "./stairKpi";
 import { suspendedLineText } from "../components/report/stair/stairFormat";
 import { buildStepTable, type StepTableModel } from "./stepTable";
 import {
@@ -233,7 +234,8 @@ export function buildPrintDoc(a: {
   const can = (nar?.can_claim ?? []).map((c) => claimText(ko.narrative.can, c));
   const cannot = (nar?.cannot_claim ?? []).map((c) => claimText(ko.narrative.cannot, c));
 
-  const otherRows = otherCriteriaRows(matched, box, stepName);
+  const stairKpis = report.stair ? stairKpiCards(report.stair) : null;
+  const otherRows = otherCriteriaRows(matched, box, stepName, { cards: stairKpis === null });
   const stepLat = buildStepLatAppendix(report.windows, table.rows, t0, chart);
   return {
     title: D.title(name),
@@ -270,8 +272,9 @@ export function buildPrintDoc(a: {
       statusRule,
       criteria,
       latency: hasTime,
+      stairText: report.stair ? stairSummaryText(report.stair) : null,
     }),
-    kpis: kpiCards(report.summary, matched, box, { latency: hasTime }),
+    kpis: stairKpis ?? kpiCards(report.summary, matched, box, { latency: hasTime }),
     otherRows,
     table,
     ranked,

@@ -18,11 +18,21 @@ const S = ko.print.sentence;
 const MAX_LINES = 5;
 
 export type SummaryLine = {
-  kind: "special" | "verdict" | "problemSteps" | "errorIdentity" | "hidden" | "slow" | "fallback";
+  kind:
+    | "special"
+    | "stair"
+    | "verdict"
+    | "problemSteps"
+    | "errorIdentity"
+    | "hidden"
+    | "slow"
+    | "fallback";
   text: string;
 };
 
 export type SummaryInput = {
+  /** 계단 run의 판정 문장(`stairSummaryText`) — 있으면 fallback 문장을 대신한다. */
+  stairText?: string | null;
   status: string;
   message: string | null;
   startedMs: number | null;
@@ -211,6 +221,8 @@ export function summaryLines(i: SummaryInput): SummaryLine[] {
   const add = (kind: SummaryLine["kind"], text: string | null) => {
     if (text !== null) lines.push({ kind, text });
   };
+  // 계단 run: run 전체 평균 문장(fallback) 대신 계단 판정 문장
+  add("stair", i.stairText ?? null);
   add("verdict", verdictLine(i));
   add("problemSteps", problemLine(i));
   add("errorIdentity", identityLine(i));
@@ -225,7 +237,11 @@ export function summaryLines(i: SummaryInput): SummaryLine[] {
 
 export function shortSummary(lines: SummaryLine[]): SummaryLine[] {
   const kept = lines.filter(
-    (l) => l.kind === "special" || l.kind === "verdict" || l.kind === "problemSteps",
+    (l) =>
+      l.kind === "special" ||
+      l.kind === "stair" ||
+      l.kind === "verdict" ||
+      l.kind === "problemSteps",
   );
   // 깨끗한 무기준 run은 fallback 한 줄뿐 — 걸러 비우면 "(자동 작성)" 상자가 빈다
   if (kept.length === 0) return lines.filter((l) => l.kind === "fallback");

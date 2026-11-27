@@ -298,6 +298,20 @@ describe("부하 조건", () => {
     expect(card(f, "load").line).toBe("계단 시험 설정 다름");
   });
 
+  it("계단 상승 시간만 다르면 「시작 늘림」이 다르다 (stair-feedback §B101 a)", () => {
+    const st = (ramp: number) => ({
+      target_rps: 10,
+      stair: { targets: [10, 20], hold_seconds: 60, ramp_seconds: ramp, discard_seconds: 5 },
+    });
+    const f = fair({ profile: prof(st(5)) }, { profile: prof(st(30)) });
+    expect(f.condRows.find((r) => r.label === "시작 늘림")).toEqual({
+      label: "시작 늘림",
+      before: "계단마다 5초에 걸쳐 늘림",
+      after: "계단마다 30초에 걸쳐 늘림",
+      differs: true,
+    });
+  });
+
   it("데이터 연결 정책은 한글 이름으로 쓰고 영문 식별자는 노출하지 않는다", () => {
     const b = (policy: string) => ({ dataset_id: "ds1", policy, mappings: [] });
     const f = fair(

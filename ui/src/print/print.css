@@ -370,6 +370,28 @@
   font-weight: 700;
 }
 
+/* 계단 표 — 포화 시작을 한눈에 (stair-feedback) */
+.p-root .p-stair tr.p-stair-row--bad td {
+  background: var(--badbg);
+}
+.p-root .p-stair tr.p-stair-row--warn td {
+  background: var(--warnbg);
+}
+.p-root .p-stair tr.p-stair-row--start td {
+  border-top: 2.5px solid var(--bad);
+}
+.p-root .p-stair tr.p-stair-row--start.p-stair-row--warn td {
+  border-top-color: var(--warn);
+}
+.p-root .p-stair tr.p-stair-row--lastok td {
+  background: var(--okbg);
+}
+.p-root .p-stair-mark {
+  font-size: 6.8pt;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .p-root .p-ok {
   color: var(--ok);
   font-weight: 700;
