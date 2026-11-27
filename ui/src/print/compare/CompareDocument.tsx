@@ -20,6 +20,7 @@ import { HeadlineHeading, VerdictRow } from "./components/HeadlineBox";
 import { IssuesBox } from "./components/IssuesBox";
 import { KpiCompareTable, KpiNote } from "./components/KpiCompareTable";
 import { OverlayChart } from "./components/OverlayChart";
+import { OverlayLatencyChart } from "./components/OverlayLatencyChart";
 import { SectionHeading } from "./components/SectionHeading";
 import { DumbbellLegend } from "./components/DumbbellTable";
 import { ErrorNotes } from "./components/ErrorChangeTable";
@@ -72,6 +73,10 @@ function AtomicContent({ id, doc, kind }: { id: string; doc: CompareDoc; kind: K
           <OverlayChart model={doc.overlay} />
         </>
       );
+    case "cmp:overlay:lat":
+      return doc.overlayLatency === null ? null : (
+        <OverlayLatencyChart model={doc.overlayLatency} />
+      );
     case "cmp:speed":
       return doc.speed === null ? null : (
         <>
@@ -97,7 +102,8 @@ function blockClass(id: string): string {
     id === "cmp:kpi:note" ||
     id === "cmp:db:legend" ||
     id === "cmp:dbm:legend" ||
-    id === "cmp:err:notes"
+    id === "cmp:err:notes" ||
+    id === "cmp:overlay:lat"
   )
     return "p-block p-cmp-b--note";
   if (id.startsWith(ISSUES_PREFIX)) return "p-block p-cmp-b--section";

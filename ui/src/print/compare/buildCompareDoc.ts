@@ -10,6 +10,7 @@ import type { BoxState } from "../verdict";
 import type { Heights } from "../buildPrintDoc";
 import { buildDumbbell, type DumbbellModel } from "./dumbbell";
 import { buildOverlay, type OverlayModel } from "./overlay";
+import { buildOverlayLatency, type OverlayLatencyModel } from "./overlayLatency";
 import { buildSpeedCompare, type SpeedCompare } from "./speedCompare";
 import { buildErrorTable, type ErrorTableModel } from "./errorTable";
 import { metricRows, type MetricRow } from "./change";
@@ -54,6 +55,8 @@ export type CompareDoc = {
   meanDumbbell: DumbbellModel;
   errors: ErrorTableModel;
   overlay: OverlayModel;
+  /** 표준판 겹쳐 보기 절의 평균 응답 시간 그림. 두 측정 모두 값이 없으면 null(블록 없음). */
+  overlayLatency: OverlayLatencyModel | null;
   /** 양쪽 리포트에 speed_bands가 있을 때만 */
   speed: SpeedCompare | null;
   /** stepPairs가 1개 이상 */
@@ -100,6 +103,7 @@ export function buildCompareDoc(a: {
       after: summaryLatencyMissing(after.report),
     },
   });
+  const overlay = buildOverlay(before, after, incomparable);
   const fairness = buildFairness(before, after);
   const headline = buildHeadline({
     rows,
@@ -135,7 +139,8 @@ export function buildCompareDoc(a: {
     dumbbell: buildDumbbell(before, after, pairs),
     meanDumbbell: buildDumbbell(before, after, pairs, "mean"),
     errors: buildErrorTable({ before, after, pairs, incomparable }),
-    overlay: buildOverlay(before, after, incomparable),
+    overlay,
+    overlayLatency: incomparable ? null : buildOverlayLatency(before, after, overlay),
     speed: buildSpeedCompare(before, after),
     hasSteps: pairs.length > 0,
   };
@@ -196,6 +201,7 @@ export function compareStandardBlocks(doc: CompareDoc, h: Heights): Block[] {
         ]
       : []),
     atom(h, "cmp:overlay"),
+    ...(doc.overlayLatency !== null ? [atom(h, "cmp:overlay:lat")] : []),
     ...(doc.speed !== null ? [atom(h, "cmp:speed")] : []),
     tableBlock("cmp:cond", doc.fairness.condRows.length, h),
     atom(h, "cmp:issues:8"),

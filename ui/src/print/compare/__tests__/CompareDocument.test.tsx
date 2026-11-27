@@ -15,6 +15,7 @@ import {
   type CompareDoc,
 } from "../buildCompareDoc";
 import { baseProfile } from "./fixtures";
+import { L, secs } from "./latencyRuns";
 import { sceneModel, type SceneRun } from "./scene";
 
 const NOON = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -857,6 +858,34 @@ describe("CompareDocument 겹쳐 보기 절", () => {
     expect(svg).not.toBeNull();
     expect(svg.closest(".p-block")).toHaveClass("p-cmp-b--section");
     expect(container.querySelector(".p-page")?.innerHTML).not.toContain("NaN");
+  });
+
+  it("응답 시간 값이 있으면 측정 시트와 쪽에 평균 응답 시간 그림(p-cmp-b--note 블록)이 겹쳐 보기 뒤에 그려진다", async () => {
+    const withLatency = (m: ReturnType<typeof sceneModel>, lat: Report["latency_by_second"]) => ({
+      ...m,
+      report: { ...m.report, windows: secs(10, 5), latency_by_second: lat },
+    });
+    const doc = buildCompareDoc({
+      before: withLatency(sceneModel({ id: "01HBEFORE000abc111", summary: BEFORE }), [
+        L(0, 1, 5_000),
+      ]),
+      after: withLatency(sceneModel({ id: "01HAFTER0000def222", summary: AFTER }), [
+        L(0, 1, 3_000),
+      ]),
+      fallbackScenarioName: null,
+      now: NOON,
+    });
+    const { container, root } = renderDoc(doc);
+    expect(container.querySelector('.p-sheet [data-measure="cmp:overlay:lat"]')).not.toBeNull();
+    await ready(root);
+    const svg = container.querySelector(".p-page svg.p-cmp-ovlat") as SVGElement;
+    expect(svg).not.toBeNull();
+    expect(svg.closest(".p-block")).toHaveClass("p-cmp-b--note");
+    const ov = container.querySelector(".p-page svg.p-cmp-ov")!;
+    expect(ov.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "6. 시간에 따른 변화 — 겹쳐 보기" }),
+    ).toBeInTheDocument();
   });
 
   it("요약판에는 겹쳐 보기가 없다", async () => {

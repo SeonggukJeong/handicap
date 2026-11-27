@@ -15,6 +15,7 @@ import {
 } from "../buildCompareDoc";
 import { baseProfile, scenarioYaml } from "./fixtures";
 import type { RunModel } from "../runModel";
+import { L, secs } from "./latencyRuns";
 import { sceneModel, type SceneRun } from "./scene";
 
 const NOON = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -477,3 +478,51 @@ describe("블록", () => {
     expect(issuesShown(d, 5)).toEqual({ shown: ["a", "b"], more: 0 });
   });
 });
+
+const withLatency = (
+  m: RunModel,
+  windows: Report["windows"],
+  lat: Report["latency_by_second"],
+): RunModel => ({ ...m, report: { ...m.report, windows, latency_by_second: lat } });
+
+describe("블록 — 평균 응답 시간 그림(cmp:overlay:lat)", () => {
+  const latDoc = (extraBefore: Partial<SceneRun> = {}) =>
+    buildCompareDoc({
+      before: withLatency(
+        sceneModel({ id: "01HBEFORE000abc111", summary: BEFORE, ...extraBefore }),
+        secs(10, 5),
+        [L(0, 1, 5_000)],
+      ),
+      after: withLatency(
+        sceneModel({ id: "01HAFTER0000def222", summary: AFTER }),
+        secs(10, 5),
+        [L(0, 1, 3_000)],
+      ),
+      fallbackScenarioName: null,
+      now: NOON,
+    });
+
+  it("두 측정에 응답 시간 값이 있으면 cmp:overlay:lat이 cmp:overlay 바로 뒤, 요약판에는 없다", () => {
+    const d = latDoc();
+    const list = ids(d);
+    expect(list.indexOf("cmp:overlay:lat")).toBe(list.indexOf("cmp:overlay") + 1);
+    expect(list.indexOf("cmp:cond")).toBe(list.indexOf("cmp:overlay:lat") + 1);
+    for (let l = 0; l <= CMP_LAST_LEVEL; l++)
+      expect(compareSummaryBlocks(d, new Map(), l).map((b) => b.id)).not.toContain(
+        "cmp:overlay:lat",
+      );
+  });
+
+  it("응답 시간 값이 없는 두 측정이면 cmp:overlay:lat이 없다(기존 픽스처)", () => {
+    const d = doc();
+    expect(d.overlayLatency).toBeNull();
+    expect(ids(d)).not.toContain("cmp:overlay:lat");
+  });
+
+  it("요청이 실행되지 않은 측정이 있으면(incomparable) 값이 있어도 cmp:overlay:lat이 없다", () => {
+    const d = latDoc({ summary: { count: 0, errors: 0, rps: 0 } });
+    expect(d.incomparable).toBe(true);
+    expect(d.overlayLatency).toBeNull();
+  });
+});
+
