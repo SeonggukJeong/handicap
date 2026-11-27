@@ -32,9 +32,20 @@ describe("fmtMs", () => {
     [999, "1.0초"],
     [1000, "1.0초"],
     [2400, "2.4초"],
-    [59950, "60.0초"],
   ])("%s -> %s", (ms, out) => {
     expect(fmtMs(ms)).toBe(out);
+  });
+  it.each([
+    [59_950, "59.9초"],
+    [59_999, "59.9초"],
+    [59_949, "59.9초"],
+    [59_900, "59.9초"],
+    [60_000, "60초 이상"],
+  ])("60초 경계 %d → %s", (ms, out) => {
+    expect(fmtMs(ms)).toBe(out);
+  });
+  it("fmtDurMs는 그대로 반올림한다", () => {
+    expect(fmtDurMs(59_950)).toBe("60.0초");
   });
 });
 
@@ -42,8 +53,8 @@ describe("fmtMs 60초 칸 / fmtDurMs / fmtMeanMs", () => {
   it("응답 시간은 60,000 이상이면 60초 칸 글자", () => {
     expect(fmtMs(60000)).toBe(ko.print.fmt.capSec);
     expect(fmtMs(60030)).toBe("60초 이상");
-    expect(fmtMs(59998)).toBe("60.0초");
-    expect(fmtMs(59998.207)).toBe("60.0초");
+    expect(fmtMs(59998)).toBe("59.9초");
+    expect(fmtMs(59998.207)).toBe("59.9초");
   });
   it("길이 글자는 그대로", () => {
     expect(fmtDurMs(120000)).toBe("120.0초");

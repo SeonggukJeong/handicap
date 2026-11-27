@@ -16,7 +16,9 @@ export function fmtDurMs(ms: number): string {
 
 /** 응답 시간(ms) 글자 — 60초 칸(≥ 60,000)은 「60초 이상」, 그 밖은 길이 글자. */
 export function fmtMs(ms: number): string {
-  return ms >= 60000 ? f.capSec : fmtDurMs(ms);
+  if (ms >= 60000) return f.capSec;
+  const text = fmtDurMs(ms);
+  return text === fmtDurMs(60000) ? fmtDurMs(59900) : text;
 }
 
 /** 평균 글자 — 분포가 잘렸으면 하한이라 「이상」(이미 60초 칸이면 한 번만). */
