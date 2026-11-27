@@ -13,7 +13,7 @@ import { MEASURE_IDS } from "../buildPrintDoc";
 import { buildStairRows, discardWarningSteps, type StairPrintRow } from "../stairTable";
 
 /** 본문 폭 180mm 안의 열 폭(mm): # · 목표 · 달성 · 처리량 · p50 · p95 · p99 · 오류율 · dropped · 측정 구간 · 판정. */
-const WIDTHS = [7, 18, 18, 18, 13, 13, 13, 13, 14, 28, 25];
+const WIDTHS = [7, 18, 18, 18, 12, 12, 12, 13, 17, 28, 25];
 
 const TONE: Record<StairState, string> = {
   ok: "p-ok",

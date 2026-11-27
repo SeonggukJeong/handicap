@@ -1454,7 +1454,7 @@ export const ko = {
         `가장 가파른 상승 ${from} → ${to} iter/s (초당 +${perSec})`,
       markLastOk: "▲ 마지막 정상",
       markSatStart: "▼ 여기부터 포화",
-      markSuspectStart: "▼ 여기부터 포화 의심",
+      markSuspectStart: "▼ 포화 의심 시작",
       tableLabel: "계단 표",
       tinyErrorRate: "<0.1%",
       cols: {
