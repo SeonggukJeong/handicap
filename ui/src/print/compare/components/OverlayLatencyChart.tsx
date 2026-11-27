@@ -8,6 +8,7 @@ import {
   fmtElapsed,
   markerX,
 } from "../../chartModel";
+import { latencyLinePoints } from "../../latencyChart";
 import type { OverlayLatencyModel, OverlayLatencySide } from "../overlayLatency";
 
 const K = ko.print.cmp.overlay.latency;
@@ -35,18 +36,7 @@ function Line(props: {
 }) {
   const { side, which, durationSec, yMax, color, dash } = props;
   if (!side.has) return null;
-  const seen = side.bins.filter((b) => b.observed);
-  // 길이 0인 점선 경로는 인쇄 PDF에 그려지지 않으므로 홀로 남은 묶음은 묶음 폭만큼의 가로 선분
-  const points = seen.flatMap((b, i): { x: number; y: number | null }[] => {
-    if (b.meanMs === null) return [{ x: b.startSec + b.seconds / 2, y: null }];
-    const alone = seen[i - 1]?.meanMs == null && seen[i + 1]?.meanMs == null;
-    return alone
-      ? [
-          { x: b.startSec, y: b.meanMs },
-          { x: b.startSec + b.seconds, y: b.meanMs },
-        ]
-      : [{ x: b.startSec + b.seconds / 2, y: b.meanMs }];
-  });
+  const points = latencyLinePoints(side.bins, (b) => b.meanMs);
   return (
     <path
       data-ovlat-line={which}

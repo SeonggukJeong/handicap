@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { binLatency, buildLatencyChart } from "../latencyChart";
+import { binLatency, buildLatencyChart, latencyLinePoints } from "../latencyChart";
+import type { LatencyBin } from "../latencyChart";
 import type { ChartModel } from "../chartModel";
 import { ko } from "../../i18n/ko";
 
@@ -54,6 +55,49 @@ describe("binLatency", () => {
       chartOf(2, 6),
     );
     expect(bins[2]).toMatchObject({ meanMs: 30007.796, p95Ms: 60000, capped: true });
+  });
+});
+
+describe("latencyLinePoints", () => {
+  const bin = (startSec: number, meanMs: number | null, observed: boolean): LatencyBin => ({
+    startSec,
+    seconds: 2,
+    meanMs,
+    p95Ms: meanMs,
+    capped: false,
+    observed,
+  });
+  it("홀로 남은 묶음은 선분, 값 없는 묶음은 끊김, 초 없는 묶음은 건너뜀", () => {
+    const bins = [
+      bin(0, 5, true),
+      bin(2, null, true),
+      bin(4, 7, true),
+      bin(6, null, false),
+      bin(8, 9, true),
+      bin(10, 11, true),
+    ];
+    expect(latencyLinePoints(bins, (b) => b.meanMs)).toEqual([
+      { x: 0, y: 5 },
+      { x: 2, y: 5 },
+      { x: 3, y: null },
+      { x: 5, y: 7 },
+      { x: 9, y: 9 },
+      { x: 11, y: 11 },
+    ]);
+  });
+  it("묶음 하나뿐이면 묶음 폭 선분", () => {
+    expect(
+      latencyLinePoints(
+        [{ startSec: 0, seconds: 1, meanMs: 4, p95Ms: 4, capped: false, observed: true }],
+        (b) => b.meanMs,
+      ),
+    ).toEqual([
+      { x: 0, y: 4 },
+      { x: 1, y: 4 },
+    ]);
+  });
+  it("빈 배열은 빈 배열", () => {
+    expect(latencyLinePoints([], (b) => b.meanMs)).toEqual([]);
   });
 });
 

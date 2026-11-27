@@ -2,7 +2,7 @@ import { ko } from "../../i18n/ko";
 import { sparkPath } from "../../report/sparkPath";
 import { CHART_H_MM, CHART_W_MM, PLOT_X0_MM, PLOT_X1_MM, fmtElapsed, markerX } from "../chartModel";
 import type { PrintDoc } from "../buildPrintDoc";
-import type { LatencyBin } from "../latencyChart";
+import { latencyLinePoints } from "../latencyChart";
 
 const K = ko.print.latencyChart;
 
@@ -33,8 +33,6 @@ function LatencySvg({ doc }: { doc: PrintDoc }) {
     yBottom: PLOT_BOTTOM,
   };
   const bins = m.bins;
-  const pts = (pick: (b: LatencyBin) => number | null) =>
-    bins.flatMap((b) => (b.observed ? [{ x: b.startSec + b.seconds / 2, y: pick(b) }] : []));
   return (
     <svg
       viewBox={`0 0 ${CHART_W_MM} ${CHART_H_MM}`}
@@ -102,7 +100,7 @@ function LatencySvg({ doc }: { doc: PrintDoc }) {
       <path
         data-latency-line="mean"
         d={sparkPath(
-          pts((b) => b.meanMs),
+          latencyLinePoints(bins, (b) => b.meanMs),
           box,
         )}
         fill="none"
@@ -114,7 +112,7 @@ function LatencySvg({ doc }: { doc: PrintDoc }) {
       <path
         data-latency-line="p95"
         d={sparkPath(
-          pts((b) => b.p95Ms),
+          latencyLinePoints(bins, (b) => b.p95Ms),
           box,
         )}
         fill="none"

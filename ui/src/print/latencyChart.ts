@@ -59,6 +59,30 @@ export function binLatency(series: SecondLatency[], t0: number, chart: LatencyGr
   }));
 }
 
+/** sparkPath에 넘길 점 목록. 초가 없던 묶음은 건너뛰고, 값이 없는 묶음은 선을 끊고(null),
+ *  앞뒤가 끊겨 홀로 남은 묶음은 묶음 폭만큼의 가로 선분(두 점)으로 낸다.
+ *  점선 경로에 조각이 둘 이상이면 길이 0 조각은 인쇄 PDF에 그려지지 않기 때문이다. */
+export function latencyLinePoints(
+  bins: readonly LatencyBin[],
+  pick: (b: LatencyBin) => number | null,
+): { x: number; y: number | null }[] {
+  const seen = bins.filter((b) => b.observed);
+  return seen.flatMap((b, i): { x: number; y: number | null }[] => {
+    const v = pick(b);
+    if (v === null) return [{ x: b.startSec + b.seconds / 2, y: null }];
+    const prev = seen[i - 1];
+    const next = seen[i + 1];
+    const alone =
+      (prev === undefined || pick(prev) === null) && (next === undefined || pick(next) === null);
+    return alone
+      ? [
+          { x: b.startSec, y: v },
+          { x: b.startSec + b.seconds, y: v },
+        ]
+      : [{ x: b.startSec + b.seconds / 2, y: v }];
+  });
+}
+
 export function buildLatencyChart(
   series: SecondLatency[],
   t0: number | null,

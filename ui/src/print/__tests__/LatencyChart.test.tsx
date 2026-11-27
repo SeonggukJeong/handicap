@@ -32,22 +32,10 @@ describe("LatencyChart", () => {
     expect(screen.getByText(K.title)).toBeTruthy();
     expect(screen.getByText(K.mean)).toBeTruthy();
     expect(screen.getByText(K.p95Bin)).toBeTruthy();
-    const mean = sparkPath(
-      [
-        { x: 1, y: 10 },
-        { x: 3, y: null },
-        { x: 5, y: 30 },
-      ],
-      box,
-    );
-    const p95 = sparkPath(
-      [
-        { x: 1, y: 20 },
-        { x: 3, y: null },
-        { x: 5, y: 40 },
-      ],
-      box,
-    );
+    // 묶음 0·2는 값 없는 묶음 1에 막혀 홀로 남아 묶음 폭 선분: x 0–2초 = 12–64, 4–6초 = 116–168
+    // y = 47 − v/40·39 → 10 = 37.25, 30 = 17.75, 20 = 27.5, 40 = 8
+    const mean = "M12,37.25 L64,37.25 M116,17.75 L168,17.75";
+    const p95 = "M12,27.5 L64,27.5 M116,8 L168,8";
     const swatch = screen.getByText(K.mean).querySelector("i");
     expect(swatch?.classList.contains("p-sw--solid")).toBe(true);
     expect(swatch?.classList.contains("p-sw--line")).toBe(false);
@@ -111,5 +99,20 @@ describe("LatencyChart", () => {
     const paths = [...container.querySelectorAll("path[data-latency-line]")];
     expect(paths.map((p) => p.getAttribute("d"))).toEqual([mean, p95]);
     expect(mean).not.toMatch(/M.*M/);
+  });
+  it("홀로 남은 묶음은 평균·p95 모두 묶음 폭 가로 선분", () => {
+    // x = PLOT_X0 + (sec/durationSec)·(PLOT_X1 − PLOT_X0) = 12 + sec/6·156 → sec 2 = 64, sec 4 = 116
+    // y = PLOT_BOTTOM − (v/yMax)·(PLOT_BOTTOM − PLOT_TOP) = 47 − v/40·39 → 10 = 37.25, 20 = 27.5
+    const m = model(false);
+    m.bins = [
+      { startSec: 0, seconds: 2, meanMs: null, p95Ms: null, capped: false, observed: true },
+      { startSec: 2, seconds: 2, meanMs: 10, p95Ms: 20, capped: false, observed: true },
+      { startSec: 4, seconds: 2, meanMs: null, p95Ms: null, capped: false, observed: true },
+    ];
+    const { container } = render(<LatencyChart doc={doc(m)} />);
+    const d = (kind: string) =>
+      container.querySelector(`path[data-latency-line="${kind}"]`)?.getAttribute("d");
+    expect(d("mean")).toBe("M64,37.25 L116,37.25");
+    expect(d("p95")).toBe("M64,27.5 L116,27.5");
   });
 });
