@@ -504,6 +504,61 @@ describe("compareReports setup rows", () => {
     expect(errs.cells[1].delta?.polarity).toBe("good");
   });
 
+  describe("준비 스텝 p95의 60초 칸", () => {
+    const cellsFor = (base: number, val: number) => {
+      const mk = (id: string, p95: number) =>
+        mkReport(id, ["m1"], 25, { ok: 10, failed: 0, steps: [{ id: "s1", p95, errors: 0 }] });
+      const r = compareReports([mk("A", base), mk("B", val)], "A");
+      return r.setup.find((x) => x.metric === "p95_ms")!.cells;
+    };
+    const capped = { us: 60_000_000 };
+
+    it("기준 200 · 비교 60030 → 비교 칸이 60000 잘림, 나쁨", () => {
+      const c = cellsFor(200, 60030);
+      expect(c[0]).toEqual({ value: 200, delta: null });
+      expect(c[1]).toEqual({
+        value: 60000,
+        time: capped,
+        delta: { pct: null, polarity: "bad", capped: true },
+      });
+    });
+    it("기준 60030 · 비교 200 → 기준 칸이 60000 잘림, 좋음", () => {
+      const c = cellsFor(60030, 200);
+      expect(c[0]).toEqual({ value: 60000, time: capped, delta: null });
+      expect(c[1]).toEqual({
+        value: 200,
+        delta: { pct: null, polarity: "good", capped: true },
+      });
+    });
+    it("기준 60030 · 비교 60100 → 둘 다 60000 잘림, 중립", () => {
+      const c = cellsFor(60030, 60100);
+      expect(c[0]).toEqual({ value: 60000, time: capped, delta: null });
+      expect(c[1]).toEqual({
+        value: 60000,
+        time: capped,
+        delta: { pct: null, polarity: "neutral", capped: true },
+      });
+    });
+    it("기준 200 · 비교 60000 → 경계도 잘림", () => {
+      const c = cellsFor(200, 60000);
+      expect(c[0]).toEqual({ value: 200, delta: null });
+      expect(c[1]).toEqual({
+        value: 60000,
+        time: capped,
+        delta: { pct: null, polarity: "bad", capped: true },
+      });
+    });
+    it("기준 200 · 비교 59999 → 안 잘림, 변화율 계산", () => {
+      const c = cellsFor(200, 59999);
+      expect(c[0]).toEqual({ value: 200, delta: null });
+      expect(c[1].value).toBe(59999);
+      expect(c[1]).not.toHaveProperty("time");
+      expect(c[1].delta?.capped).toBe(false);
+      expect(c[1].delta?.polarity).toBe("bad");
+      expect(c[1].delta?.pct).toBeCloseTo(298.995, 9);
+    });
+  });
+
   it("no setup anywhere → setup is [] and existing cells are unchanged", () => {
     type D = { pct: number | null; polarity: string; capped: boolean };
     const t = (us: number) => ({ us });

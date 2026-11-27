@@ -180,14 +180,26 @@ function setupRows(reports: Report[], baselineIdx: number): CompareRow[] {
     id?: string,
   ): CompareRow => {
     const base = pick(reports[baselineIdx]);
+    // 준비 스텝 p95만 60초 칸 규칙을 따른다(본 스텝 p95와 같은 식).
+    const capRule = metric === "p95_ms";
+    const ptOf = (v: number): Pt =>
+      capRule && v >= CAP_US / 1000
+        ? { v: CAP_US / 1000, cut: true, time: { us: CAP_US } }
+        : { v, cut: false };
     return {
       label,
       ...(id === undefined ? {} : { id }),
       metric,
       cells: reports.map((r, i) => {
         const value = pick(r);
-        if (i === baselineIdx || value === null || base === null) return { value, delta: null };
-        return { value, delta: computeDelta(metric, base, value) };
+        if (value === null) return { value, delta: null };
+        const pt = ptOf(value);
+        const cell: Cell = { value: pt.v, delta: null };
+        if (pt.time) cell.time = pt.time;
+        if (i !== baselineIdx && base !== null) {
+          cell.delta = computeDeltaCapped(metric, ptOf(base), pt);
+        }
+        return cell;
       }),
     };
   };

@@ -3,7 +3,7 @@ import type { Cell, CompareResult, CompareRow } from "../../compare/compareRepor
 import { verdictPolarity } from "../../compare/compareReports";
 import { runColor } from "../../compare/runLabel";
 import { ko } from "../../i18n/ko";
-import { statMs3Text } from "../report/format";
+import { floorPct, statMs3Text } from "../report/format";
 import { Callout } from "../ui/Callout";
 
 type Props = {
@@ -76,7 +76,9 @@ function CellContent({ cell, metric }: { cell: Cell; metric: string }) {
         ? statMs3Text(cell.time.us)
         : metric === "rps"
           ? cell.value.toFixed(2)
-          : String(cell.value);
+          : metric === "error_rate"
+            ? floorPct(cell.value * 100)
+            : String(cell.value);
   return (
     <>
       {display}

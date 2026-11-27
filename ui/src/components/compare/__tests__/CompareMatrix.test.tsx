@@ -335,6 +335,7 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
       if (m === "p50_ms")
         return row(m, [cell(115.204, { us: 115204 }), cell(115.633, { us: 115633 })]);
       if (m === "rps") return row(m, [cell(27.14164546225615), cell(790.1)]);
+      if (m === "error_rate") return row(m, [cell(0.1), cell(0.11)]);
       return row(m, [cell(10), cell(11)]);
     });
     const steps = [
@@ -391,7 +392,53 @@ describe("CompareMatrix 시간 글자·통계 행·「응답 시간 통계 더 �
     expect(tds(ko.compare.statLabel.mean_ms)[1]).toBe("52.118");
     expect(tds("p50_ms").slice(1)).toEqual(["115.204", "115.633"]);
     expect(tds("rps")[1]).toBe("27.14");
-    expect(tds("error_rate")[1]).toBe("10");
+    expect(tds("error_rate")[1]).toBe("10.0%");
+  });
+
+  it("오류율 칸은 퍼센트 글자", () => {
+    const r = build();
+    r.summary = r.summary.map((x) =>
+      x.metric === "error_rate" ? row("error_rate", [cell(0), cell(0.0123001230012)]) : x,
+    );
+    r.summary.push(row("error_rate", [cell(0.0001), cell(null)], undefined, "error_rate_2"));
+    const { container } = render(
+      <CompareMatrix result={r} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("0.0%");
+    expect(text).toContain("1.2%");
+    expect(text).toContain("<0.1%");
+    expect(text).not.toContain("0.0123");
+  });
+
+  it("준비 스텝 잘린 p95 칸은 「≥ 60,000」, 안 잘린 칸은 정수 글자", () => {
+    const r = build();
+    r.setup = [
+      {
+        label: "s1",
+        id: "s1",
+        metric: "p95_ms",
+        cells: [
+          { value: 200, delta: null },
+          {
+            value: 60000,
+            time: { us: 60_000_000 },
+            delta: { pct: null, polarity: "bad", capped: true },
+          },
+        ],
+      },
+    ];
+    const { container } = render(
+      <CompareMatrix result={r} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const tr = Array.from(container.querySelectorAll("tbody tr")).find(
+      (t) => t.querySelector("td")?.textContent === "s1" && t.querySelectorAll("td").length === 3,
+    )!;
+    const tds = Array.from(tr.querySelectorAll("td")).map((t) => t.textContent ?? "");
+    expect(tds[1]).toBe("200");
+    expect(tds[2]).toContain("≥\u00a060,000");
+    expect(tds[1]).not.toContain("200.000");
+    expect(tds.join("")).not.toContain("µs");
   });
 
   it("스텝 절: 단추는 접힘이 기본, 누르면 스텝 × 5행이 p95 행 바로 밑에", async () => {
