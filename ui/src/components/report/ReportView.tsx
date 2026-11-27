@@ -207,6 +207,7 @@ export function ReportView({
           setup={report.setup}
           status={report.run.status}
           latency={latency}
+          stair={report.stair}
         />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>

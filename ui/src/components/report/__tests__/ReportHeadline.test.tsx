@@ -3,6 +3,23 @@ import { describe, it, expect } from "vitest";
 import { ReportHeadline } from "../ReportHeadline";
 import type { Profile, ReportSummary } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
+import { readFileSync } from "node:fs";
+import nodePath from "node:path";
+import { StairReportSchema } from "../../../api/schemas";
+
+const STAIR = StairReportSchema.parse(
+  JSON.parse(
+    readFileSync(
+      nodePath.resolve(__dirname, "../../../../../testdata/stair_report_golden.json"),
+      "utf8",
+    ),
+  ),
+);
+const STAIR_PROFILE = (p: Profile): Profile => ({
+  ...p,
+  vus: 0,
+  stages: [{ target: 100, duration_seconds: 1 }],
+});
 
 const SUMMARY: ReportSummary = {
   count: 12345,
@@ -25,6 +42,47 @@ const CLOSED: Profile = {
 };
 
 describe("ReportHeadline", () => {
+  it("계단 run: 전체 평균 문장 대신 계단 판정 문장 + 전체 요청 수·에러 줄 (stair-feedback §B101)", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={STAIR_PROFILE(CLOSED)}
+        verdict={null}
+        stair={STAIR}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(
+      "목표 600 iter/s 계단부터 포화했고, 마지막 정상 계단은 500 iter/s입니다(처리량 500 req/s · 95% 응답 시간 8 ms).",
+    );
+    expect(region).toHaveTextContent("전체 1분 동안 12,345회 요청 · 에러 0.3%");
+    expect(region).not.toHaveTextContent("도착률 곡선");
+    expect(region).not.toHaveTextContent("0.21초");
+  });
+
+  it("계단 run이라도 판정할 계단이 없거나(no_data) 요청 0건이면 기존 문장", () => {
+    const noData = { ...STAIR, headline: { ...STAIR.headline, kind: "no_data" as const } };
+    const { unmount } = render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={STAIR_PROFILE(CLOSED)}
+        verdict={null}
+        stair={noData}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "쉬운 요약" })).toHaveTextContent("도착률 곡선");
+    unmount();
+    render(
+      <ReportHeadline
+        summary={{ ...SUMMARY, count: 0, errors: 0 }}
+        profile={STAIR_PROFILE(CLOSED)}
+        verdict={null}
+        stair={STAIR}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "쉬운 요약" })).not.toHaveTextContent("포화했고");
+  });
+
   it("기준은 있는데 판정이 없으면(요청 0건) 설정 안내 대신 판정하지 않은 이유를 말한다", () => {
     render(
       <ReportHeadline

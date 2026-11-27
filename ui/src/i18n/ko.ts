@@ -1757,6 +1757,8 @@ export const ko = {
       errPct: string;
     }) =>
       `${p.duration} 동안 목표 도착률 초당 ${p.targetRps}회로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
+    headlineStairTotals: (p: { duration: string; count: string; errPct: string }) =>
+      `전체 ${p.duration} 동안 ${p.count}회 요청 · 에러 ${p.errPct}`,
     headlineOpenCurve: (p: { duration: string; count: string; latency: string; errPct: string }) =>
       `${p.duration} 동안 단계별 도착률 곡선으로 ${p.count}회 요청 — ${p.latency}, 에러 ${p.errPct}`,
     headlineClosedCurve: (p: {

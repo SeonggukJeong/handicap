@@ -2,6 +2,7 @@ import type {
   Profile,
   ReportSampleName,
   ReportSummary,
+  StairReport,
   Validity,
   Verdict,
 } from "../../api/schemas";
@@ -12,6 +13,7 @@ import { noLatencyWord } from "../../report/sampleView";
 import { floorPct, latencyShown } from "./format";
 import { fixedTarget } from "../run/loadModel";
 import { criteriaHasAny, verdictBox } from "../../print/verdict";
+import { stairSummaryText } from "../../print/stairKpi";
 
 type Props = {
   summary: ReportSummary;
@@ -27,6 +29,8 @@ type Props = {
   status?: string;
   /** 응답 시간 표본과 그 표본의 요청 수 — 통과·실패 표본에서 값이 없으면 문장이 값을 말하지 않는다. */
   latency?: { sample: ReportSampleName; counts: LatencyCounts; switched?: boolean };
+  /** 계단 run의 판정 — 있으면 run 전체 평균 문장 대신 계단 문장(인쇄 첫 쪽 요약과 같은 글자). */
+  stair?: StairReport | null;
 };
 
 function zeroSentence(setupOnly: boolean, setup: Props["setup"]): string {
@@ -46,6 +50,7 @@ export function ReportHeadline({
   setup,
   status = "completed",
   latency,
+  stair,
 }: Props) {
   const noLatency =
     latency != null &&
@@ -91,6 +96,10 @@ export function ReportHeadline({
             ? ko.report.headlineClosedCurve(common)
             : ko.report.headlineClosed({ ...common, vus: profile.vus });
 
+  // 계단 run: 낮은 계단·높은 계단·상승 구간이 섞인 전체 값 대신 계단 판정. 표본을 바꿔 보는 중이면 기존 문장.
+  const stairText =
+    stair && summary.count > 0 && !latency?.switched ? stairSummaryText(stair) : null;
+
   // 판정이 없을 때만: 기준이 있었는데 왜 판정이 없는지(인쇄 verdictBox와 같은 분기).
   const box = verdictBox({
     count: summary.count,
@@ -115,7 +124,16 @@ export function ReportHeadline({
       ) : (
         <p className="mb-1 text-sm text-slate-500">{noVerdictText}</p>
       )}
-      <p className="text-base text-slate-800">{sentence}</p>
+      <p className="text-base text-slate-800">{stairText ?? sentence}</p>
+      {stairText && (
+        <p className="mt-0.5 text-sm text-slate-600">
+          {ko.report.headlineStairTotals({
+            duration: common.duration,
+            count: common.count,
+            errPct: common.errPct,
+          })}
+        </p>
+      )}
     </section>
   );
 }
