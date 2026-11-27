@@ -651,4 +651,21 @@ describe("CompareMatrix 좁은 창 — 가로 스크롤 상자·이름 칸 왼�
     expect(el).not.toBeNull();
     expect(el).toHaveAttribute("title", LONG_LABEL);
   });
+  it("이름 칸 왼쪽 여백: 머리 첫 th·본 행·판정 행은 pl-0, 펼친 통계 행은 pl-4", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <CompareMatrix result={narrow} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.report.stats.toggleMore }));
+    expect(container.querySelector("thead th")).toHaveClass("pl-0");
+    const nameTd = (text: string) =>
+      Array.from(container.querySelectorAll("tbody td")).find((td) => td.textContent === text)!;
+    expect(nameTd("판정")).toHaveClass("pl-0");
+    expect(nameTd("p50_ms")).toHaveClass("pl-0");
+    const stat = Array.from(container.querySelectorAll("tbody td")).find((td) =>
+      td.textContent?.startsWith("└ "),
+    )!;
+    expect(stat).toHaveClass("pl-4");
+    expect(stat).not.toHaveClass("pl-0");
+  });
 });
