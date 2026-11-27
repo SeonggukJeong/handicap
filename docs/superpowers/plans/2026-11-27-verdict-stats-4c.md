@@ -38,7 +38,7 @@ REVIEW-GATE: APPROVED
 **구현 지시(brief)에 이 목업 경로를 주고 그 CSS·마크업을 시각 기준으로 명시한다**(working-rules §4). 목업 값은 아래처럼 기존 두 그림의 값과 같다 — 새 디자인 값은 없다. Task 2 직후 컨트롤러를 띄워 목업과 나란히 대조한다.
 
 - 틀·세로 기하·글자: `compare/components/OverlayChart.tsx`와 같은 상수(`PLOT_TOP 8`·`PLOT_BOTTOM 47`·`TIME_LABEL_Y 51.5`·`FONT 2.3`·`COLOR_GRID #e4e6ea`·`COLOR_SUB #5b6170`), viewBox `0 0 180 55`, 가로 눈금·시간축은 겹쳐 보기 그림과 같은 `durationSec`·`timeTicks`.
-- 선: 이전 = `#9aa1ad` 점선 `strokeDasharray="1.5 1"` 굵기 0.5 / 이후 = `#3b4bc8` 실선 굵기 0.5(처리량 선과 같은 색·모양 — 같은 절에서 「회색 점선 = 이전, 파란 실선 = 이후」가 유지된다). 선 끝 `strokeLinecap="round"`(묶음 하나짜리는 점으로 보인다 — 단일 run `LatencyChart`와 같은 규칙).
+- 선: 이전 = `#9aa1ad` 점선 `strokeDasharray="1.5 1"` 굵기 0.5 / 이후 = `#3b4bc8` 실선 굵기 0.5(처리량 선과 같은 색·모양 — 같은 절에서 「회색 점선 = 이전, 파란 실선 = 이후」가 유지된다). 선 끝 `strokeLinecap="round"`. **정정(2026-11-27 라이브 ④)**: 앞뒤가 끊겨 홀로 남은 묶음은 점이 아니라 그 묶음 폭만큼의 가로 선분으로 그린다(같은 절 `OverlayChart` `RpsLine`의 규칙) — 길이 0 경로는 점선(이전)일 때 인쇄 PDF에서 보이지 않았다(`3578f3aa`).
 - 상자: `p-cmp-box p-cmp-ov-box`, 위 블록과 1.5mm 간격(`p-cmp-b--note`). 상자 첫 줄 = 굵은 글씨 제목 「평균 응답 시간 (ms)」(`p-bold`), 그 아래 그림, 범례, 캡션(`p-cmp-note p-cmp-ov-reading` — 위 여백 0.5mm는 `p-cmp-ov-reading`이 준다, `OverlayChart.tsx`의 읽는 법 줄과 같은 모양). 상자 안쪽 여백은 `p-cmp-ov-box`(1.5mm 3mm) 그대로, `print.css`는 바꾸지 않는다. 범례·svg 마크업은 `OverlayChart.tsx`의 `Legend`·`Svg`와 같게 쓴다 — 견본은 `<i className="p-cmp-db-sw p-cmp-ov-sw--line [p-cmp-ov-sw--dash]" style={{ borderTopColor }} aria-hidden="true" />`(폭 4mm는 `p-cmp-db-sw`에서 온다 — 빼면 견본이 안 보인다), 범례 줄은 `p-cmp-db-legend p-cmp-ov-legend`, svg에는 `style={{ display: "block" }}`.
 - 값이 없던 묶음: 단일 run 인쇄와 같다 — 초가 하나도 없던 묶음은 건너뛰어 잇고(§B98 (0-1) 규칙), 초는 있었지만 통과 표본이 0이던 묶음은 선을 끊는다(`sparkPath`의 `null`).
 
