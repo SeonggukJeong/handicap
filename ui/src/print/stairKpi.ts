@@ -96,3 +96,30 @@ export function stairKpiCards(stair: StairReport): KpiCard[] | null {
   }
   return [lastOk, throughput, p95, saturation];
 }
+
+/** 첫 쪽 「요약(자동 작성)」의 계단 문장 — run 전체 평균 문장 대신. 판정할 계단이 없으면 null. */
+export function stairSummaryText(stair: StairReport): string | null {
+  const h = stair.headline;
+  if (h.kind === "no_data") return null;
+  const S = ko.print.stair.summary;
+  const n = (v: number | null | undefined) => (v == null ? k.none : v.toLocaleString("en-US"));
+  const ok = lastOkStep(stair);
+  const detail = ok
+    ? ok.p99_us > 0
+      ? S.detailP95(formatCount(ok.throughput_rps), formatMs(ok.p95_us))
+      : S.detail(formatCount(ok.throughput_rps))
+    : null;
+  const sat = n(h.saturated_target);
+  switch (h.kind) {
+    case "saturated":
+      return ok && detail ? S.saturated(sat, n(ok.target), detail) : S.saturatedNoLast(sat);
+    case "unconfirmed":
+      return ok && detail ? S.unconfirmed(sat, n(ok.target), detail) : S.unconfirmedNoLast(sat);
+    case "all_ok":
+    case "ok_then_unmeasured": {
+      const t = n(h.last_ok_target ?? h.through_target);
+      const d = detail ?? k.none;
+      return h.kind === "all_ok" ? S.allOk(t, d) : S.okThenUnmeasured(t, d);
+    }
+  }
+}

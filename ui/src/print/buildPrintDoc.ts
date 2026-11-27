@@ -18,7 +18,7 @@ import { fmtDate } from "./format";
 import { readScenarioFacts } from "./scenarioFacts";
 import { targetSystems } from "./redact";
 import { discardWarningSteps } from "./stairTable";
-import { stairKpiCards } from "./stairKpi";
+import { stairKpiCards, stairSummaryText } from "./stairKpi";
 import { suspendedLineText } from "../components/report/stair/stairFormat";
 import { buildStepTable, type StepTableModel } from "./stepTable";
 import {
@@ -272,6 +272,7 @@ export function buildPrintDoc(a: {
       statusRule,
       criteria,
       latency: hasTime,
+      stairText: report.stair ? stairSummaryText(report.stair) : null,
     }),
     kpis: stairKpis ?? kpiCards(report.summary, matched, box, { latency: hasTime }),
     otherRows,

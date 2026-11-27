@@ -2835,6 +2835,21 @@ export const ko = {
       title: "계단 부하 판정 결과",
       continued: " (이어짐)",
       summaryNote: "계단 표는 표준 보고서에 있습니다.",
+      summary: {
+        detail: (rps: string) => `처리량 ${rps} req/s`,
+        detailP95: (rps: string, p95: string) => `처리량 ${rps} req/s · 95% 응답 시간 ${p95} ms`,
+        saturated: (t: string, last: string, d: string) =>
+          `목표 ${t} iter/s 계단부터 포화했고, 마지막 정상 계단은 ${last} iter/s입니다(${d}).`,
+        saturatedNoLast: (t: string) => `목표 ${t} iter/s 계단부터 포화했고, 정상 계단이 없습니다.`,
+        unconfirmed: (t: string, last: string, d: string) =>
+          `목표 ${t} iter/s 계단에서 포화가 의심되지만 다음 계단으로 확인하지 못했습니다. 마지막 정상 계단은 ${last} iter/s입니다(${d}).`,
+        unconfirmedNoLast: (t: string) =>
+          `목표 ${t} iter/s 계단에서 포화가 의심되지만 다음 계단으로 확인하지 못했습니다. 정상 계단이 없습니다.`,
+        allOk: (t: string, d: string) =>
+          `목표 ${t} iter/s까지 모든 계단이 정상이었고 포화 지점은 찾지 못했습니다(${d}).`,
+        okThenUnmeasured: (t: string, d: string) =>
+          `목표 ${t} iter/s까지 정상이었고 이후 계단은 측정되지 않았습니다(${d}).`,
+      },
       kpi: {
         unitTarget: "iter/s",
         unitThroughput: "req/s",

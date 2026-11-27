@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import nodePath from "node:path";
 import { StairReportSchema, type StairReport } from "../../api/schemas";
-import { stairKpiCards } from "../stairKpi";
+import { stairKpiCards, stairSummaryText } from "../stairKpi";
 
 const golden = StairReportSchema.parse(
   JSON.parse(
@@ -78,5 +78,49 @@ describe("stairKpiCards (stair-feedback §B101 c)", () => {
     const st = mk();
     st.headline = { ...st.headline, kind: "no_data" };
     expect(stairKpiCards(st)).toBeNull();
+  });
+});
+
+describe("stairSummaryText — 첫 쪽 요약 문장 (stair-feedback §B101)", () => {
+  it("포화 + 마지막 정상", () => {
+    expect(stairSummaryText(mk())).toBe(
+      "목표 600 iter/s 계단부터 포화했고, 마지막 정상 계단은 500 iter/s입니다(처리량 500 req/s · 95% 응답 시간 8 ms).",
+    );
+  });
+  it("정상 계단 없음", () => {
+    const st = mk();
+    st.headline = { ...st.headline, last_ok_target: null };
+    expect(stairSummaryText(st)).toBe("목표 600 iter/s 계단부터 포화했고, 정상 계단이 없습니다.");
+  });
+  it("포화 의심", () => {
+    const st = mk();
+    st.headline = { ...st.headline, kind: "unconfirmed" };
+    expect(stairSummaryText(st)).toBe(
+      "목표 600 iter/s 계단에서 포화가 의심되지만 다음 계단으로 확인하지 못했습니다. 마지막 정상 계단은 500 iter/s입니다(처리량 500 req/s · 95% 응답 시간 8 ms).",
+    );
+  });
+  it("모두 정상 / 이후 측정 안 됨", () => {
+    const st = mk();
+    st.headline = {
+      ...st.headline,
+      kind: "all_ok",
+      saturated_target: null,
+      last_ok_target: null,
+      through_target: 500,
+    };
+    expect(stairSummaryText(st)).toBe(
+      "목표 500 iter/s까지 모든 계단이 정상이었고 포화 지점은 찾지 못했습니다(처리량 500 req/s · 95% 응답 시간 8 ms).",
+    );
+    st.headline = { ...st.headline, kind: "ok_then_unmeasured" };
+    expect(stairSummaryText(st)).toBe(
+      "목표 500 iter/s까지 정상이었고 이후 계단은 측정되지 않았습니다(처리량 500 req/s · 95% 응답 시간 8 ms).",
+    );
+  });
+  it("응답 시간 표본이 없으면 처리량만, no_data는 null", () => {
+    const st = mk();
+    st.steps[4] = { ...st.steps[4], p50_us: 0, p95_us: 0, p99_us: 0 };
+    expect(stairSummaryText(st)).toContain("입니다(처리량 500 req/s).");
+    st.headline = { ...st.headline, kind: "no_data" };
+    expect(stairSummaryText(st)).toBeNull();
   });
 });

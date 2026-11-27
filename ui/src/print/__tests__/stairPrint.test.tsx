@@ -13,6 +13,7 @@ import {
 import { PAGE_BODY_MM, paginate, type Block, type LadderLevel } from "../paginate";
 import { buildStairRows } from "../stairTable";
 import { otherCriteriaRows } from "../verdict";
+import { shortSummary } from "../sentences";
 import {
   clockText,
   headlineParts,
@@ -436,6 +437,18 @@ describe("계단 사용 피드백 (stair-feedback §B101)", () => {
       "포화 시작",
     ]);
     expect(build().kpis.map((k) => k.key)).toEqual(["rps", "mean", "p95", "errorRate"]);
+  });
+
+  it("요약 문장: 계단 문장이 run 전체 평균 문장을 대신하고 요약판에도 남는다", () => {
+    const doc = build(golden);
+    expect(doc.lines).toEqual([
+      {
+        kind: "stair",
+        text: "목표 600 iter/s 계단부터 포화했고, 마지막 정상 계단은 500 iter/s입니다(처리량 500 req/s · 95% 응답 시간 8 ms).",
+      },
+    ]);
+    expect(shortSummary(doc.lines)).toHaveLength(1);
+    expect(build().lines.map((l) => l.kind)).toEqual(["fallback"]);
   });
 
   it("지표 칸이 계단 값이면 처리량·응답 시간 기준은 「그 밖의 기준」 표로 간다", () => {
