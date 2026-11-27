@@ -1,6 +1,6 @@
 import { ko } from "../i18n/ko";
 import type { SecondLatency } from "../api/schemas";
-import { elapsedText, niceTicks, type ChartModel } from "./chartModel";
+import { elapsedText, niceTicks } from "./chartModel";
 
 const K = ko.print.latencyChart;
 
@@ -21,8 +21,14 @@ export type LatencyChartModel = {
   binText: string;
 };
 
+/** 칸 격자: 한 칸의 기본 길이와 칸 목록 (`ChartModel`과 비교 겹쳐 보기의 한 쪽이 모두 만족한다). */
+export type LatencyGrid = {
+  binSeconds: number;
+  bins: readonly { startSec: number; seconds: number }[];
+};
+
 /** 초별 응답 시간을 `chart.bins`와 같은 칸으로 묶는다. 칸 평균은 n 가중, p95는 칸 안 최댓값. */
-export function binLatency(series: SecondLatency[], t0: number, chart: ChartModel): LatencyBin[] {
+export function binLatency(series: SecondLatency[], t0: number, chart: LatencyGrid): LatencyBin[] {
   const nBins = chart.bins.length;
   const acc = chart.bins.map(() => ({
     n: 0,
@@ -56,7 +62,7 @@ export function binLatency(series: SecondLatency[], t0: number, chart: ChartMode
 export function buildLatencyChart(
   series: SecondLatency[],
   t0: number | null,
-  chart: ChartModel,
+  chart: LatencyGrid,
 ): LatencyChartModel | null {
   if (t0 === null) return null;
   const bins = binLatency(series, t0, chart);

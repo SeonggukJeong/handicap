@@ -3095,6 +3095,16 @@ export const ko = {
         readingNone: "두 측정 모두 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다.",
         durationNote: (before: string, after: string) =>
           `(측정 시간이 다릅니다: 이전 ${before}, 이후 ${after})`,
+        latency: {
+          title: "평균 응답 시간 (ms)",
+          aria: "이전·이후 평균 응답 시간을 시간 순서로 겹쳐 그린 그래프",
+          legendBefore: "이전 평균 응답 시간",
+          legendAfter: "이후 평균 응답 시간",
+          missingBefore: "이전 측정에는 응답 시간 값이 없습니다.",
+          missingAfter: "이후 측정에는 응답 시간 값이 없습니다.",
+          caption: (bin: string) =>
+            `모든 단계의 요청을 합친 값입니다. 한 칸 = ${bin}, 그 칸 안 요청 전체의 평균입니다.`,
+        },
       },
       speed: {
         aria: "이전·이후 모든 단계의 응답 속도 구간 비교",

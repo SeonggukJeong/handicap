@@ -34,7 +34,7 @@ export type OverlayModel = {
 const NEAR_NONE = 0.05;
 const NOTE_RATIO = 0.05;
 
-function sideDuration(run: RunModel): { t0: number; durationSec: number } {
+export function sideDuration(run: RunModel): { t0: number; durationSec: number } {
   const { windows } = run.report;
   const t0 = runT0(run.meta.started_at, windows);
   if (windows.length === 0 || t0 === null) return { t0: 0, durationSec: 0 };
