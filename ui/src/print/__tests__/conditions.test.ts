@@ -206,4 +206,10 @@ describe("계단 run", () => {
       expect(r.rows.find((x) => x.label === "크기")?.value).toBe("3계단 · 초당 100–800회");
     }
   });
+  it("conditionsBox 계단 상승 행 (stair-feedback §B101 a)", () => {
+    const r = conditionsBox({ profileRaw: stairProf(), workerBreakdownLen: 0, envCount: 0 });
+    expect(r.ok && r.rows.find((x) => x.label === "시작 늘림")?.value).toBe(
+      "계단마다 5초에 걸쳐 늘림",
+    );
+  });
 });

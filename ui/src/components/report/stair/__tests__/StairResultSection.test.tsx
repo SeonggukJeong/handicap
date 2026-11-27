@@ -135,6 +135,22 @@ describe("stateLabel", () => {
 });
 
 describe("StairResultSection", () => {
+  it("상승·유지·버림 시간 줄 (stair-feedback §B101 a)", () => {
+    render(<StairResultSection stair={mk()} />);
+    expect(
+      screen.getByText(
+        "계단마다 상승 1초 · 유지 25초(앞 5초 버림) · 가장 가파른 상승 600 → 1,000 iter/s (초당 +400)",
+      ),
+    ).toBeInTheDocument();
+  });
+  it("상승 시간이 길면 초당 증가량은 소수 첫째까지", () => {
+    const st = mk();
+    st.config = { ...st.config, targets: [100, 150], ramp_seconds: 30 };
+    render(<StairResultSection stair={st} />);
+    expect(
+      screen.getByText(/가장 가파른 상승 0 → 100 iter\/s \(초당 \+3\.3\)/),
+    ).toBeInTheDocument();
+  });
   it("머리말·표 머리글·행 수", () => {
     render(<StairResultSection stair={mk()} />);
     const sec = screen.getByRole("region", { name: "계단 결과" });
@@ -142,14 +158,7 @@ describe("StairResultSection", () => {
       within(sec).getByText("포화 계단 600 iter/s · 마지막 정상 500 iter/s"),
     ).toBeInTheDocument();
     const table = within(sec).getByRole("table", { name: "계단 표" });
-    for (const h of [
-      "#",
-      "목표(iter/s)",
-      "달성(iter/s)",
-      "처리량(req/s)",
-      "측정 구간",
-      "판정",
-    ]) {
+    for (const h of ["#", "목표(iter/s)", "달성(iter/s)", "처리량(req/s)", "측정 구간", "판정"]) {
       expect(within(table).getByRole("columnheader", { name: h })).toBeInTheDocument();
     }
     expect(within(table).getAllByRole("row")).toHaveLength(1 + 7);

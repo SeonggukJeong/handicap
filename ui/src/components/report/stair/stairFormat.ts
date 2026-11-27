@@ -268,3 +268,36 @@ export function suspendedLineText(stair: StairReport): string | null {
   if (!rec || rec.stop || rec.suspended_seconds === 0) return null;
   return t.stopSuspendedLine(rec.suspended_seconds);
 }
+
+/** 계단 설정 한 줄 — 상승·유지·버림 시간 + 가장 가파른 상승(첫 계단은 0에서 오른다). 화면·인쇄 공용. */
+export function configLineText(stair: StairReport): string {
+  const c = stair.config;
+  const base = t.configLine(c.ramp_seconds, c.hold_seconds, c.discard_seconds);
+  let best: { from: number; to: number } | null = null;
+  c.targets.forEach((to, i) => {
+    const from = i === 0 ? 0 : c.targets[i - 1];
+    if (to > from && (best === null || to - from > best.to - best.from)) best = { from, to };
+  });
+  if (best === null || c.ramp_seconds <= 0) return base;
+  const b: { from: number; to: number } = best;
+  const n = (v: number) => v.toLocaleString("en-US");
+  return `${base} · ${t.steepest(n(b.from), n(b.to), formatCount((b.to - b.from) / c.ramp_seconds))}`;
+}
+
+/** 머리말이 가리키는 마지막 정상 계단(없으면 undefined) — 같은 목표가 여럿이면 뒤의 것. */
+export function lastOkStep(stair: StairReport): StairStep | undefined {
+  const target = stair.headline.last_ok_target ?? stair.headline.through_target;
+  if (target == null) return undefined;
+  return stair.steps.filter((s) => s.state === "ok" && s.target === target).pop();
+}
+
+/** 머리말이 가리키는 포화(또는 포화 의심) 시작 계단. */
+export function saturationStartStep(stair: StairReport): StairStep | undefined {
+  const h = stair.headline;
+  if ((h.kind !== "saturated" && h.kind !== "unconfirmed") || h.saturated_target == null)
+    return undefined;
+  return stair.steps.find(
+    (s) =>
+      s.target === h.saturated_target && (s.state === "saturated" || s.state === "unconfirmed"),
+  );
+}

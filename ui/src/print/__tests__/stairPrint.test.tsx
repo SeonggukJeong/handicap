@@ -12,6 +12,7 @@ import {
 } from "../buildPrintDoc";
 import { PAGE_BODY_MM, paginate, type Block, type LadderLevel } from "../paginate";
 import { buildStairRows } from "../stairTable";
+import { otherCriteriaRows } from "../verdict";
 import {
   clockText,
   headlineParts,
@@ -413,5 +414,68 @@ describe("자동 정지 인쇄 (stage-auto-stop)", () => {
     // 옅은 회색(p-muted, 대비 ~2.2:1)이 아니라 다른 인쇄 각주와 같은 p-note.
     expect(line[0]).toHaveClass("p-note");
     expect(line[0]).not.toHaveClass("p-muted");
+  });
+});
+
+describe("계단 사용 피드백 (stair-feedback §B101)", () => {
+  async function renderReady() {
+    const utils = render(
+      <div className="p-root">
+        <PrintDocument doc={build(golden)} kind="standard" />
+      </div>,
+    );
+    const root = utils.container.querySelector(".p-doc") as HTMLElement;
+    await waitFor(() => expect(root).toHaveAttribute("data-layout-ready", "true"));
+  }
+  it("첫 쪽 지표 칸은 전체 평균이 아니라 계단 값", () => {
+    const doc = build(golden);
+    expect(doc.kpis.map((k) => k.label)).toEqual([
+      "마지막 정상 계단",
+      "그 계단의 처리량",
+      "그 계단의 95% 응답 시간",
+      "포화 시작",
+    ]);
+    expect(build().kpis.map((k) => k.key)).toEqual(["rps", "mean", "p95", "errorRate"]);
+  });
+
+  it("지표 칸이 계단 값이면 처리량·응답 시간 기준은 「그 밖의 기준」 표로 간다", () => {
+    const spec = { metric: "rps", op: "min" as const, threshold: 5, target: null };
+    const row = { metric: "rps", threshold: 5, actual: 1, passed: false };
+    const matched = [{ spec, row }] as unknown as Parameters<typeof otherCriteriaRows>[0];
+    const box = { kind: "fail" } as unknown as Parameters<typeof otherCriteriaRows>[1];
+    expect(otherCriteriaRows(matched, box, (x) => x)).toEqual([]);
+    expect(otherCriteriaRows(matched, box, (x) => x, { cards: false })).toHaveLength(1);
+  });
+
+  it("표 행 표시: 마지막 정상 행과 포화 시작 행", () => {
+    const rows = buildStairRows(golden).rows;
+    expect(rows.map((r) => r.mark)).toEqual([null, null, null, null, "lastOk", "satStart", null]);
+    const un = structuredClone(golden);
+    un.headline = { ...un.headline, kind: "unconfirmed" };
+    un.steps[5] = { ...un.steps[5], state: "unconfirmed" };
+    expect(buildStairRows(un).rows[5].mark).toBe("suspectStart");
+  });
+
+  it("인쇄 표: 포화 시작 행에 경계 클래스·꼬리표, 포화 행에 바탕 클래스", async () => {
+    await renderReady();
+    const table = screen.getAllByRole("table", { name: "계단 표" })[0];
+    const trs = within(table).getAllByRole("row").slice(1);
+    expect(trs[5].className).toContain("p-stair-row--start");
+    expect(trs[5].className).toContain("p-stair-row--bad");
+    expect(trs[6].className).toContain("p-stair-row--bad");
+    expect(trs[6].className).not.toContain("p-stair-row--start");
+    expect(trs[4].className).toBe("p-stair-row--lastok");
+    expect(trs[0].className).toBe("");
+    expect(within(trs[5]).getByText("▼ 여기부터 포화")).toBeInTheDocument();
+    expect(within(trs[4]).getByText("▲ 마지막 정상")).toBeInTheDocument();
+  });
+
+  it("머리말에 상승·유지·버림 시간과 가장 가파른 상승", async () => {
+    await renderReady();
+    expect(
+      screen.getAllByText(
+        "계단마다 상승 1초 · 유지 25초(앞 5초 버림) · 가장 가파른 상승 600 → 1,000 iter/s (초당 +400)",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });

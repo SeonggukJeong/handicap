@@ -5,7 +5,9 @@ import {
   errorRateText,
   formatCount,
   formatMs,
+  lastOkStep,
   reasonTexts,
+  saturationStartStep,
   showsNumbers,
   stateLabel,
 } from "../components/report/stair/stairFormat";
@@ -18,6 +20,8 @@ export type StairPrintRow = {
   /** 화면 표와 같은 11칸(마지막 = 판정 이름). */
   cells: string[];
   reasons: string[];
+  /** 한눈에 찾는 표시 — 마지막 정상 행 · 포화(의심) 시작 행. */
+  mark: "lastOk" | "satStart" | "suspectStart" | null;
 };
 
 export type StairPrintModel = { columns: string[]; rows: StairPrintRow[] };
@@ -37,6 +41,8 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
     c.window,
     c.state,
   ];
+  const lastOk = lastOkStep(stair)?.index;
+  const start = saturationStartStep(stair);
   const rows = stair.steps.map((s): StairPrintRow => {
     const measured = showsNumbers(s.state);
     const dash = (v: string): string => (measured ? v : DASH);
@@ -60,6 +66,14 @@ export function buildStairRows(stair: StairReport): StairPrintModel {
         stateLabel(s.state),
       ],
       reasons: reasonTexts(stair, s),
+      mark:
+        start && s.index === start.index
+          ? start.state === "saturated"
+            ? "satStart"
+            : "suspectStart"
+          : s.index === lastOk
+            ? "lastOk"
+            : null,
     };
   });
   return { columns, rows };

@@ -137,7 +137,15 @@ export function criterionName(metric: string): { name: string; subj: string } {
 }
 
 export type KpiCard = {
-  key: "rps" | "mean" | "p95" | "errorRate";
+  key:
+    | "rps"
+    | "mean"
+    | "p95"
+    | "errorRate"
+    | "stairLastOk"
+    | "stairThroughput"
+    | "stairP95"
+    | "stairSaturation";
   label: string;
   value: string;
   unit: string;
@@ -232,8 +240,12 @@ export function otherCriteriaRows(
   matched: Matched[],
   box: BoxState,
   stepName: (id: string) => string,
+  /** `cards: false` = 지표 칸이 기준을 보여 주지 않는 보고서(계단) — 모든 기준을 이 표에. */
+  opts: { cards: boolean } = { cards: true },
 ): OtherRow[] {
-  const used = new Set(Object.values(CARD_METRIC).map((m) => cardMatchIndex(matched, m)));
+  const used = new Set(
+    opts.cards ? Object.values(CARD_METRIC).map((m) => cardMatchIndex(matched, m)) : [],
+  );
   const out: OtherRow[] = [];
   matched.forEach(({ spec, row: serverRow }, i) => {
     if (used.has(i)) return;

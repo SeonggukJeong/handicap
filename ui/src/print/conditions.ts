@@ -7,7 +7,9 @@ import { fmtDate, fmtDateTime, fmtDurMs, fmtTime } from "./format";
 
 const c = ko.print.conditions;
 
-export function rampSeconds(p: Pick<Profile, "ramp_up_seconds" | "steady">): number {
+/** 계단 run은 계단마다의 상승 시간(비교 보고서의 「다름」 판정도 이 값을 쓴다). */
+export function rampSeconds(p: Pick<Profile, "ramp_up_seconds" | "steady" | "stair">): number {
+  if (p.stair) return p.stair.ramp_seconds;
   return p.steady ? p.steady.ramp_seconds : p.ramp_up_seconds;
 }
 const DASH = ko.print.fmt.noTarget;
@@ -98,7 +100,9 @@ export function conditionsBox(a: {
   }
   add(L.duration, formatDurationKo(profileDurationSeconds(p)));
   const ramp = rampSeconds(p);
-  if (ramp > 0) add(L.ramp, c.ramp(formatDurationKo(ramp)));
+  if (rateMode === "stair" && p.stair) {
+    add(L.ramp, c.rampStair(formatDurationKo(ramp)));
+  } else if (ramp > 0) add(L.ramp, c.ramp(formatDurationKo(ramp)));
   if (p.think_time)
     add(L.think, c.think(fmtDurMs(p.think_time.min_ms), fmtDurMs(p.think_time.max_ms)));
   add(L.timeout, formatDurationKo(p.http_timeout_seconds));
