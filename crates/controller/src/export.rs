@@ -1050,14 +1050,15 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
                 }
             }
         }
-        // (행 이름, delta에 넘기는 metric, run별 값 — 그 run에 없으면 None)
-        let mut rows: Vec<(String, &str, Vec<Option<f64>>)> = vec![
+        // (행 이름, delta에 넘기는 metric, run별 (값, 60초 칸에 걸렸는가) — 그 run에 없으면 None)
+        type SetupRow<'a> = (String, &'a str, Vec<Option<(f64, bool)>>);
+        let mut rows: Vec<SetupRow> = vec![
             (
                 "setup_ok".to_string(),
                 "setup_ok",
                 reports
                     .iter()
-                    .map(|r| r.setup.as_ref().map(|s| s.ok as f64))
+                    .map(|r| r.setup.as_ref().map(|s| (s.ok as f64, false)))
                     .collect(),
             ),
             (
@@ -1065,7 +1066,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
                 "setup_failed",
                 reports
                     .iter()
-                    .map(|r| r.setup.as_ref().map(|s| s.failed as f64))
+                    .map(|r| r.setup.as_ref().map(|s| (s.failed as f64, false)))
                     .collect(),
             ),
         ];
@@ -1074,17 +1075,23 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
                 r.setup
                     .as_ref()
                     .and_then(|s| s.steps.iter().find(|st| st.step_id == sid))
-                    .map(|st| (st.p95_ms as f64, st.errors as f64))
+                    .map(|st| (cap_ms(st.p95_ms), st.errors as f64))
             };
             rows.push((
                 setup_label(&sid, " p95_ms"),
                 "p95_ms",
-                reports.iter().map(|r| find(r).map(|v| v.0)).collect(),
+                reports
+                    .iter()
+                    .map(|r| find(r).map(|v| (v.0.0 as f64, v.0.1)))
+                    .collect(),
             ));
             rows.push((
                 setup_label(&sid, " error_count"),
                 "setup_errors",
-                reports.iter().map(|r| find(r).map(|v| v.1)).collect(),
+                reports
+                    .iter()
+                    .map(|r| find(r).map(|v| (v.1, false)))
+                    .collect(),
             ));
         }
         for (ri, (label, metric, vals)) in rows.iter().enumerate() {
@@ -1092,15 +1099,16 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
             put_text(ws, row, 0, label);
             for (i, v) in vals.iter().enumerate() {
                 if let Some(x) = v {
-                    ws.write_number(row, (1 + i) as u16, *x).expect("w");
+                    ws.write_number(row, (1 + i) as u16, x.0).expect("w");
                 }
             }
             let mut dcol = setup_delta_start;
             for (i, v) in vals.iter().enumerate() {
                 if i != baseline_idx {
                     if let (Some(b), Some(x)) = (vals[baseline_idx], *v) {
-                        let d = delta(metric, b, x);
-                        write_delta_cell(ws, row, dcol, &d, x, &fmt_bad, &fmt_good);
+                        let mv = |(v, cut): (f64, bool)| MetricVal { v, us: None, cut };
+                        let d = delta_of(metric, mv(b), mv(x));
+                        write_delta_cell(ws, row, dcol, &d, x.0, &fmt_bad, &fmt_good);
                     }
                     dcol += 1;
                 }
@@ -4322,6 +4330,46 @@ steps:
                 })
                 .collect(),
         })
+    }
+
+    #[test]
+    fn comparison_xlsx_setup_p95_caps_60s() {
+        use calamine::{Data, Reader};
+        let cases: [(u64, u64, f64, f64, &str); 5] = [
+            (200, 60030, 200.0, 60000.0, "▲ —"),
+            (60030, 200, 60000.0, 200.0, "▼ —"),
+            (60030, 60100, 60000.0, 60000.0, "—"),
+            (200, 60000, 200.0, 60000.0, "▲ —"),
+            (200, 59999, 200.0, 59999.0, "▲ +29899.5%"),
+        ];
+        for (base_p95, val_p95, want_base, want_val, want_delta) in cases {
+            let mut a = named_run("A", vec![]);
+            a.setup = setup_of(1, 0, vec![("s1", base_p95, 0, 5)]);
+            let mut b = named_run("B", vec![]);
+            b.setup = setup_of(1, 0, vec![("s1", val_p95, 0, 5)]);
+            let mut wb = read_xlsx(comparison_to_xlsx(&[a, b], 0));
+            let ws = wb.worksheet_range("Setup").unwrap();
+            assert_eq!(
+                cell(&ws, 3, 0),
+                Some(&Data::String("s1 p95_ms".into())),
+                "{base_p95}->{val_p95} label"
+            );
+            assert_eq!(
+                cell(&ws, 3, 1),
+                Some(&Data::Float(want_base)),
+                "{base_p95}->{val_p95} base"
+            );
+            assert_eq!(
+                cell(&ws, 3, 2),
+                Some(&Data::Float(want_val)),
+                "{base_p95}->{val_p95} val"
+            );
+            assert_eq!(
+                cell(&ws, 3, 3),
+                Some(&Data::String(want_delta.into())),
+                "{base_p95}->{val_p95} delta"
+            );
+        }
     }
 
     #[test]
