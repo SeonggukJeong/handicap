@@ -60,6 +60,34 @@ describe("OverlayLatencyChart", () => {
     expect(container.textContent).toContain("이전 측정에는 응답 시간 값이 없습니다.");
   });
 
+  it("홀로 남은 묶음은 묶음 폭만큼의 가로 선분", () => {
+    const b = run("b", secs(10, 5), [L(0, 1, 5_000)]);
+    const a = run("a", secs(10, 5), [L(0, 1, 3_000), L(1, 1, 4_000)]);
+    const { container } = render(
+      <OverlayLatencyChart model={buildOverlayLatency(b, a, buildOverlay(b, a, false))!} />,
+    );
+    expect(container.querySelector('path[data-ovlat-line="before"]')?.getAttribute("d")).toBe(
+      "M12,14.5 L27.6,14.5",
+    );
+    expect(container.querySelector('path[data-ovlat-line="after"]')?.getAttribute("d")).toBe(
+      "M19.8,27.5 L35.4,21",
+    );
+  });
+
+  it("통과 표본이 없던 묶음에서 선이 끊기고, 초가 없던 묶음은 건너뛴다", () => {
+    const b = run("b", secs(10, 5), [L(0, 1, 5_000), L(1, 1, 7_000), L(2, 0), L(3, 1, 5_000)]);
+    const a = run("a", secs(10, 5), [L(0, 1, 3_000)]);
+    const { container } = render(
+      <OverlayLatencyChart model={buildOverlayLatency(b, a, buildOverlay(b, a, false))!} />,
+    );
+    expect(container.querySelector('path[data-ovlat-line="before"]')?.getAttribute("d")).toBe(
+      "M19.8,22.63 L35.4,12.88 M58.8,22.63 L74.4,22.63",
+    );
+    expect(container.querySelector('path[data-ovlat-line="after"]')?.getAttribute("d")).toBe(
+      "M12,32.38 L27.6,32.38",
+    );
+  });
+
   it("묶음이 하나뿐이어도 NaN·Infinity 없는 경로", () => {
     const b = run("b", secs(1, 5), [L(0, 1, 5_000)]);
     const a = run("a", secs(1, 5), [L(0, 1, 3_000)]);
