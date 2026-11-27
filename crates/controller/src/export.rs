@@ -323,13 +323,13 @@ fn write_insight_xlsx_row(
     ins: &crate::insights::Insight,
 ) {
     let c = |i: u16| col_offset + i;
-    ws.write_string(row, c(0), &ins.kind).expect("w");
-    ws.write_string(row, c(1), &ins.severity).expect("w");
+    put_text(ws, row, c(0), &ins.kind);
+    put_text(ws, row, c(1), &ins.severity);
     if let Some(v) = &ins.step_id {
-        ws.write_string(row, c(2), v).expect("w");
+        put_text(ws, row, c(2), v);
     }
     if let Some(v) = &ins.metric {
-        ws.write_string(row, c(3), v).expect("w");
+        put_text(ws, row, c(3), v);
     }
     if let Some(v) = ins.value {
         ws.write_number(row, c(4), v).expect("w");
@@ -341,7 +341,7 @@ fn write_insight_xlsx_row(
         ws.write_number(row, c(6), v as f64).expect("w");
     }
     if let Some(v) = &ins.status_class {
-        ws.write_string(row, c(7), v).expect("w");
+        put_text(ws, row, c(7), v);
     }
     if let Some(v) = ins.window_seconds {
         ws.write_number(row, c(8), v as f64).expect("w");
@@ -350,7 +350,7 @@ fn write_insight_xlsx_row(
         ws.write_number(row, c(9), v).expect("w");
     }
     if let Some(v) = &ins.cause {
-        ws.write_string(row, c(10), v).expect("w");
+        put_text(ws, row, c(10), v);
     }
     if let Some(v) = ins.recommended_workers {
         ws.write_number(row, c(11), v).expect("w");
@@ -368,7 +368,7 @@ fn write_insight_xlsx_row(
         ws.write_number(row, c(15), v).expect("w");
     }
     if let Some(v) = &ins.error_kind {
-        ws.write_string(row, c(16), v).expect("w");
+        put_text(ws, row, c(16), v);
     }
     if let Some(v) = ins.typical_in_flight {
         ws.write_number(row, c(17), v as f64).expect("w");
@@ -443,18 +443,18 @@ fn write_steps_table(
         .chain(STAT_COLS.iter())
         .enumerate()
     {
-        ws.write_string(first_row, c as u16, *h).expect("w");
+        put_text(ws, first_row, c as u16, h);
     }
     let mut r = first_row + 1;
     for st in steps {
-        ws.write_string(r, 0, &st.step_id).expect("w");
+        put_text(ws, r, 0, &st.step_id);
         ws.write_number(r, 1, st.count as f64).expect("w");
         ws.write_number(r, 2, st.error_count as f64).expect("w");
         let missing = latency_missing(sample, st.count, st.error_count);
         write_stat_cells(ws, r, 3, st.stats.as_ref(), missing);
         r += 1;
     }
-    ws.write_string(r, 0, "*").expect("w");
+    put_text(ws, r, 0, "*");
     ws.write_number(r, 1, summary.count as f64).expect("w");
     ws.write_number(r, 2, summary.errors as f64).expect("w");
     let missing = latency_missing(sample, summary.count, summary.errors);
@@ -477,7 +477,7 @@ fn write_summary_numbers(
         ("rps", s.rps),
         ("duration_seconds", s.duration_seconds as f64),
     ] {
-        ws.write_string(r, 0, k).expect("w");
+        put_text(ws, r, 0, k);
         ws.write_number(r, 1, v).expect("w");
         r += 1;
     }
@@ -499,13 +499,13 @@ fn write_summary_numbers(
         ("max_ms", |x| x.max_us),
         ("stdev_ms", |x| x.stdev_us),
     ] {
-        ws.write_string(r, 0, k).expect("w");
+        put_text(ws, r, 0, k);
         if let Some(x) = stats {
             ws.write_number(r, 1, pick(x) as f64 / 1000.0).expect("w");
         }
         r += 1;
     }
-    ws.write_string(r, 0, "capped").expect("w");
+    put_text(ws, r, 0, "capped");
     if let Some(x) = stats {
         ws.write_boolean(r, 1, x.capped).expect("w");
     }
@@ -514,8 +514,8 @@ fn write_summary_numbers(
 
 /// 「Step stats」 시트의 앞 두 칸(스텝 id·지표). 스텝 id는 사용자 글자라 Excel 칸 한도로 자른다.
 fn write_step_stat_labels(ws: &mut Worksheet, row: u32, sid: &str, metric: &str) {
-    ws.write_string(row, 0, xlsx_text(sid)).expect("w");
-    ws.write_string(row, 1, metric).expect("w");
+    put_text(ws, row, 0, sid);
+    put_text(ws, row, 1, metric);
 }
 
 /// 비교 CSV 값 칸: 시간 지표는 µs 정수에서 ms 소수 3자리, 그 밖은 지금 글자.
@@ -721,6 +721,19 @@ fn xlsx_text(s: &str) -> &str {
     }
 }
 
+/// 글자 칸 쓰기 도우미: Excel 칸 한도로 자른 뒤 기록한다.
+fn put_text(ws: &mut Worksheet, row: u32, col: u16, s: &str) {
+    ws.write_string(row, col, xlsx_text(s)).expect("w");
+}
+
+/// 스텝 id 뒤에 지표 꼬리표를 붙인 칸 글자. 꼬리표는 남기고 id만 잘라 한 칸 한도(32,767자)에 맞춘다.
+fn setup_label(sid: &str, suffix: &str) -> String {
+    let keep = 32_767usize.saturating_sub(suffix.chars().count());
+    let mut out: String = sid.chars().take(keep).collect();
+    out.push_str(suffix);
+    out
+}
+
 /// `Setup` 시트: 요약 3행 → 빈 행 → 스텝 표 → (실패 종류가 있으면) 빈 행 → 실패 종류 표.
 fn write_setup_sheet(
     wb: &mut Workbook,
@@ -737,7 +750,7 @@ fn write_setup_sheet(
     .iter()
     .enumerate()
     {
-        ws.write_string(i as u32, 0, *k).expect("w");
+        put_text(ws, i as u32, 0, k);
         ws.write_number(i as u32, 1, *v as f64).expect("w");
     }
     for (c, h) in [
@@ -754,13 +767,13 @@ fn write_setup_sheet(
     .iter()
     .enumerate()
     {
-        ws.write_string(4, c as u16, *h).expect("w");
+        put_text(ws, 4, c as u16, h);
     }
     let mut r = 5u32;
     for st in &s.steps {
-        ws.write_string(r, 0, xlsx_text(&st.step_id)).expect("w");
+        put_text(ws, r, 0, &st.step_id);
         if let Some(name) = names.get(&st.step_id) {
-            ws.write_string(r, 1, xlsx_text(name)).expect("w");
+            put_text(ws, r, 1, name);
         }
         ws.write_number(r, 2, st.count as f64).expect("w");
         ws.write_number(r, 3, st.errors as f64).expect("w");
@@ -770,19 +783,18 @@ fn write_setup_sheet(
         ws.write_number(r, 4, p50 as f64).expect("w");
         ws.write_number(r, 5, p95 as f64).expect("w");
         ws.write_number(r, 6, max as f64).expect("w");
-        ws.write_string(r, 7, status_counts_text(&st.status_counts))
-            .expect("w");
+        put_text(ws, r, 7, &status_counts_text(&st.status_counts));
         ws.write_boolean(r, 8, c50 || c95 || cmax).expect("w");
         r += 1;
     }
     let kinds = merged_failure_kinds(s);
     if !kinds.is_empty() {
         r += 1;
-        ws.write_string(r, 0, "failure_kind").expect("w");
-        ws.write_string(r, 1, "count").expect("w");
+        put_text(ws, r, 0, "failure_kind");
+        put_text(ws, r, 1, "count");
         for (k, v) in &kinds {
             r += 1;
-            ws.write_string(r, 0, k).expect("w");
+            put_text(ws, r, 0, k);
             ws.write_number(r, 1, *v as f64).expect("w");
         }
     }
@@ -870,7 +882,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     // Summary: row0 = header(metric + run ids + delta cols), rows = metrics.
     let ws = wb.add_worksheet();
     ws.set_name("Summary").expect("name");
-    ws.write_string(0, 0, "metric").expect("w");
+    put_text(ws, 0, 0, "metric");
     let mut col = 1u16;
     for (i, r) in reports.iter().enumerate() {
         let h = if i == baseline_idx {
@@ -878,20 +890,19 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         } else {
             r.run.id.clone()
         };
-        ws.write_string(0, col, &h).expect("w");
+        put_text(ws, 0, col, &h);
         col += 1;
     }
     let delta_start = col;
     for (i, r) in reports.iter().enumerate() {
         if i != baseline_idx {
-            ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
-                .expect("w");
+            put_text(ws, 0, col, &format!("\u{0394}% {}", r.run.id));
             col += 1;
         }
     }
     for (ri, metric) in SUMMARY_METRICS.iter().enumerate() {
         let row = (ri + 1) as u32;
-        ws.write_string(row, 0, *metric).expect("w");
+        put_text(ws, row, 0, metric);
         let base = summary_value(&reports[baseline_idx], metric);
         for (i, r) in reports.iter().enumerate() {
             if let Some(m) = summary_value(r, metric) {
@@ -916,17 +927,16 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     // 화면이 블랭크라 export도 블랭크 — unwrap_or(0.0)로 "신규"를 내면 parity 깨짐.
     let ws = wb.add_worksheet();
     ws.set_name("Steps").expect("name");
-    ws.write_string(0, 0, "step_id").expect("w");
+    put_text(ws, 0, 0, "step_id");
     for (i, r) in reports.iter().enumerate() {
-        ws.write_string(0, (1 + i) as u16, &r.run.id).expect("w");
+        put_text(ws, 0, (1 + i) as u16, &r.run.id);
     }
     let steps_delta_start = (1 + reports.len()) as u16;
     {
         let mut col = steps_delta_start;
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
-                ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
-                    .expect("w");
+                put_text(ws, 0, col, &format!("\u{0394}% {}", r.run.id));
                 col += 1;
             }
         }
@@ -934,7 +944,7 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     let step_ids = sorted_step_ids(reports);
     for (ri, sid) in step_ids.iter().enumerate() {
         let row = (ri + 1) as u32;
-        ws.write_string(row, 0, sid).expect("w");
+        put_text(ws, row, 0, sid);
         // baseline p95 (그 스텝이 있을 때만 Some — absent면 None, unwrap_or 금지).
         // 값 없음(통과한 요청 없음)인 스텝도 None.
         let step_p95 = |r: &ReportJson| step_value(r, sid, "p95_ms");
@@ -962,23 +972,22 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     // 값 없음·그 스텝이 없는 run은 빈 칸. Δ 열 카운터는 비-기준 run마다 무조건 전진한다.
     let ws = wb.add_worksheet();
     ws.set_name("Step stats").expect("name");
-    ws.write_string(0, 0, "step_id").expect("w");
-    ws.write_string(0, 1, "metric").expect("w");
+    put_text(ws, 0, 0, "step_id");
+    put_text(ws, 0, 1, "metric");
     for (i, r) in reports.iter().enumerate() {
         let h = if i == baseline_idx {
             format!("{} (base)", r.run.id)
         } else {
             r.run.id.clone()
         };
-        ws.write_string(0, (2 + i) as u16, &h).expect("w");
+        put_text(ws, 0, (2 + i) as u16, &h);
     }
     let stat_delta_start = (2 + reports.len()) as u16;
     {
         let mut col = stat_delta_start;
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
-                ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
-                    .expect("w");
+                put_text(ws, 0, col, &format!("\u{0394}% {}", r.run.id));
                 col += 1;
             }
         }
@@ -1010,22 +1019,21 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     if reports.iter().any(|r| r.setup.is_some()) {
         let ws = wb.add_worksheet();
         ws.set_name("Setup").expect("name");
-        ws.write_string(0, 0, "metric").expect("w");
+        put_text(ws, 0, 0, "metric");
         for (i, r) in reports.iter().enumerate() {
             let h = if i == baseline_idx {
                 format!("{} (base)", r.run.id)
             } else {
                 r.run.id.clone()
             };
-            ws.write_string(0, (1 + i) as u16, &h).expect("w");
+            put_text(ws, 0, (1 + i) as u16, &h);
         }
         let setup_delta_start = (1 + reports.len()) as u16;
         {
             let mut col = setup_delta_start;
             for (i, r) in reports.iter().enumerate() {
                 if i != baseline_idx {
-                    ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
-                        .expect("w");
+                    put_text(ws, 0, col, &format!("\u{0394}% {}", r.run.id));
                     col += 1;
                 }
             }
@@ -1057,19 +1065,19 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
                     .map(|st| (st.p95_ms as f64, st.errors as f64))
             };
             rows.push((
-                format!("{sid} p95_ms"),
+                setup_label(&sid, " p95_ms"),
                 "p95_ms",
                 reports.iter().map(|r| find(r).map(|v| v.0)).collect(),
             ));
             rows.push((
-                format!("{sid} error_count"),
+                setup_label(&sid, " error_count"),
                 "setup_errors",
                 reports.iter().map(|r| find(r).map(|v| v.1)).collect(),
             ));
         }
         for (ri, (label, metric, vals)) in rows.iter().enumerate() {
             let row = (ri + 1) as u32;
-            ws.write_string(row, 0, label).expect("w");
+            put_text(ws, row, 0, label);
             for (i, v) in vals.iter().enumerate() {
                 if let Some(x) = v {
                     ws.write_number(row, (1 + i) as u16, *x).expect("w");
@@ -1102,25 +1110,23 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     .iter()
     .enumerate()
     {
-        ws.write_string(0, c as u16, *h).expect("w");
+        put_text(ws, 0, c as u16, h);
     }
     let mark_basis = reports.iter().any(|r| r.basis.is_some());
     if mark_basis {
-        ws.write_string(0, 6, "basis").expect("w");
+        put_text(ws, 0, 6, "basis");
     }
     let sample_col: u16 = if mark_basis { 7 } else { 6 };
-    ws.write_string(0, sample_col, "latency_sample").expect("w");
+    put_text(ws, 0, sample_col, "latency_sample");
     for (i, r) in reports.iter().enumerate() {
         let row = (i + 1) as u32;
         if mark_basis {
-            ws.write_string(row, 6, basis_label(r)).expect("w");
+            put_text(ws, row, 6, basis_label(r));
         }
-        ws.write_string(row, sample_col, sample_label(r.sample.default))
-            .expect("w");
-        ws.write_string(row, 0, &r.run.id).expect("w");
-        ws.write_string(row, 1, r.run.label.as_deref().unwrap_or(""))
-            .expect("w");
-        ws.write_string(row, 2, &r.run.status).expect("w");
+        put_text(ws, row, sample_col, sample_label(r.sample.default));
+        put_text(ws, row, 0, &r.run.id);
+        put_text(ws, row, 1, r.run.label.as_deref().unwrap_or(""));
+        put_text(ws, row, 2, &r.run.status);
         ws.write_number(row, 3, r.run.started_at.unwrap_or(0) as f64)
             .expect("w");
         ws.write_number(row, 4, r.run.ended_at.unwrap_or(0) as f64)
@@ -1132,14 +1138,14 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     if reports.iter().any(|r| !r.insights.is_empty()) {
         let ws = wb.add_worksheet();
         ws.set_name("Insights").expect("name");
-        ws.write_string(0, 0, "run_id").expect("w");
+        put_text(ws, 0, 0, "run_id");
         for (c, h) in INSIGHT_COLUMNS.iter().enumerate() {
-            ws.write_string(0, (1 + c) as u16, *h).expect("w");
+            put_text(ws, 0, (1 + c) as u16, h);
         }
         let mut row = 1u32;
         for r in reports {
             for ins in &r.insights {
-                ws.write_string(row, 0, &r.run.id).expect("w");
+                put_text(ws, row, 0, &r.run.id);
                 write_insight_xlsx_row(ws, row, 1, ins);
                 row += 1;
             }
@@ -1165,14 +1171,10 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
         .map(|r| r.kind.as_str())
         .collect::<Vec<_>>()
         .join(",");
-    ws.write_string(validity_row, 0, "validity_level")
-        .expect("w");
-    ws.write_string(validity_row, 1, &report.validity.level)
-        .expect("w");
-    ws.write_string(validity_row + 1, 0, "validity_reason_kinds")
-        .expect("w");
-    ws.write_string(validity_row + 1, 1, &validity_kinds)
-        .expect("w");
+    put_text(ws, validity_row, 0, "validity_level");
+    put_text(ws, validity_row, 1, &report.validity.level);
+    put_text(ws, validity_row + 1, 0, "validity_reason_kinds");
+    put_text(ws, validity_row + 1, 1, &validity_kinds);
     let mut next_row = validity_row + 2;
     if let Some(b) = &report.basis {
         let default = match b.default {
@@ -1194,19 +1196,18 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
             nums.push(("basis_measured_seconds", w.measured_seconds as f64));
         }
         for (k, v) in texts {
-            ws.write_string(next_row, 0, k).expect("w");
-            ws.write_string(next_row, 1, v).expect("w");
+            put_text(ws, next_row, 0, k);
+            put_text(ws, next_row, 1, v);
             next_row += 1;
         }
         for (k, v) in nums {
-            ws.write_string(next_row, 0, k).expect("w");
+            put_text(ws, next_row, 0, k);
             ws.write_number(next_row, 1, v).expect("w");
             next_row += 1;
         }
     }
-    ws.write_string(next_row, 0, "latency_sample").expect("w");
-    ws.write_string(next_row, 1, sample_label(report.sample.default))
-        .expect("w");
+    put_text(ws, next_row, 0, "latency_sample");
+    put_text(ws, next_row, 1, sample_label(report.sample.default));
 
     // --- Steps sheet ---
     let ws = wb.add_worksheet();
@@ -1234,12 +1235,12 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
     .iter()
     .enumerate()
     {
-        ws.write_string(0, c as u16, *h).expect("w");
+        put_text(ws, 0, c as u16, h);
     }
     for (i, win) in report.windows.iter().enumerate() {
         let r = (i + 1) as u32;
         ws.write_number(r, 0, win.ts_second as f64).expect("w");
-        ws.write_string(r, 1, &win.step_id).expect("w");
+        put_text(ws, r, 1, &win.step_id);
         ws.write_number(r, 2, win.count as f64).expect("w");
         ws.write_number(r, 3, win.error_count as f64).expect("w");
         if !latency_missing(&report.sample, win.count, win.error_count) {
@@ -1260,11 +1261,11 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
     // --- Status sheet ---
     let ws = wb.add_worksheet();
     ws.set_name("Status").expect("sheet name");
-    ws.write_string(0, 0, "status").expect("w");
-    ws.write_string(0, 1, "count").expect("w");
+    put_text(ws, 0, 0, "status");
+    put_text(ws, 0, 1, "count");
     for (i, (k, v)) in report.status_distribution.iter().enumerate() {
         let r = (i + 1) as u32;
-        ws.write_string(r, 0, k).expect("w");
+        put_text(ws, r, 0, k);
         ws.write_number(r, 1, *v as f64).expect("w");
     }
 
@@ -1273,13 +1274,13 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
         let ws = wb.add_worksheet();
         ws.set_name("Branches").expect("sheet name");
         for (c, h) in ["step_id", "branch", "count"].iter().enumerate() {
-            ws.write_string(0, c as u16, *h).expect("w");
+            put_text(ws, 0, c as u16, h);
         }
         let mut r = 1u32;
         for ib in &report.if_breakdown {
             for b in &ib.branches {
-                ws.write_string(r, 0, &ib.step_id).expect("w");
-                ws.write_string(r, 1, &b.branch).expect("w");
+                put_text(ws, r, 0, &ib.step_id);
+                put_text(ws, r, 1, &b.branch);
                 ws.write_number(r, 2, b.count as f64).expect("w");
                 r += 1;
             }
@@ -1291,7 +1292,7 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
         let ws = wb.add_worksheet();
         ws.set_name("Insights").expect("sheet name");
         for (c, h) in INSIGHT_COLUMNS.iter().enumerate() {
-            ws.write_string(0, c as u16, *h).expect("w");
+            put_text(ws, 0, c as u16, h);
         }
         for (i, ins) in report.insights.iter().enumerate() {
             write_insight_xlsx_row(ws, (i + 1) as u32, 0, ins);
@@ -1305,8 +1306,8 @@ pub fn report_to_xlsx(report: &ReportJson, other: Option<&ReportJson>) -> Vec<u8
     if let Some(o) = other {
         let ws = wb.add_worksheet();
         ws.set_name("Other basis").expect("sheet name");
-        ws.write_string(0, 0, "basis").expect("w");
-        ws.write_string(0, 1, basis_label(o)).expect("w");
+        put_text(ws, 0, 0, "basis");
+        put_text(ws, 0, 1, basis_label(o));
         let next = write_summary_numbers(ws, 1, &o.summary, &o.sample);
         write_steps_table(ws, next + 1, &o.steps, &o.summary, &o.sample);
     }
@@ -1751,7 +1752,7 @@ fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
     ws.set_name("Stairs").expect("sheet name");
     let lines = stair_headline_lines(st);
     for (r, line) in lines.iter().enumerate() {
-        ws.write_string(r as u32, 0, line).expect("w");
+        put_text(ws, r as u32, 0, line);
     }
     let header_row = lines.len() as u32 + 1;
     let cols = [
@@ -1772,7 +1773,7 @@ fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
         "reasons",
     ];
     for (c, h) in cols.iter().enumerate() {
-        ws.write_string(header_row, c as u16, *h).expect("w");
+        put_text(ws, header_row, c as u16, h);
     }
     for (i, s) in st.steps.iter().enumerate() {
         let r = header_row + 1 + i as u32;
@@ -1801,15 +1802,11 @@ fn write_stairs_sheet(wb: &mut Workbook, st: &crate::stair::StairReport) {
         ws.write_number(r, 10, f64::from(s.measured_seconds))
             .expect("w");
         if measured {
-            ws.write_string(r, 11, stair_iso(s.measure_start_ms))
-                .expect("w");
-            ws.write_string(r, 12, stair_iso(s.measure_end_ms))
-                .expect("w");
+            put_text(ws, r, 11, &stair_iso(s.measure_start_ms));
+            put_text(ws, r, 12, &stair_iso(s.measure_end_ms));
         }
-        ws.write_string(r, 13, stair_state_name(s.state))
-            .expect("w");
-        ws.write_string(r, 14, stair_reasons_text(st, i))
-            .expect("w");
+        put_text(ws, r, 13, stair_state_name(s.state));
+        put_text(ws, r, 14, &stair_reasons_text(st, i));
     }
 }
 
@@ -5248,9 +5245,117 @@ steps:
     }
 
     #[test]
+    fn xlsx_single_export_survives_overlong_ids() {
+        use calamine::{Data, Reader};
+        let long: String = std::iter::repeat_n('가', 40_000).collect();
+        let cut: String = long.chars().take(32_767).collect();
+        let mut r = report_with_setup();
+        r.steps[0].step_id = long.clone();
+        r.setup.as_mut().unwrap().steps[0].step_id = long.clone();
+        r.windows = vec![ReportWindow {
+            n: 0,
+            mean_us: None,
+            capped: false,
+            ts_second: 1,
+            step_id: long.clone(),
+            count: 3,
+            error_count: 0,
+            status_counts: BTreeMap::new(),
+            p50_ms: 7,
+            p95_ms: 8,
+            p99_ms: 9,
+        }];
+        r.if_breakdown = vec![IfBreakdown {
+            step_id: long.clone(),
+            branches: vec![IfBranchBucket {
+                branch: "then".into(),
+                count: 1,
+            }],
+        }];
+        let mut ins = insight("slowest_step", "info");
+        ins.step_id = Some(long.clone());
+        r.insights = vec![ins];
+        let mut rd = read_xlsx(report_to_xlsx(&r, None));
+        for sheet in ["Steps", "Windows", "Branches", "Insights", "Setup"] {
+            let ws = rd.worksheet_range(sheet).unwrap();
+            assert!(
+                ws.cells().any(|(_, _, v)| v == &Data::String(cut.clone())),
+                "{sheet}에 32,767자로 잘린 id 칸이 있어야 한다"
+            );
+            assert!(
+                !ws.cells()
+                    .any(|(_, _, v)| matches!(v, Data::String(s) if s.chars().count() > 32_767)),
+                "{sheet}"
+            );
+        }
+    }
+
+    #[test]
+    fn xlsx_comparison_export_survives_overlong_ids() {
+        use calamine::{Data, Reader};
+        let long: String = std::iter::repeat_n('가', 40_000).collect();
+        let cut: String = long.chars().take(32_767).collect();
+        let mk = |id: &str| {
+            let mut r = report_with_setup();
+            r.run.id = id.into();
+            r.steps[0].step_id = long.clone();
+            r.setup.as_mut().unwrap().steps[0].step_id = long.clone();
+            r
+        };
+        let mut rd = read_xlsx(comparison_to_xlsx(&[mk("r1"), mk("r2")], 0));
+        for sheet in ["Steps", "Step stats"] {
+            let ws = rd.worksheet_range(sheet).unwrap();
+            assert!(
+                ws.cells().any(|(_, _, v)| v == &Data::String(cut.clone())),
+                "{sheet}에 32,767자로 잘린 id 칸이 있어야 한다"
+            );
+        }
+        let ws = rd.worksheet_range("Setup").unwrap();
+        let first: Vec<String> = ws
+            .rows()
+            .filter_map(|row| match row.first() {
+                Some(Data::String(s)) => Some(s.clone()),
+                _ => None,
+            })
+            .collect();
+        let p95: Vec<&String> = first
+            .iter()
+            .filter(|s| s.ends_with(" p95_ms") && s.chars().count() > 1_000)
+            .collect();
+        let err: Vec<&String> = first
+            .iter()
+            .filter(|s| s.ends_with(" error_count") && s.chars().count() > 1_000)
+            .collect();
+        assert_eq!(p95.len(), 1);
+        assert_eq!(err.len(), 1);
+        assert_eq!(p95[0].chars().count(), 32_767);
+        assert_eq!(err[0].chars().count(), 32_767);
+        assert_ne!(p95[0], err[0]);
+    }
+
+    #[test]
+    fn xlsx_text_keeps_exact_limit_untouched() {
+        let exact: String = std::iter::repeat_n('a', 32_767).collect();
+        assert_eq!(xlsx_text(&exact), exact);
+        let over: String = std::iter::repeat_n('a', 32_768).collect();
+        assert_eq!(xlsx_text(&over).chars().count(), 32_767);
+    }
+
+    #[test]
+    fn setup_label_keeps_suffix() {
+        assert_eq!(setup_label("abc", " p95_ms"), "abc p95_ms");
+        let long: String = std::iter::repeat_n('가', 40_000).collect();
+        let l = setup_label(&long, " error_count");
+        assert_eq!(l.chars().count(), 32_767);
+        assert!(l.ends_with(" error_count"));
+        assert_eq!(
+            l.chars().take(32_755).collect::<String>(),
+            long.chars().take(32_755).collect::<String>()
+        );
+    }
+
+    #[test]
     fn step_stats_labels_truncate_overlong_step_id() {
-        // 비교 XLSX의 「Steps」 시트는 같은 입력에서 먼저 패닉한다(자르지 않는 선재 쓰기, roadmap §B89 (3) 연기) —
-        // 그래서 「Step stats」의 앞 두 칸 쓰기만 따로 불러 자르는지 본다.
         use calamine::{Data, Reader};
         let long: String = std::iter::repeat_n('가', 40_000).collect();
         let mut wb = Workbook::new();
