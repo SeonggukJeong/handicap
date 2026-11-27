@@ -66,69 +66,71 @@ export function InsightCompareMatrix({ reports, stepLabelMap, labels }: Props) {
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">{ko.insightCompare.empty}</p>
       ) : (
-        <table className="text-sm border-collapse">
-          <thead>
-            <tr>
-              <th className="text-left px-2 py-1 border-b border-slate-200 dark:border-slate-700">
-                {ko.insightCompare.colInsight}
-              </th>
-              {reports.map((r, i) => (
-                <th
-                  key={r.run.id}
-                  className="px-2 py-1 border-b border-slate-200 dark:border-slate-700 text-center"
-                >
-                  <span className="inline-flex items-center justify-center gap-1.5">
-                    <span
-                      aria-hidden="true"
-                      className="inline-block w-3 h-3 rounded-sm ring-1 ring-black/10 dark:ring-white/20 shrink-0"
-                      style={{ backgroundColor: runColor(i) }}
-                    />
-                    {labels?.[r.run.id] ?? runShortLabel(r.run.id)}
-                  </span>
+        <div className="overflow-x-auto">
+          <table className="text-sm border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left px-2 py-1 border-b border-slate-200 dark:border-slate-700">
+                  {ko.insightCompare.colInsight}
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.key}>
-                <td className="px-2 py-1 border-b border-slate-100 dark:border-slate-800">
-                  {row.label}
-                </td>
-                {reports.map((r) => {
-                  const i = byRun.get(r.run.id)?.get(row.key);
-                  if (!i) {
+                {reports.map((r, i) => (
+                  <th
+                    key={r.run.id}
+                    className="px-2 py-1 border-b border-slate-200 dark:border-slate-700 text-center"
+                  >
+                    <span className="inline-flex items-center justify-center gap-1.5">
+                      <span
+                        aria-hidden="true"
+                        className="inline-block w-3 h-3 rounded-sm ring-1 ring-black/10 dark:ring-white/20 shrink-0"
+                        style={{ backgroundColor: runColor(i) }}
+                      />
+                      {labels?.[r.run.id] ?? runShortLabel(r.run.id)}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td className="px-2 py-1 border-b border-slate-100 dark:border-slate-800">
+                    {row.label}
+                  </td>
+                  {reports.map((r) => {
+                    const i = byRun.get(r.run.id)?.get(row.key);
+                    if (!i) {
+                      return (
+                        <td
+                          key={r.run.id}
+                          className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 text-center text-slate-400"
+                        >
+                          —
+                        </td>
+                      );
+                    }
+                    const num = repNumber(i);
                     return (
                       <td
                         key={r.run.id}
-                        className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 text-center text-slate-400"
+                        className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 text-center"
                       >
-                        —
+                        <span
+                          className={[
+                            "inline-block rounded border px-1.5 py-0.5 text-xs",
+                            SEV_CLASS[i.severity] ?? SEV_CLASS.info,
+                          ].join(" ")}
+                        >
+                          {SEV_LABELS[i.severity] ?? i.severity}
+                          {num != null ? ` ${num}` : ""}
+                        </span>
                       </td>
                     );
-                  }
-                  const num = repNumber(i);
-                  return (
-                    <td
-                      key={r.run.id}
-                      className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 text-center"
-                    >
-                      <span
-                        className={[
-                          "inline-block rounded border px-1.5 py-0.5 text-xs",
-                          SEV_CLASS[i.severity] ?? SEV_CLASS.info,
-                        ].join(" ")}
-                      >
-                        {SEV_LABELS[i.severity] ?? i.severity}
-                        {num != null ? ` ${num}` : ""}
-                      </span>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </PageSection>
   );

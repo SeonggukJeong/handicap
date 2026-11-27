@@ -63,6 +63,17 @@ describe("InsightCompareMatrix", () => {
     expect(screen.getByText("정보")).toBeInTheDocument(); // slo_pass severity=info → Korean badge
   });
 
+  it("표의 부모가 overflow-x-auto 상자다", () => {
+    const reports = [
+      { run: { id: "R1" }, insights: [ins({ kind: "slo_pass", severity: "info" })] },
+      { run: { id: "R2" }, insights: [] },
+    ];
+    const { container } = render(
+      <InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />,
+    );
+    expect(container.querySelector("table")!.parentElement).toHaveClass("overflow-x-auto");
+  });
+
   it("합집합이 비면 빈 상태", () => {
     const reports = [
       { run: { id: "R1" }, insights: [] },
