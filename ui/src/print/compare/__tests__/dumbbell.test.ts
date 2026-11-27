@@ -85,6 +85,12 @@ describe("buildDumbbell 95% 덤벨은 stats의 µs로 계산한다 (R4)", () => 
     expect(m.rows[0]!.cls).toBe("worse");
   });
 
+  it("정수 칸이 60000이어도 stats 59_999_000µs면 잘림으로 보지 않는다", () => {
+    const m = buildDumbbell(one(1000, 1_000_000), one(60000, 59_999_000));
+    expect(m.rows[0]!.afterText).not.toContain(ko.print.fmt.capSec);
+    expect(m.rows[0]!.afterText).toContain("%");
+  });
+
   it("stats가 없는 단계는 정수 칸 그대로", () => {
     const m = buildDumbbell(one(100), one(105));
     expect(m.rows[0]!.afterMs).toBe(105);

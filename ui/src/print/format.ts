@@ -14,9 +14,14 @@ export function fmtDurMs(ms: number): string {
   return f.sec((Math.round(ms / 100) / 10).toFixed(1));
 }
 
-/** 응답 시간(ms) 글자 — 60초 칸(≥ 60,000)은 「60초 이상」, 그 밖은 길이 글자. */
+/**
+ * 응답 시간(ms) 글자 — 60,000 이상은 「60초 이상」, 그 바로 아래는 「60.0초」 대신 59.9초,
+ * 1ms 미만(소수 포함)은 「1ms 미만」, 9.5ms 이상 10ms 미만은 10ms와 같은 글자.
+ */
 export function fmtMs(ms: number): string {
   if (ms >= 60000) return f.capSec;
+  if (ms < 1) return f.msUnderOne;
+  if (ms < 10 && Math.round(ms) >= 10) return fmtDurMs(10);
   const text = fmtDurMs(ms);
   return text === fmtDurMs(60000) ? fmtDurMs(59900) : text;
 }

@@ -44,6 +44,22 @@ describe("fmtMs", () => {
   ])("60초 경계 %d → %s", (ms, out) => {
     expect(fmtMs(ms)).toBe(out);
   });
+  it.each([
+    [0.35, "1ms 미만"],
+    [0.999, "1ms 미만"],
+    [1, "1ms"],
+    [1.4, "1ms"],
+    [9.4, "9ms"],
+    [9.5, "0.01초"],
+    [9.6, "0.01초"],
+    [10, "0.01초"],
+  ])("소수 ms %s -> %s", (ms, out) => {
+    expect(fmtMs(ms)).toBe(out);
+  });
+  it("fmtDurMs는 소수 ms도 그대로 반올림한다", () => {
+    expect(fmtDurMs(0.35)).toBe("0ms");
+    expect(fmtDurMs(9.6)).toBe("10ms");
+  });
   it("fmtDurMs는 그대로 반올림한다", () => {
     expect(fmtDurMs(59_950)).toBe("60.0초");
   });

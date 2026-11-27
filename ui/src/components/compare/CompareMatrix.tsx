@@ -15,6 +15,8 @@ type Props = {
   sublines?: Record<string, string>;
 };
 
+const STICKY_NAME = "sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]";
+
 function formatPct(pct: number): string {
   const sign = pct >= 0 ? "+" : "";
   return `${sign}${(pct * 100).toFixed(1)}%`;
@@ -139,7 +141,7 @@ function SectionRows({
         <Fragment key={row.metric + (row.id ?? row.label)}>
           <tr className="border-b border-slate-100 dark:border-slate-800">
             <td
-              className="py-2 pl-0 pr-4 font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]"
+              className={`py-2 pl-0 pr-4 font-medium text-slate-700 dark:text-slate-300 ${STICKY_NAME}`}
               title={labelOf ? labelOf(row) : row.label}
             >
               <span className="block truncate w-28 lg:w-44">
@@ -165,7 +167,7 @@ function SectionRows({
                     className="border-b border-slate-100 dark:border-slate-800"
                   >
                     <td
-                      className="py-2 pl-4 pr-4 font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]"
+                      className={`py-2 pl-4 pr-4 font-medium text-slate-700 dark:text-slate-300 ${STICKY_NAME}`}
                       title={text}
                     >
                       <span className="block truncate w-24 lg:w-40">{text}</span>
@@ -215,7 +217,7 @@ export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Pr
           {/* Column headers — clickable to switch baseline */}
           <thead className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-600 dark:text-slate-400">
             <tr>
-              <th className="py-2 pl-0 pr-4 font-medium sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]" />
+              <th className={`py-2 pl-0 pr-4 font-medium ${STICKY_NAME}`} />
               {runIds.map((runId, i) => (
                 <th key={runId} className="py-2 pr-4 font-medium whitespace-nowrap">
                   <button
@@ -248,7 +250,9 @@ export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Pr
           <tbody>
             {/* Verdict row */}
             <tr className="border-b border-slate-100 dark:border-slate-800">
-              <td className="py-2 pl-0 pr-4 font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">
+              <td
+                className={`py-2 pl-0 pr-4 font-medium text-slate-700 dark:text-slate-300 ${STICKY_NAME}`}
+              >
                 판정
               </td>
               {verdict.passed.map((p, i) => {

@@ -530,4 +530,20 @@ describe("metricRows 99%·95%·평균은 stats의 µs로 계산한다 (R4)", () 
     expect(r.pct).toBeCloseTo(58.999, 9);
     expect(r.changeText).not.toBe(ko.print.cmp.change.cutNoPct);
   });
+
+  it("잘림은 p99도 정수 칸이 아니라 stats의 µs로 본다", () => {
+    const before = sum({ p99_ms: 1000 }, { p99_us: 1_000_000 });
+    const after = sum({ p99_ms: 60000 }, { p99_us: 59_999_000 });
+    const r = row(metricRows(before, after, OPTS), "p99_ms");
+    expect(r.pct).not.toBeNull();
+    expect(r.changeText).not.toBe(ko.print.cmp.change.cutNoPct);
+  });
+
+  it("stats 95%가 350µs면 두 쪽 모두 「1ms 미만」으로 찍는다", () => {
+    const before = sum({ p95_ms: 0 }, { p95_us: 350 });
+    const after = sum({ p95_ms: 0 }, { p95_us: 350 });
+    const r = row(metricRows(before, after, OPTS), "p95_ms");
+    expect(r.beforeText).toBe("1ms 미만");
+    expect(r.afterText).toBe("1ms 미만");
+  });
 });
