@@ -2586,10 +2586,11 @@ v0.16.0 이후 바뀐 `crates/engine`·`crates/worker`·`crates/worker-core`·`c
   - **`store/mod.rs`의 「칸 없으면 ADD COLUMN」 함수가 줄줄이 복사**: 이번에 넷(`ensure_runs_status_rule`·`ensure_runs_latency_rule`·`ensure_run_metrics_failed_hdr`·`ensure_scenarios_group_name`), 파일 전체로는 `ensure_` 함수 11개. 해소: `ensure_column(db, table, column, ddl)` 하나.
 - **(4) 못 한 검증**: 리뷰 범위 밖 — `export.rs`·UI의 인쇄·화면 컴포넌트·테스트 코드(3차 `review-3`은 돌리지 않았다). 2차의 첫 두 건은 코드를 읽어 확인했고 실행으로 재현하지는 않았다. 「버그 0건」은 이 리뷰가 찾지 못했다는 뜻이다.
 
-### B103. 비교·내보내기·인쇄에 남은 결함 7건 (compare-export-fixes, 2026-11-27, 코드 `72a92d4b`..`f255ba3c`, spec `docs/superpowers/specs/2026-11-27-compare-export-fixes-design.md`, plan `docs/superpowers/plans/2026-11-27-compare-export-fixes.md`, 목업 `docs/superpowers/mockups/2026-11-27-compare-narrow.html` 「안 C」) 판단·연기 — **§B100 (1)·(3)과 §B89 (3)의 해당 항목 해소 · 와이어·DB·proto·엔진 변화 없음**
+### B103. 비교·내보내기·인쇄에 남은 결함 7건 (compare-export-fixes, 2026-11-27, 코드 `72a92d4b`..`f255ba3c`, spec `docs/superpowers/specs/2026-11-27-compare-export-fixes-design.md`, plan `docs/superpowers/plans/2026-11-27-compare-export-fixes.md`, 목업 `docs/superpowers/mockups/2026-11-27-compare-narrow.html` 「안 C」) 판단·연기 — **§B100 (1)·(3)과 §B89 (3)의 해당 항목 해소 · 와이어·DB·proto·엔진 변화 없음 · 사용자 지시로 master에 머지(2026-11-27, → `f345449d`, push 안 함)**
 
 고친 것 일곱(B1–B7)과 「결함 아님」 하나(B8). 구현 결과·라이브 실측 값은 build-log.
 
+- **[사용자 결정 2026-11-27, 다시 묻지 않는다]** 이 블록의 남은 것((0) 좁은 창 값 열 폭 · (1) · (3) `Windows` 시트 행 한도 패닉 · (4) 못 한 검증)은 **기록만 해 두고, 측정 작업에 문제가 생기면 그때 고친다.** 먼저 나서서 다음 작업으로 올리지 않는다.
 - **(0) 확인 대기(내 판단, 승인 아님)**
   - **인사이트 비교 표에도 가로 스크롤 상자를 씌웠다**(`da33c9d8`). spec R7이 「넘치면 같은 상자」로 정한 경우다 — 390 폭·run 5개에서 페이지 폭이 581이 됐다. 이름 칸 고정은 넣지 않았다(요청 범위 밖).
   - **이름 칸 왼쪽 여백을 0으로**(`3c0a590e`). plan의 목업 → Tailwind 대응 표가 목업 CSS `padding-left: 0`을 빠뜨려 이름 칸이 1px 넓었다(1440에서 193, 390에서 129). 목업대로 맞췄다. 이름 글자가 전보다 1px 왼쪽에서 시작한다(칸 폭은 전과 같다).
