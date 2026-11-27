@@ -120,7 +120,7 @@ function SectionRows({
           colSpan={runCount + 1}
           className="py-2 px-3 text-left text-sm font-semibold text-slate-600 bg-slate-50 dark:bg-slate-800 dark:text-slate-300 border-t border-slate-200 dark:border-slate-700"
         >
-          <div className="flex items-center gap-2">
+          <div className="inline-flex items-center gap-2 sticky left-3">
             <span>{title}</span>
             {hasStats && (
               <button
@@ -139,13 +139,15 @@ function SectionRows({
         <Fragment key={row.metric + (row.id ?? row.label)}>
           <tr className="border-b border-slate-100 dark:border-slate-800">
             <td
-              className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
+              className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]"
               title={labelOf ? labelOf(row) : row.label}
             >
-              {labelOf ? labelOf(row) : row.label}
+              <span className="block truncate w-28 lg:w-44">
+                {labelOf ? labelOf(row) : row.label}
+              </span>
             </td>
             {row.cells.slice(0, runCount).map((cell, i) => (
-              <td key={i} className="py-2 pr-4 text-sm">
+              <td key={i} className="py-2 pr-4 text-sm whitespace-nowrap">
                 <CellContent cell={cell} metric={row.metric} />
               </td>
             ))}
@@ -163,13 +165,13 @@ function SectionRows({
                     className="border-b border-slate-100 dark:border-slate-800"
                   >
                     <td
-                      className="py-2 pl-4 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
+                      className="py-2 pl-4 pr-4 font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]"
                       title={text}
                     >
-                      {text}
+                      <span className="block truncate w-24 lg:w-40">{text}</span>
                     </td>
                     {stat.cells.slice(0, runCount).map((cell, i) => (
-                      <td key={i} className="py-2 pr-4 text-sm">
+                      <td key={i} className="py-2 pr-4 text-sm whitespace-nowrap">
                         <CellContent cell={cell} metric={stat.metric} />
                       </td>
                     ))}
@@ -199,98 +201,106 @@ export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Pr
        * Single table: one colgroup drives all column widths so that every
        * section's value cells sit directly under the run-header buttons.
        */}
-      <table className="min-w-full text-sm">
-        <colgroup>
-          {/* label column */}
-          <col className="w-48" />
-          {/* one column per run */}
-          {runIds.map((id) => (
-            <col key={id} />
-          ))}
-        </colgroup>
-
-        {/* Column headers — clickable to switch baseline */}
-        <thead className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-600 dark:text-slate-400">
-          <tr>
-            <th className="py-2 pr-4 font-medium" />
-            {runIds.map((runId, i) => (
-              <th key={runId} className="py-2 pr-4 font-medium">
-                <button
-                  type="button"
-                  onClick={() => onBaselineChange(runId)}
-                  className="inline-flex items-center gap-1.5 hover:underline text-left"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="inline-block w-3 h-3 rounded-sm ring-1 ring-black/10 dark:ring-white/20 shrink-0"
-                    style={{ backgroundColor: runColor(i) }}
-                  />
-                  {labels[runId] ?? runId}
-                  {i === baselineIdx && (
-                    <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>
-                  )}
-                </button>
-                {sublines?.[runId] && (
-                  <div className="mt-0.5 text-xs font-normal text-slate-500">{sublines[runId]}</div>
-                )}
-              </th>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <colgroup>
+            {/* label column */}
+            <col className="lg:w-48" />
+            {/* one column per run */}
+            {runIds.map((id) => (
+              <col key={id} />
             ))}
-          </tr>
-        </thead>
+          </colgroup>
 
-        <tbody>
-          {/* Verdict row */}
-          <tr className="border-b border-slate-100 dark:border-slate-800">
-            <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300">판정</td>
-            {verdict.passed.map((p, i) => {
-              const pol =
-                i === baselineIdx ? "neutral" : verdictPolarity(verdict.passed[baselineIdx], p);
-              return (
-                <td key={i} className="py-2 pr-4">
-                  {p === null ? (
-                    "—"
-                  ) : p ? (
-                    <span className="text-green-600 font-semibold">{ko.report.verdictPass}</span>
-                  ) : (
-                    <span className="text-red-600 font-semibold">{ko.report.verdictFail}</span>
-                  )}
-                  {pol === "bad" && (
-                    <span className="ml-1 text-red-600 text-xs font-semibold">
-                      ▲{ko.compare.verdictWorse}
+          {/* Column headers — clickable to switch baseline */}
+          <thead className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-600 dark:text-slate-400">
+            <tr>
+              <th className="py-2 pr-4 font-medium sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]" />
+              {runIds.map((runId, i) => (
+                <th key={runId} className="py-2 pr-4 font-medium whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => onBaselineChange(runId)}
+                    className="inline-flex items-center gap-1.5 hover:underline text-left"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-3 h-3 rounded-sm ring-1 ring-black/10 dark:ring-white/20 shrink-0"
+                      style={{ backgroundColor: runColor(i) }}
+                    />
+                    <span className="truncate max-w-[12rem]" title={labels[runId] ?? runId}>
+                      {labels[runId] ?? runId}
                     </span>
+                    {i === baselineIdx && (
+                      <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>
+                    )}
+                  </button>
+                  {sublines?.[runId] && (
+                    <div className="mt-0.5 text-xs font-normal text-slate-500">
+                      {sublines[runId]}
+                    </div>
                   )}
-                  {pol === "good" && (
-                    <span className="ml-1 text-green-600 text-xs font-semibold">
-                      ▼{ko.compare.verdictBetter}
-                    </span>
-                  )}
-                </td>
-              );
-            })}
-          </tr>
+                </th>
+              ))}
+            </tr>
+          </thead>
 
-          {/* Summary section rows with spanning sub-header */}
-          <SectionRows
-            title={ko.report.summaryTitle}
-            rows={summary}
-            runCount={colCount}
-            labelOf={statName}
-          />
+          <tbody>
+            {/* Verdict row */}
+            <tr className="border-b border-slate-100 dark:border-slate-800">
+              <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 sticky left-0 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">
+                판정
+              </td>
+              {verdict.passed.map((p, i) => {
+                const pol =
+                  i === baselineIdx ? "neutral" : verdictPolarity(verdict.passed[baselineIdx], p);
+                return (
+                  <td key={i} className="py-2 pr-4 whitespace-nowrap">
+                    {p === null ? (
+                      "—"
+                    ) : p ? (
+                      <span className="text-green-600 font-semibold">{ko.report.verdictPass}</span>
+                    ) : (
+                      <span className="text-red-600 font-semibold">{ko.report.verdictFail}</span>
+                    )}
+                    {pol === "bad" && (
+                      <span className="ml-1 text-red-600 text-xs font-semibold">
+                        ▲{ko.compare.verdictWorse}
+                      </span>
+                    )}
+                    {pol === "good" && (
+                      <span className="ml-1 text-green-600 text-xs font-semibold">
+                        ▼{ko.compare.verdictBetter}
+                      </span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
 
-          {/* Steps section rows with spanning sub-header */}
-          <SectionRows
-            title={ko.report.stepsHeading}
-            rows={steps}
-            runCount={colCount}
-            stepStats={result.stepStats}
-          />
+            {/* Summary section rows with spanning sub-header */}
+            <SectionRows
+              title={ko.report.summaryTitle}
+              rows={summary}
+              runCount={colCount}
+              labelOf={statName}
+            />
 
-          <SectionRows title={ko.report.setup.title} rows={result.setup} runCount={colCount} />
+            {/* Steps section rows with spanning sub-header */}
+            <SectionRows
+              title={ko.report.stepsHeading}
+              rows={steps}
+              runCount={colCount}
+              stepStats={result.stepStats}
+            />
 
-          {/* Status section rows with spanning sub-header */}
-          <SectionRows title={ko.report.colStatus} rows={status} runCount={colCount} />
-        </tbody>
-      </table>
+            <SectionRows title={ko.report.setup.title} rows={result.setup} runCount={colCount} />
+
+            {/* Status section rows with spanning sub-header */}
+            <SectionRows title={ko.report.colStatus} rows={status} runCount={colCount} />
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

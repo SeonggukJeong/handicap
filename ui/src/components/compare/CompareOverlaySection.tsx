@@ -45,13 +45,14 @@ export function CompareOverlaySection({ reports, baselineIdx }: Props) {
             {ko.compare.overlayNoData}
           </p>
         ) : (
-          <CompareTimeSeriesChart
-            key={m.key}
-            title={m.title}
-            yLabel={m.yLabel}
-            rows={series.rows}
-            runs={series.runs}
-          />
+          <div key={m.key} className="overflow-x-auto">
+            <CompareTimeSeriesChart
+              title={m.title}
+              yLabel={m.yLabel}
+              rows={series.rows}
+              runs={series.runs}
+            />
+          </div>
         );
       })}
     </section>

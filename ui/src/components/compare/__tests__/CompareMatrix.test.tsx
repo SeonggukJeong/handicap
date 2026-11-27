@@ -587,3 +587,68 @@ describe("CompareMatrix 변화율 칩 글리프 = 값이 움직인 방향, 색 =
     expect(chipOf(one(0, { pct: null, polarity: "neutral" }))).toHaveTextContent(/^동일$/);
   });
 });
+
+describe("CompareMatrix 좁은 창 — 가로 스크롤 상자·이름 칸 왼쪽 고정 (R7)", () => {
+  const LONG_ID = "L".repeat(300);
+  const LONG_LABEL = "라".repeat(200);
+  const cell = (value: number) => ({ value, delta: null });
+  const narrow: CompareResult = {
+    runIds: ["A", "B"],
+    baselineIdx: 0,
+    summary: [{ label: "p50_ms", metric: "p50_ms", cells: [cell(10), cell(11)] }],
+    steps: [{ label: LONG_ID, id: "sid", metric: "p95_ms", cells: [cell(1), cell(2)] }],
+    stepStats: [{ label: "x", id: "sid", metric: "mean_ms", cells: [cell(1), cell(2)] }],
+    status: [],
+    verdict: { passed: [true, true] },
+    stepMismatch: false,
+    setup: [],
+  };
+  const labels = { A: LONG_LABEL, B: "#B" };
+
+  it("표의 부모가 overflow-x-auto 상자다", () => {
+    const { container } = render(
+      <CompareMatrix result={narrow} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    expect(container.querySelector("table")!.parentElement).toHaveClass("overflow-x-auto");
+  });
+
+  it("300자 스텝 이름 칸: sticky left-0, title 전체, 안쪽 truncate 요소에 전체 글자, break-all 없음", () => {
+    render(<CompareMatrix result={narrow} labels={labels} onBaselineChange={vi.fn()} />);
+    const td = screen.getByTitle(LONG_ID);
+    expect(td.tagName).toBe("TD");
+    expect(td).toHaveClass("sticky", "left-0");
+    expect(td).not.toHaveClass("break-all");
+    const inner = td.querySelector(".truncate");
+    expect(inner).not.toBeNull();
+    expect(inner!.textContent).toBe(LONG_ID);
+  });
+
+  it("펼친 통계 행 이름 칸도 sticky이고 안에 truncate 요소가 있다", async () => {
+    const user = userEvent.setup();
+    render(<CompareMatrix result={narrow} labels={labels} onBaselineChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: ko.report.stats.toggleMore }));
+    const td = screen.getAllByRole("cell").find((c) => c.textContent?.startsWith("└ "))!;
+    expect(td).toHaveClass("sticky", "left-0");
+    expect(td.querySelector(".truncate")).not.toBeNull();
+  });
+
+  it("값 칸은 whitespace-nowrap", () => {
+    const { container } = render(
+      <CompareMatrix result={narrow} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const tr = Array.from(container.querySelectorAll("tbody tr")).find(
+      (r) => r.querySelector("td")?.textContent === "p50_ms",
+    )!;
+    expect(tr.querySelectorAll("td")[1]).toHaveClass("whitespace-nowrap");
+  });
+
+  it("200자 run 라벨: 머리 칸 안 truncate 요소의 title이 전체 라벨", () => {
+    const { container } = render(
+      <CompareMatrix result={narrow} labels={labels} onBaselineChange={vi.fn()} />,
+    );
+    const th = container.querySelectorAll("thead th")[1];
+    const el = th.querySelector(".truncate");
+    expect(el).not.toBeNull();
+    expect(el).toHaveAttribute("title", LONG_LABEL);
+  });
+});

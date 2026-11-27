@@ -65,4 +65,12 @@ describe("CompareOverlaySection", () => {
     await user.click(screen.getByRole("checkbox", { name: /초당 요청 수/ }));
     expect(screen.queryByRole("region", { name: /초당 요청 수/ })).not.toBeInTheDocument();
   });
+  it("그래프마다 제 가로 스크롤 상자가 있다(서로 다른 상자)", () => {
+    render(<CompareOverlaySection reports={reports} baselineIdx={0} />);
+    const a = screen.getByRole("region", { name: /초당 요청 수/ }).closest(".overflow-x-auto");
+    const b = screen.getByRole("region", { name: /p95/ }).closest(".overflow-x-auto");
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a).not.toBe(b);
+  });
 });
