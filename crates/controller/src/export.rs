@@ -281,6 +281,15 @@ const INSIGHT_COLUMNS: [&str; 21] = [
     "measured_seconds",
 ];
 
+/// 사용자 글자 칸이 `=`·`+`·`-`·`@`·탭·CR로 시작하면 스프레드시트가 수식으로 읽으므로 `'`를 앞에 붙인다.
+fn csv_text(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        std::borrow::Cow::Owned(format!("'{s}"))
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
+}
+
 /// 인사이트 하나를 21개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
 fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
     let f = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
@@ -288,7 +297,10 @@ fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
     vec![
         ins.kind.clone(),
         ins.severity.clone(),
-        ins.step_id.clone().unwrap_or_default(),
+        ins.step_id
+            .as_deref()
+            .map(|v| csv_text(v).into_owned())
+            .unwrap_or_default(),
         ins.metric.clone().unwrap_or_default(),
         f(ins.value),
         f(ins.pct),
@@ -811,7 +823,7 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
     for s in &report.steps {
         let missing = latency_missing(&report.sample, s.count, s.error_count);
         let mut rec = vec![
-            s.step_id.clone(),
+            csv_text(&s.step_id).into_owned(),
             s.count.to_string(),
             s.error_count.to_string(),
         ];
@@ -854,7 +866,7 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
         let (p95, c95) = cap_ms(st.p95_ms);
         let (max, cmax) = cap_ms(st.max_ms);
         w.write_record([
-            st.step_id.clone(),
+            csv_text(&st.step_id).into_owned(),
             st.count.to_string(),
             st.errors.to_string(),
             p50.to_string(),
@@ -4203,6 +4215,58 @@ steps:
             wb.sheet_names(),
             vec!["Summary", "Steps", "Windows", "Status"]
         );
+    }
+
+    #[test]
+    fn csv_text_guards_formula_leads() {
+        for (input, want) in [
+            ("=1+1", "'=1+1"),
+            ("+1", "'+1"),
+            ("-5", "'-5"),
+            ("@SUM(A1)", "'@SUM(A1)"),
+            ("\tx", "'\tx"),
+            ("\rx", "'\rx"),
+            ("login", "login"),
+            ("a=b", "a=b"),
+            ("", ""),
+        ] {
+            assert_eq!(csv_text(input), want, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn csv_step_id_cells_are_guarded() {
+        let mut r = report_with_setup();
+        r.steps[0].step_id = "=1+1".into();
+        r.setup.as_mut().unwrap().steps[0].step_id = "-5".into();
+        let csv = String::from_utf8(report_to_csv(&r)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert!(lines[1].starts_with("'=1+1,"), "{}", lines[1]);
+        // 숫자 칸은 그대로: 같은 리포트를 id만 "a"로 둔 것과 첫 칸 뒤가 같다
+        let plain = String::from_utf8(report_to_csv(&report_with_setup())).unwrap();
+        assert_eq!(
+            &lines[1]["'=1+1".len()..],
+            &plain.lines().nth(1).unwrap()["a".len()..]
+        );
+        let h = lines
+            .iter()
+            .position(|l| l.starts_with("setup_step_id"))
+            .unwrap();
+        assert!(lines[h + 1].starts_with("'-5,"), "{}", lines[h + 1]);
+        // 둘째 스텝·둘째 준비 스텝 행은 바이트 그대로
+        assert!(lines[2].starts_with("b,"));
+    }
+
+    #[test]
+    fn insight_csv_step_id_is_guarded() {
+        let mut r = report_with_steps(vec![step("a", 1, 1)]);
+        let mut ins = insight("slowest_step", "info");
+        ins.step_id = Some("@x".into());
+        r.insights = vec![ins];
+        let single = String::from_utf8(report_to_insights_csv(&r)).unwrap();
+        assert!(single.lines().nth(1).unwrap().contains(",'@x,"), "{single}");
+        let multi = String::from_utf8(comparison_to_insights_csv(&[r])).unwrap();
+        assert!(multi.lines().nth(1).unwrap().contains(",'@x,"), "{multi}");
     }
 
     #[test]
