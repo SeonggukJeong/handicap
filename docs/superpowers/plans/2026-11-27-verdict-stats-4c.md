@@ -48,7 +48,7 @@ REVIEW-GATE: APPROVED
 2. **두 run 모두 값이 없다 / 요청이 실행되지 않은 측정** → 블록 자체가 없다(빈 그림 상자 금지). (Task 1 테스트 4 · `buildCompareDoc` 새 테스트 2·3)
 3. **두 측정 길이가 다르다**(이전 60초 · 이후 1,800초) → 묶음 15초 공통, 이전 선은 제 길이(묶음 4개)에서 끝난다. (Task 1 테스트 2)
 4. **60초를 넘긴 응답이 있는 묶음** → 캡션에 잘림 안내, 값은 60,000을 넘지 않는다. (Task 1 테스트 5 · `overlayLatencyChart` 테스트 1의 캡션 유무 두 경우)
-5. **묶음이 하나뿐**(1초짜리 측정) → NaN·Infinity 없는 경로, 점 하나. (`overlayLatencyChart` 테스트 3)
+5. **묶음이 하나뿐**(1초짜리 측정) → NaN·Infinity 없는 경로, 그림 폭 전체의 가로 선분(정정 `3578f3aa`). (`overlayLatencyChart` 테스트 3)
 
 ## File Structure
 
@@ -241,7 +241,7 @@ overlayLatency: OverlayLatencyModel | null;
 export function OverlayLatencyChart({ model }: { model: OverlayLatencyModel }): JSX.Element;
 ```
 
-그림 규칙(「시각 기준」 절): 쪽마다 `<path data-ovlat-line="before"|"after">`를 `sparkPath(관측된 묶음의 {x: startSec + seconds/2, y: meanMs}, {xMax: durationSec, yMax: 마지막 yTick(1e-9 하한), x0: PLOT_X0_MM, x1: PLOT_X1_MM, yTop: 8, yBottom: 47})`로 그린다 — `has === false`인 쪽은 `<path>`를 만들지 않는다. `<svg className="p-cmp-ovlat" role="img" aria-label={K.aria} width="100%" viewBox="0 0 180 55">`. 범례는 `has`인 쪽만 견본 + 이름, `missingNote`가 있으면 `<span>`으로 덧붙인다. 캡션 = `K.caption(model.binText)` + (`model.capped`면 `" " + ko.print.latencyChart.capped`). `CompareDocument.tsx`: `case "cmp:overlay:lat": return doc.overlayLatency === null ? null : <OverlayLatencyChart model={doc.overlayLatency} />;`, `blockClass`의 `p-cmp-b--note` 목록에 `"cmp:overlay:lat"` 추가.
+그림 규칙(「시각 기준」 절): 쪽마다 `<path data-ovlat-line="before"|"after">`를 `sparkPath(관측된 묶음의 {x: startSec + seconds/2, y: meanMs}, {xMax: durationSec, yMax: 마지막 yTick(1e-9 하한), x0: PLOT_X0_MM, x1: PLOT_X1_MM, yTop: 8, yBottom: 47})`로 그린다 (정정 `3578f3aa`: 홀로 남은 묶음은 {x: startSec}·{x: startSec + seconds} 두 점 — 묶음 폭 선분) — `has === false`인 쪽은 `<path>`를 만들지 않는다. `<svg className="p-cmp-ovlat" role="img" aria-label={K.aria} width="100%" viewBox="0 0 180 55">`. 범례는 `has`인 쪽만 견본 + 이름, `missingNote`가 있으면 `<span>`으로 덧붙인다. 캡션 = `K.caption(model.binText)` + (`model.capped`면 `" " + ko.print.latencyChart.capped`). `CompareDocument.tsx`: `case "cmp:overlay:lat": return doc.overlayLatency === null ? null : <OverlayLatencyChart model={doc.overlayLatency} />;`, `blockClass`의 `p-cmp-b--note` 목록에 `"cmp:overlay:lat"` 추가.
 
 `incomparable`(요청이 실행되지 않은 측정이 있음)이면 블록을 만들지 않는다 — 겹쳐 보기 그림이 「비교하지 않았습니다」를 이미 적는다.
 

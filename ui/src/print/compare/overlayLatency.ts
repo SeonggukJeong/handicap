@@ -36,7 +36,8 @@ export function buildOverlayLatency(
   const b = buildSide(before, overlay.before, overlay.binSeconds);
   const a = buildSide(after, overlay.after, overlay.binSeconds);
   if (!b.has && !a.has) return null;
-  const max = Math.max(0, ...[...b.bins, ...a.bins].map((x) => x.meanMs ?? 0));
+  const allBins = [...b.bins, ...a.bins];
+  const max = Math.max(0, ...allBins.map((x) => x.meanMs ?? 0));
   return {
     durationSec: overlay.durationSec,
     timeTicks: overlay.timeTicks,
@@ -44,7 +45,7 @@ export function buildOverlayLatency(
     before: b,
     after: a,
     yTicks: niceTicks(max, 5),
-    capped: [...b.bins, ...a.bins].some((x) => x.capped),
+    capped: allBins.some((x) => x.capped),
     missingNote: b.has === a.has ? null : b.has ? K.missingAfter : K.missingBefore,
   };
 }

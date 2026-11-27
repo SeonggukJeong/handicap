@@ -88,13 +88,31 @@ describe("OverlayLatencyChart", () => {
     );
   });
 
-  it("묶음이 하나뿐이어도 NaN·Infinity 없는 경로", () => {
+  it("초가 없던 묶음을 건너뛰고 이웃한 두 묶음을 이어 긋는다", () => {
+    const b = run("b", secs(10, 5), [L(0, 1, 5_000), L(2, 1, 7_000)]);
+    const a = run("a", secs(10, 5), [L(0, 1, 3_000)]);
+    const { container } = render(
+      <OverlayLatencyChart model={buildOverlayLatency(b, a, buildOverlay(b, a, false))!} />,
+    );
+    // yTicks = niceTicks(7, 5) = [0,2,4,6,8] → yMax 8 · x = 12 + (0.5/10)·156 = 19.8, 12 + (2.5/10)·156 = 51
+    expect(container.querySelector('path[data-ovlat-line="before"]')?.getAttribute("d")).toBe(
+      "M19.8,22.63 L51,12.88",
+    );
+  });
+
+  it("묶음이 하나뿐이면 그림 폭 전체의 가로 선분", () => {
     const b = run("b", secs(1, 5), [L(0, 1, 5_000)]);
     const a = run("a", secs(1, 5), [L(0, 1, 3_000)]);
     const { container } = render(
       <OverlayLatencyChart model={buildOverlayLatency(b, a, buildOverlay(b, a, false))!} />,
     );
     expect(container.querySelectorAll("path[data-ovlat-line]")).toHaveLength(2);
+    expect(container.querySelector('path[data-ovlat-line="before"]')?.getAttribute("d")).toBe(
+      "M12,14.5 L168,14.5",
+    );
+    expect(container.querySelector('path[data-ovlat-line="after"]')?.getAttribute("d")).toBe(
+      "M12,27.5 L168,27.5",
+    );
     expect(container.innerHTML).not.toContain("NaN");
     expect(container.innerHTML).not.toContain("Infinity");
   });
