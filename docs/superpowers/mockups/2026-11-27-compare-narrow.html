@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비교 화면 — 좁은 창(390px) 이름 칸 세 안</title>
+<style>
+  /* 바깥 틀(목업 설명용) */
+  body { margin: 0; padding: 24px; background: #e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #0f172a; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { font-size: 13px; color: #475569; margin: 0 0 20px; max-width: 900px; line-height: 1.5; }
+  .frames { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .opt { width: 390px; }
+  .opt h2 { font-size: 15px; margin: 0 0 2px; }
+  .opt p.note { font-size: 12px; color: #475569; margin: 0 0 8px; line-height: 1.45; min-height: 52px; }
+  .rec { color: #4338ca; font-weight: 600; }
+
+  /* 여기부터가 실제 화면 흉내 — 값은 Tailwind 기본값 그대로 */
+  .phone { width: 390px; background: #f8fafc; border: 1px solid #94a3b8; overflow: hidden; }    /* 페이지 바탕 = body bg-slate-50 */
+  .appbar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .appbar b { font-size: 20px; font-weight: 600; letter-spacing: -0.025em; }
+  .appbar span { font-size: 14px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 12px; color: #334155; }
+  .page { padding: 24px 48px; }                    /* main px-6 + 페이지 p-6 → 실측 본문 왼쪽 48px */
+  .page h3 { font-size: 20px; font-weight: 600; margin: 0 0 16px; }
+  .page h3 small { font-size: 14px; font-weight: 400; color: #64748b; margin-left: 12px; }
+
+  .scroll { overflow-x: auto; }                    /* 새로 넣는 상자: overflow-x-auto */
+  table { border-collapse: collapse; font-size: 14px; line-height: 20px; min-width: 100%; }   /* min-w-full text-sm */
+  thead { border-bottom: 1px solid #e2e8f0; color: #475569; text-align: left; }
+  th, td { padding: 8px 16px 8px 0; white-space: nowrap; vertical-align: top; }               /* py-2 pr-4 */
+  thead th { font-weight: 500; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; box-shadow: 0 0 0 1px rgb(0 0 0 / .1); vertical-align: -1px; }
+  .base { font-size: 12px; color: #64748b; font-weight: 400; margin-left: 4px; }
+  .sub { font-size: 12px; color: #64748b; font-weight: 400; margin-top: 2px; }
+  tbody tr { border-bottom: 1px solid #f1f5f9; }
+  td.name { font-weight: 500; color: #334155; }
+  tr.sec th { padding: 8px 12px; text-align: left; font-size: 14px; font-weight: 600; color: #475569; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+  tr.sec button { border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 13px; color: #475569; margin-left: 8px; font-family: inherit; }
+  .ok { color: #16a34a; font-weight: 600; }
+  .chip { margin-left: 4px; font-size: 12px; }
+  .bad { color: #dc2626; } .good { color: #16a34a; } .neu { color: #64748b; }
+  .trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* block truncate */
+
+  /* 안 A: 이름 칸 최소 8rem · 최대 12rem, 표 전체가 함께 밀린다 */
+  .A .trunc { min-width: 8rem; max-width: 12rem; }
+  /* 안 B: 이름 칸 6rem 고정, 표 전체가 함께 밀린다 */
+  .B .trunc { width: 6rem; }
+  /* 안 C: 이름 칸 7rem + 왼쪽에 붙어 있다(값 칸만 밀린다) */
+  .C .trunc { width: 7rem; }
+  .C th:first-child, .C td.name { position: sticky; left: 0; background: #f8fafc; box-shadow: 1px 0 0 #e2e8f0; padding-left: 0; }
+  .C tr.sec th { position: static; background: #f8fafc; box-shadow: none; padding-left: 12px; }
+  .C tr.sec th > div { position: sticky; left: 12px; display: inline-block; }
+
+  .chartbox { margin-top: 28px; }
+  .chartbox h4 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  .chart { width: 720px; height: 220px; border: 1px dashed #cbd5e1; background:
+      linear-gradient(#f1f5f9 1px, transparent 1px) 0 0 / 100% 44px,
+      linear-gradient(90deg, #f1f5f9 1px, transparent 1px) 0 0 / 72px 100%; position: relative; }
+  .chart::after { content: "겹쳐 보기 그래프(폭 720 고정) — 이 상자 안에서 가로 스크롤"; position: absolute; left: 12px; top: 10px; font-size: 12px; color: #64748b; }
+</style>
+</head>
+<body>
+<h1>비교 화면 — 좁은 창(390px)에서 이름 칸을 어떻게 둘까</h1>
+<p class="lead">
+  compare-export-fixes ⑦. 세 틀 모두 폭 390px, run 3개, 스텝 id 300자 하나. 각 틀의 표를 손가락·트랙패드로 가로로 밀어 보세요.
+  세 안 모두 페이지는 밀리지 않고 표와 그래프만 제 상자 안에서 밀립니다. 긴 이름은 한 줄 말줄임이고 마우스를 올리면 전체 이름이 뜹니다.
+  넓은 화면(1440px)에서는 세 안 모두 지금 모양과 같습니다(300자 이름 행만 한 줄로).
+</p>
+
+<p class="lead"><b>선택: 안 C</b> (사용자, 2026-11-27) — 안 C의 CSS(`.scroll`·`.trunc`·`.C …`)가 구현의 시각 기준이다. 숫자·run 이름·머리 줄은 꾸민 값.</p>
+
+<div class="frames" id="frames"></div>
+
+<template id="tpl">
+  <div class="phone">
+    <div class="appbar"><b>Handicap</b><span>메뉴 ▾</span></div>
+    <div class="page">
+      <h3>런 비교<small>3개 런</small></h3>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th><span class="sw" style="background:#4f46e5"></span>#68A1PW<span class="base">(base)</span><div class="sub">11/27 20:14 · VU 2 · 3초</div></th>
+              <th><span class="sw" style="background:#f59e0b"></span>#0V4SM4<div class="sub">11/27 20:14 · VU 3 · 3초</div></th>
+              <th><span class="sw" style="background:#10b981"></span>#E40767<div class="sub">11/27 20:14 · VU 4 · 3초</div></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="name"><span class="trunc">판정</span></td><td>—</td><td>—</td><td>—</td></tr>
+            <tr class="sec"><th colspan="4"><div>요약</div></th></tr>
+            <tr><td class="name"><span class="trunc" title="p50_ms">p50_ms</span></td><td>22.431</td><td>22.607<span class="chip bad">▲+0.8%</span></td><td>23.012<span class="chip bad">▲+2.6%</span></td></tr>
+            <tr><td class="name"><span class="trunc" title="p95_ms">p95_ms</span></td><td>23.871</td><td>24.303<span class="chip bad">▲+1.8%</span></td><td>25.119<span class="chip bad">▲+5.2%</span></td></tr>
+            <tr><td class="name"><span class="trunc" title="평균">평균</span></td><td>22.518</td><td>22.690<span class="chip bad">▲+0.8%</span></td><td>23.204<span class="chip bad">▲+3.0%</span></td></tr>
+            <tr><td class="name"><span class="trunc" title="rps">rps</span></td><td>88.33</td><td>131.67<span class="chip good">▲+49.1%</span></td><td>172.00<span class="chip good">▲+94.7%</span></td></tr>
+            <tr><td class="name"><span class="trunc" title="error_rate">error_rate</span></td><td>0.0%</td><td>1.2%<span class="chip bad">▲신규</span></td><td>&lt;0.1%<span class="chip bad">▲신규</span></td></tr>
+            <tr class="sec"><th colspan="4"><div>스텝<button type="button">응답 시간 통계 더 보기</button></div></th></tr>
+            <tr><td class="name"><span class="trunc" title="01HZZZZZZZZZZZZZZZZZZZZZZ1">01HZZZZZZZZZZZZZZZZZZZZZZ1</span></td><td>23.540</td><td>24.011<span class="chip bad">▲+2.0%</span></td><td>24.870<span class="chip bad">▲+5.6%</span></td></tr>
+            <tr><td class="name"><span class="trunc" title="=1+1">=1+1</span></td><td>23.602</td><td>23.998<span class="chip bad">▲+1.7%</span></td><td>25.004<span class="chip bad">▲+5.9%</span></td></tr>
+            <tr><td class="name"><span class="trunc" data-long></span></td><td>23.871</td><td>24.303<span class="chip bad">▲+1.8%</span></td><td>≥&nbsp;60,000<span class="chip bad">▲—</span></td></tr>
+            <tr class="sec"><th colspan="4"><div>상태 코드</div></th></tr>
+            <tr><td class="name"><span class="trunc" title="200">200</span></td><td>265</td><td>395</td><td>516</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="chartbox">
+        <h4>겹쳐 보기</h4>
+        <div class="scroll"><div class="chart"></div></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+  const opts = [
+    ["A", "안 A — 이름 칸 8–12rem, 표 전체가 밀림", "이름이 가장 많이 보입니다(최대 192px). 대신 처음에 값은 기준 run 하나도 다 안 보이고, 옆으로 밀면 이름 칸이 화면 밖으로 나갑니다."],
+    ["B", "안 B — 이름 칸 6rem, 표 전체가 밀림", "기준 run 값이 처음부터 보입니다. 이름은 96px만 보이고, 옆으로 밀면 이름 칸이 화면 밖으로 나갑니다."],
+    ["C", "안 C — 이름 칸 7rem + 왼쪽 고정 <span class='rec'>(추천)</span>", "옆으로 밀어도 이름 칸이 왼쪽에 남아 어느 행인지 놓치지 않습니다. 이름은 112px. 구현이 조금 더 듭니다(고정 칸 바탕·경계선)."],
+  ];
+  const long = "L".repeat(300);
+  const frames = document.getElementById("frames");
+  for (const [cls, title, note] of opts) {
+    const wrap = document.createElement("div");
+    wrap.className = "opt " + cls;
+    wrap.innerHTML = `<h2>${title}</h2><p class="note">${note}</p>`;
+    wrap.appendChild(document.getElementById("tpl").content.cloneNode(true));
+    const l = wrap.querySelector("[data-long]");
+    l.textContent = long;
+    l.title = long;
+    frames.appendChild(wrap);
+  }
+</script>
+</body>
+</html>
